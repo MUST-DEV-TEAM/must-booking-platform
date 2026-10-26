@@ -30,13 +30,6 @@ const isoDay = (day: number) =>
     .slice(0, 10);
 const firstNight = isoDay(10);
 const secondNight = isoDay(11);
-const firstNightLabel = new Intl.DateTimeFormat('en-US', {
-  weekday: 'long',
-  month: 'long',
-  day: 'numeric',
-  year: 'numeric',
-  timeZone: 'UTC',
-}).format(new Date(`${firstNight}T00:00:00Z`));
 
 test('Calendar blocks selected room types and rooms, then refreshes their availability', async ({
   browser,
@@ -55,24 +48,14 @@ test('Calendar blocks selected room types and rooms, then refreshes their availa
       `/dashboard/${tenant.tenantId}?propertyId=${tenant.propertyId}&section=calendar`,
     );
     await expect(page.getByRole('heading', { name: 'Calendar' })).toBeVisible();
-    await page.getByRole('button', { name: 'Next month' }).click();
-
-    const roomOnBlockedNight = page.getByRole('button', {
-      name: new RegExp(`^Calendar Block Test Room, ${firstNightLabel}: `),
-    });
-    await expect(roomOnBlockedNight).toHaveAttribute(
-      'title',
-      'Calendar Block Test Room: 1 available',
-    );
-
-    await page.getByRole('button', { name: 'Block availability' }).click();
-    await expect(page.getByRole('heading', { name: 'Block availability' })).toBeVisible();
-    await page.getByLabel('Room types to block').selectOption([catalog.roomTypeId]);
-    await page.getByRole('button', { name: 'Next', exact: true }).click();
-    await page.getByLabel('Specific rooms to block').selectOption([catalog.roomId]);
-    await page.getByRole('button', { name: 'Next', exact: true }).click();
-    await page.locator(`[data-day="${firstNight}"] button`).click();
-    await page.locator(`[data-day="${secondNight}"] button`).click();
+    // The redesigned calendar is a timeline: pick a night on the room's row, then block it.
+    await page.setViewportSize({ width: 1600, height: 1000 });
+    const night = new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10);
+    await page.getByRole('button', { name: `Select Calendar Block Test Room ${night}` }).click();
+    await page.getByRole('button', { name: 'Block these nights' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Block availability' });
+    await dialog.getByRole('combobox', { name: 'Reason' }).click();
+    await page.getByRole('option', { name: 'Maintenance' }).click();
 
     const saveResponse = page.waitForResponse(
       (response) =>
@@ -83,16 +66,17 @@ test('Calendar blocks selected room types and rooms, then refreshes their availa
             `/api/tenants/${tenant.tenantId}/properties/${tenant.propertyId}/availability-blocks`,
           ),
     );
-    await page.getByRole('button', { name: 'Create availability block' }).click();
+    await dialog.getByRole('button', { name: 'Block these nights' }).click();
     const savedBlock = await saveResponse;
     expect(savedBlock.status()).toBe(201);
     await expect(savedBlock.json()).resolves.toMatchObject({
-      // Picking specific rooms blocks just those rooms, not the whole room type.
+      // Picking a room blocks just that room, not the whole room type.
       roomTypeIds: [],
       roomIds: [catalog.roomId],
     });
-    await expect(page.getByText('Availability block created.')).toBeVisible();
-    await expect(roomOnBlockedNight).toHaveAttribute('title', 'Calendar Block Test Room: Sold out');
+    await expect(dialog).toHaveCount(0);
+    // The blocked night now shows as a block on the timeline.
+    await expect(page.locator('button[title^="Maintenance"]').first()).toBeVisible();
   } finally {
     await context.close();
   }
@@ -109,7 +93,11 @@ async function createCalendarCatalog(
         const response = await fetch(`${propertyBase}${path}`, {
           ...init,
           credentials: 'include',
-          headers: { 'content-type': 'application/json', ...init?.headers },
+          headers: {
+            'content-type': 'application/json',
+            'idempotency-key': crypto.randomUUID(),
+            ...init?.headers,
+          },
         });
         const body = await response.json().catch(() => null);
         if (!response.ok) throw new Error(`Request to ${path} failed with ${response.status}.`);

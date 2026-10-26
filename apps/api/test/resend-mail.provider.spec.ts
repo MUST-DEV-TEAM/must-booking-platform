@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { withMailAttempt } from '../src/mail/mail-attempt-context';
 import { ResendMailProvider } from '../src/mail/resend-mail.provider';
 
 describe('ResendMailProvider', () => {
@@ -147,7 +148,7 @@ describe('ResendMailProvider', () => {
       'MUST <Hotel> refund processed — MLDH-260814-2216-K7',
     ]);
     const payment = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
-    expect(payment.html).toContain('Review or cancel booking');
+    expect(payment.html).toContain('Manage booking');
     expect(payment.html).toContain('cancellationToken=token');
     expect(payment.html).toContain('MLDH-260814-2216-K7');
     expect(payment.html).toContain('Special requests');
@@ -371,7 +372,7 @@ describe('ResendMailProvider', () => {
       guestCount: 1,
     });
     expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).html).not.toContain(
-      'Review or cancel booking',
+      'Manage booking',
     );
   });
 
@@ -496,7 +497,7 @@ describe('ResendMailProvider', () => {
       messages[6],
       messages[7],
     ])
-      expect(message.html).toContain('border-radius:2px');
+      expect(message.html).toContain('border-radius:6px');
     expect(messages[0].html).toContain(
       'Confirm this email address to activate your account and start setting up your property.',
     );
@@ -525,6 +526,9 @@ describe('ResendMailProvider', () => {
       messages[8],
     ]) {
       expect(message.html).toContain('Dates');
+      expect(message.html).toContain('Check-in date');
+      expect(message.html).toContain('Check-out date');
+      expect(message.html).toContain('Nights');
     }
     for (const message of [messages[3], messages[4], messages[6], messages[8]])
       expect(message.html).toContain('— 120.00 USD');
@@ -532,6 +536,36 @@ describe('ResendMailProvider', () => {
     for (const message of [messages[0], messages[1], messages[2], messages[6], messages[7]])
       expect(message.html).toContain('padding:16px 18px;');
     for (const message of [messages[3], messages[4], messages[5], messages[8]])
-      expect(message.html).toContain('border-radius:24px');
+      expect(message.html).toContain('Here to help with your stay');
+  });
+  it('uses a fresh stable provider key for an explicit copy without changing the approved command', async () => {
+    process.env.RESEND_API_KEY = 'mock-key';
+    process.env.MAIL_FROM_EMAIL = 'MUST <sender@example.test>';
+    const transport = vi.fn(async () => Response.json({ id: 'receipt' }));
+    vi.stubGlobal('fetch', transport);
+    const command = {
+      to: 'guest@example.test',
+      subject: 'Approved',
+      html: '<p>Approved</p>',
+      text: 'Approved',
+      eventType: 'owner.alert',
+      idempotencyKey: 'original-command',
+      bookingId: null,
+    };
+    await withMailAttempt(
+      {
+        tenantId: 'tenant',
+        propertyId: 'property',
+        messageId: 'copy',
+        sensitive: false,
+        idempotencyKeyOverride: 'manual-resend/copy',
+      },
+      () => provider.sendRenderedEmail(command),
+    );
+    await provider.sendRenderedEmail(command);
+    const calls = transport.mock.calls as unknown as [string, RequestInit][];
+    expect(new Headers(calls[0][1].headers).get('Idempotency-Key')).toBe('manual-resend/copy');
+    expect(new Headers(calls[1][1].headers).get('Idempotency-Key')).toBe('original-command');
+    expect(command.idempotencyKey).toBe('original-command');
   });
 });

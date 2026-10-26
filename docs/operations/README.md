@@ -48,3 +48,10 @@ Clock recovery, webhook setup and limitations belong in the [Clock runbook](../i
 Tests under `apps/api/test` cover RLS, auth/capabilities, last-unit concurrency, individual-room modes, orders, payments and Clock flows. Co-located API/web/UI unit specs cover narrower logic. Browser tests cover auth, booking-mode and calendar-blocking flows, and the guest journey: quote, pay-at-hotel booking, confirmation email, staff view and cancel, guest cancel from the emailed link, and the room becoming bookable again. Some plugin checks inspect source strings: label them structural checks, not behavior or concurrency proof.
 
 Documentation-only edits do not require starting services, exercising gateways or rebuilding product code. Report exactly which checks ran and their limits.
+
+
+## Persistent hotel media (ADR-0011 amendment)
+
+Hotel photos use the local-disk provider that is live on `booking.must.al`: `STORAGE_DRIVER=local`, `LOCAL_STORAGE_DIR` and `LOCAL_STORAGE_PUBLIC_BASE_URL`; see the [deployment steps](../../infrastructure/containers/README.md#interim-local-photo-storage) and ADR-0011. The separate `STORAGE_BACKEND=server` provider that ADR-0034 first described was removed when the redesign was merged with live on 2026-10-26, so the redesign and the live host store photos the same way and existing live photos keep working. Its `server_media_uploads` table remains in the schema, unused, and can be dropped by a later migration.
+
+Back up the photo directory together with the database. Server volume backup/restore has not been verified in production. Do not delete legacy remote objects.

@@ -1,3 +1,4 @@
+import { bookingContactSql } from '../booking/booking-contact';
 import { Inject, Injectable } from '@nestjs/common';
 import {
   BookingPaymentMethod,
@@ -52,7 +53,7 @@ export class StripeWebhookService {
       async (tx) => {
         const bookings = await tx.$queryRaw<PaymentPendingBooking[]>`
         SELECT b.id, COALESCE(order_totals.total_amount, b.total_amount)::text AS "totalAmount", rp.currency, b.status,
-          b.payment_method AS "paymentMethod", g.email AS "guestEmail"
+          b.payment_method AS "paymentMethod", ${bookingContactSql.email} AS "guestEmail"
         FROM bookings b
         JOIN rate_plans rp
           ON rp.tenant_id = b.tenant_id AND rp.property_id = b.property_id AND rp.id = b.rate_plan_id

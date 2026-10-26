@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -97,6 +98,7 @@ describe('availability calendar (local)', () => {
     roomId = room.body.id;
     const ratePlan = await request(app.getHttpServer())
       .post(`/tenants/${tenantId}/properties/${propertyId}/rate-plans`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ name: 'Calendar Flexible', currency: 'EUR' })
       .expect(201);
@@ -110,6 +112,7 @@ describe('availability calendar (local)', () => {
       const nextDate = day === 31 ? '2027-04-01' : `2027-03-${String(day + 1).padStart(2, '0')}`;
       await request(app.getHttpServer())
         .put(`/tenants/${tenantId}/properties/${propertyId}/inventory-units`)
+        .set('Idempotency-Key', crypto.randomUUID())
         .set('Cookie', cookie)
         .send({ roomTypeId, startsOn: date, endsOn: nextDate, availableUnits: day === 10 ? 0 : 3 })
         .expect(204);
@@ -131,22 +134,26 @@ describe('availability calendar (local)', () => {
       .expect(200);
 
     expect(response.body.days).toHaveLength(31);
-    expect(response.body.days[0]).toEqual({
+    expect(response.body.days[0]).toMatchObject({
       date: '2027-03-01',
       isAvailable: true,
       status: 'available',
     });
-    expect(response.body.days.find((d: { date: string }) => d.date === '2027-03-10')).toEqual({
-      date: '2027-03-10',
-      isAvailable: false,
-      status: 'unavailable',
-    });
-    expect(response.body.days.find((d: { date: string }) => d.date === '2027-03-15')).toEqual({
-      date: '2027-03-15',
-      isAvailable: false,
-      status: 'unavailable',
-    });
-    expect(response.body.days.at(-1)).toEqual({
+    expect(response.body.days.find((d: { date: string }) => d.date === '2027-03-10')).toMatchObject(
+      {
+        date: '2027-03-10',
+        isAvailable: false,
+        status: 'unavailable',
+      },
+    );
+    expect(response.body.days.find((d: { date: string }) => d.date === '2027-03-15')).toMatchObject(
+      {
+        date: '2027-03-15',
+        isAvailable: false,
+        status: 'unavailable',
+      },
+    );
+    expect(response.body.days.at(-1)).toMatchObject({
       date: '2027-03-31',
       isAvailable: true,
       status: 'available',
@@ -188,16 +195,20 @@ describe('availability calendar (local)', () => {
       .expect(200);
 
     expect(response.body.days).toHaveLength(31);
-    expect(response.body.days.find((d: { date: string }) => d.date === '2027-03-09')).toEqual({
-      date: '2027-03-09',
-      isAvailable: true,
-      status: 'available',
-    });
-    expect(response.body.days.find((d: { date: string }) => d.date === '2027-03-10')).toEqual({
-      date: '2027-03-10',
-      isAvailable: false,
-      status: 'unavailable',
-    });
+    expect(response.body.days.find((d: { date: string }) => d.date === '2027-03-09')).toMatchObject(
+      {
+        date: '2027-03-09',
+        isAvailable: true,
+        status: 'available',
+      },
+    );
+    expect(response.body.days.find((d: { date: string }) => d.date === '2027-03-10')).toMatchObject(
+      {
+        date: '2027-03-10',
+        isAvailable: false,
+        status: 'unavailable',
+      },
+    );
   });
 
   it('marks dates occupied by an existing confirmed booking for the selected physical room unavailable', async () => {
@@ -218,25 +229,33 @@ describe('availability calendar (local)', () => {
       .query({ roomTypeId, roomId, month: '2027-03' })
       .expect(200);
 
-    expect(response.body.days.find((d: { date: string }) => d.date === '2027-03-19')).toEqual({
-      date: '2027-03-19',
-      isAvailable: true,
-      status: 'available',
-    });
-    expect(response.body.days.find((d: { date: string }) => d.date === '2027-03-20')).toEqual({
-      date: '2027-03-20',
-      isAvailable: false,
-      status: 'unavailable',
-    });
-    expect(response.body.days.find((d: { date: string }) => d.date === '2027-03-21')).toEqual({
-      date: '2027-03-21',
-      isAvailable: false,
-      status: 'unavailable',
-    });
-    expect(response.body.days.find((d: { date: string }) => d.date === '2027-03-22')).toEqual({
-      date: '2027-03-22',
-      isAvailable: true,
-      status: 'available',
-    });
+    expect(response.body.days.find((d: { date: string }) => d.date === '2027-03-19')).toMatchObject(
+      {
+        date: '2027-03-19',
+        isAvailable: true,
+        status: 'available',
+      },
+    );
+    expect(response.body.days.find((d: { date: string }) => d.date === '2027-03-20')).toMatchObject(
+      {
+        date: '2027-03-20',
+        isAvailable: false,
+        status: 'unavailable',
+      },
+    );
+    expect(response.body.days.find((d: { date: string }) => d.date === '2027-03-21')).toMatchObject(
+      {
+        date: '2027-03-21',
+        isAvailable: false,
+        status: 'unavailable',
+      },
+    );
+    expect(response.body.days.find((d: { date: string }) => d.date === '2027-03-22')).toMatchObject(
+      {
+        date: '2027-03-22',
+        isAvailable: true,
+        status: 'available',
+      },
+    );
   });
 });

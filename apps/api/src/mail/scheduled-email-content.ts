@@ -1,4 +1,4 @@
-import type { MailBrand, RenderedEmailCommand } from '@must/domain-contracts';
+import type { MailBrand, RenderedEmailCommand, MailTemplateOverride } from '@must/domain-contracts';
 
 import { escapeHtml, renderBrandedEmail, renderCtaButton } from './email-layout';
 
@@ -11,6 +11,11 @@ export type PreArrivalStay = {
   startsOn: string;
   endsOn: string;
   rooms: Array<{ roomName: string; guestCount: number }>;
+  roomNightlyRates?: {
+    roomName: string;
+    currency: string;
+    nightlyRates: { date: string; amount: string }[] | null;
+  }[];
   /** Set when payment is collected at the hotel. */
   dueAtHotel: { amount: string; currency: string } | null;
 };
@@ -58,7 +63,13 @@ function list(lines: string[]): string {
 export function preArrivalEmail(
   stay: PreArrivalStay,
   brand: MailBrand & { checkInTime?: string | null },
-  message: { subject: string; html: string; text: string },
+  message: {
+    subject: string;
+    html: string;
+    text: string;
+    previewText?: string;
+    hasStayBlock?: boolean;
+  },
 ): Omit<RenderedEmailCommand, 'idempotencyKey'> {
   const hotel = brand.name || 'the hotel';
   const subject = message.subject;
@@ -74,10 +85,14 @@ export function preArrivalEmail(
   const rows = [
     { label: 'Booking reference', value: stay.reference },
     { label: stay.rooms.length === 1 ? 'Room' : 'Rooms', value: roomValue },
-    {
-      label: 'Dates',
-      value: `${longDate(stay.startsOn)} – ${longDate(stay.endsOn)} (${plural(nights(stay.startsOn, stay.endsOn), 'night')})`,
-    },
+    ...(!message.hasStayBlock
+      ? [
+          {
+            label: 'Dates',
+            value: `${longDate(stay.startsOn)} - ${longDate(stay.endsOn)} (${plural(nights(stay.startsOn, stay.endsOn), 'night')})`,
+          },
+        ]
+      : []),
     { label: 'Guests', value: String(guests) },
     ...(brand.checkInTime ? [{ label: 'Check-in from', value: brand.checkInTime }] : []),
     ...(stay.dueAtHotel ? [{ label: 'Due at the hotel', value: money(stay.dueAtHotel) }] : []),
@@ -86,7 +101,7 @@ export function preArrivalEmail(
   const html = renderBrandedEmail({
     subject,
     brand,
-    preheader: `Your stay at ${hotel} starts on ${longDate(stay.startsOn)}.`,
+    preheader: message.previewText || `Your stay at ${hotel} starts on ${longDate(stay.startsOn)}.`,
     heading: 'Your stay is coming up',
     content: message.html,
     summaryRows: rows,
@@ -116,9 +131,12 @@ export function ownerDailySummaryEmail(
   to: string,
   brand: MailBrand,
   dashboardUrl: string | null,
+  message?: MailTemplateOverride,
 ): Omit<RenderedEmailCommand, 'idempotencyKey'> {
   const hotel = brand.name || 'your property';
-  const subject = `${hotel} today: ${plural(summary.arrivals.length, 'arrival')}, ${plural(summary.departures.length, 'departure')}`;
+  const subject =
+    message?.subject ??
+    `${hotel} today: ${plural(summary.arrivals.length, 'arrival')}, ${plural(summary.departures.length, 'departure')}`;
   const revenue = summary.newBookings.revenue.map(money).join(' + ');
   const rows = [
     {
@@ -149,10 +167,12 @@ export function ownerDailySummaryEmail(
   const html = renderBrandedEmail({
     subject,
     brand,
-    preheader: `${plural(summary.arrivals.length, 'arrival')} and ${plural(summary.departures.length, 'departure')} today.`,
+    preheader:
+      message?.previewText ||
+      `${plural(summary.arrivals.length, 'arrival')} and ${plural(summary.departures.length, 'departure')} today.`,
     eyebrow: longDate(summary.date),
     heading: `Today at ${hotel}`,
-    content: `<p style="margin:0;">Here is your daily overview.</p>`,
+    content: message?.html ?? `<p style="margin:0;">Here is your daily overview.</p>`,
     summaryRows: rows,
     summaryHeading: 'Daily summary',
     cta: dashboardUrl ? { url: dashboardUrl, label: 'Open dashboard' } : null,
@@ -163,6 +183,7 @@ export function ownerDailySummaryEmail(
     platformFooter: 'MUST Booking Platform',
   });
   const text = [
+    ...(message?.text ? [message.text] : []),
     `Today at ${hotel} — ${longDate(summary.date)}`,
     ...rows.map((row) => `${row.label}: ${row.value.replace(/\n/g, '; ')}`),
     ...(dashboardUrl ? [`Dashboard: ${dashboardUrl}`] : []),
@@ -174,23 +195,32 @@ export function ownerDailySummaryEmail(
 export function postStayEmail(
   stay: PreArrivalStay,
   brand: MailBrand,
-  message: { subject: string; html: string; text: string },
+  message: {
+    subject: string;
+    html: string;
+    text: string;
+    previewText?: string;
+    hasStayBlock?: boolean;
+  },
   reviewButtons: Array<{ url: string; label: string }>,
 ): Omit<RenderedEmailCommand, 'idempotencyKey'> {
   const hotel = brand.name || 'the hotel';
-  const buttons = reviewButtons.map(renderCtaButton).join('');
+  const buttons = reviewButtons
+    .map((cta) =>
+      renderCtaButton(cta, (brand as MailBrand & { brandColour?: string | null }).brandColour),
+    )
+    .join('');
   const html = renderBrandedEmail({
     subject: message.subject,
     brand,
-    preheader: `Thank you for staying at ${hotel}.`,
+    preheader: message.previewText || `Thank you for staying at ${hotel}.`,
     heading: 'Thank you for staying with us',
     content: message.html + buttons,
     summaryRows: [
       { label: 'Booking reference', value: stay.reference },
-      {
-        label: 'Your stay',
-        value: `${longDate(stay.startsOn)} – ${longDate(stay.endsOn)}`,
-      },
+      ...(!message.hasStayBlock
+        ? [{ label: 'Your stay', value: `${longDate(stay.startsOn)} - ${longDate(stay.endsOn)}` }]
+        : []),
     ],
     summaryHeading: 'Your stay',
     footerNote: `You&#39;re receiving this email because you stayed at ${escapeHtml(hotel)}.`,

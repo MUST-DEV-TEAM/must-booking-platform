@@ -182,6 +182,50 @@ $render_checkout_price_breakdown_rows = static function (array $pricing, string 
                 <input type="hidden" name="room_count" value="<?php echo \esc_attr((string) $room_count); ?>" />
                 <input type="hidden" name="applied_coupon_code" value="<?php echo \esc_attr($applied_coupon_code); ?>" />
 
+                <?php $rate_offers = isset($view['rate_offers']) && \is_array($view['rate_offers']) ? $view['rate_offers'] : []; ?>
+                <?php if ($rate_offers !== []) : ?>
+                    <?php $selected_rate_id = (string) ($view['selected_rate_id'] ?? ''); ?>
+                    <fieldset class="must-checkout-rates">
+                        <legend><?php echo \esc_html__('Choose your rate', 'must-hotel-booking'); ?></legend>
+                        <?php foreach ($rate_offers as $rate_offer) : ?>
+                            <?php
+                            $offer_id = (string) ($rate_offer['rateId'] ?? '');
+                            $offer_label = (string) ($rate_offer['label'] ?? '');
+                            $offer_name = (string) ($rate_offer['name'] ?? '');
+                            $offer_total = isset($rate_offer['total']['amount']) ? (float) $rate_offer['total']['amount'] : 0.0;
+                            $offer_currency = isset($rate_offer['total']['currency']) ? (string) $rate_offer['total']['currency'] : '';
+                            $label_is_shared = \count(\array_filter($rate_offers, static fn ($other) => (string) ($other['label'] ?? '') === $offer_label)) > 1;
+                            ?>
+                            <label class="must-checkout-rate<?php echo $offer_id === $selected_rate_id ? ' is-selected' : ''; ?>">
+                                <input
+                                    type="radio"
+                                    name="clock_rate_id"
+                                    value="<?php echo \esc_attr($offer_id); ?>"
+                                    <?php echo $offer_id === $selected_rate_id ? 'checked' : ''; ?>
+                                    onchange="var b=this.form.querySelector('.must-checkout-rate-update');if(b){b.click();}"
+                                />
+                                <span class="must-checkout-rate-name">
+                                    <?php echo \esc_html($offer_label); ?>
+                                    <?php if ($label_is_shared && $offer_name !== '') : ?>
+                                        <small><?php echo \esc_html($offer_name); ?></small>
+                                    <?php endif; ?>
+                                </span>
+                                <span class="must-checkout-rate-price">
+                                    <?php echo \MustHotelBooking\Frontend\format_frontend_money_html($offer_total, $offer_currency !== "" ? $offer_currency : $summary_currency); ?>
+                                </span>
+                            </label>
+                        <?php endforeach; ?>
+                        <noscript>
+                            <button type="submit" name="must_checkout_action" value="choose_rate" class="must-checkout-rate-update">
+                                <?php echo \esc_html__('Update price', 'must-hotel-booking'); ?>
+                            </button>
+                        </noscript>
+                        <button type="submit" name="must_checkout_action" value="choose_rate" class="must-checkout-rate-update" hidden>
+                            <?php echo \esc_html__('Update price', 'must-hotel-booking'); ?>
+                        </button>
+                    </fieldset>
+                <?php endif; ?>
+
                 <section class="must-checkout-coupon-row">
                     <div class="<?php echo \esc_attr($coupon_control_classes); ?>">
                         <label class="screen-reader-text" for="must-checkout-coupon"><?php echo \esc_html__('Coupon Code', 'must-hotel-booking'); ?></label>

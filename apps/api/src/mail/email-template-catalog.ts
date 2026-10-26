@@ -1,0 +1,30 @@
+import type { EmailTemplateKey } from './email-templates';
+/** Explicit real senders; catalog authoring never invents a missing booking lifecycle or payment URL. */
+const triggers: Partial<Record<EmailTemplateKey, string>> = {
+  booking_confirmed: 'booking.confirmed',
+  booking_confirmed_pay_at_hotel: 'booking.confirmed',
+  booking_cancelled: 'booking.cancelled',
+  refund_processed: 'booking.refund_processed',
+  pre_arrival: 'guest.pre_arrival',
+  booking_changed: 'guest.booking_changed',
+  payment_not_completed: 'guest.payment_not_completed',
+  post_stay: 'guest.post_stay',
+  staff_new_booking: 'booking.staff_new',
+  staff_booking_cancelled: 'booking.staff_cancelled',
+  staff_refund_processed: 'owner.refund_alert',
+  owner_alerts: 'owner.alert',
+  owner_daily_summary: 'owner.daily_summary',
+  staff_invitation: 'staff.invitation',
+};
+export function templateCatalog(key: EmailTemplateKey) {
+  const audience =
+    key.startsWith('staff_') || key.startsWith('owner_') ? 'Staff and owner' : 'Guest';
+  return {
+    audience,
+    trigger: triggers[key] ?? null,
+    triggerAvailable: !!triggers[key],
+    unavailableReason: triggers[key]
+      ? null
+      : 'No sending trigger is implemented for this situation. Wording can be prepared; publishing is unavailable.',
+  };
+}

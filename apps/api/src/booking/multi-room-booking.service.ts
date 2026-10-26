@@ -1,3 +1,4 @@
+import { enforcePropertyBookingLimits } from './property-booking-limits';
 import { Inject, Injectable } from '@nestjs/common';
 import {
   BookingPaymentMethod,
@@ -96,6 +97,18 @@ export class MultiRoomBookingService {
         async (tx) => {
           await this.lockInventory(tx, context, command.rooms);
           return this.withIdempotency(tx, context, command, async () => {
+            await enforcePropertyBookingLimits(tx, context, {
+              startsOn: command.startsOn,
+              endsOn: command.endsOn,
+              adults: command.rooms.reduce(
+                (count, room) =>
+                  count + resolveBookingOccupancy({ guestCount: room.guestCount }).adults,
+                0,
+              ),
+              children: 0,
+              roomCount: command.rooms.length,
+            });
+
             const paymentMethod = await this.paymentMethod(
               tx,
               context,
@@ -155,7 +168,7 @@ export class MultiRoomBookingService {
                   external_reference, order_reference, order_room_number,
                   room_guest_first_name, room_guest_last_name, status, payment_method,
                   starts_on, ends_on, rate_plan_id, total_amount, adults, children, guest_count,
-                  nightly_rates
+                  nightly_rates, source
                 ) VALUES (
                   ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${room.roomTypeId}::uuid,
                   ${room.roomId ?? null}::uuid, ${guest.value}::uuid, ${command.quoteSessionId}::uuid,
@@ -164,7 +177,7 @@ export class MultiRoomBookingService {
                   ${status}::"BookingStatus", ${paymentMethod.value}::"BookingPaymentMethod",
                   ${command.startsOn}::date, ${command.endsOn}::date, ${room.ratePlanId}::uuid,
                   ${room.total.amount}::numeric, ${occupancy.adults}, ${occupancy.children},
-                  ${occupancy.guestCount}, ${JSON.stringify(nightlyRates)}::jsonb
+                  ${occupancy.guestCount}, ${JSON.stringify(nightlyRates)}::jsonb, 'WEBSITE'
                 )
                 RETURNING id
               `;
@@ -404,6 +417,7 @@ export class MultiRoomBookingService {
         AND rp.id = ${room.ratePlanId}::uuid
         AND rp.is_active = true
         AND rp.currency = ${room.total.currency}
+        AND rt.status = 'PUBLISHED'::"RoomTypeStatus"
     `;
     if (!rows[0]) return false;
     if (!room.roomId) return true;
@@ -411,6 +425,7 @@ export class MultiRoomBookingService {
       SELECT id FROM rooms
       WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
         AND id = ${room.roomId}::uuid AND room_type_id = ${room.roomTypeId}::uuid
+        AND is_active = true
     `;
     return !!selected[0];
   }

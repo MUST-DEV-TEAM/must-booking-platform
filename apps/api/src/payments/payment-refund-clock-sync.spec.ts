@@ -67,6 +67,12 @@ describe('PaymentRefundService manual Clock synchronization', () => {
       { recordInTransaction: vi.fn().mockResolvedValue(undefined) } as never,
     );
 
+    // This suite isolates amount/Clock behavior; durable gateway retries use real PostgreSQL in payment-collection.e2e.
+    vi.spyOn(
+      service as unknown as { gatewayRefund: (...args: unknown[]) => Promise<unknown> },
+      'gatewayRefund',
+    ).mockImplementation(async () => paymentProvider.refund());
+
     await expect(
       service.manualRefund(context, {
         bookingId,

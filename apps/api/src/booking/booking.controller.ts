@@ -1,3 +1,5 @@
+import { countryCode } from '@must/domain-contracts';
+import { normalizePromoCode } from './promo-code.service';
 import {
   BadRequestException,
   Body,
@@ -8,6 +10,7 @@ import {
   Headers,
   HttpCode,
   Inject,
+  NotFoundException,
   Param,
   Patch,
   Post,
@@ -28,6 +31,7 @@ import { Role, Roles } from '../tenancy/roles.decorator';
 import { TenantScoped } from '../tenancy/tenant-context.decorator';
 import { LocalPmsProvider } from './local-pms.provider';
 import { BookingProjectionService } from './booking-projection.service';
+import { parseBookingSearchQuery } from './booking-search';
 import { CancellationLinkService } from './cancellation-link.service';
 import { PmsProviderRegistry } from './pms-provider-registry';
 import { MultiRoomBookingService } from './multi-room-booking.service';
@@ -53,9 +57,92 @@ export class BookingController {
   @Get()
   @TenantScoped({ propertyParam: 'propertyId' })
   @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
-  @RequiresCapability('bookings.manage')
+  @RequiresCapability('bookings.view')
   list(@Req() request: { tenantContext: { tenantId: string; propertyId: string } }) {
     return this.projections.list(request.tenantContext.tenantId, request.tenantContext.propertyId);
+  }
+
+  @Get('search')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('bookings.view')
+  search(
+    @Query() query: Record<string, unknown>,
+    @Req() request: { tenantContext: { tenantId: string; propertyId: string } },
+  ) {
+    return this.projections.search(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      parseBookingSearchQuery(query),
+    );
+  }
+
+  @Get('board')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('calendar.view')
+  board(
+    @Query('from') from: string | undefined,
+    @Query('to') to: string | undefined,
+    @Query('cancelled') cancelled: string | undefined,
+    @Req() request: { tenantContext: { tenantId: string; propertyId: string } },
+  ) {
+    return this.projections.board(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      from ?? '',
+      to ?? '',
+      cancelled === '1',
+    );
+  }
+
+  @Get('unseen')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('bookings.view')
+  unseen(
+    @Req() request: { tenantContext: { tenantId: string; propertyId: string; userId: string } },
+  ) {
+    return this.projections.unseen(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      request.tenantContext.userId,
+    );
+  }
+
+  @Post(':bookingId/seen')
+  @HttpCode(200)
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('bookings.view')
+  async seen(
+    @Param('bookingId') bookingId: string,
+    @Req() request: { tenantContext: { tenantId: string; propertyId: string; userId: string } },
+  ) {
+    await this.projections.markSeen(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      request.tenantContext.userId,
+      bookingId,
+    );
+    return { ok: true };
+  }
+
+  @Get(':bookingId')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('bookings.view')
+  async detail(
+    @Param('bookingId') bookingId: string,
+    @Req() request: { tenantContext: { tenantId: string; propertyId: string } },
+  ) {
+    const booking = await this.projections.detail(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      bookingId,
+    );
+    if (!booking) throw new NotFoundException('Booking was not found.');
+    return booking;
   }
 
   @Post()
@@ -193,11 +280,13 @@ export class BookingController {
         city: this.optionalNullableString(guest.city),
         county: this.optionalNullableString(guest.county),
         postcode: this.optionalNullableString(guest.postcode),
+        countryCode: this.country(guest.countryCode),
         specialRequests: this.optionalSpecialRequests(guest.specialRequests),
       },
       total: this.money(value.total) ?? { amount: '', currency: '' },
       adults: typeof value.adults === 'number' ? value.adults : undefined,
       children: typeof value.children === 'number' ? value.children : undefined,
+      childrenAges: value.childrenAges as number[] | undefined,
       guestCount: typeof value.guestCount === 'number' ? value.guestCount : undefined,
       paymentMethod:
         value.paymentMethod === 'stripe' ||
@@ -207,6 +296,9 @@ export class BookingController {
           : (undefined as GuestPaymentMethod | undefined),
       payAtHotel: typeof value.payAtHotel === 'boolean' ? value.payAtHotel : undefined,
       quoteToken: typeof value.quoteToken === 'string' ? value.quoteToken : '',
+      clockRateId:
+        typeof value.clockRateId === 'string' && value.clockRateId ? value.clockRateId : undefined,
+      promoCode: normalizePromoCode(value.promoCode) ?? undefined,
       returnUrl: typeof value.returnUrl === 'string' ? value.returnUrl : undefined,
     };
   }
@@ -308,5 +400,12 @@ export class BookingController {
         'This idempotency key was already used with a different request.',
       );
     return result;
+  }
+  private country(value: unknown) {
+    try {
+      return countryCode(value);
+    } catch {
+      throw new BadRequestException('Choose an assigned ISO country code.');
+    }
   }
 }

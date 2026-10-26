@@ -16,7 +16,7 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ['infrastructure/**/*.mjs', 'apps/web/e2e/**/*.mjs'],
+    files: ['infrastructure/**/*.mjs', 'apps/web/e2e/**/*.mjs', 'apps/api/scripts/**/*.mjs'],
     languageOptions: {
       globals: {
         process: 'readonly',
@@ -25,6 +25,8 @@ export default tseslint.config(
         URL: 'readonly',
         fetch: 'readonly',
         AbortSignal: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
       },
     },
   },

@@ -1,7 +1,21 @@
 # Milestone 13: Application UI/UX & Feature Enhancements
 
-Status: Active main track; implementation present, acceptance needs reconciliation
+Status: **Superseded in part by [Milestone 24](24-dashboard-redesign.md) (owner, 2026-10-16).** Dashboard/UI tasks moved to 24; Tasks 6-7 and 33-36 remain open here. Implementation present, acceptance never reconciled. **2026-10-25: archived as a planning milestone.** Its remaining open rows are payments (Tasks 6-7) and the WordPress booking flow (Tasks 33-36); they are followed through [Milestone 28](28-release-and-cutover.md) (checked at cutover) and [Milestone 26](26-public-api.md), not re-planned here.
 Depends on: Milestone 12 (Integration & Initial Release Readiness — this milestone does not start until Milestone 12 is fully closed out, per ADR-0028's "no parallel milestones" decision)
+
+## Disposition (owner decision 2026-10-16)
+
+The owner replaced the dashboard UI work with [Milestone 24](24-dashboard-redesign.md). Every task is accounted for below; nothing was silently dropped or marked Done. Existing code stays in place and in use by unmigrated screens until Milestone 24 replaces it.
+
+| Tasks | Disposition |
+| --- | --- |
+| 1-5 (StatePanel, loading, focus rings, status badge, chart theming) | **Superseded by 24.** Shared primitives are re-planned in 24's shared-component register. Current code (`packages/ui`, `echart.tsx`) keeps serving unmigrated screens. Acceptance never completed. |
+| 8-24 (dashboard/nav structure, Settings restructure, notifications) | **Superseded by 24 for visuals and acceptance.** The information architecture they built is current behavior and stays unless a new design changes it. |
+| 25-29 (responsive shell, responsive QA), 30-32 (accessibility baseline) | **Superseded by 24.** The unmet acceptance criteria (widths 390/768/1024/1280/1440, keyboard, contrast, axe) are carried into 24's verification phase. |
+| **6-7 (Payments button visibility and settle method; partial refunds with staff note)** | **Not superseded. Remains open on this milestone.** Not part of the redesign. Task 7 work (percentage refunds) was in progress in a separate working tree on 2026-10-14; reconcile its status before closing. |
+| **33-36 (WordPress booking flow: party composer, display prices, confirmation occupancy, calendar legend)** | **Not superseded. Remains open on this milestone.** WordPress-facing, not dashboard UI. |
+
+Close and archive this milestone only after Tasks 6-7 and 33-36 are each marked Done, Deferred or Moved with evidence.
 
 **New milestone (2026-08-17, ADR-0028).** Inserted after Milestone 12 and before the Security & Architecture Audit (Milestone 14) and Platform Billing (Milestone 15), at the owner's request — a dedicated pass for application polish and feature work that Milestone 12's integration/hardening scope deliberately excludes.
 

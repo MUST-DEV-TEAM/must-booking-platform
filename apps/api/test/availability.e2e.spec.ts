@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -100,24 +101,25 @@ describe('local availability', () => {
     const unavailable = await request(app!.getHttpServer())
       .get(`${propertyUrl}/availability`)
       .set('Cookie', cookie)
-      .query({ roomTypeId, startsOn: '2026-08-01', endsOn: '2026-08-02' })
+      .query({ roomTypeId, startsOn: '2036-08-01', endsOn: '2036-08-02' })
       .expect(200);
     expect(unavailable.body).toMatchObject({ isAvailable: false, availableUnits: 0 });
 
     await request(app!.getHttpServer())
       .put(`${propertyUrl}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', cookie)
-      .send({ roomTypeId, startsOn: '2026-08-01', endsOn: '2026-08-04', availableUnits: 2 })
+      .send({ roomTypeId, startsOn: '2036-08-01', endsOn: '2036-08-04', availableUnits: 2 })
       .expect(204);
 
     const publicAvailability = await request(app!.getHttpServer())
       .get(`${propertyUrl}/public/availability`)
-      .query({ roomTypeId, startsOn: '2026-08-01', endsOn: '2026-08-02' })
+      .query({ roomTypeId, startsOn: '2036-08-01', endsOn: '2036-08-02' })
       .expect(200);
     expect(publicAvailability.body).toMatchObject({
       roomTypeId,
-      startsOn: '2026-08-01',
-      endsOn: '2026-08-02',
+      startsOn: '2036-08-01',
+      endsOn: '2036-08-02',
       isAvailable: true,
       availableUnits: 2,
     });
@@ -128,7 +130,7 @@ describe('local availability', () => {
     const singleNightAvailable = await request(app!.getHttpServer())
       .get(`${propertyUrl}/availability`)
       .set('Cookie', cookie)
-      .query({ roomTypeId, startsOn: '2026-08-01', endsOn: '2026-08-02' })
+      .query({ roomTypeId, startsOn: '2036-08-01', endsOn: '2036-08-02' })
       .expect(200);
     expect(singleNightAvailable.body).toMatchObject({ isAvailable: true, availableUnits: 2 });
 
@@ -136,8 +138,8 @@ describe('local availability', () => {
       await expect(
         availabilityService.reserveBookedUnits(tx, tenantId, propertyId, {
           roomTypeId,
-          startsOn: '2026-08-01',
-          endsOn: '2026-08-04',
+          startsOn: '2036-08-01',
+          endsOn: '2036-08-04',
           units: 1,
         }),
       ).resolves.toBe(true);
@@ -146,15 +148,15 @@ describe('local availability', () => {
     const availableAfterReservation = await request(app!.getHttpServer())
       .get(`${propertyUrl}/availability`)
       .set('Cookie', cookie)
-      .query({ roomTypeId, startsOn: '2026-08-01', endsOn: '2026-08-04' })
+      .query({ roomTypeId, startsOn: '2036-08-01', endsOn: '2036-08-04' })
       .expect(200);
     expect(availableAfterReservation.body).toMatchObject({ isAvailable: true, availableUnits: 1 });
 
     await database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       await availabilityService.releaseBookedUnits(tx, tenantId, propertyId, {
         roomTypeId,
-        startsOn: '2026-08-01',
-        endsOn: '2026-08-04',
+        startsOn: '2036-08-01',
+        endsOn: '2036-08-04',
         units: 1,
       });
     });
@@ -162,7 +164,7 @@ describe('local availability', () => {
     const availableAfterRelease = await request(app!.getHttpServer())
       .get(`${propertyUrl}/availability`)
       .set('Cookie', cookie)
-      .query({ roomTypeId, startsOn: '2026-08-01', endsOn: '2026-08-04' })
+      .query({ roomTypeId, startsOn: '2036-08-01', endsOn: '2036-08-04' })
       .expect(200);
     expect(availableAfterRelease.body).toMatchObject({ isAvailable: true, availableUnits: 2 });
 
@@ -170,8 +172,8 @@ describe('local availability', () => {
       await expect(
         availabilityService.reserveBookedUnits(tx, tenantId, propertyId, {
           roomTypeId,
-          startsOn: '2026-08-01',
-          endsOn: '2026-08-04',
+          startsOn: '2036-08-01',
+          endsOn: '2036-08-04',
           units: 3,
         }),
       ).resolves.toBe(false);
@@ -180,7 +182,7 @@ describe('local availability', () => {
     const unavailableReservationDidNotPartiallyApply = await request(app!.getHttpServer())
       .get(`${propertyUrl}/availability`)
       .set('Cookie', cookie)
-      .query({ roomTypeId, startsOn: '2026-08-01', endsOn: '2026-08-04' })
+      .query({ roomTypeId, startsOn: '2036-08-01', endsOn: '2036-08-04' })
       .expect(200);
     expect(unavailableReservationDidNotPartiallyApply.body).toMatchObject({
       isAvailable: true,
@@ -189,66 +191,72 @@ describe('local availability', () => {
 
     await request(app!.getHttpServer())
       .put(`${propertyUrl}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', cookie)
-      .send({ roomTypeId, startsOn: '2026-08-02', endsOn: '2026-08-04', availableUnits: 1 })
+      .send({ roomTypeId, startsOn: '2036-08-02', endsOn: '2036-08-04', availableUnits: 1 })
       .expect(204);
 
     const overlapUpdate = await request(app!.getHttpServer())
       .get(`${propertyUrl}/availability`)
       .set('Cookie', cookie)
-      .query({ roomTypeId, startsOn: '2026-08-01', endsOn: '2026-08-04' })
+      .query({ roomTypeId, startsOn: '2036-08-01', endsOn: '2036-08-04' })
       .expect(200);
     expect(overlapUpdate.body).toMatchObject({ isAvailable: true, availableUnits: 1 });
 
     const nonOverlappingFirstNight = await request(app!.getHttpServer())
       .get(`${propertyUrl}/availability`)
       .set('Cookie', cookie)
-      .query({ roomTypeId, startsOn: '2026-08-01', endsOn: '2026-08-02' })
+      .query({ roomTypeId, startsOn: '2036-08-01', endsOn: '2036-08-02' })
       .expect(200);
     expect(nonOverlappingFirstNight.body).toMatchObject({ isAvailable: true, availableUnits: 2 });
 
     await request(app!.getHttpServer())
       .put(`${propertyUrl}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', cookie)
-      .send({ roomTypeId, startsOn: '2026-08-02', endsOn: '2026-08-03', availableUnits: 0 })
+      .send({ roomTypeId, startsOn: '2036-08-02', endsOn: '2036-08-03', availableUnits: 0 })
       .expect(204);
 
     const rangeWithNoInventory = await request(app!.getHttpServer())
       .get(`${propertyUrl}/availability`)
       .set('Cookie', cookie)
-      .query({ roomTypeId, startsOn: '2026-08-01', endsOn: '2026-08-03' })
+      .query({ roomTypeId, startsOn: '2036-08-01', endsOn: '2036-08-03' })
       .expect(200);
     expect(rangeWithNoInventory.body).toMatchObject({ isAvailable: false, availableUnits: 0 });
 
     const singleNightZeroInventory = await request(app!.getHttpServer())
       .get(`${propertyUrl}/availability`)
       .set('Cookie', cookie)
-      .query({ roomTypeId, startsOn: '2026-08-02', endsOn: '2026-08-03' })
+      .query({ roomTypeId, startsOn: '2036-08-02', endsOn: '2036-08-03' })
       .expect(200);
     expect(singleNightZeroInventory.body).toMatchObject({ isAvailable: false, availableUnits: 0 });
 
     await request(app!.getHttpServer())
       .get(`${propertyUrl}/availability`)
       .set('Cookie', cookie)
-      .query({ roomTypeId, startsOn: '2026-08-02', endsOn: '2026-08-02' })
+      .query({ roomTypeId, startsOn: '2036-08-02', endsOn: '2036-08-02' })
       .expect(400);
 
     await request(app!.getHttpServer())
       .get(`/tenants/${randomUUID()}/properties/${propertyId}/availability`)
       .set('Cookie', cookie)
-      .query({ roomTypeId, startsOn: '2026-08-01', endsOn: '2026-08-02' })
+      .query({ roomTypeId, startsOn: '2036-08-01', endsOn: '2036-08-02' })
       .expect(403);
 
     await admin.$executeRaw`UPDATE tenant_memberships SET role = 'STAFF' WHERE tenant_id = ${tenantId}::uuid AND user_id = ${userId}::uuid`;
     await request(app!.getHttpServer())
       .put(`${propertyUrl}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', cookie)
-      .send({ roomTypeId, startsOn: '2026-08-01', endsOn: '2026-08-02', availableUnits: 1 })
+      .send({ roomTypeId, startsOn: '2036-08-01', endsOn: '2036-08-02', availableUnits: 1 })
       .expect(403);
 
     const logs = await admin.$queryRaw<Array<{ action: string; target_id: string }>>`
       SELECT action, target_id FROM audit_logs WHERE tenant_id = ${tenantId}::uuid
     `;
-    expect(logs).toContainEqual({ action: 'inventory_units.set', target_id: roomTypeId });
+    expect(logs).toContainEqual({
+      action: 'inventory_units.bulk_change',
+      target_id: expect.any(String),
+    });
   });
 });

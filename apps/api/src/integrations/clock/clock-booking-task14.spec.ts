@@ -120,58 +120,124 @@ describe('ClockBookingService Task 14 rate delegation', () => {
 });
 
 describe('ClockBookingService.attachRealReservation Task 14 failure handling', () => {
-  it('does not hard-fail a paid multi-rate booking before the shared selector is called', async () => {
+  it.each(['clock_rate_limited', 'clock_rate_unavailable'])(
+    'classifies pre-POST rate failure correctly: %s',
+    async (code) => {
+      const service = Object.create(ClockBookingService.prototype) as ClockBookingService;
+      const internals = service as unknown as Record<string, unknown>;
+      internals.credentials = vi.fn().mockResolvedValue({ ok: true, value: credentials });
+      internals.bookingById = vi.fn().mockResolvedValue({
+        id: 'booking-1',
+        roomTypeId: 'local-room-type',
+        roomId: null,
+        guestId: 'guest-1',
+        startsOn: '2027-07-10',
+        endsOn: '2027-07-12',
+        status: BookingStatus.PMS_CREATION_PENDING,
+        paymentMethod: BookingPaymentMethod.POKPAY,
+        externalReference: 'MUST-BOOKING-1',
+        externalBookingId: null,
+        adults: 2,
+        children: 1,
+      });
+      const tx = {
+        $queryRaw: vi
+          .fn()
+          .mockResolvedValue([
+            { email: 'guest@example.test', firstName: 'Guest', lastName: 'Test' },
+          ]),
+      };
+      internals.mappedExternalId = vi.fn().mockResolvedValue('42023');
+      internals.rateIdForRoomType = vi.fn().mockResolvedValue({
+        ok: false,
+        error: { code, message: 'Rate selection failed', retryable: code === 'clock_rate_limited' },
+      });
+      internals.transition = vi.fn().mockResolvedValue(BookingStatus.PMS_UNKNOWN_RESULT);
+      internals.recordPostCommitFailure = vi.fn().mockResolvedValue(undefined);
+
+      internals.fetch = vi.fn();
+      const result = await service.attachRealReservation(tx as never, context, 'booking-1');
+
+      expect(result).toEqual({
+        ok: false,
+        error: { code, message: 'Rate selection failed', retryable: code === 'clock_rate_limited' },
+      });
+      expect(internals.rateIdForRoomType).toHaveBeenCalledWith(
+        credentials,
+        context,
+        'local-room-type',
+        '42023',
+        '2027-07-10',
+        '2027-07-12',
+        2,
+        1,
+        undefined,
+        // No rate was chosen for this booking, so the cheapest or staff-ranked one is used.
+        undefined,
+      );
+      expect(internals.fetch).not.toHaveBeenCalled();
+      if (code === 'clock_rate_unavailable') {
+        expect(internals.transition).toHaveBeenCalledWith(
+          tx,
+          context,
+          'booking-1',
+          BookingStatus.PMS_CREATION_PENDING,
+          BookingStatus.AVAILABILITY_FAILED,
+        );
+        expect(internals.recordPostCommitFailure).not.toHaveBeenCalled();
+        return;
+      }
+      expect(internals.recordPostCommitFailure).toHaveBeenCalledWith(
+        tx,
+        context,
+        'booking-1',
+        expect.objectContaining({ category: 'UNKNOWN_RESULT', notify: false }),
+      );
+    },
+  );
+});
+
+describe('Clock review lookup', () => {
+  function setup(list: unknown[], details: Record<string, unknown>) {
     const service = Object.create(ClockBookingService.prototype) as ClockBookingService;
-    const internals = service as unknown as Record<string, unknown>;
-    internals.credentials = vi.fn().mockResolvedValue({ ok: true, value: credentials });
-    internals.bookingById = vi.fn().mockResolvedValue({
-      id: 'booking-1',
-      roomTypeId: 'local-room-type',
-      roomId: null,
-      guestId: 'guest-1',
-      startsOn: '2027-07-10',
-      endsOn: '2027-07-12',
-      status: BookingStatus.PMS_CREATION_PENDING,
-      paymentMethod: BookingPaymentMethod.POKPAY,
-      externalReference: 'MUST-BOOKING-1',
-      externalBookingId: null,
-      adults: 2,
-      children: 1,
+    Object.assign(service, {
+      database: {
+        withTenantTransaction: vi
+          .fn()
+          .mockResolvedValue([{ reference: 'MUST-1', externalBookingId: '42' }]),
+      },
+      credentials: vi.fn().mockResolvedValue({ ok: true, value: credentials }),
+      fetch: vi.fn().mockImplementation((_c: unknown, input: { path: string }) =>
+        Promise.resolve({
+          ok: true,
+          value: input.path === '/bookings/' ? list : details[input.path],
+        }),
+      ),
     });
-    const tx = {
-      $queryRaw: vi
-        .fn()
-        .mockResolvedValue([{ email: 'guest@example.test', firstName: 'Guest', lastName: 'Test' }]),
-    };
-    internals.mappedExternalId = vi.fn().mockResolvedValue('42023');
-    internals.rateIdForRoomType = vi.fn().mockResolvedValue({
-      ok: false,
-      error: { code: 'clock_rate_limited', message: 'Rate limited', retryable: true },
+    return service;
+  }
+  it('reads numeric IDs and verifies an exact reference before reporting a match', async () => {
+    const service = setup([41, 42], {
+      '/bookings/41': { id: 41, reference_number: 'OTHER' },
+      '/bookings/42': { id: 42, reference_number: 'MUST-1' },
     });
-    internals.transition = vi.fn().mockResolvedValue(BookingStatus.PMS_UNKNOWN_RESULT);
-    internals.recordPostCommitFailure = vi.fn().mockResolvedValue(undefined);
-
-    const result = await service.attachRealReservation(tx as never, context, 'booking-1');
-
-    expect(result).toEqual({
-      ok: false,
-      error: { code: 'clock_rate_limited', message: 'Rate limited', retryable: true },
+    await expect(service.checkRemoteBooking(context, 'b')).resolves.toEqual({
+      result: 'found',
+      clockBookingId: '42',
+      linked: true,
     });
-    expect(internals.rateIdForRoomType).toHaveBeenCalledWith(
-      credentials,
-      context,
-      'local-room-type',
-      '42023',
-      '2027-07-10',
-      '2027-07-12',
-      2,
-      1,
-    );
-    expect(internals.recordPostCommitFailure).toHaveBeenCalledWith(
-      tx,
-      context,
-      'booking-1',
-      expect.objectContaining({ category: 'UNKNOWN_RESULT', notify: false }),
-    );
+  });
+  it('does not treat unrelated fuzzy matches as this booking', async () => {
+    const service = setup([41], { '/bookings/41': { id: 41, reference_number: 'OTHER' } });
+    await expect(service.checkRemoteBooking(context, 'b')).resolves.toEqual({
+      result: 'not_found',
+    });
+  });
+  it('keeps duplicate matches uncertain', async () => {
+    const service = setup([41, 42], {
+      '/bookings/41': { id: 41, reference_number: 'MUST-1' },
+      '/bookings/42': { id: 42, reference_number: 'MUST-1' },
+    });
+    expect((await service.checkRemoteBooking(context, 'b')).result).toBe('unavailable');
   });
 });

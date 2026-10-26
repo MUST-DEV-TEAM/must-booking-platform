@@ -67,6 +67,7 @@ function makeService(options: {
         };
 
   const tenantTx = {
+    $executeRaw: vi.fn().mockResolvedValue(1),
     $executeRawUnsafe: vi.fn().mockResolvedValue(options.executeRowCount ?? 1),
     // Routed by SQL shape rather than call order — the job-recreation CAS
     // read (processingSnapshotSql) runs in its own withTenantTransaction
@@ -378,5 +379,13 @@ describe('ClockWebhookService — durable event storage and BullMQ-state-aware e
     expect(result).toEqual({ status: 200 });
     expect(queues.enqueue).not.toHaveBeenCalled();
     expect(providerEventWrites(tenantTx)).toHaveLength(0);
+  });
+  it('wakes stored projections only after accepting a new verified event', async () => {
+    const fresh = makeService({ insertedRow: { id: 'fresh' } });
+    await fresh.service.handle('public-id', envelope(), undefined);
+    expect(fresh.tenantTx.$executeRaw).toHaveBeenCalledOnce();
+    const duplicate = makeService({ existingRow: { id: 'fresh', status: 'HYDRATED' } });
+    await duplicate.service.handle('public-id', envelope(), undefined);
+    expect(duplicate.tenantTx.$executeRaw).not.toHaveBeenCalled();
   });
 });

@@ -1,3 +1,4 @@
+import { ClockBookingReadError } from './clock-booking-consistency.service';
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 
@@ -39,12 +40,15 @@ import { resolveBookingOccupancy } from '../../booking/booking-occupancy';
 // this service actually reads; the real response carries many more.
 export interface ClockBookingDetail {
   id: number;
+  created_at?: string | null;
+  updated_at?: string | null;
   number?: string | null;
   arrival: string;
   departure: string;
   status: string;
   adults?: number | null;
   children?: number | null;
+  children_ages?: unknown;
   arrival_room_type_id?: number | null;
   arrival_room_id?: number | null;
   current_room_id?: number | null;
@@ -131,9 +135,14 @@ export class ClockBookingHydrationService {
     connectionId: string,
     clockBookingId: string,
     ownership?: EventOwnership,
+    options: { notify?: boolean } = {},
   ): Promise<HydrationOutcome> {
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
-    if (!connection || connection.provider !== 'CLOCK_PMS') {
+    if (
+      !connection ||
+      connection.provider !== 'CLOCK_PMS' ||
+      connection.connectionId !== connectionId
+    ) {
       this.logger.warn(
         `Clock booking hydration skipped for property ${propertyId}: no active Clock connection.`,
       );
@@ -148,6 +157,15 @@ export class ClockBookingHydrationService {
     // Outbound HTTP stays outside the locked transaction below (ADR-0031) —
     // holding a Postgres row lock across a real network round-trip to Clock
     // would tie up a connection for however long that call takes.
+    // Compare database snapshots rather than wall clocks: PostgreSQL and Node may differ.
+    const beforeRead = await this.database.withTenantTransaction({ tenantId, propertyId }, (tx) =>
+      tx.$queryRawUnsafe<Array<{ id: string; version: number; status: string; updatedAt: Date }>>(
+        `SELECT id,version,status::text AS status,updated_at AS "updatedAt" FROM bookings WHERE tenant_id=$1::uuid AND property_id=$2::uuid AND external_booking_id=$3`,
+        tenantId,
+        propertyId,
+        clockBookingId,
+      ),
+    );
     const detail = await this.fetchClock<ClockBookingDetail>(
       parsed.value,
       `/bookings/${clockBookingId}`,
@@ -166,10 +184,31 @@ export class ClockBookingHydrationService {
           if (!ownsRow(ownershipRows[0], ownership.token)) return { outcome: 'ownership_lost' };
         }
 
+        const active = await tx.$queryRawUnsafe<Array<{ id: string }>>(
+          `SELECT pc.connection_id AS id FROM property_integration_connections pc JOIN integration_connections c ON c.tenant_id=pc.tenant_id AND c.id=pc.connection_id WHERE pc.tenant_id=$1::uuid AND pc.property_id=$2::uuid AND pc.connection_id=$3::uuid AND pc.enabled AND pc.kind='PMS' AND c.provider='CLOCK_PMS' FOR SHARE OF pc,c`,
+          tenantId,
+          propertyId,
+          connectionId,
+        );
+        if (!active.length) throw new Error('Clock connection changed during synchronization.');
+        // Serialize even first imports, where there is no row to lock yet.
+        await tx.$queryRawUnsafe(
+          'SELECT pg_advisory_xact_lock(hashtextextended($1,0))::text',
+          `${tenantId}/${propertyId}/${connectionId}/${clockBookingId}`,
+        );
         const existingRows = await tx.$queryRawUnsafe<
-          Array<{ status: string; startsOn: string; endsOn: string; roomTypeId: string }>
+          Array<{
+            id: string;
+            status: string;
+            startsOn: string;
+            endsOn: string;
+            roomTypeId: string;
+            updatedAt: Date;
+            sourceUpdatedAt: Date | null;
+            version: number;
+          }>
         >(
-          `SELECT status::text AS status, starts_on::text AS "startsOn", ends_on::text AS "endsOn",
+          `SELECT id,version,status::text AS status,updated_at AS "updatedAt",pms_source_updated_at AS "sourceUpdatedAt", starts_on::text AS "startsOn", ends_on::text AS "endsOn",
              room_type_id::text AS "roomTypeId" FROM bookings
          WHERE tenant_id = $1::uuid AND property_id = $2::uuid AND external_booking_id = $3
          FOR UPDATE`,
@@ -179,6 +218,25 @@ export class ClockBookingHydrationService {
         );
         const existing = existingRows[0];
         const mappedStatus = localStatusForClockStatus(detail.status);
+        const sourceUpdatedAt = providerTimestamp(detail.updated_at);
+        const stale =
+          existing &&
+          ((sourceUpdatedAt &&
+            existing.sourceUpdatedAt &&
+            sourceUpdatedAt < existing.sourceUpdatedAt) ||
+            !beforeRead[0] ||
+            existing.id !== beforeRead[0].id ||
+            existing.version !== beforeRead[0].version ||
+            existing.status !== beforeRead[0].status ||
+            existing.updatedAt.getTime() !== beforeRead[0].updatedAt.getTime() ||
+            (existing.status === 'CANCELLED' &&
+              mappedStatus === 'CONFIRMED' &&
+              (!sourceUpdatedAt || sourceUpdatedAt <= existing.updatedAt)));
+        if (stale) {
+          if (ownership) await this.finalizeOwnedEvent(tx, tenantId, ownership, 'HYDRATED');
+          return { outcome: 'updated', bookingId: existing.id, cancelledInPms: false };
+        }
+
         if (
           !mappedStatus &&
           !(await this.hasOpenUnknownStatusReview(tx, tenantId, propertyId, detail))
@@ -261,27 +319,31 @@ export class ClockBookingHydrationService {
           `INSERT INTO bookings (
            tenant_id, property_id, room_type_id, room_id, guest_id, external_reference,
            external_booking_id, status, payment_method, starts_on, ends_on, rate_plan_id,
-           total_amount, adults, children, guest_count, nightly_rates, pms_stay_status
+           total_amount, adults, children, guest_count, nightly_rates, pms_stay_status, created_at, updated_at, pms_source_updated_at, children_ages, guest_contact
          ) VALUES (
            $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, $7, $8::"BookingStatus",
            'PAY_AT_HOTEL'::"BookingPaymentMethod", $9::date, $10::date, $11::uuid, $12::decimal,
-           $13, $14, $15, $16::jsonb, $17
+           $13, $14, $15, $16::jsonb, $17, COALESCE($19::timestamptz,CURRENT_TIMESTAMP), COALESCE($20::timestamptz,CURRENT_TIMESTAMP), $21::timestamptz, $22::jsonb, $23::jsonb
          )
          ON CONFLICT (tenant_id, property_id, external_booking_id) DO UPDATE SET
            room_type_id = EXCLUDED.room_type_id,
            room_id = EXCLUDED.room_id,
            guest_id = COALESCE(EXCLUDED.guest_id, bookings.guest_id),
+           guest_contact = CASE WHEN bookings.external_reference LIKE 'CLOCK-%' THEN EXCLUDED.guest_contact ELSE bookings.guest_contact END,
            status = EXCLUDED.status,
            starts_on = EXCLUDED.starts_on,
            ends_on = EXCLUDED.ends_on,
            total_amount = EXCLUDED.total_amount,
            adults = EXCLUDED.adults,
            children = EXCLUDED.children,
+           children_ages = EXCLUDED.children_ages,
            guest_count = EXCLUDED.guest_count,
            nightly_rates = EXCLUDED.nightly_rates,
            pms_stay_status = EXCLUDED.pms_stay_status,
+           pms_source_updated_at = COALESCE(EXCLUDED.pms_source_updated_at,bookings.pms_source_updated_at),
            version = bookings.version + 1,
-           updated_at = CURRENT_TIMESTAMP
+           created_at = CASE WHEN $18::boolean AND bookings.external_reference LIKE 'CLOCK-%' THEN COALESCE($19::timestamptz,bookings.created_at) ELSE bookings.created_at END,
+           updated_at = CASE WHEN $18::boolean THEN COALESCE($20::timestamptz,bookings.updated_at) ELSE CURRENT_TIMESTAMP END
          RETURNING id, (xmax = 0) AS inserted`,
           tenantId,
           propertyId,
@@ -300,6 +362,21 @@ export class ClockBookingHydrationService {
           occupancy.guestCount,
           JSON.stringify(nightlyRates),
           detail.status.slice(0, 40),
+          options.notify === false,
+          options.notify === false ? providerTimestamp(detail.created_at) : null,
+          options.notify === false ? providerTimestamp(detail.updated_at) : null,
+          sourceUpdatedAt,
+          Array.isArray(detail.children_ages) &&
+            detail.children_ages.length === occupancy.children &&
+            detail.children_ages.every((a) => Number.isInteger(a) && a >= 0 && a <= 120)
+            ? JSON.stringify(detail.children_ages)
+            : null,
+          JSON.stringify({
+            firstName: detail.guest_first_name?.trim() || null,
+            lastName: detail.guest_last_name?.trim() || null,
+            email: detail.guest_e_mail?.trim() || null,
+            phone: detail.guest_phone_number?.trim() || null,
+          }),
         );
 
         const row = rows[0]!;
@@ -331,11 +408,15 @@ export class ClockBookingHydrationService {
       },
     );
 
-    if ((outcome.outcome === 'created' || outcome.outcome === 'updated') && outcome.cancelledInPms)
+    if (
+      options.notify !== false &&
+      (outcome.outcome === 'created' || outcome.outcome === 'updated') &&
+      outcome.cancelledInPms
+    )
       await this.notifyStaffOfPmsCancellation(tenantId, propertyId, outcome.bookingId);
     // The hotel moved a guest's stay in Clock: tell the guest (direct bookings only,
     // when the property has this email on). Never fails hydration.
-    if (outcome.outcome === 'updated' && outcome.changedFrom)
+    if (options.notify !== false && outcome.outcome === 'updated' && outcome.changedFrom)
       await this.updates.sendBookingChanged(
         { tenantId, propertyId },
         outcome.bookingId,
@@ -421,7 +502,7 @@ export class ClockBookingHydrationService {
     const rows = await tx.$queryRawUnsafe<Array<{ localEntityId: string | null }>>(
       `SELECT local_entity_id AS "localEntityId" FROM clock_catalog_mappings
        WHERE tenant_id = $1::uuid AND property_id = $2::uuid AND entity_type = $3::"ClockCatalogEntityType"
-         AND external_entity_id = $4 AND sync_status = 'CONFIRMED'`,
+         AND external_entity_id = $4 AND sync_status = 'CONFIRMED' AND connection_id=(SELECT connection_id FROM property_integration_connections WHERE tenant_id=$1::uuid AND property_id=$2::uuid AND kind='PMS' AND enabled)`,
       tenantId,
       propertyId,
       entityType,
@@ -538,41 +619,63 @@ export class ClockBookingHydrationService {
       this.circuitBreaker.assertClosed(breakerKey);
     } catch (error) {
       if (error instanceof CircuitOpenError)
-        throw new Error(`Clock booking hydration unavailable: ${error.message}`);
+        throw new ClockBookingReadError({
+          category: 'provider_unavailable',
+          code: 'clock_provider_unavailable',
+          message: 'Clock booking reads are temporarily unavailable.',
+          retryable: true,
+        });
       throw error;
     }
-    for (;;) {
-      const rateLimit = await this.rateLimiter.consume(breakerKey);
-      if (rateLimit.allowed) break;
-      await wait(rateLimit.retryAfterSeconds * 1_000);
-    }
+    // Retry only safe GETs; never replay a booking or payment write.
+    for (let retry = 0; ; retry += 1) {
+      for (;;) {
+        const rateLimit = await this.rateLimiter.consume(breakerKey);
+        if (rateLimit.allowed) break;
+        await wait(rateLimit.retryAfterSeconds * 1_000);
+      }
 
-    try {
-      const response = await this.client.request<T>(credentials, {
-        api: 'pms_api',
-        method: 'GET',
-        path,
-        timeoutMs: 15_000,
-      });
-      if (response.status < 200 || response.status >= 300) {
-        this.circuitBreaker.recordFailure(breakerKey);
-        throw new Error(classifyClockHttpResponse(response.status, response.body).message);
+      try {
+        const response = await this.client.request<T>(credentials, {
+          api: 'pms_api',
+          method: 'GET',
+          path,
+          timeoutMs: 15_000,
+        });
+        if (response.status === 429 && retry < 3) {
+          await wait(500 * 2 ** retry);
+          continue;
+        }
+        if (response.status < 200 || response.status >= 300) {
+          this.circuitBreaker.recordFailure(breakerKey);
+          throw new ClockBookingReadError(
+            classifyClockHttpResponse(response.status, response.body),
+          );
+        }
+        this.circuitBreaker.recordSuccess(breakerKey);
+        return response.body;
+      } catch (error) {
+        if (error instanceof ClockHttpError) {
+          this.circuitBreaker.recordFailure(breakerKey);
+          throw new ClockBookingReadError(
+            classifyClockClientFailure(error.isTimeout ? 'timeout' : 'network', error.message),
+          );
+        }
+        throw error;
       }
-      this.circuitBreaker.recordSuccess(breakerKey);
-      return response.body;
-    } catch (error) {
-      if (error instanceof ClockHttpError) {
-        this.circuitBreaker.recordFailure(breakerKey);
-        throw new Error(
-          classifyClockClientFailure(error.isTimeout ? 'timeout' : 'network', error.message)
-            .message,
-        );
-      }
-      throw error;
     }
   }
 }
 
 function wait(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+/** Bulk reads preserve source chronology rather than manufacturing booking/cancel events today. */
+function providerTimestamp(value: unknown): Date | null {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T/.test(value)) return null;
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) && parsed.getTime() <= Date.now() + 300000
+    ? parsed
+    : null;
 }

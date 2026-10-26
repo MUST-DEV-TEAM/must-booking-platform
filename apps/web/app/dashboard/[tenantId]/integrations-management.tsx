@@ -1,4 +1,5 @@
 'use client';
+import { ClockSyncStatus } from '../clock-sync';
 import { Card, Heading, Stack, Text } from '@must/ui';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FormEvent, useState } from 'react';
@@ -33,7 +34,7 @@ const providerLabels: Record<ConnectionProvider, string> = {
 // Real per-provider credential shape, matching each provider's actual parser
 // (clock-credentials.ts, pokpay-payment.provider.ts, stripe-connection-tester.ts)
 // instead of a generic key/value list. Milestone 11.5 Task 11.
-const credentialFieldsByProvider: Record<
+export const credentialFieldsByProvider: Record<
   ConnectionProvider,
   Array<{
     key: string;
@@ -61,8 +62,8 @@ const credentialFieldsByProvider: Record<
   ],
   CLOCK_PMS: [
     { key: 'host', label: 'Host' },
-    { key: 'accountId', label: 'Account ID' },
-    { key: 'subscriptionId', label: 'Subscription ID' },
+    { key: 'accountId', label: 'Subscription ID' },
+    { key: 'subscriptionId', label: 'Account ID' },
     { key: 'apiUser', label: 'API user' },
     { key: 'apiKey', label: 'API key', secret: true },
   ],
@@ -608,6 +609,7 @@ function ClockCatalogSync({ tenantId, property }: { tenantId: string; property: 
         </div>
       ))}
       <ClockCancellationPolicies base={base} tenantId={tenantId} propertyId={property.id} />
+      <ClockSyncStatus tenantId={tenantId} propertyId={property.id} details />
     </Card>
   );
 }

@@ -11,6 +11,7 @@ This domain is MUST charging tenants for the platform. Guest room charges/refund
 - `PlanUsageService` exposes property count, non-auto-provisioned membership count and plan limits.
 - `PropertiesService` and staff invitation/membership paths enforce capacity caps. Auto-provisioned property accounts are cap-exempt.
 - `IntegrationConnectionsService` checks PMS entitlement and connection limits. Plans carry both `pms_enabled` and `max_pms_connections_per_property`; "unlimited whenever enabled" was inaccurate.
+- `plans.is_public` (migration `20261014100000_plans_visibility`): non-public plans must never be offered to tenants. A hidden **Internal Testing** plan (stable ID `00000000-0000-0000-0000-000000000099`; 10 properties, 25 seats, PMS on, 3 PMS connections per property) exists for QA/demos. No tenant-facing plan list or plan-change endpoint exists yet, so nothing filters on the flag yet; Milestone 15 must.
 - A Settings billing placeholder; no real customer portal.
 
 ## Accepted intent, not shipped functionality

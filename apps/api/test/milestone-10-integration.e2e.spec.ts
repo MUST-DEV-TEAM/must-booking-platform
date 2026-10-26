@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 
 import { INestApplication } from '@nestjs/common';
@@ -115,6 +116,7 @@ describe('Milestone 10 individual-room booking integration', () => {
 
     await request(app.getHttpServer())
       .put(`${pooled.url}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ ...pooledDates, roomTypeId: pooled.standard.id, availableUnits: 3 })
       .expect(204);
@@ -144,8 +146,9 @@ describe('Milestone 10 individual-room booking integration', () => {
       .patch(
         `${individual.url}/rate-plans/${individual.ratePlanId}/rooms/${individual.standard.rooms[0].id}/price-override`,
       )
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
-      .send({ amount: '125.00' })
+      .send({ version: 0, amount: '125.00' })
       .expect(200);
     const individualJourney = await completeGuestJourney(
       individual.url,
@@ -176,8 +179,9 @@ describe('Milestone 10 individual-room booking integration', () => {
       .patch(
         `${mixed.url}/rate-plans/${mixed.ratePlanId}/rooms/${mixed.standard.rooms[1].id}/price-override`,
       )
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
-      .send({ amount: '140.00' })
+      .send({ version: 0, amount: '140.00' })
       .expect(200);
     const mixedJourney = await completeGuestJourney(mixed.url, mixedDates, (catalog) => {
       expect(catalog.bookingMode).toBe('MIXED');
@@ -238,6 +242,7 @@ describe('Milestone 10 individual-room booking integration', () => {
     const pooledBlockDates = { startsOn: '2040-09-13', endsOn: '2040-09-15' };
     await request(app.getHttpServer())
       .put(`${pooled.url}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ ...pooledBlockDates, roomTypeId: pooled.standard.id, availableUnits: 3 })
       .expect(204);
@@ -298,12 +303,14 @@ describe('Milestone 10 individual-room booking integration', () => {
     const suite = await createRoomType(url, `${name} Suite`, ['201']);
     const ratePlan = await request(app.getHttpServer())
       .post(`${url}/rate-plans`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ name: `${name} Flexible`, currency: 'EUR' })
       .expect(201);
     for (const roomType of [standard, suite]) {
       await request(app.getHttpServer())
         .post(`${url}/rate-plans/${ratePlan.body.id}/rules`)
+        .set('Idempotency-Key', globalThis.crypto.randomUUID())
         .set('Cookie', cookie)
         .send({ roomTypeId: roomType.id, startsOn: null, endsOn: null, amount: '100.00' })
         .expect(201);

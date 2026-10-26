@@ -1,17 +1,47 @@
 'use client';
-import { Card, Heading, Stack, StatePanel, StatusBadge, Text } from '@must/ui';
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
-import { Loader2 } from 'lucide-react';
-import { toast } from 'sonner';
+import { useQuery } from '@tanstack/react-query';
+import { Download, MoreHorizontal, UserRound } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { Badge } from '../../components/ui/badge';
+import { Button } from '../../components/ui/button';
+import { Card } from '../../components/ui/card';
+import { PageHeader } from '../../components/ui/page-header';
+import { Pagination } from '../../components/ui/pagination';
+import { SearchInput } from '../../components/ui/search-input';
 import {
-  fetchPropertyBookings,
-  guestName,
-  reservationStatusBadge,
-  type Reservation,
-} from './reservations';
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '../../components/ui/dropdown-menu';
+import { StatTile } from '../../components/ui/stat-tile';
 import {
+  EmptyPanel,
+  ErrorPanel,
+  ListSkeleton,
+  NoResultsPanel,
+} from '../../components/ui/state-panel';
+import { BookingStatusBadge } from '../../components/ui/status-badge';
+import { TabBar } from '../../components/ui/tab-bar';
+import { SortableTableHead } from '../../components/ui/sortable-table-head';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/tooltip';
+import { cn } from '../../lib/utils';
+import { nightsBetween } from '../../lib/reservation-display';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../../components/ui/table';
+import { PaymentReportSummary } from './payment-report-summary';
+import { PaymentsOverview } from './payments-overview';
+import { fetchPropertyBookings, guestName, type Reservation } from './reservations';
+import {
+  PAYMENT_BADGE_TONE,
   hasRefundableBalance,
   isDead,
   isHiddenFromPayments,
@@ -22,15 +52,10 @@ import {
   paymentStatus,
   paymentsCsv,
   sortNewestFirst,
-  summarize,
   type PaymentFilter,
 } from './payment-status';
 import { guestHref, paymentHref } from './payment-detail';
 import { RefundDialog } from './payment-refund-dialog';
-import styles from './data-table.module.css';
-const id = () => crypto.randomUUID();
-type ManualPaymentMethod = 'cash' | 'card_in_person' | 'bank_transfer';
-
 const FILTERS: Array<{ key: PaymentFilter; label: string }> = [
   { key: 'all', label: 'All' },
   { key: 'needs-action', label: 'Needs action' },
@@ -75,11 +100,13 @@ export function DashboardPayments({
   propertyId,
   initialBookings,
   initialCapabilities,
+  initialView = 'overview',
 }: {
   tenantId: string;
   propertyId: string;
   initialBookings?: Reservation[];
   initialCapabilities?: string[];
+  initialView?: 'overview' | 'ledger';
 }) {
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
   const bookingsQuery = useQuery({
@@ -98,38 +125,21 @@ export function DashboardPayments({
     initialData: initialCapabilities,
     staleTime: initialCapabilities ? Infinity : 0,
   });
-  const [manualMethods, setManualMethods] = useState<Record<string, ManualPaymentMethod>>({});
   const [refundBooking, setRefundBooking] = useState<Reservation | null>(null);
-  const actionMutation = useMutation({
-    mutationFn: async ({
-      bookingId,
-      url,
-      body,
-      success,
-    }: {
-      bookingId: string;
-      url: string;
-      body: unknown;
-      success: string;
-    }) => {
-      const response = await fetch(url, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': id() },
-        body: JSON.stringify(body),
-      });
-      const value = (await response.json()) as { ok: boolean; error?: { message?: string } };
-      if (!value.ok) throw new Error(value.error?.message ?? 'Payment action failed.');
-      return { bookingId, success };
-    },
-    onSuccess: ({ success }) => {
-      void bookingsQuery.refetch();
-      toast.success(success);
-    },
-    onError: (error) => toast.error(error.message),
-  });
-  const [filter, setFilter] = useState<PaymentFilter>('all');
-  const [search, setSearch] = useState('');
+  const [filter, setFilterState] = useState<PaymentFilter>('all');
+  const [search, setSearchState] = useState('');
+  const [view, setView] = useState<'overview' | 'ledger'>(initialView);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  // Any change to what is shown starts again from the first page.
+  const setFilter = (next: PaymentFilter) => {
+    setFilterState(next);
+    setPage(1);
+  };
+  const setSearch = (next: string) => {
+    setSearchState(next);
+    setPage(1);
+  };
   // The table library re-queues a state update whenever its `data` array is a
   // new object, which loops forever if the array is rebuilt on every render.
   const allBookings = useMemo(
@@ -156,323 +166,402 @@ export function DashboardPayments({
       ),
     [allBookings, filter, search],
   );
-  const summary = useMemo(() => summarize(allBookings), [allBookings]);
   const capabilities = capabilitiesQuery.data ?? [];
-  const busyBookingId = actionMutation.isPending ? actionMutation.variables?.bookingId : null;
   const canRefund = capabilities.includes('payments.refund');
+  const canRecord = capabilities.includes('payments.record');
 
   function openRefundDialog(booking: Reservation) {
     setRefundBooking(booking);
   }
-  const columns: ColumnDef<Reservation>[] = [
-    {
-      id: 'reference',
-      header: 'Reference',
-      cell: ({ row }) => (
-        <a href={paymentHref(tenantId, propertyId, row.original.id)}>
-          <code className={styles.reference}>{row.original.externalReference ?? '—'}</code>
-        </a>
-      ),
-    },
-    {
-      id: 'guest',
-      header: 'Guest',
-      cell: ({ row }) => {
-        const name = guestName(row.original);
-        const email = row.original.guestEmail;
-        return (
-          <>
-            {row.original.guestId ? (
-              <a href={guestHref(tenantId, propertyId, row.original.guestId)}>{name}</a>
-            ) : (
-              name
-            )}
-            {email && email !== name ? <span>{email}</span> : null}
-          </>
-        );
-      },
-    },
-    {
-      id: 'stay',
-      header: 'Stay',
-      cell: ({ row }) => (
-        <>
-          {formatStay(row.original)}
-          {row.original.roomTypeName ? <span>{row.original.roomTypeName}</span> : null}
-        </>
-      ),
-    },
-    {
-      id: 'booking-status',
-      header: 'Booking',
-      cell: ({ row }) => {
-        const badge = reservationStatusBadge(row.original.status ?? '');
-        return row.original.status ? (
-          <StatusBadge domain="booking" state={badge.state} label={badge.label} />
-        ) : null;
-      },
-    },
-    {
-      id: 'status',
-      header: 'Payment',
-      cell: ({ row }) => {
-        const status = paymentStatus(row.original);
-        return (
-          <>
-            <StatusBadge domain="payment" state={status.state} label={status.label} />
-            {row.original.paymentMethod ? (
-              <span>{paymentMethodLabel(row.original.paymentMethod)}</span>
-            ) : null}
-          </>
-        );
-      },
-    },
-    {
-      id: 'total',
-      header: () => <span className={styles.numHeader}>Total</span>,
-      cell: ({ row }) => (
-        <span className={styles.num}>
-          {row.original.total.amount} {row.original.total.currency}
-        </span>
-      ),
-    },
-    {
-      id: 'paid',
-      header: () => <span className={styles.numHeader}>Paid</span>,
-      cell: ({ row }) => (
-        <span className={styles.num}>
-          {row.original.paidAmount} {row.original.total.currency}
-        </span>
-      ),
-    },
-    {
-      id: 'refunded',
-      header: () => <span className={styles.numHeader}>Refunded</span>,
-      cell: ({ row }) => (
-        <span className={styles.num}>
-          {row.original.refundedAmount} {row.original.total.currency}
-        </span>
-      ),
-    },
-    {
-      id: 'outstanding',
-      header: () => <span className={styles.numHeader}>Outstanding</span>,
-      cell: ({ row }) => (
-        <span className={styles.num}>
-          {outstandingAmount(row.original)} {row.original.total.currency}
-        </span>
-      ),
-    },
-    {
-      id: 'actions',
-      header: '',
-      cell: ({ row }) => {
-        const booking = row.original;
-        const status = paymentStatus(booking);
-        const unpaid =
-          booking.paymentMethod === 'PAY_AT_HOTEL' && status.state === 'unpaid' && !isDead(booking);
-        const method = manualMethods[booking.id] ?? 'cash';
-        return (
-          <>
-            {unpaid ? (
-              <>
-                <label htmlFor={`manual-payment-method-${booking.id}`}>Payment method</label>
-                <select
-                  id={`manual-payment-method-${booking.id}`}
-                  value={method}
-                  onChange={(event) =>
-                    setManualMethods((current) => ({
-                      ...current,
-                      [booking.id]: event.target.value as ManualPaymentMethod,
-                    }))
-                  }
-                  disabled={busyBookingId === booking.id}
-                >
-                  <option value="cash">Cash</option>
-                  <option value="card_in_person">Card in person</option>
-                  <option value="bank_transfer">Bank transfer</option>
-                </select>
-                <button
-                  className="must-button must-button--secondary"
-                  onClick={() =>
-                    actionMutation.mutate({
-                      bookingId: booking.id,
-                      url: `${base}/bookings/${booking.id}/manual-payment`,
-                      body: { method },
-                      success: 'Payment recorded.',
-                    })
-                  }
-                  disabled={busyBookingId === booking.id}
-                  type="button"
-                >
-                  {busyBookingId === booking.id ? (
-                    <Loader2 aria-hidden="true" size={16} />
-                  ) : (
-                    'Mark as Paid'
-                  )}
-                </button>
-              </>
-            ) : null}
-            {canRefund && hasRefundableBalance(booking) ? (
-              <button
-                className="must-button must-button--danger"
-                onClick={() => openRefundDialog(booking)}
-                disabled={busyBookingId === booking.id}
-                type="button"
-              >
-                {busyBookingId === booking.id ? <Loader2 aria-hidden="true" size={16} /> : 'Refund'}
-              </button>
-            ) : null}
-          </>
-        );
-      },
-    },
-  ];
-  const table = useReactTable({ data: bookings, columns, getCoreRowModel: getCoreRowModel() });
+  const money = (amount: string, currency: string) =>
+    new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(Number(amount));
+  type SortKey = 'created' | 'guest' | 'stay' | 'total';
+  const [sort, setSort] = useState<{ key: SortKey; direction: 'asc' | 'desc' }>({
+    key: 'created',
+    direction: 'desc',
+  });
+  const sorted = useMemo(() => {
+    const value = (booking: Reservation): string | number => {
+      if (sort.key === 'guest') return guestName(booking).toLowerCase();
+      if (sort.key === 'stay') return booking.startsOn ?? '';
+      if (sort.key === 'total') return Number(booking.total.amount);
+      return booking.createdAt ?? '';
+    };
+    const factor = sort.direction === 'asc' ? 1 : -1;
+    return [...bookings].sort((a, b) => {
+      const left = value(a);
+      const right = value(b);
+      return (left < right ? -1 : left > right ? 1 : 0) * factor;
+    });
+  }, [bookings, sort]);
+  const toggleSort = (key: SortKey) => {
+    setSort((current) =>
+      current.key === key
+        ? { key, direction: current.direction === 'asc' ? 'desc' : 'asc' }
+        : { key, direction: key === 'created' || key === 'total' ? 'desc' : 'asc' },
+    );
+    setPage(1);
+  };
+  const pageRows = sorted.slice((page - 1) * pageSize, page * pageSize);
+  const tabs = FILTERS.map(({ key, label }) => ({ id: key, label, count: filterCounts[key] }));
+  const clearFilters = () => {
+    setFilter('all');
+    setSearch('');
+  };
+
   if (bookingsQuery.isPending || capabilitiesQuery.isPending)
     return (
-      <StatePanel
-        body={null}
-        icon={<Loader2 aria-hidden="true" />}
-        title="Loading payments…"
-        variant="loading"
-      />
+      <div className="space-y-5">
+        <PageHeader title="Payments" description="Booking payment activity for this hotel." />
+        <ListSkeleton />
+      </div>
     );
   const loadError = bookingsQuery.error ?? capabilitiesQuery.error;
   if (loadError)
     return (
-      <div role="alert">
-        <Text>{loadError.message}</Text>
-        <button
-          className="must-button must-button--secondary"
-          onClick={() => {
-            void bookingsQuery.refetch();
-            void capabilitiesQuery.refetch();
-          }}
-          type="button"
-        >
-          Retry
-        </button>
-      </div>
+      <ErrorPanel
+        title="Payments could not be loaded"
+        description={loadError.message}
+        onRetry={() => {
+          void bookingsQuery.refetch();
+          void capabilitiesQuery.refetch();
+        }}
+      />
     );
+
   return (
-    <Stack gap="lg">
-      <header>
-        <Heading>Payments</Heading>
-        <Text tone="secondary">Booking payment activity for this property.</Text>
-      </header>
-      {summary.byCurrency.map((totals) => (
-        <Card key={totals.currency}>
-          <dl aria-label={`Payment totals in ${totals.currency}`} className={styles.summary}>
-            <div>
-              <dt>Collected</dt>
-              <dd>
-                {totals.collected} {totals.currency}
-              </dd>
-            </div>
-            <div>
-              <dt>Refunded</dt>
-              <dd>
-                {totals.refunded} {totals.currency}
-              </dd>
-            </div>
-            <div>
-              <dt>Net received</dt>
-              <dd>
-                {totals.net} {totals.currency}
-              </dd>
-            </div>
-            <div>
-              <dt>Outstanding</dt>
-              <dd>
-                {totals.outstanding} {totals.currency}
-              </dd>
-            </div>
-            <div>
-              <dt>Needs action</dt>
-              <dd>{summary.needsAction}</dd>
-            </div>
-          </dl>
-        </Card>
-      ))}
-      <Card>
-        <div className={styles.toolbar}>
-          <div aria-label="Payment filters" className={styles.tabs} role="group">
-            {FILTERS.map(({ key, label }) => (
-              <button
-                aria-pressed={filter === key}
-                className={filter === key ? `${styles.tab} ${styles.tabActive}` : styles.tab}
-                key={key}
-                onClick={() => setFilter(key)}
-                type="button"
-              >
-                {label} <span className={styles.tabCount}>{filterCounts[key]}</span>
-              </button>
-            ))}
-          </div>
-          <input
-            aria-label="Search payments"
-            className={styles.search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search reference, guest or email"
-            type="search"
-            value={search}
-          />
-          <button
-            className={styles.tab}
-            disabled={bookings.length === 0}
-            onClick={() => downloadCsv(bookings)}
-            type="button"
+    <div className="space-y-5">
+      <PageHeader
+        title="Payments"
+        description="Money collected, refunded and still owed for the reservations of this hotel."
+        actions={
+          <Button
+            variant="outline"
+            disabled={view !== 'ledger' || bookings.length === 0}
+            onClick={() => downloadCsv(sorted)}
           >
-            Export CSV
-          </button>
-        </div>
-        <div className={styles.tableWrap}>
-          <table className={styles.table}>
-            <thead>
-              {table.getHeaderGroups().map((headerGroup) => (
-                <tr key={headerGroup.id}>
-                  {headerGroup.headers.map((header) => (
-                    <th key={header.id} colSpan={header.colSpan}>
-                      {header.isPlaceholder
-                        ? null
-                        : flexRender(header.column.columnDef.header, header.getContext())}
-                    </th>
-                  ))}
-                </tr>
-              ))}
-            </thead>
-            <tbody>
-              {table.getRowModel().rows.length === 0 ? (
-                <tr>
-                  <td colSpan={columns.length}>
-                    {allBookings.length === 0
-                      ? 'No payment activity yet.'
-                      : 'No payments match this filter or search.'}
-                  </td>
-                </tr>
-              ) : null}
-              {table.getRowModel().rows.map((row) => (
-                <tr key={row.id}>
-                  {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id}>
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+            <Download /> Export CSV
+          </Button>
+        }
+      />
+
+      {capabilities.includes('payments.view') ? (
+        <PaymentReportSummary
+          key={propertyId}
+          tenantId={tenantId}
+          propertyId={propertyId}
+          canOpenReports={capabilities.includes('reports.view')}
+          onOutstanding={() => {
+            setFilter('outstanding');
+            setView('ledger');
+          }}
+        />
+      ) : null}
+      <StatTile
+        label="Needs action"
+        value={filterCounts['needs-action']}
+        note="All booking records, independent of the totals period."
+        tone={filterCounts['needs-action'] > 0 ? 'warning' : 'default'}
+        onClick={() => {
+          setFilter(view === 'ledger' && filter === 'needs-action' ? 'all' : 'needs-action');
+          setView('ledger');
+        }}
+      />
+
+      <TabBar
+        tabs={[
+          { id: 'overview', label: 'Overview' },
+          { id: 'ledger', label: 'Ledger', count: allBookings.length },
+        ]}
+        current={view}
+        onSelect={(id) => setView(id as 'overview' | 'ledger')}
+        label="Payments sections"
+      />
+
+      {view === 'overview' ? (
+        <PaymentsOverview bookings={allBookings} tenantId={tenantId} propertyId={propertyId} />
+      ) : (
+        <Card className="gap-0 overflow-clip p-0">
+          <div className="space-y-3 border-b p-4">
+            <TabBar
+              tabs={tabs}
+              current={filter}
+              onSelect={(id) => setFilter(id as PaymentFilter)}
+              label="Payment views"
+            />
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <SearchInput
+                aria-label="Search payments"
+                className="w-full sm:w-80"
+                placeholder="Search reference, guest, email"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+            </div>
+          </div>
+          {allBookings.length === 0 ? (
+            <EmptyPanel
+              title="No payment activity yet"
+              description="Payments appear here once a reservation is paid or refunded."
+            />
+          ) : bookings.length === 0 ? (
+            <NoResultsPanel onClear={clearFilters} />
+          ) : (
+            <>
+              <Table containerClassName="overflow-x-clip" className="text-[11px]">
+                <TableHeader className="sticky top-[var(--app-header-height,86px)] z-20 bg-muted">
+                  <TableRow className="hover:bg-muted">
+                    <SortableTableHead
+                      label="Reference"
+                      active={sort.key === 'created'}
+                      direction={sort.direction}
+                      onSort={() => toggleSort('created')}
+                    />
+                    <SortableTableHead
+                      label="Guest"
+                      active={sort.key === 'guest'}
+                      direction={sort.direction}
+                      onSort={() => toggleSort('guest')}
+                    />
+                    <SortableTableHead
+                      label="Stay"
+                      active={sort.key === 'stay'}
+                      direction={sort.direction}
+                      onSort={() => toggleSort('stay')}
+                    />
+                    <TableHead className="px-2 py-2 normal-case tracking-normal">Booking</TableHead>
+                    <TableHead className="px-2 py-2 normal-case tracking-normal">Payment</TableHead>
+                    <SortableTableHead
+                      label="Total"
+                      active={sort.key === 'total'}
+                      direction={sort.direction}
+                      onSort={() => toggleSort('total')}
+                      align="right"
+                    />
+                    <TableHead className="px-2 py-2 text-right normal-case tracking-normal">
+                      Outstanding
+                    </TableHead>
+                    <TableHead className="w-10 px-2 py-2 text-right">
+                      <span className="sr-only">Actions</span>
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {pageRows.map((booking) => {
+                    const status = paymentStatus(booking);
+                    const currency = booking.total.currency;
+                    const name = guestName(booking);
+                    const email = booking.guestEmail;
+                    const nights =
+                      booking.startsOn && booking.endsOn
+                        ? nightsBetween(booking.startsOn, booking.endsOn)
+                        : 0;
+                    const owed = outstandingAmount(booking);
+                    const unpaid =
+                      booking.paymentMethod === 'PAY_AT_HOTEL' &&
+                      status.state === 'unpaid' &&
+                      !isDead(booking);
+                    const refundable = canRefund && hasRefundableBalance(booking);
+                    const detailHref = paymentHref(tenantId, propertyId, booking.id);
+                    return (
+                      <TableRow
+                        key={booking.id}
+                        className="h-12 cursor-pointer"
+                        onClick={(event) => {
+                          if ((event.target as HTMLElement).closest('button, a, [role="menuitem"]'))
+                            return;
+                          window.location.assign(detailHref);
+                        }}
+                      >
+                        <TableCell className="px-2 py-2">
+                          <a
+                            className="font-semibold text-primary no-underline hover:underline"
+                            href={detailHref}
+                          >
+                            <code>{booking.externalReference ?? '—'}</code>
+                          </a>
+                          {booking.createdAt ? (
+                            <span className="block text-[10px] text-muted-foreground">
+                              Created {formatDay(booking.createdAt.slice(0, 10), true)}
+                            </span>
+                          ) : null}
+                        </TableCell>
+                        <TableCell className="px-2 py-2">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-secondary text-primary">
+                              <UserRound aria-hidden="true" className="size-3.5" />
+                            </span>
+                            <span className="min-w-0">
+                              {booking.guestId ? (
+                                <a
+                                  className="block truncate font-semibold text-foreground no-underline hover:underline"
+                                  href={guestHref(tenantId, propertyId, booking.guestId)}
+                                >
+                                  {name}
+                                </a>
+                              ) : (
+                                <span className="block truncate font-semibold">{name}</span>
+                              )}
+                              {email && email !== name ? (
+                                <span className="block truncate text-[10px] text-muted-foreground">
+                                  {email}
+                                </span>
+                              ) : null}
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="px-2 py-2">
+                          <span className="block whitespace-nowrap">{formatStay(booking)}</span>
+                          <span className="block text-[10px] text-muted-foreground">
+                            {booking.roomTypeName ?? ''}
+                            {nights > 0 ? ` · ${nights} night${nights === 1 ? '' : 's'}` : ''}
+                          </span>
+                        </TableCell>
+                        <TableCell className="px-2 py-2">
+                          {booking.status ? <BookingStatusBadge status={booking.status} /> : null}
+                        </TableCell>
+                        <TableCell className="px-2 py-2">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span
+                                tabIndex={0}
+                                className="inline-block rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              >
+                                <Badge
+                                  variant={PAYMENT_BADGE_TONE[status.state]}
+                                  className="max-w-full truncate rounded-full px-2 py-0 text-[10px] font-semibold"
+                                >
+                                  {status.label}
+                                </Badge>
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent className="space-y-0.5">
+                              {booking.paymentMethod ? (
+                                <span className="block font-semibold">
+                                  {paymentMethodLabel(booking.paymentMethod)}
+                                </span>
+                              ) : null}
+                              <span className="block">
+                                Total {money(booking.total.amount, currency)}
+                              </span>
+                              <span className="block">
+                                Paid {money(booking.paidAmount, currency)}
+                              </span>
+                              {Number(booking.refundedAmount) > 0 ? (
+                                <span className="block">
+                                  Refunded {money(booking.refundedAmount, currency)}
+                                </span>
+                              ) : null}
+                              {Number(owed) > 0 ? (
+                                <span className="block font-semibold">
+                                  Still owed{' '}
+                                  {booking.balanceBasis === 'CLOCK'
+                                    ? booking.clockBalance
+                                      ? money(
+                                          booking.clockBalance.amount,
+                                          booking.clockBalance.currency,
+                                        )
+                                      : 'Verifying Clock balance'
+                                    : ['PMS_UNKNOWN_RESULT', 'MANUAL_REVIEW'].includes(
+                                          booking.status,
+                                        )
+                                      ? 'Balance not confirmed'
+                                      : money(owed, currency)}
+                                </span>
+                              ) : null}
+                            </TooltipContent>
+                          </Tooltip>
+                        </TableCell>
+                        <TableCell className="px-2 py-2 text-right font-semibold whitespace-nowrap">
+                          {money(booking.total.amount, currency)}
+                        </TableCell>
+                        <TableCell
+                          className={cn(
+                            'px-2 py-2 text-right whitespace-nowrap',
+                            Number(owed) > 0
+                              ? 'font-semibold text-warning'
+                              : 'text-muted-foreground',
+                          )}
+                        >
+                          {booking.balanceBasis === 'CLOCK'
+                            ? booking.clockBalance
+                              ? money(booking.clockBalance.amount, booking.clockBalance.currency)
+                              : 'Verifying Clock balance'
+                            : ['PMS_UNKNOWN_RESULT', 'MANUAL_REVIEW'].includes(booking.status)
+                              ? 'Balance not confirmed'
+                              : money(owed, currency)}
+                        </TableCell>
+                        <TableCell className="px-2 py-1 text-right">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                aria-label={`More actions for ${booking.externalReference ?? 'booking'}`}
+                                className="size-7"
+                              >
+                                <MoreHorizontal aria-hidden="true" className="size-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuLabel>{booking.externalReference}</DropdownMenuLabel>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem asChild>
+                                <a href={detailHref}>View payment</a>
+                              </DropdownMenuItem>
+                              {booking.guestId ? (
+                                <DropdownMenuItem asChild>
+                                  <a href={guestHref(tenantId, propertyId, booking.guestId)}>
+                                    Open guest
+                                  </a>
+                                </DropdownMenuItem>
+                              ) : null}
+                              {refundable ? (
+                                <DropdownMenuItem onSelect={() => openRefundDialog(booking)}>
+                                  Refund…
+                                </DropdownMenuItem>
+                              ) : null}
+                              {unpaid && canRecord ? (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem asChild>
+                                    <a href={detailHref}>Collect or record payment...</a>
+                                  </DropdownMenuItem>
+                                </>
+                              ) : null}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+              <Pagination
+                page={page}
+                pageSize={pageSize}
+                total={sorted.length}
+                onPage={setPage}
+                noun="payments"
+                pageSizeOptions={[10, 25, 50]}
+                onPageSize={(size) => {
+                  setPageSize(size);
+                  setPage(1);
+                }}
+              />
+            </>
+          )}
+        </Card>
+      )}
       {refundBooking ? (
         <RefundDialog
           base={base}
           booking={refundBooking}
+          canCancel={capabilities.includes('bookings.cancel')}
           onClose={() => setRefundBooking(null)}
           onRefunded={() => void bookingsQuery.refetch()}
         />
       ) : null}
-    </Stack>
+    </div>
   );
 }

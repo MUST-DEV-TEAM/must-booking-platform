@@ -6,15 +6,16 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
+import { QuoteService } from '../src/booking/quote.service';
 import { LocalPmsProvider } from '../src/booking/local-pms.provider';
 import { TenantDatabaseService } from '../src/tenancy/tenant-database.service';
 import { ClockHttpClient } from '../src/integrations/clock/clock-http-client';
 import { ClockBookingService } from '../src/integrations/clock/clock-booking.service';
 import { cleanupTenant } from './helpers/cleanup-tenant';
+import { STAY_STARTS_ON, STAY_ENDS_ON } from './helpers/future-stay';
 import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
 import { paceClockRequests } from './helpers/clock-pacing';
 import { retryOnClockRateLimit } from './helpers/clock-retry';
-import { sandboxSecondNight, sandboxStay } from './helpers/sandbox-stay';
 
 const sandboxCredentials = () => {
   const url = new URL(process.env.CLOCK_SANDBOX_PMS_API_URL!);
@@ -175,30 +176,30 @@ describe.skipIf(!hasSandboxCredentials)(
       INSERT INTO rate_plans (id, tenant_id, property_id, name, currency, is_active)
       VALUES (${ratePlanId}::uuid, ${tenantId}::uuid, ${propertyId}::uuid, 'Standard Rate', 'EUR', true)
     `;
-      // Test A goes through the real staff-bookings HTTP endpoint, which prices
-      // via QuoteService — needs a real rate rule, unlike the direct-service
-      // Clock tests that bypass quoting entirely.
-      await request(app.getHttpServer())
-        .post(`${tenantUrl}/properties/${propertyId}/rate-plans/${ratePlanId}/rules`)
-        .set('Cookie', cookie)
-        .send({ roomTypeId: localRoomTypeId, startsOn: null, endsOn: null, amount: '250.00' })
-        .expect(201);
+      // Clock owns pricing. Its quote reader derives the mapped provider rate;
+      // pricing v2 does not accept a null-dated local rule on this PMS property.
       await request(app.getHttpServer())
         .patch(`${tenantUrl}/properties/${propertyId}/payment-gateways`)
         .set('Cookie', cookie)
         .send({ stripe: false, pokpay: true, payAtHotel: true })
         .expect(200);
-      // Local inventory is separate from Clock's own availability — the local
-      // reservation step (before the Clock call) needs its own capacity.
-      await admin.$executeRaw`
-      INSERT INTO inventory_units (tenant_id, property_id, room_type_id, stays_on, available_units)
-      VALUES
-        (${tenantId}::uuid, ${propertyId}::uuid, ${localRoomTypeId}::uuid, ${sandboxStay.startsOn}::date, 5),
-        (${tenantId}::uuid, ${propertyId}::uuid, ${localRoomTypeId}::uuid, ${sandboxSecondNight}::date, 5)
-    `;
+      // Intentionally no inventory_units: creation/cancellation must use Clock stock.
     });
 
     afterAll(async () => {
+      // Cleanup real sandbox reservations even when an assertion fails mid-test.
+      if (app && tenantId && propertyId) {
+        const remaining = await admin.$queryRaw<{ externalBookingId: string }[]>`
+          SELECT external_booking_id AS "externalBookingId" FROM bookings
+          WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid
+            AND external_booking_id IS NOT NULL AND status<>'CANCELLED'`;
+        for (const row of remaining) {
+          const result = await app
+            .get(ClockBookingService)
+            .cancelRealReservation({ tenantId, propertyId }, row.externalBookingId);
+          expect(result.ok).toBe(true);
+        }
+      }
       if (tenantId) await cleanupTenant(admin, tenantId);
       if (userId) await admin.$executeRaw`DELETE FROM users WHERE id = ${userId}::uuid`;
       if (pmsPlanId) await admin.$executeRaw`DELETE FROM plans WHERE id = ${pmsPlanId}::uuid`;
@@ -228,8 +229,8 @@ describe.skipIf(!hasSandboxCredentials)(
         .send({
           roomTypeId: localRoomTypeId,
           ratePlanId,
-          startsOn: sandboxStay.startsOn,
-          endsOn: sandboxStay.endsOn,
+          startsOn: STAY_STARTS_ON,
+          endsOn: STAY_ENDS_ON,
           paymentMethod: 'pay_at_hotel',
           guest: {
             email: 'pay-at-hotel-guest@example.test',
@@ -253,8 +254,8 @@ describe.skipIf(!hasSandboxCredentials)(
       // LocalPmsProvider directly (matching BookingController.cancel), which
       // calls ClockBookingService.cancelRealReservation as a sub-step — real
       // proof the Clock reservation itself gets cancelled, not just the local
-      // row. This booking's arrival (14 days out) is inside the property's
-      // default 21-day self-service window relative to real "now" — widen the
+      // row. This booking's arrival (60 days ahead) is inside the property's
+      // test 90-day self-service window relative to real "now" — widen the
       // window to 0 so this cleanup cancel isn't blocked by the guard the
       // dedicated window-guard test below exercises.
       await admin.$executeRaw`
@@ -273,6 +274,7 @@ describe.skipIf(!hasSandboxCredentials)(
             // session id), but the comparison against the row is a strict
             // `!==`, so this test must pass the literal null to match.
             guestSessionId: null as unknown as string,
+            staffActorId: userId,
             // Read the real version: a background Clock job can bump it after
             // creation, and a hard-coded 1 then leaves the real reservation uncancelled.
             expectedVersion: row[0]!.version,
@@ -295,7 +297,7 @@ describe.skipIf(!hasSandboxCredentials)(
       });
       expect(clockBooking.status).toBe(200);
       expect((clockBooking.body as { status: string }).status).toBe('canceled');
-    }, 30_000);
+    }, 120_000);
 
     it('walk-in redesign: creates a booking with no ratePlanId, auto-resolving the Clock shadow rate plan', async () => {
       const shadowRatePlan = await admin.$queryRaw<Array<{ id: string; name: string }>>`
@@ -311,8 +313,8 @@ describe.skipIf(!hasSandboxCredentials)(
         .set('Idempotency-Key', `no-rate-plan-${randomUUID()}`)
         .send({
           roomTypeId: localRoomTypeId,
-          startsOn: sandboxStay.startsOn,
-          endsOn: sandboxStay.endsOn,
+          startsOn: STAY_STARTS_ON,
+          endsOn: STAY_ENDS_ON,
           paymentMethod: 'pay_at_hotel',
           guest: {
             email: 'no-rate-plan-guest@example.test',
@@ -344,18 +346,18 @@ describe.skipIf(!hasSandboxCredentials)(
           idempotencyKey: `no-rate-plan-cancel-${randomUUID()}`,
           bookingId,
           guestSessionId: null as unknown as string,
+          staffActorId: userId,
           expectedVersion: 1,
           reason: 'Task cleanup.',
         },
       );
       expect(cancelResult.ok).toBe(true);
-    }, 30_000);
+    }, 120_000);
 
-    it('self-service cancellation window: blocks a near-future booking and leaves the real Clock reservation untouched', async () => {
-      // Restore the property's default window (the pay-at-hotel test above
-      // widened it to 0 to avoid being blocked by this same guard).
+    it('self-service cancellation window: blocks a booking inside its configured cutoff and leaves the real Clock reservation untouched', async () => {
+      // Put the relative 60-day stay inside a 90-day cancellation cutoff.
       await admin.$executeRaw`
-      UPDATE properties SET free_cancellation_days_before_arrival = 21 WHERE id = ${propertyId}::uuid
+      UPDATE properties SET free_cancellation_days_before_arrival = 90 WHERE id = ${propertyId}::uuid
     `;
       const created = await request(app!.getHttpServer())
         .post(`/tenants/${tenantId}/properties/${propertyId}/staff-bookings`)
@@ -364,8 +366,8 @@ describe.skipIf(!hasSandboxCredentials)(
         .send({
           roomTypeId: localRoomTypeId,
           ratePlanId,
-          startsOn: sandboxStay.startsOn,
-          endsOn: sandboxStay.endsOn,
+          startsOn: STAY_STARTS_ON,
+          endsOn: STAY_ENDS_ON,
           paymentMethod: 'pay_at_hotel',
           guest: {
             email: 'window-guard-guest@example.test',
@@ -376,13 +378,15 @@ describe.skipIf(!hasSandboxCredentials)(
         .expect(201);
       expect(created.body.ok).toBe(true);
       const bookingId = created.body.value.id as string;
-      const row = await admin.$queryRaw<Array<{ externalBookingId: string | null }>>`
-      SELECT external_booking_id AS "externalBookingId" FROM bookings WHERE id = ${bookingId}::uuid
+      const row = await admin.$queryRaw<
+        Array<{ externalBookingId: string | null; guestSessionId: string | null }>
+      >`
+      SELECT external_booking_id AS "externalBookingId", guest_session_id AS "guestSessionId" FROM bookings WHERE id = ${bookingId}::uuid
     `;
       expect(row[0]?.externalBookingId).toMatch(/^\d+$/);
 
-      // Property default is 21 days before arrival; the booking's arrival
-      // (14 days out) is closer than that to "now",
+      // Property test policy is 90 days before arrival; the booking's arrival
+      // (60 days ahead) is far closer than that to "now" in the test environment,
       // so self-service cancellation must be blocked before Clock is ever
       // called.
       const bookings = app!.get(LocalPmsProvider);
@@ -391,11 +395,9 @@ describe.skipIf(!hasSandboxCredentials)(
         {
           idempotencyKey: `window-guard-cancel-${randomUUID()}`,
           bookingId,
-          // CancelBookingCommand's type is `string | undefined` (production
-          // callers always have a real session id), but staff-created bookings
-          // store a null guest_session_id — the comparison in cancelBooking is
-          // a strict `!==`, so this test must pass the literal null to match.
-          guestSessionId: null as unknown as string,
+          // A guest's own cancellation: it carries the booking's session and no staff
+          // member, so the self-service window applies (staff may cancel at any time).
+          guestSessionId: row[0]!.guestSessionId as string,
           expectedVersion: 1,
           reason: null,
         },
@@ -431,9 +433,18 @@ describe.skipIf(!hasSandboxCredentials)(
       UPDATE bookings SET status = 'CANCELLED'::"BookingStatus", version = version + 1
       WHERE id = ${bookingId}::uuid
     `;
-    }, 30_000);
+    }, 120_000);
 
     it('online payment: continueAfterPayment (the real webhook-driven path) attaches a real Clock reservation', async () => {
+      const total = await app!.get(QuoteService).price(tenantId, propertyId, {
+        roomTypeId: localRoomTypeId,
+        startsOn: STAY_STARTS_ON,
+        endsOn: STAY_ENDS_ON,
+        adults: 1,
+        children: 0,
+      });
+      const [whole, fraction = ''] = total.amount.split('.');
+      const totalCents = Number(BigInt(whole) * 100n + BigInt(fraction.padEnd(2, '0')));
       const guestId = randomUUID();
       const bookingId = randomUUID();
       const externalReference = `must-payment-gated-${bookingId}`;
@@ -453,8 +464,8 @@ describe.skipIf(!hasSandboxCredentials)(
       ) VALUES (
         ${bookingId}::uuid, ${tenantId}::uuid, ${propertyId}::uuid, ${localRoomTypeId}::uuid,
         ${guestId}::uuid, ${externalReference}, 'PAYMENT_PENDING'::"BookingStatus",
-        'POKPAY'::"BookingPaymentMethod", ${sandboxStay.startsOn}::date, ${sandboxStay.endsOn}::date,
-        ${ratePlanId}::uuid, 500.00
+        'POKPAY'::"BookingPaymentMethod", ${STAY_STARTS_ON}::date, ${STAY_ENDS_ON}::date,
+        ${ratePlanId}::uuid, ${total.amount}::numeric
       )
     `;
 
@@ -547,7 +558,7 @@ describe.skipIf(!hasSandboxCredentials)(
       expect(depositFolioId).toBeDefined();
       expect(depositFolioOpen).toBe(true);
       expect(ourCreditItem).toBeDefined();
-      expect(ourCreditItem?.value_cents).toBe(50000);
+      expect(ourCreditItem?.value_cents).toBe(totalCents);
       expect(ourCreditItem?.currency).toBe('EUR');
       expect(ourCreditItem?.payment_sub_type).toBe('PokPay');
 
@@ -558,7 +569,7 @@ describe.skipIf(!hasSandboxCredentials)(
     `;
       expect(auditRows.length).toBe(1);
 
-      // The window-guard test restored the default 21-day window; widen it
+      // The window-guard test restored the test 90-day window; widen it
       // again for this cleanup cancel (arrival is inside that window here too).
       await admin.$executeRaw`
       UPDATE properties SET free_cancellation_days_before_arrival = 0 WHERE id = ${propertyId}::uuid
@@ -567,6 +578,7 @@ describe.skipIf(!hasSandboxCredentials)(
         idempotencyKey: `payment-gated-cancel-${randomUUID()}`,
         bookingId,
         guestSessionId: null as unknown as string,
+        staffActorId: userId,
         expectedVersion: 1,
         reason: 'Task 4 e2e cleanup.',
       });
@@ -579,6 +591,6 @@ describe.skipIf(!hasSandboxCredentials)(
       });
       expect(clockCancelled.status).toBe(200);
       expect((clockCancelled.body as { status: string }).status).toBe('canceled');
-    }, 30_000);
+    }, 120_000);
   },
 );

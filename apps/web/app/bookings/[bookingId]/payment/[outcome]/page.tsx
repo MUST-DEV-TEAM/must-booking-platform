@@ -1,76 +1,133 @@
 'use client';
-
-import { useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-
-import { Alert, Badge, Card, Heading, Text } from '@must/ui';
-
-import { authAssets, AuthShell } from '../../../../auth-shell';
-import styles from './payment-outcome.module.css';
-
-const REDIRECT_DELAY_MS = 5000;
-
+import { useEffect, useState } from 'react';
+import { useParams } from 'next/navigation';
+import styles from './page.module.css';
 export default function BookingPaymentOutcomePage() {
-  const router = useRouter();
   const params = useParams<{ bookingId: string; outcome: string }>();
-  const isCancelled = params.outcome === 'cancel';
-
+  const cancelled = params.outcome === 'cancel';
+  const [paid, setPaid] = useState(false);
+  const [brand, setBrand] = useState<{ name: string; logoUrl: string | null } | null>(null);
+  const [logoFailed, setLogoFailed] = useState(false);
   useEffect(() => {
-    const timer = setTimeout(() => router.replace('/dashboard'), REDIRECT_DELAY_MS);
-    return () => clearTimeout(timer);
-  }, [router]);
-
+    const query = new URLSearchParams(window.location.search);
+    const orderId = query.get('orderId');
+    const abort = new AbortController();
+    let loadedScope = '';
+    const loadBrand = (tenantId: unknown, propertyId: unknown) => {
+      if (
+        typeof tenantId !== 'string' ||
+        typeof propertyId !== 'string' ||
+        !/^[0-9a-f-]{36}$/i.test(tenantId) ||
+        !/^[0-9a-f-]{36}$/i.test(propertyId)
+      )
+        return;
+      const scope = tenantId + ':' + propertyId;
+      if (loadedScope === scope) return;
+      loadedScope = scope;
+      void fetch(`/api/tenants/${tenantId}/properties/${propertyId}/public/branding`, {
+        signal: abort.signal,
+      })
+        .then(async (response) => {
+          if (!response.ok) return;
+          const value = await response.json();
+          if (!abort.signal.aborted && typeof value.name === 'string') {
+            setBrand({
+              name: value.name,
+              logoUrl:
+                typeof value.logoUrl === 'string' && /^(https?:\/\/|\/(?!\/))/i.test(value.logoUrl)
+                  ? value.logoUrl
+                  : null,
+            });
+            setLogoFailed(false);
+          }
+        })
+        .catch(() => {
+          /* Hotel branding must not interrupt payment confirmation. */
+        });
+    };
+    loadBrand(query.get('tenantId'), query.get('propertyId'));
+    let channel: BroadcastChannel | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      channel = new BroadcastChannel('must-payment');
+      channel.onmessage = (event) => {
+        if (
+          orderId &&
+          event.data?.bookingId === params.bookingId &&
+          event.data?.orderId === orderId &&
+          event.data?.state === 'HOTEL_CONTEXT'
+        )
+          loadBrand(event.data.tenantId, event.data.propertyId);
+        if (
+          orderId &&
+          event.data?.bookingId === params.bookingId &&
+          event.data?.orderId === orderId &&
+          ['PAID', 'CONFIRMED'].includes(event.data?.state)
+        ) {
+          setPaid(true);
+          timer = setTimeout(() => window.close(), 1500);
+        }
+      };
+      channel.postMessage({ bookingId: params.bookingId, orderId, outcome: params.outcome });
+    } catch {
+      /* Confirmation remains on the booking screen when browser messaging is unavailable. */
+    }
+    return () => {
+      abort.abort();
+      channel?.close();
+      if (timer) clearTimeout(timer);
+    };
+  }, [params.bookingId, params.outcome]);
   return (
-    <AuthShell sectionLabelledBy="payment-outcome-title">
-      <div className={styles.support}>
-        <span className={styles.supportLabel}>Need help?</span>
-        <a className={styles.supportLink} href="mailto:dejvis@must.al">
-          Contact administrator
-        </a>
-      </div>
-
-      <Badge
-        className={isCancelled ? styles.errorBadge : styles.statusBadge}
-        tone={isCancelled ? 'danger' : 'success'}
-      >
-        <img
-          alt=""
-          className={styles.badgeIcon}
-          src={isCancelled ? authAssets.shieldAlert : authAssets.shieldCheck}
-        />
-        <span>{isCancelled ? 'PAYMENT NOT COMPLETED' : 'PAYMENT RECEIVED'}</span>
-      </Badge>
-      <Heading className={styles.formTitle} id="payment-outcome-title">
-        {isCancelled ? 'Payment was not completed' : 'Payment received'}
-      </Heading>
-      <Text className={styles.formDescription} tone="secondary">
-        {isCancelled
-          ? 'The checkout was cancelled before payment was completed. This booking has not been charged.'
-          : 'The booking will confirm automatically once the payment finishes processing. You can check its status now in Reservations.'}
-      </Text>
-
-      {isCancelled ? (
-        <Alert className={styles.errorAlert} role="alert" tone="danger">
-          <img alt="" className={styles.errorIcon} src={authAssets.shieldAlert} />
-          <span>No charge was made. You can start the payment again from the booking.</span>
-        </Alert>
-      ) : (
-        <div aria-live="polite" role="status">
-          <Card className={styles.statusCard}>
-            <span className={styles.statusIcon}>
-              <img alt="" height="18" src={authAssets.shieldCheckExact} width="18" />
-            </span>
-            <span className={styles.statusCopy}>
-              <span className={styles.statusTitle}>Payment received</span>
-              <span className={styles.statusDescription}>Taking you back to the dashboard…</span>
-            </span>
-          </Card>
+    <main className={styles.page}>
+      <section className={styles.card} aria-labelledby="payment-title">
+        <div className={styles.brand}>
+          {brand?.logoUrl && !logoFailed ? (
+            <img
+              className={styles.logo}
+              src={brand.logoUrl}
+              alt={brand.name}
+              onError={() => setLogoFailed(true)}
+            />
+          ) : (
+            <span>{brand?.name ?? 'Your hotel'}</span>
+          )}
         </div>
-      )}
-
-      <a className={`${styles.backLink} must-button must-button--secondary`} href="/dashboard">
-        Go to dashboard
-      </a>
-    </AuthShell>
+        <div aria-hidden="true" className={styles.symbol}>
+          {paid ? (
+            '✓'
+          ) : cancelled ? (
+            '—'
+          ) : (
+            <span className={styles.dots} data-testid="payment-checking-dots">
+              <span />
+              <span />
+              <span />
+            </span>
+          )}
+        </div>
+        <h1 id="payment-title">
+          {paid ? 'Payment received' : cancelled ? 'Checkout closed' : 'Checking your payment'}
+        </h1>
+        <p role="status">
+          {paid
+            ? 'Your payment has been confirmed. The booking screen will update automatically.'
+            : cancelled
+              ? 'Return to the booking to check its latest payment status before trying again.'
+              : 'Your payment was submitted to PokPay. Keep the booking screen open while it confirms this payment.'}
+        </p>
+        <p className={styles.hint}>
+          {paid
+            ? 'This tab will close shortly. If your browser keeps it open, you can close it below.'
+            : 'Returning from PokPay does not by itself confirm a successful payment.'}
+        </p>
+        <div className={styles.actions}>
+          <button type="button" onClick={() => window.close()}>
+            Close this tab
+          </button>
+          <a href="/dashboard">Open MUST</a>
+        </div>
+      </section>
+    </main>
   );
 }

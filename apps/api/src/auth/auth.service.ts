@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   HttpException,
   HttpStatus,
   Inject,
@@ -14,6 +15,7 @@ import { randomBytes, randomUUID, createHash } from 'node:crypto';
 import { createClient, type RedisClientType } from 'redis';
 
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
+import { blocksHotelLogin, type LifecycleState } from '../platform/console/hotel-lifecycle';
 import { AuditLogService } from '../tenancy/audit-log.service';
 import { PropertyRoleTemplatesService } from '../tenancy/property-role-templates.service';
 import { MailDeliveryService } from '../mail/mail-delivery.service';
@@ -177,6 +179,7 @@ export class AuthService implements OnModuleDestroy {
     if (!user?.passwordHash || !(await bcrypt.compare(password, user.passwordHash)))
       throw new UnauthorizedException('Invalid email or password.');
     await redis.del(failureKey);
+    await this.assertHotelAccountsOpen(user.id);
     const sessionId = await this.createSession(user.id);
     await this.auditLogs.record({
       actorUserId: user.id,
@@ -195,9 +198,29 @@ export class AuthService implements OnModuleDestroy {
     };
   }
 
+  /**
+   * Refuses sign-in when every hotel the person belongs to is suspended or cancelled. A person
+   * with at least one hotel in service still signs in; the per-request guard closes the others.
+   */
+  private async assertHotelAccountsOpen(userId: string): Promise<void> {
+    const states = await this.database.$queryRaw<Array<{ lifecycleState: string }>>`
+      SELECT "lifecycleState" FROM "auth_user_tenant_states"(${userId}::uuid)
+    `;
+    if (
+      states.length > 0 &&
+      states.every((row) => blocksHotelLogin(row.lifecycleState as LifecycleState))
+    )
+      throw new ForbiddenException({
+        message: 'This hotel account is not active. Contact MUST support.',
+        code: 'HOTEL_SUSPENDED',
+      });
+  }
+
   async logout(sessionId: string | undefined): Promise<void> {
     const userId = await this.getSessionUserId(sessionId);
-    if (sessionId) await this.client().then((redis) => redis.del(`auth:session:${sessionId}`));
+    const removed = sessionId
+      ? await this.client().then((redis) => redis.del(`auth:session:${sessionId}`))
+      : 0;
     if (userId) {
       await this.auditLogs.record({
         actorUserId: userId,
@@ -205,6 +228,14 @@ export class AuthService implements OnModuleDestroy {
         targetType: 'user',
         targetId: userId,
       });
+      if (removed)
+        await this.auditLogs.record({
+          actorUserId: userId,
+          action: 'auth.session_revoked',
+          targetType: 'user',
+          targetId: userId,
+          details: { reason: 'Signed out', result: 'succeeded' },
+        });
     }
   }
 
@@ -277,8 +308,179 @@ export class AuthService implements OnModuleDestroy {
     const { token, password } = this.tokenAndPassword(input);
     const userId = await this.consumeToken('password-reset', token);
     if (!userId) throw new BadRequestException('Invalid or expired password-reset token.');
-    await this.database
-      .$executeRaw`SELECT "auth_update_password"(${userId}::uuid, ${await bcrypt.hash(password, 12)})`;
+    const hash = await bcrypt.hash(password, 12);
+    await this.database.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT "auth_update_password"(${userId}::uuid, ${hash})`;
+      await this.auditLogs.recordAccountEventInTransaction(tx, {
+        actorUserId: userId,
+        action: 'auth.password_changed',
+        targetType: 'user',
+        targetId: userId,
+        details: { result: 'succeeded', method: 'Password reset' },
+      });
+    });
+  }
+
+  /** The signed-in user's own profile (name, email, verification). */
+  async getProfile(sessionId: string | undefined): Promise<{
+    email: string;
+    emailVerified: boolean;
+    firstName: string | null;
+    lastName: string | null;
+    phoneCountryCode?: string | null;
+    phoneNumber?: string | null;
+    birthDate?: string | null;
+    preferredLanguage?: string | null;
+    personalTimezone?: string | null;
+    preferredDateTimeFormat?: string | null;
+    jobTitle?: string | null;
+  }> {
+    const userId = await this.requireSessionUserId(sessionId);
+    const user = await this.findUserById(userId);
+    if (!user) throw new UnauthorizedException('A valid session is required.');
+    const rows = await this.database.$queryRaw<
+      Array<{ first_name: string | null; last_name: string | null }>
+    >`SELECT first_name, last_name FROM "auth_get_profile"(${userId}::uuid)`;
+    const details = await this.database.$queryRaw<
+      Array<{ details: Record<string, string | null> }>
+    >`SELECT auth_get_profile_details(${userId}::uuid) AS details`;
+    return {
+      ...details[0]?.details,
+      email: user.email,
+      emailVerified: user.emailVerifiedAt !== null,
+      firstName: rows[0]?.first_name ?? null,
+      lastName: rows[0]?.last_name ?? null,
+    };
+  }
+
+  async updateProfile(
+    sessionId: string | undefined,
+    input: unknown,
+  ): Promise<{ firstName: string | null; lastName: string | null }> {
+    const userId = await this.requireSessionUserId(sessionId);
+    const value = (typeof input === 'object' && input !== null ? input : {}) as Record<
+      string,
+      unknown
+    >;
+    const current = await this.getProfile(sessionId);
+    const clean = (name: string): string | null => {
+      if (!Object.hasOwn(value, name))
+        return (current as Record<string, unknown>)[name] as string | null;
+      const raw = value[name];
+      if (raw === undefined || raw === null || raw === '') return null;
+      if (typeof raw !== 'string' || raw.trim().length > 100)
+        throw new BadRequestException(`${name} must be text of at most 100 characters.`);
+      return raw.trim() || null;
+    };
+    const firstName = clean('firstName');
+    const lastName = clean('lastName');
+    const extras: Record<string, string | null> = {};
+    const limits: Record<string, number> = {
+      phoneCountryCode: 5,
+      phoneNumber: 20,
+      birthDate: 10,
+      preferredLanguage: 35,
+      personalTimezone: 100,
+      preferredDateTimeFormat: 20,
+      jobTitle: 100,
+    };
+    for (const [key, max] of Object.entries(limits))
+      if (Object.hasOwn(value, key)) {
+        const raw = value[key];
+        if (raw !== null && (typeof raw !== 'string' || raw.length > max))
+          throw new BadRequestException(`Invalid ${key}.`);
+        extras[key] = typeof raw === 'string' ? raw.trim() || null : null;
+      }
+    if (extras.birthDate) {
+      const d = new Date(extras.birthDate + 'T00:00:00Z');
+      if (
+        !/^\d{4}-\d{2}-\d{2}$/.test(extras.birthDate) ||
+        !Number.isFinite(d.getTime()) ||
+        d.toISOString().slice(0, 10) !== extras.birthDate ||
+        extras.birthDate > new Date().toISOString().slice(0, 10)
+      )
+        throw new BadRequestException('Enter a valid birthday that is not in the future.');
+    }
+    if (
+      extras.preferredLanguage &&
+      !/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(extras.preferredLanguage)
+    )
+      throw new BadRequestException('Enter a valid language preference.');
+    if (
+      extras.preferredDateTimeFormat &&
+      !['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD'].includes(extras.preferredDateTimeFormat)
+    )
+      throw new BadRequestException('Choose a supported date format.');
+    if (extras.personalTimezone) {
+      try {
+        new Intl.DateTimeFormat('en', { timeZone: extras.personalTimezone });
+      } catch {
+        throw new BadRequestException('Choose a valid timezone.');
+      }
+    }
+    if (extras.phoneCountryCode && !/^\+\d{1,4}$/.test(extras.phoneCountryCode))
+      throw new BadRequestException('Enter a valid phone country code.');
+    if (extras.phoneNumber && !/^\d{4,15}$/.test(extras.phoneNumber))
+      throw new BadRequestException('Enter a phone number containing 4 to 15 digits.');
+    if (
+      Boolean(
+        Object.hasOwn(extras, 'phoneCountryCode')
+          ? extras.phoneCountryCode
+          : current.phoneCountryCode,
+      ) !== Boolean(Object.hasOwn(extras, 'phoneNumber') ? extras.phoneNumber : current.phoneNumber)
+    )
+      throw new BadRequestException(
+        'Enter both phone country code and number, or leave both empty.',
+      );
+    await this.database.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT "auth_update_profile"(${userId}::uuid, ${firstName}, ${lastName})`;
+      await tx.$executeRaw`SELECT auth_update_profile_details(${userId}::uuid,${JSON.stringify(extras)}::jsonb)`;
+      await this.auditLogs.recordAccountEventInTransaction(tx, {
+        actorUserId: userId,
+        action: 'auth.profile_updated',
+        targetType: 'user',
+        targetId: userId,
+        details: { result: 'succeeded' },
+      });
+    });
+    return { firstName, lastName };
+  }
+
+  /** Change the signed-in user's password after proving the current one. */
+  async changePassword(sessionId: string | undefined, input: unknown): Promise<void> {
+    const userId = await this.requireSessionUserId(sessionId);
+    const current = this.field(input, 'currentPassword');
+    const next = this.field(input, 'newPassword');
+    if (next.length < 12) throw new BadRequestException('Password must be at least 12 characters.');
+    if (next === current)
+      throw new BadRequestException('Choose a password different from the current one.');
+    const attempts = await this.countAttempt(
+      this.rateLimitKey('password-change', userId),
+      AUTH_EMAIL_REQUEST_WINDOW_SECONDS,
+    );
+    if (attempts > 5)
+      throw new BadRequestException('Too many attempts. Please wait a few minutes and try again.');
+    const byId = await this.findUserById(userId);
+    const user = byId ? await this.findUser(byId.email) : null;
+    if (!user?.passwordHash || !(await bcrypt.compare(current, user.passwordHash)))
+      throw new BadRequestException('The current password is not correct.');
+    const hash = await bcrypt.hash(next, 12);
+    await this.database.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT "auth_update_password"(${userId}::uuid, ${hash})`;
+      await this.auditLogs.recordAccountEventInTransaction(tx, {
+        actorUserId: userId,
+        action: 'auth.password_changed',
+        targetType: 'user',
+        targetId: userId,
+        details: { result: 'succeeded', method: 'Account change' },
+      });
+    });
+  }
+
+  private async requireSessionUserId(sessionId: string | undefined): Promise<string> {
+    const userId = await this.getSessionUserId(sessionId);
+    if (!userId) throw new UnauthorizedException('A valid session is required.');
+    return userId;
   }
 
   async requestEmailVerification(input: unknown): Promise<void> {

@@ -1,4 +1,13 @@
 import {
+  hotelColumns,
+  hotelFields,
+  hotelInput,
+  hotelUpdates,
+  checkHotelSettings,
+  type HotelSettings,
+} from './hotel-settings';
+import { Prisma } from '@prisma/client';
+import {
   BadRequestException,
   ConflictException,
   Inject,
@@ -11,11 +20,16 @@ import { AuditLogService } from './audit-log.service';
 import { PropertyRoleTemplatesService } from './property-role-templates.service';
 
 type BookingMode = 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
-type Property = {
+type Property = HotelSettings & {
   id: string;
   name: string;
   address: string;
   timezone: string;
+  onlinePaymentHoldMinutes: number;
+  autoRefundOnFreeCancellation: boolean;
+  brandColour: string | null;
+  emailFooterText: string | null;
+  termsUrl: string | null;
   logoUrl: string | null;
   phone: string | null;
   supportEmail: string | null;
@@ -31,6 +45,11 @@ type Property = {
   paymentGateways: { stripe: boolean; pokpay: boolean; payAtHotel: boolean };
   wordpressConnectedAt: Date | null;
 };
+type PropertyListItem = Property & {
+  staffCount: number;
+  pmsSource: 'MUST' | 'CLOCK_PMS';
+  connectedProviders: string[];
+};
 type PropertyDeleteBlocker = { resource: string; count: number };
 @Injectable()
 export class PropertiesService {
@@ -39,12 +58,29 @@ export class PropertiesService {
     @Inject(AuditLogService) private readonly audit: AuditLogService,
     @Inject(PropertyRoleTemplatesService) private readonly templates: PropertyRoleTemplatesService,
   ) {}
-  list(tenantId: string, userId: string): Promise<Property[]> {
+  list(tenantId: string, userId: string): Promise<PropertyListItem[]> {
     return this.database.withTenantTransaction(
       { tenantId },
       (tx) =>
-        tx.$queryRaw<Property[]>`SELECT id, name, address, timezone,
-          logo_url AS "logoUrl", phone, support_email AS "supportEmail",
+        tx.$queryRaw<PropertyListItem[]>`SELECT id, name, address, timezone,
+          (SELECT count(*)::int FROM tenant_memberships members
+           WHERE members.tenant_id=p.tenant_id AND (members.role IN ('OWNER','ADMIN') OR EXISTS (
+             SELECT 1 FROM property_staff_assignments assignments
+             WHERE assignments.tenant_id=p.tenant_id AND assignments.property_id=p.id
+               AND assignments.user_id=members.user_id AND assignments.suspended_at IS NULL
+           ))) AS "staffCount",
+          CASE WHEN EXISTS (
+            SELECT 1 FROM property_integration_connections pic
+            JOIN integration_connections ic ON ic.tenant_id=pic.tenant_id AND ic.id=pic.connection_id
+            WHERE pic.tenant_id=p.tenant_id AND pic.property_id=p.id AND pic.enabled
+              AND pic.kind='PMS' AND ic.provider='CLOCK_PMS'
+          ) THEN 'CLOCK_PMS' ELSE 'MUST' END AS "pmsSource",
+          ARRAY(SELECT DISTINCT ic.provider::text FROM property_integration_connections pic
+            JOIN integration_connections ic ON ic.tenant_id=pic.tenant_id AND ic.id=pic.connection_id
+            WHERE pic.tenant_id=p.tenant_id AND pic.property_id=p.id AND pic.enabled AND ic.status='CONNECTED'
+            ORDER BY ic.provider::text) AS "connectedProviders",
+          EXISTS(SELECT 1 FROM rate_rules rr WHERE rr.tenant_id=p.tenant_id AND rr.property_id=p.id UNION ALL SELECT 1 FROM pricing_daily_prices dp WHERE dp.tenant_id=p.tenant_id AND dp.property_id=p.id UNION ALL SELECT 1 FROM room_price_overrides ro WHERE ro.tenant_id=p.tenant_id AND ro.property_id=p.id) AS "defaultCurrencyLocked",
+          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
@@ -55,7 +91,7 @@ export class PropertiesService {
           wordpress_connected_at AS "wordpressConnectedAt",
           json_build_object('stripe', stripe_enabled, 'pokpay', pokpay_enabled, 'payAtHotel', pay_at_hotel_enabled) AS "paymentGateways"
           FROM properties p
-          WHERE EXISTS (
+          WHERE p.tenant_id=${tenantId}::uuid AND EXISTS (
             SELECT 1
             FROM tenant_memberships tm
             WHERE tm.tenant_id = p.tenant_id
@@ -96,7 +132,7 @@ export class PropertiesService {
       const rows = await tx.$queryRaw<
         Property[]
       >`INSERT INTO properties (id, tenant_id, name, slug, address, timezone, logo_url, phone, support_email) VALUES (${id}::uuid, ${tenantId}::uuid, ${input.name}, ${slug}, ${input.address}, ${input.timezone}, ${input.logoUrl}, ${input.phone}, ${input.supportEmail}) RETURNING id, name, address, timezone,
-        logo_url AS "logoUrl", phone, support_email AS "supportEmail",
+        online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
         booking_mode AS "bookingMode",
         min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
         check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
@@ -123,9 +159,10 @@ export class PropertiesService {
   ): Promise<Property> {
     const input = this.updateInput(body);
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      await tx.$queryRaw`SELECT id FROM properties WHERE tenant_id=${tenantId}::uuid AND id=${propertyId}::uuid FOR UPDATE`;
       const existing = await tx.$queryRaw<Array<Property>>`
         SELECT id, name, address, timezone,
-          logo_url AS "logoUrl", phone, support_email AS "supportEmail",
+          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
@@ -137,6 +174,28 @@ export class PropertiesService {
         FROM properties WHERE id = ${propertyId}::uuid
       `;
       if (!existing[0]) throw new BadRequestException('Property not found.');
+      const ownedLogo = input.logoUrl ? this.serverLogoKey(new URL(input.logoUrl)) : null;
+      if (ownedLogo) {
+        const images = await tx.$queryRaw<
+          Array<{ id: string }>
+        >`SELECT l.id FROM property_library_images l JOIN server_media_uploads u ON u.tenant_id=l.tenant_id AND u.property_id=l.property_id AND u.object_key=l.object_key AND u.uploaded_at IS NOT NULL WHERE l.tenant_id=${tenantId}::uuid AND l.property_id=${propertyId}::uuid AND l.object_key=${ownedLogo} AND l.confirmed_at IS NOT NULL`;
+        if (!images[0])
+          throw new BadRequestException('Choose a confirmed image from this hotel photo library.');
+      }
+
+      checkHotelSettings({ ...existing[0], ...input });
+      if (
+        input.defaultCurrency !== undefined &&
+        input.defaultCurrency !== existing[0].defaultCurrency
+      ) {
+        const prices = await tx.$queryRaw<
+          { locked: boolean }[]
+        >`SELECT EXISTS(SELECT 1 FROM rate_rules WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid UNION ALL SELECT 1 FROM pricing_daily_prices WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid UNION ALL SELECT 1 FROM room_price_overrides WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid) AS locked`;
+        if (prices[0]?.locked)
+          throw new ConflictException(
+            'Prices already exist. Their currency cannot be changed here.',
+          );
+      }
       const nextMinStayNights =
         input.minStayNights === undefined ? existing[0].minStayNights : input.minStayNights;
       const nextMaxStayNights =
@@ -149,7 +208,13 @@ export class PropertiesService {
         throw new BadRequestException('minStayNights cannot exceed maxStayNights.');
       const rows = await tx.$queryRaw<Property[]>`
         UPDATE properties
-        SET name = CASE WHEN ${input.name !== undefined} THEN ${input.name} ELSE name END,
+        SET ${Object.keys(hotelInput(body as Record<string, unknown>)).length ? Prisma.sql`${hotelUpdates(input)},` : Prisma.empty} stripe_enabled=COALESCE(${input.paymentGateways?.stripe},stripe_enabled),pokpay_enabled=COALESCE(${input.paymentGateways?.pokpay},pokpay_enabled),pay_at_hotel_enabled=COALESCE(${input.paymentGateways?.payAtHotel},pay_at_hotel_enabled),
+          online_payment_hold_minutes=COALESCE(${input.onlinePaymentHoldMinutes},online_payment_hold_minutes),
+          auto_refund_on_free_cancellation=COALESCE(${input.autoRefundOnFreeCancellation},auto_refund_on_free_cancellation),
+          brand_colour=CASE WHEN ${input.brandColour !== undefined} THEN ${input.brandColour} ELSE brand_colour END,
+          email_footer_text=CASE WHEN ${input.emailFooterText !== undefined} THEN ${input.emailFooterText} ELSE email_footer_text END,
+          terms_url=CASE WHEN ${input.termsUrl !== undefined} THEN ${input.termsUrl} ELSE terms_url END,
+          name = CASE WHEN ${input.name !== undefined} THEN ${input.name} ELSE name END,
           address = CASE WHEN ${input.address !== undefined} THEN ${input.address} ELSE address END,
           timezone = CASE WHEN ${input.timezone !== undefined} THEN ${input.timezone} ELSE timezone END,
           logo_url = CASE WHEN ${input.logoUrl !== undefined} THEN ${input.logoUrl} ELSE logo_url END,
@@ -165,7 +230,7 @@ export class PropertiesService {
           free_cancellation_days_before_arrival = CASE WHEN ${input.freeCancellationDaysBeforeArrival !== undefined} THEN ${input.freeCancellationDaysBeforeArrival} ELSE free_cancellation_days_before_arrival END
         WHERE id = ${propertyId}::uuid
         RETURNING id, name, address, timezone,
-          logo_url AS "logoUrl", phone, support_email AS "supportEmail",
+          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
@@ -246,7 +311,7 @@ export class PropertiesService {
         SET public_website_origin = ${origin}
         WHERE id = ${propertyId}::uuid
         RETURNING id, name, address, timezone,
-          logo_url AS "logoUrl", phone, support_email AS "supportEmail",
+          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
@@ -282,7 +347,7 @@ export class PropertiesService {
           pay_at_hotel_enabled = ${gateways.payAtHotel}
         WHERE id = ${propertyId}::uuid
         RETURNING id, name, address, timezone,
-          logo_url AS "logoUrl", phone, support_email AS "supportEmail",
+          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
@@ -418,7 +483,7 @@ export class PropertiesService {
     }
     return { stripe: value.stripe, pokpay: value.pokpay, payAtHotel: value.payAtHotel };
   }
-  private updateInput(body: unknown): {
+  private updateInput(body: unknown): HotelSettings & {
     name?: string;
     address?: string;
     timezone?: string;
@@ -430,6 +495,12 @@ export class PropertiesService {
     rules?: string | null;
     advanceBookingDays?: number | null;
     freeCancellationDaysBeforeArrival?: number;
+    paymentGateways?: Property['paymentGateways'];
+    onlinePaymentHoldMinutes?: number;
+    autoRefundOnFreeCancellation?: boolean;
+    brandColour?: string | null;
+    emailFooterText?: string | null;
+    termsUrl?: string | null;
     logoUrl?: string | null;
     phone?: string | null;
     supportEmail?: string | null;
@@ -451,12 +522,47 @@ export class PropertiesService {
         'rules',
         'advanceBookingDays',
         'freeCancellationDaysBeforeArrival',
+        'paymentGateways',
+        'onlinePaymentHoldMinutes',
+        'autoRefundOnFreeCancellation',
+        'brandColour',
+        'emailFooterText',
+        'termsUrl',
         'logoUrl',
         'phone',
         'supportEmail',
-      ].some(has)
+      ]
+        .concat(hotelFields.map((f) => f.key))
+        .some(has)
     )
       throw new BadRequestException('At least one property field is required.');
+    if (
+      has('onlinePaymentHoldMinutes') &&
+      (!Number.isInteger(value.onlinePaymentHoldMinutes) ||
+        Number(value.onlinePaymentHoldMinutes) < 10 ||
+        Number(value.onlinePaymentHoldMinutes) > 1440)
+    )
+      throw new BadRequestException('Choose a payment hold between 10 and 1440 minutes.');
+    if (
+      has('autoRefundOnFreeCancellation') &&
+      typeof value.autoRefundOnFreeCancellation !== 'boolean'
+    )
+      throw new BadRequestException(
+        'Choose whether free cancellations are refunded automatically.',
+      );
+    const brandColour = this.optionalBrandText(value, 'brandColour', 7, true);
+    if (brandColour && !/^#[0-9a-fA-F]{6}$/.test(brandColour))
+      throw new BadRequestException('Enter a colour such as #123ABC.');
+    const emailFooterText = this.optionalBrandText(value, 'emailFooterText', 300, true);
+    const termsUrl = this.optionalBrandText(value, 'termsUrl', 2048, true);
+    if (termsUrl) {
+      try {
+        const u = new URL(termsUrl);
+        if (u.protocol !== 'https:' || u.username || u.password) throw new Error();
+      } catch {
+        throw new BadRequestException('Enter a full https terms and conditions link.');
+      }
+    }
     const text = (key: 'name' | 'address' | 'timezone', maxLength: number) => {
       if (!has(key)) return undefined;
       if (
@@ -533,10 +639,40 @@ export class PropertiesService {
       rules,
       advanceBookingDays: optionalInteger('advanceBookingDays'),
       freeCancellationDaysBeforeArrival,
+      ...hotelInput(value),
+      paymentGateways: has('paymentGateways')
+        ? this.paymentGateways(value.paymentGateways)
+        : undefined,
+      onlinePaymentHoldMinutes: has('onlinePaymentHoldMinutes')
+        ? (value.onlinePaymentHoldMinutes as number)
+        : undefined,
+      autoRefundOnFreeCancellation: has('autoRefundOnFreeCancellation')
+        ? (value.autoRefundOnFreeCancellation as boolean)
+        : undefined,
+      brandColour,
+      emailFooterText,
+      termsUrl,
       logoUrl: this.optionalLogoUrl(value, true),
       phone: this.optionalBrandText(value, 'phone', 100, true),
       supportEmail: this.optionalSupportEmail(value, true),
     };
+  }
+
+  private serverLogoKey(url: URL): string | null {
+    const configured = process.env.MEDIA_PUBLIC_BASE_URL?.replace(/\/$/, '');
+    if (!configured) return null;
+    const base = new URL(configured);
+    const key = url.searchParams.get('key');
+    return url.origin === base.origin &&
+      url.pathname === base.pathname + '/image' &&
+      !url.hash &&
+      [...url.searchParams.keys()].length === 1 &&
+      key &&
+      /^server-v1\/library\/[0-9a-f-]{36}\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.(?:png|jpe?g|webp)$/i.test(
+        key,
+      )
+      ? key
+      : null;
   }
 
   private optionalLogoUrl(
@@ -550,16 +686,25 @@ export class PropertiesService {
       throw new BadRequestException('Invalid logoUrl.');
     try {
       const url = new URL(logoUrl.trim());
-      if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error();
+      if (this.serverLogoKey(url) && !url.username && !url.password) return url.toString();
+      if (
+        url.protocol !== 'https:' ||
+        url.username ||
+        url.password ||
+        !/\.(png|jpe?g|webp)$/i.test(url.pathname)
+      )
+        throw new Error();
       return url.toString();
     } catch {
-      throw new BadRequestException('logoUrl must be a valid HTTP or HTTPS URL.');
+      throw new BadRequestException(
+        'Choose a public https PNG, JPG or WebP logo from the photo library.',
+      );
     }
   }
 
   private optionalBrandText(
     value: Record<string, unknown>,
-    key: 'phone',
+    key: 'phone' | 'brandColour' | 'emailFooterText' | 'termsUrl',
     maxLength: number,
     allowAbsent: boolean,
   ): string | null | undefined {

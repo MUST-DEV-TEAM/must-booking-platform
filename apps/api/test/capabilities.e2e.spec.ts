@@ -1,3 +1,4 @@
+import { AuditLogService } from '../src/tenancy/audit-log.service';
 import { randomUUID } from 'node:crypto';
 
 import { ForbiddenException } from '@nestjs/common';
@@ -5,6 +6,7 @@ import { PrismaClient } from '@prisma/client';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { CapabilitiesGuard } from '../src/tenancy/capabilities.guard';
+import { CAPABILITY_KEYS } from '../src/tenancy/capability-catalog';
 import { CapabilitiesService } from '../src/tenancy/capabilities.service';
 import { PropertyRoleTemplatesService } from '../src/tenancy/property-role-templates.service';
 import { TenantDatabaseService } from '../src/tenancy/tenant-database.service';
@@ -28,6 +30,7 @@ const capabilities = new CapabilitiesService(database);
 const guard = new CapabilitiesGuard(
   { getAllAndOverride: () => 'settings.manage' } as never,
   capabilities,
+  new AuditLogService(database),
 );
 
 describe('property staff capabilities', () => {
@@ -42,6 +45,7 @@ describe('property staff capabilities', () => {
   } as never;
 
   afterAll(async () => {
+    await migrationPrisma.$executeRaw`DELETE FROM audit_logs WHERE tenant_id=${tenantId}::uuid`;
     await migrationPrisma.$executeRaw`DELETE FROM "property_staff_capability_overrides" WHERE "tenant_id" = ${tenantId}::uuid`;
     await migrationPrisma.$executeRaw`DELETE FROM "property_staff_assignments" WHERE "tenant_id" = ${tenantId}::uuid`;
     await migrationPrisma.$executeRaw`DELETE FROM "property_role_template_capabilities" WHERE "tenant_id" = ${tenantId}::uuid`;
@@ -78,27 +82,24 @@ describe('property staff capabilities', () => {
     expect(seededCapabilities).toEqual([
       {
         name: 'Finance',
-        capabilities: ['payments.refund', 'reports.view'],
+        capabilities: ['bookings.view', 'payments.refund', 'payments.view', 'reports.view'],
       },
       {
         name: 'Front Desk',
-        capabilities: ['bookings.manage', 'calendar.view', 'guests.manage'],
+        capabilities: [
+          'bookings.cancel',
+          'bookings.create',
+          'bookings.edit',
+          'bookings.view',
+          'calendar.view',
+          'guests.merge',
+          'guests.view',
+          'payments.record',
+        ],
       },
       {
         name: 'Property Manager',
-        capabilities: [
-          'accommodations.manage',
-          'bookings.manage',
-          'calendar.view',
-          'guests.manage',
-          'payments.refund',
-          'photos.manage',
-          'rates.manage',
-          'reports.view',
-          'settings.manage',
-          'staff.invite',
-          'staff.manage_permissions',
-        ],
+        capabilities: [...CAPABILITY_KEYS].sort(),
       },
     ]);
     const template = await migrationPrisma.$queryRaw<

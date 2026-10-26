@@ -90,8 +90,9 @@ describe('mixed-mode room auto-assignment', () => {
   ) {
     await request(app.getHttpServer())
       .patch(`${propertyUrl}/rate-plans/${ratePlanId}/rooms/${roomId}/price-override`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
-      .send({ amount })
+      .send({ version: 0, amount })
       .expect(200);
   }
 
@@ -156,12 +157,14 @@ describe('mixed-mode room auto-assignment', () => {
     );
     const ratePlan = await request(app.getHttpServer())
       .post(`${propertyUrl}/rate-plans`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ name: 'Flexible', currency: 'EUR' })
       .expect(201);
     for (const roomTypeId of [matchingType.body.id, noMatchType.body.id])
       await request(app.getHttpServer())
         .post(`${propertyUrl}/rate-plans/${ratePlan.body.id}/rules`)
+        .set('Idempotency-Key', globalThis.crypto.randomUUID())
         .set('Cookie', cookie)
         .send({ roomTypeId, startsOn: null, endsOn: null, amount: '100.00' })
         .expect(201);

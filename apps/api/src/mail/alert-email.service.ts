@@ -1,3 +1,4 @@
+import { EMAIL_TEMPLATES, savedTemplate, renderTemplate } from './email-templates';
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Queue, Worker } from 'bullmq';
 import IORedis from 'ioredis';
@@ -13,7 +14,7 @@ import {
   type PlatformDailyStats,
 } from './alert-email-content';
 import { MailDeliveryService } from './mail-delivery.service';
-import { staffRecipients } from './notification-recipients';
+import { staffDeliveryGroups, staffRecipients } from './notification-recipients';
 import type { NotificationTopic } from './notification-topics';
 import { addDays, localNow } from './scheduled-email.service';
 
@@ -143,18 +144,53 @@ export class AlertEmailService implements OnModuleInit, OnModuleDestroy {
       const recipients = await staffRecipients(tx, context, topic);
       if (!recipients.length) return null;
       const rows = await tx.$queryRaw<Array<MailBrand & { timezone: string | null }>>`
-        SELECT name, logo_url AS "logoUrl", support_email AS "supportEmail", phone,
+        SELECT name, brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",logo_url AS "logoUrl", support_email AS "supportEmail", phone,
           public_website_origin AS "websiteUrl", address, timezone
         FROM properties WHERE tenant_id = ${context.tenantId}::uuid AND id = ${context.propertyId}::uuid
       `;
-      return { recipients, property: rows[0]! };
+      return {
+        recipients,
+        property: rows[0]!,
+        template: await savedTemplate(
+          tx,
+          context,
+          topic === 'refund_processed' ? 'staff_refund_processed' : 'owner_alerts',
+        ),
+      };
     });
     if (!work) return;
     const { timezone, ...brand } = work.property;
     const render = topic === 'refund_processed' ? refundAlertEmail : ownerAlertEmail;
     const prefix = topic === 'refund_processed' ? 'refund-alert' : 'owner-alert';
-    for (const recipient of work.recipients) {
-      const email = render(events, recipient.email, brand, timezone || 'UTC', this.dashboardUrl());
+    for (const recipient of staffDeliveryGroups(work.recipients)) {
+      const key = topic === 'refund_processed' ? 'staff_refund_processed' : 'owner_alerts';
+      const message = renderTemplate(key, work.template, {
+        ...Object.fromEntries(
+          EMAIL_TEMPLATES[key].placeholders.map((name) => [
+            name,
+            'See the recorded reservations below',
+          ]),
+        ),
+        hotel_name: brand.name,
+        hotel_contact: brand.supportEmail ?? brand.phone ?? 'Contact the hotel',
+        alert_summary: `${events.length} recorded events need review.`,
+        booking_reference: events
+          .map((e) => e.reference)
+          .filter(Boolean)
+          .join(', '),
+        refund_amount: events
+          .map((e) => e.detail)
+          .filter(Boolean)
+          .join('; '),
+      });
+      const email = render(
+        events,
+        recipient.email,
+        brand,
+        timezone || 'UTC',
+        this.dashboardUrl(),
+        message,
+      );
       await this.delivery.dispatch(
         'rendered',
         {
@@ -162,6 +198,7 @@ export class AlertEmailService implements OnModuleInit, OnModuleDestroy {
           idempotencyKey: `${prefix}/${context.propertyId}/${windowStart.toISOString()}/${recipient.staffUserId}`,
         },
         context,
+        { recipientEnvelope: recipient.envelope },
       );
     }
   }

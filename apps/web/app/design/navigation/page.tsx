@@ -15,10 +15,17 @@ import {
 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 
-import { Button } from '../_ui/button';
-import { Card } from '../_ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../_ui/select';
-import { Sheet, SheetClose, SheetContent, SheetTitle } from '../_ui/sheet';
+import { Button } from '../../../components/ui/button';
+import { Card } from '../../../components/ui/card';
+import { CalendarPicker, type CalendarSelection } from '../../../components/ui/calendar-picker';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../../components/ui/select';
+import { Sheet, SheetClose, SheetContent, SheetTitle } from '../../../components/ui/sheet';
 import { PageHeader } from '../_ui/hotel';
 import {
   Breadcrumb,
@@ -88,6 +95,10 @@ export default function NavigationDesignPage() {
   const [tab, setTab] = useState('overview');
   const [view, setView] = useState('attention');
   const [page, setPage] = useState(3);
+  const [dateRange, setDateRange] = useState<CalendarSelection>({
+    start: '2026-10-12',
+    end: '2026-10-18',
+  });
   const items = navByRole[role].items;
   const activeId = items.some((item) => item.id === current) ? current : items[0]!.id;
   const activeLabel = items.find((item) => item.id === activeId)!.label;
@@ -109,7 +120,7 @@ export default function NavigationDesignPage() {
             Desktop frame first, then the phone frame.
           </span>
         </div>
-        <div className="grid gap-6 2xl:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="grid gap-6 @2xl/design-preview:grid-cols-[minmax(0,1fr)_320px]">
           <div className="flex h-[640px] overflow-hidden rounded-xl border bg-background">
             <Sidebar role={role} current={activeId} onSelect={setCurrent} className="shrink-0" />
             <div className="flex min-w-0 flex-1 flex-col">
@@ -117,18 +128,19 @@ export default function NavigationDesignPage() {
                 title={activeLabel}
                 actions={
                   <>
-                    <Button
-                      variant="outline"
-                      className="hidden h-10 px-3 text-[13px] md:inline-flex [&_svg]:size-3.5"
-                    >
-                      <CalendarDays /> 12 – 18 Oct 2026
-                    </Button>
+                    <CalendarPicker
+                      label="Choose dashboard date range"
+                      mode="range"
+                      value={dateRange}
+                      onChange={setDateRange}
+                      className="hidden h-10 px-3 text-[13px] @md/design-preview:inline-flex [&_svg]:size-3.5"
+                    />
                     <NotificationTrigger count={3} />
-                    <UserMenuTrigger role={role} className="hidden md:flex" />
+                    <UserMenuTrigger role={role} className="hidden @md/design-preview:flex" />
                   </>
                 }
               />
-              <div className="space-y-4 overflow-auto p-4 sm:p-6">
+              <div className="space-y-4 overflow-auto p-4 @sm/design-preview:p-6">
                 <Breadcrumb items={['Home', 'Empire Beach Resort', activeLabel]} />
                 <TabBar tabs={inventoryTabs} current={tab} onSelect={setTab} />
                 <Card className="px-6 text-sm text-muted-foreground">
@@ -155,7 +167,7 @@ export default function NavigationDesignPage() {
         title="Sidebar by role"
         note="Each role only sees the destinations it can use. Collapsed keeps icons and badges."
       >
-        <div className="flex gap-4 overflow-x-auto pb-2">
+        <div className="grid gap-4 @md/design-preview:grid-cols-2 @2xl/design-preview:grid-cols-3">
           {roles.map((r) => (
             <div key={r} className="space-y-2">
               <p className="text-sm font-semibold">{navByRole[r].label}</p>
@@ -198,25 +210,25 @@ export default function NavigationDesignPage() {
         note="Page title on the left; date range, notifications and account on the right. Phones add a menu button."
       >
         <div className="space-y-3">
-          <div className="overflow-x-auto">
-            <div className="min-w-[720px]">
-              <TopHeader
-                className="rounded-xl border"
-                title="Dashboard"
-                actions={
-                  <>
-                    <Button variant="outline" className="h-10 px-3 text-[13px] [&_svg]:size-3.5">
-                      <CalendarDays /> 12 – 18 Oct 2026
-                    </Button>
-                    <NotificationTrigger count={3} />
-                    <UserMenuTrigger />
-                  </>
-                }
-              />
-            </div>
-          </div>
           <TopHeader
-            className="max-w-sm rounded-xl border"
+            className="rounded-xl border"
+            title="Dashboard"
+            actions={
+              <>
+                <CalendarPicker
+                  label="Choose dashboard date range"
+                  mode="range"
+                  value={dateRange}
+                  onChange={setDateRange}
+                  className="h-10 px-3 text-[13px] [&_svg]:size-3.5"
+                />
+                <NotificationTrigger count={3} />
+                <UserMenuTrigger />
+              </>
+            }
+          />
+          <TopHeader
+            className="max-w-[24rem] rounded-xl border"
             title="Dashboard"
             onMenu={() => undefined}
             actions={<NotificationTrigger count={12} />}
@@ -226,7 +238,7 @@ export default function NavigationDesignPage() {
 
       <Block
         title="Tabs"
-        note="Underline tabs switch views inside a page; segmented tabs are the quieter option. Both scroll sideways on small screens."
+        note="Underline and segmented tabs wrap onto additional rows when the screen is narrow."
       >
         <div className="space-y-4">
           <TabBar tabs={inventoryTabs} current={tab} onSelect={setTab} />
@@ -246,7 +258,7 @@ export default function NavigationDesignPage() {
         title="Parts"
         note="Sidebar item states, notification and account triggers, breadcrumb and pagination."
       >
-        <div className="grid gap-6 md:grid-cols-2">
+        <div className="grid gap-6 @md/design-preview:grid-cols-2">
           <Card className="gap-3 px-5">
             <p className="text-sm font-bold">Sidebar item</p>
             <SidebarItem item={navByRole.admin.items[0]!} />
@@ -267,7 +279,7 @@ export default function NavigationDesignPage() {
             <UserMenuTrigger />
             <UserMenuTrigger compact className="w-fit" />
           </Card>
-          <Card className="gap-4 px-5 md:col-span-2">
+          <Card className="gap-4 px-5 @md/design-preview:col-span-2">
             <p className="text-sm font-bold">Breadcrumb and pagination</p>
             <Breadcrumb items={['Bookings', 'MH-1042', 'Payment']} />
             <Pagination page={page} pageCount={10} total={248} pageSize={25} onPage={setPage} />
@@ -279,7 +291,7 @@ export default function NavigationDesignPage() {
   );
 }
 
-/** Phone frame: menu button at the right of the header, scrollable bottom bar with every destination. */
+/** Phone frame: menu button at the right of the header and a wrapping bottom destination grid. */
 function PhoneFrame({
   role,
   current,
@@ -302,7 +314,7 @@ function PhoneFrame({
     <Sheet open={open} onOpenChange={setOpen}>
       <div
         ref={setFrame}
-        className="relative mx-auto flex h-[640px] w-[320px] flex-col overflow-hidden rounded-[28px] border-4 border-foreground/80 bg-background"
+        className="@container/phone relative mx-auto flex h-[640px] w-full max-w-[320px] flex-col overflow-hidden rounded-[28px] border-4 border-foreground/80 bg-background"
       >
         <TopHeader
           title={title}
@@ -314,12 +326,12 @@ function PhoneFrame({
           <Breadcrumb items={['Home', 'Empire Beach Resort', title]} />
           <SectionTabs tabs={bookingTabs.slice(0, 3)} current={view} onSelect={onView} compact />
           <Card className="px-4 text-sm text-muted-foreground">
-            Menu button sits at the right of the header. The bottom bar scrolls sideways.
+            Menu button sits at the right of the header. Bottom destinations wrap to fit.
           </Card>
         </div>
         <nav
           aria-label="Quick destinations"
-          className="flex gap-1 overflow-x-auto border-t bg-card px-1 py-1.5"
+          className="grid grid-cols-4 gap-1 border-t bg-card px-1 py-1.5"
         >
           {items.map((item) => (
             <button
@@ -329,8 +341,8 @@ function PhoneFrame({
               aria-current={item.id === current ? 'page' : undefined}
               className={
                 item.id === current
-                  ? 'flex shrink-0 flex-col items-center gap-0.5 rounded-md px-3 py-1 text-[11px] font-semibold text-primary'
-                  : 'flex shrink-0 flex-col items-center gap-0.5 rounded-md px-3 py-1 text-[11px] font-semibold text-muted-foreground'
+                  ? 'flex min-w-0 flex-col items-center gap-0.5 rounded-md px-1 py-1 text-[10px] font-semibold text-primary'
+                  : 'flex min-w-0 flex-col items-center gap-0.5 rounded-md px-1 py-1 text-[10px] font-semibold text-muted-foreground'
               }
             >
               <item.icon className="size-4" />

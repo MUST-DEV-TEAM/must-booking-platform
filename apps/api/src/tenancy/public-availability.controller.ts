@@ -10,7 +10,10 @@ import {
 import type { AvailabilityQuery } from '@must/domain-contracts';
 
 import { PmsProviderRegistry } from '../booking/pms-provider-registry';
-import { ClockAvailabilityService } from '../integrations/clock/clock-availability.service';
+import {
+  ClockAvailabilityService,
+  NO_CLOCK_CONNECTION_MESSAGE,
+} from '../integrations/clock/clock-availability.service';
 import { AvailabilityService } from './availability.service';
 import { PublicTenantScoped } from './tenant-context.decorator';
 import { PublicRateLimitGuard } from './public-rate-limit.guard';
@@ -38,16 +41,54 @@ export class PublicAvailabilityController {
   @UseGuards(PublicRateLimitGuard)
   @PublicRateLimit(PUBLIC_READ_RATE_LIMIT)
   async getAvailability(@Query() query: unknown, @Req() request: TenantPropertyRequest) {
+    const parsed = parseAvailabilityQuery(query);
+    await this.availability.assertBookableSelection(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      parsed.roomTypeId,
+    );
     const provider = await this.providers.forProperty(
       request.tenantContext.tenantId,
       request.tenantContext.propertyId,
     );
-    const result = await provider.getAvailability(
-      request.tenantContext,
-      parseAvailabilityQuery(query),
-    );
+    const result = await provider.getAvailability(request.tenantContext, parsed);
     if (!result.ok) throw new BadRequestException(result.error.message);
     return result.value;
+  }
+
+  /**
+   * The published Clock rates a guest can choose between for a stay (for example Bed &
+   * breakfast or Full board), each with its real total. The chosen id is sent back as
+   * `clockRateId` when requesting the quote. A property without Clock has no choice and gets an
+   * empty list; an empty list for a Clock property means nothing is bookable for those dates.
+   */
+  @Get('rate-offers')
+  @PublicTenantScoped({ propertyParam: 'propertyId' })
+  @UseGuards(PublicRateLimitGuard)
+  @PublicRateLimit(PUBLIC_READ_RATE_LIMIT)
+  async getRateOffers(@Query() query: unknown, @Req() request: TenantPropertyRequest) {
+    const parsed = parseAvailabilityQuery(query);
+    await this.availability.assertBookableSelection(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      parsed.roomTypeId,
+    );
+    const result = await this.clockAvailability.listOffersForStay(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      {
+        roomTypeId: parsed.roomTypeId,
+        startsOn: parsed.startsOn,
+        endsOn: parsed.endsOn,
+        adultCount: parsed.adultCount,
+        childrenCount: parsed.childrenCount,
+      },
+    );
+    if (!result.ok) {
+      if (result.error.message === NO_CLOCK_CONNECTION_MESSAGE) return { offers: [] };
+      throw new BadRequestException(result.error.message);
+    }
+    return { offers: result.value };
   }
 
   /**
@@ -60,6 +101,12 @@ export class PublicAvailabilityController {
   @PublicRateLimit(PUBLIC_READ_RATE_LIMIT)
   async checkAvailability(@Query() query: unknown, @Req() request: TenantPropertyRequest) {
     const parsed = parseBookingAvailabilityQuery(query);
+    await this.availability.assertBookableSelection(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      parsed.roomTypeId,
+      parsed.roomId,
+    );
     try {
       const result = await this.clockAvailability.isAvailableForBooking(
         request.tenantContext.tenantId,
@@ -83,8 +130,14 @@ export class PublicAvailabilityController {
   @PublicTenantScoped({ propertyParam: 'propertyId' })
   @UseGuards(PublicRateLimitGuard)
   @PublicRateLimit(PUBLIC_READ_RATE_LIMIT)
-  getCalendar(@Query() query: unknown, @Req() request: TenantPropertyRequest) {
+  async getCalendar(@Query() query: unknown, @Req() request: TenantPropertyRequest) {
     const parsed = parseAvailabilityCalendarQuery(query);
+    await this.availability.assertBookableSelection(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      parsed.roomTypeId,
+      parsed.roomId || undefined,
+    );
     return this.availability.getCalendar(
       request.tenantContext.tenantId,
       request.tenantContext.propertyId,

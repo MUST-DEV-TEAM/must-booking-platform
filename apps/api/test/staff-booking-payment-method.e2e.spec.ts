@@ -1,3 +1,5 @@
+import { withoutExternalWorkers } from './helpers/without-external-workers';
+import * as crypto from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -56,6 +58,11 @@ describe('staff-bookings: payment method selection', () => {
   };
   const payments: PaymentProvider = {
     async createCheckoutSession(_context, command) {
+      for (const target of [command.successUrl, command.cancelUrl]) {
+        const url = new URL(target);
+        expect(url.searchParams.get('tenantId')).toBe(_context.tenantId);
+        expect(url.searchParams.get('propertyId')).toBe(_context.propertyId);
+      }
       return {
         ok: true,
         value: {
@@ -76,6 +83,11 @@ describe('staff-bookings: payment method selection', () => {
   };
   const pokpay: PaymentProvider = {
     async createCheckoutSession(_context, command) {
+      for (const target of [command.successUrl, command.cancelUrl]) {
+        const url = new URL(target);
+        expect(url.searchParams.get('tenantId')).toBe(_context.tenantId);
+        expect(url.searchParams.get('propertyId')).toBe(_context.propertyId);
+      }
       const attempt = (pokpayCheckoutAttempts.get(command.bookingId) ?? 0) + 1;
       pokpayCheckoutAttempts.set(command.bookingId, attempt);
       const id = `pok_test_${command.bookingId}_${attempt}`;
@@ -108,7 +120,9 @@ describe('staff-bookings: payment method selection', () => {
     process.env.WEB_APP_URL = 'http://localhost:3001';
     await clearSignupRateLimits();
     const { AppModule } = await import('../src/app.module');
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+    const moduleRef = await withoutExternalWorkers(
+      Test.createTestingModule({ imports: [AppModule] }),
+    )
       .overrideProvider(MAIL_PROVIDER)
       .useValue(mail)
       .overrideProvider(PAYMENT_PROVIDER)
@@ -149,19 +163,22 @@ describe('staff-bookings: payment method selection', () => {
     roomTypeId = roomType.body.id;
     const ratePlan = await request(app.getHttpServer())
       .post(`${tenantUrl}/properties/${propertyId}/rate-plans`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ name: 'Standard Rate', currency: 'EUR' })
       .expect(201);
     ratePlanId = ratePlan.body.id;
     await request(app.getHttpServer())
       .post(`${tenantUrl}/properties/${propertyId}/rate-plans/${ratePlanId}/rules`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ roomTypeId, startsOn: null, endsOn: null, amount: '100.00' })
       .expect(201);
     await request(app.getHttpServer())
       .put(`${tenantUrl}/properties/${propertyId}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', cookie)
-      .send({ roomTypeId, startsOn: '2026-09-01', endsOn: '2026-09-10', availableUnits: 5 })
+      .send({ roomTypeId, startsOn: '2036-09-01', endsOn: '2036-09-10', availableUnits: 5 })
       .expect(204);
     await request(app.getHttpServer())
       .patch(`${tenantUrl}/properties/${propertyId}/payment-gateways`)
@@ -185,8 +202,8 @@ describe('staff-bookings: payment method selection', () => {
       .send({
         roomTypeId,
         ratePlanId,
-        startsOn: '2026-09-01',
-        endsOn: '2026-09-03',
+        startsOn: '2036-09-01',
+        endsOn: '2036-09-03',
         paymentMethod: 'stripe',
         guest: { email: 'stripe-guest@example.test', firstName: 'Stripe', lastName: 'Guest' },
       })
@@ -213,8 +230,8 @@ describe('staff-bookings: payment method selection', () => {
       .send({
         roomTypeId,
         ratePlanId,
-        startsOn: '2026-09-04',
-        endsOn: '2026-09-06',
+        startsOn: '2036-09-04',
+        endsOn: '2036-09-06',
         paymentMethod: 'pokpay',
         guest: { email: 'pokpay-guest@example.test', firstName: 'PokPay', lastName: 'Guest' },
       })
@@ -233,8 +250,8 @@ describe('staff-bookings: payment method selection', () => {
       .send({
         roomTypeId,
         ratePlanId,
-        startsOn: '2026-09-06',
-        endsOn: '2026-09-08',
+        startsOn: '2036-09-06',
+        endsOn: '2036-09-08',
         guest: { email: 'no-method-guest@example.test', firstName: 'No', lastName: 'Method' },
       })
       .expect(201);
@@ -249,8 +266,8 @@ describe('staff-bookings: payment method selection', () => {
       .send({
         roomTypeId,
         ratePlanId,
-        startsOn: '2026-09-08',
-        endsOn: '2026-09-10',
+        startsOn: '2036-09-08',
+        endsOn: '2036-09-10',
         paymentMethod: 'pay_at_hotel',
         guest: { email: 'pay-at-hotel-guest@example.test', firstName: 'PayAt', lastName: 'Hotel' },
       })
@@ -278,8 +295,8 @@ describe('staff-bookings: payment method selection', () => {
       .send({
         roomTypeId,
         ratePlanId,
-        startsOn: '2026-09-02',
-        endsOn: '2026-09-04',
+        startsOn: '2036-09-02',
+        endsOn: '2036-09-04',
         paymentMethod: 'pokpay',
         guest: { email: 'original-link@example.test', firstName: 'Original', lastName: 'Link' },
       })
@@ -315,8 +332,8 @@ describe('staff-bookings: payment method selection', () => {
       .send({
         roomTypeId,
         ratePlanId,
-        startsOn: '2026-09-04',
-        endsOn: '2026-09-06',
+        startsOn: '2036-09-04',
+        endsOn: '2036-09-06',
         paymentMethod: 'pokpay',
         guest: { email: 'pending-pokpay@example.test', firstName: 'Pending', lastName: 'PokPay' },
       })
@@ -376,8 +393,8 @@ describe('staff-bookings: payment method selection', () => {
       .send({
         roomTypeId,
         ratePlanId,
-        startsOn: '2026-09-06',
-        endsOn: '2026-09-08',
+        startsOn: '2036-09-06',
+        endsOn: '2036-09-08',
         paymentMethod: 'stripe',
         guest: { email: 'pending-manual@example.test', firstName: 'Pending', lastName: 'Manual' },
       })
@@ -426,8 +443,8 @@ describe('staff-bookings: payment method selection', () => {
       .send({
         roomTypeId,
         ratePlanId,
-        startsOn: '2026-09-03',
-        endsOn: '2026-09-05',
+        startsOn: '2036-09-03',
+        endsOn: '2036-09-05',
         paymentMethod: 'stripe',
         guest: { email: 'unpaid@example.test', firstName: 'Unpaid', lastName: 'Guest' },
       })

@@ -1,5 +1,19 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { bookingContactSql } from '../booking/booking-contact';
+import { pricingContext, pricingFacts } from './pricing.repository';
+import { evaluatePricing, pricingDay } from '../booking/pricing-evaluator';
+import { InventoryStockService } from './inventory-stock.service';
+import { applicableRestrictions } from './inventory-restrictions.repository';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
+import { evaluateBookingRules, rangeViolation } from '../booking/booking-rules';
+import { evaluatePropertyBookingRules } from './booking-rules-evaluation';
 
 import { AuditLogService } from './audit-log.service';
 import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
@@ -15,6 +29,7 @@ type Availability = {
   endsOn: string;
   isAvailable: boolean;
   availableUnits: number;
+  restrictionErrors?: Array<{ code: string; message: string }>;
 };
 type RoomAvailability = {
   roomId: string;
@@ -33,14 +48,32 @@ type RoomAvailabilityInput = {
   endsOn: string;
   isAvailable: boolean;
 };
+export const BLOCK_REASONS = [
+  'maintenance',
+  'renovation',
+  'safety_inspection',
+  'deep_cleaning',
+  'out_of_service',
+  'owner_use',
+  'house_use',
+  'event',
+  'other',
+] as const;
+
 type AvailabilityBlockInput = {
   startsOn: string;
   endsOn: string;
   all: boolean;
   roomTypeIds: string[];
   roomIds: string[];
+  reason?: (typeof BLOCK_REASONS)[number];
+  note?: string;
+  reference?: string;
 };
-type AvailabilityBlock = AvailabilityBlockInput & { id: string };
+type AvailabilityBlock = AvailabilityBlockInput & {
+  id: string;
+  createdByEmail?: string | null;
+};
 
 export type InventoryBookedUnitsInput = {
   roomTypeId: string;
@@ -62,7 +95,53 @@ export class AvailabilityService {
     @Inject(IntegrationConnectionsService)
     private readonly connections: IntegrationConnectionsService,
     @Inject(ClockAvailabilityService) private readonly clockAvailability: ClockAvailabilityService,
+    @Inject(InventoryStockService) private readonly stock: InventoryStockService,
   ) {}
+
+  evaluateRules(tenantId: string, propertyId: string, query: unknown) {
+    return evaluatePropertyBookingRules(
+      this.database,
+      async (input) => {
+        const connection = await this.connections.activePmsConnectionCredentials(
+          tenantId,
+          propertyId,
+        );
+        if (connection?.provider === 'CLOCK_PMS') {
+          const calendar = await this.getCalendar(tenantId, propertyId, {
+            roomTypeId: input.roomTypeId,
+            month: input.startsOn.slice(0, 7),
+            adultCount: input.adults,
+            childrenCount: input.children,
+          });
+          const result = await this.clockAvailability.isAvailableForBooking(tenantId, propertyId, {
+            ...input,
+            adultCount: input.adults,
+            childrenCount: input.children,
+          });
+          if (!result.ok) throw new Error(result.error.message);
+          return {
+            availableUnits: result.value ? 1 : 0,
+            minimumStay: calendar.days.find((day) => day.date === input.startsOn)?.minStay,
+          };
+        }
+        if (input.roomId) {
+          const roomAvailable = (
+            await this.getRoomAvailability(tenantId, propertyId, input.roomId, input)
+          ).isAvailable;
+          const poolAvailable =
+            input.bookingMode !== 'MIXED' ||
+            (await this.getAvailability(tenantId, propertyId, input)).availableUnits > 0;
+          return { availableUnits: roomAvailable && poolAvailable ? 1 : 0 };
+        }
+        return {
+          availableUnits: (await this.getAvailability(tenantId, propertyId, input)).availableUnits,
+        };
+      },
+      tenantId,
+      propertyId,
+      query,
+    );
+  }
 
   async getAvailability(
     tenantId: string,
@@ -71,7 +150,15 @@ export class AvailabilityService {
   ): Promise<Availability> {
     const input = this.input(query);
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      await this.requireRoomType(tx, tenantId, propertyId, input.roomTypeId);
+      const roomType = await this.requireRoomType(tx, tenantId, propertyId, input.roomTypeId);
+      if (roomType.status !== 'PUBLISHED')
+        return {
+          roomTypeId: input.roomTypeId,
+          startsOn: input.startsOn,
+          endsOn: input.endsOn,
+          availableUnits: 0,
+          isAvailable: false,
+        };
       const rows = await tx.$queryRaw<Array<{ availableUnits: number | null }>>`
         WITH requested_nights AS (
           SELECT generate_series(
@@ -84,7 +171,7 @@ export class AvailabilityService {
           WHEN EXISTS (
             SELECT 1
             FROM availability_blocks ab
-            WHERE ab.tenant_id = ${tenantId}::uuid
+            WHERE ab.lifecycle IN ('Active','Scheduled') AND ab.tenant_id = ${tenantId}::uuid
               AND ab.property_id = ${propertyId}::uuid
               AND ab.starts_on < ${input.endsOn}::date
               AND ab.ends_on > ${input.startsOn}::date
@@ -111,13 +198,21 @@ export class AvailabilityService {
           AND inventory_units.room_type_id = ${input.roomTypeId}::uuid
           AND inventory_units.stays_on = requested_nights.stays_on
       `;
-      const availableUnits = rows[0]?.availableUnits ?? 0;
+      const restrictions = await this.restrictionCheck(
+        tx,
+        tenantId,
+        propertyId,
+        input.roomTypeId,
+        input,
+      );
+      const availableUnits = restrictions.valid ? (rows[0]?.availableUnits ?? 0) : 0;
       return {
         roomTypeId: input.roomTypeId,
         startsOn: input.startsOn,
         endsOn: input.endsOn,
         availableUnits,
         isAvailable: availableUnits > 0,
+        ...(restrictions.errors.length ? { restrictionErrors: restrictions.errors } : {}),
       };
     });
   }
@@ -169,7 +264,7 @@ export class AvailabilityService {
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       await this.requireRoomType(tx, tenantId, propertyId, query.roomTypeId);
       if (query.roomId) {
-        await this.requireIndividualRoomMode(tx, propertyId);
+        await this.requireIndividualRoomMode(tx, tenantId, propertyId);
         await this.requireRoom(tx, tenantId, propertyId, query.roomId);
         const days = await tx.$queryRaw<Array<{ date: string; isAvailable: boolean }>>`
           WITH month_days AS (
@@ -181,6 +276,11 @@ export class AvailabilityService {
               WHERE ra.tenant_id = ${tenantId}::uuid AND ra.property_id = ${propertyId}::uuid
                 AND ra.room_id = ${query.roomId}::uuid AND ra.stays_on = month_days.stays_on
                 AND ra.is_available = false
+            )
+            AND EXISTS (
+              SELECT 1 FROM rooms r
+              WHERE r.tenant_id = ${tenantId}::uuid AND r.property_id = ${propertyId}::uuid
+                AND r.id = ${query.roomId}::uuid AND r.is_active = true
             )
             AND NOT EXISTS (
               SELECT 1 FROM bookings b
@@ -197,7 +297,7 @@ export class AvailabilityService {
             )
             AND NOT EXISTS (
               SELECT 1 FROM availability_blocks ab
-              WHERE ab.tenant_id = ${tenantId}::uuid AND ab.property_id = ${propertyId}::uuid
+              WHERE ab.lifecycle IN ('Active','Scheduled') AND ab.tenant_id = ${tenantId}::uuid AND ab.property_id = ${propertyId}::uuid
                 AND ab.starts_on <= month_days.stays_on AND ab.ends_on > month_days.stays_on
                 AND (
                   ab.blocks_all
@@ -218,7 +318,15 @@ export class AvailabilityService {
           FROM month_days
           ORDER BY month_days.stays_on
         `;
-        return { days: days.map(localCalendarDay) };
+        return {
+          days: await this.restrictionCalendarDays(
+            tx,
+            tenantId,
+            propertyId,
+            query.roomTypeId,
+            days,
+          ),
+        };
       }
 
       const days = await tx.$queryRaw<Array<{ date: string; isAvailable: boolean }>>`
@@ -228,7 +336,7 @@ export class AvailabilityService {
         SELECT month_days.stays_on::text AS date,
           (CASE WHEN EXISTS (
             SELECT 1 FROM availability_blocks ab
-            WHERE ab.tenant_id = ${tenantId}::uuid AND ab.property_id = ${propertyId}::uuid
+            WHERE ab.lifecycle IN ('Active','Scheduled') AND ab.tenant_id = ${tenantId}::uuid AND ab.property_id = ${propertyId}::uuid
               AND ab.starts_on <= month_days.stays_on AND ab.ends_on > month_days.stays_on
               AND (
                 ab.blocks_all
@@ -249,7 +357,86 @@ export class AvailabilityService {
           AND inventory_units.stays_on = month_days.stays_on
         ORDER BY month_days.stays_on
       `;
-      return { days: days.map(localCalendarDay) };
+      return {
+        days: await this.restrictionCalendarDays(tx, tenantId, propertyId, query.roomTypeId, days),
+      };
+    });
+  }
+
+  private async restrictionCheck(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+    roomTypeId: string,
+    range: { startsOn: string; endsOn: string },
+  ) {
+    const restrictions = await applicableRestrictions(tx, tenantId, propertyId, roomTypeId);
+    return restrictions.length
+      ? evaluateBookingRules({
+          ...range,
+          channel: 'staff',
+          policy: { timezone: restrictions[0].timezone },
+          restrictions,
+        })
+      : { valid: true, errors: [] };
+  }
+  private async roomRestrictionCheck(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+    range: RoomBookedInput,
+  ) {
+    const rooms = await tx.$queryRaw<
+      Array<{ roomTypeId: string }>
+    >`SELECT room_type_id AS "roomTypeId" FROM rooms WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND id=${range.roomId}::uuid`;
+    if (!rooms[0]) return { valid: false, errors: [] };
+    return this.restrictionCheck(tx, tenantId, propertyId, rooms[0].roomTypeId, range);
+  }
+  private async restrictionCalendarDays(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+    roomTypeId: string,
+    days: Array<{ date: string; isAvailable: boolean }>,
+  ) {
+    const restrictions = await applicableRestrictions(tx, tenantId, propertyId, roomTypeId);
+    const pricingContextData = await pricingContext(tx, tenantId, propertyId);
+    const facts =
+      pricingContextData.source === 'LOCAL' ? await pricingFacts(tx, tenantId, propertyId) : null;
+    const fallback = facts?.plans.find((p) => p.isFallback);
+    return days.map((day) => {
+      const next = new Date(`${day.date}T00:00:00Z`);
+      next.setUTCDate(next.getUTCDate() + 1);
+      const evaluation = evaluateBookingRules({
+        channel: 'staff',
+        startsOn: day.date,
+        endsOn: next.toISOString().slice(0, 10),
+        restrictions,
+        policy: { timezone: restrictions[0]?.timezone },
+      });
+      // A day cell has no selected departure. Keep length/departure messages as metadata;
+      // only night-sale/arrival closures change its coverage status. Full stays use evaluateRules.
+      const closed = evaluation.errors.some((error) =>
+        ['STOP_SELL', 'CLOSED_TO_ARRIVAL', 'RESTRICTION_PRIORITY_CONFLICT'].includes(error.code),
+      );
+      return {
+        ...localCalendarDay({ ...day, isAvailable: day.isAvailable && !closed }),
+        ...(restrictions.length ? { restrictionErrors: evaluation.errors } : {}),
+        ...(facts && fallback
+          ? {
+              pricing: evaluatePricing(facts, {
+                ratePlanId: fallback.id,
+                roomTypeId,
+                startsOn: day.date,
+                endsOn: pricingDay(day.date, 1),
+                adults: 1,
+                children: 0,
+                channel: 'staff',
+                today: pricingContextData.today,
+              }),
+            }
+          : {}),
+      };
     });
   }
 
@@ -267,34 +454,7 @@ export class AvailabilityService {
     actorUserId: string,
     body: unknown,
   ): Promise<void> {
-    const input = this.inventoryInput(body);
-    await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      await this.requireRoomType(tx, tenantId, propertyId, input.roomTypeId);
-      await tx.$executeRaw`
-        INSERT INTO inventory_units (tenant_id, property_id, room_type_id, stays_on, available_units)
-        SELECT
-          ${tenantId}::uuid,
-          ${propertyId}::uuid,
-          ${input.roomTypeId}::uuid,
-          requested_nights.stays_on::date,
-          ${input.availableUnits}
-        FROM generate_series(
-          ${input.startsOn}::date,
-          ${input.endsOn}::date - 1,
-          INTERVAL '1 day'
-        ) AS requested_nights(stays_on)
-        ON CONFLICT (tenant_id, property_id, room_type_id, stays_on)
-        DO UPDATE SET available_units = EXCLUDED.available_units, updated_at = CURRENT_TIMESTAMP
-      `;
-      await this.audit.recordInTransaction(tx, {
-        tenantId,
-        propertyId,
-        actorUserId,
-        action: 'inventory_units.set',
-        targetType: 'room_type',
-        targetId: input.roomTypeId,
-      });
-    });
+    await this.stock.apply(tenantId, propertyId, actorUserId, body, randomUUID());
   }
 
   async getRoomAvailability(
@@ -305,13 +465,19 @@ export class AvailabilityService {
   ): Promise<RoomAvailability> {
     const input = this.rangeInput(query);
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      await this.requireIndividualRoomMode(tx, propertyId);
+      await this.requireIndividualRoomMode(tx, tenantId, propertyId);
       await this.requireRoom(tx, tenantId, propertyId, roomId);
+      const restrictions = await this.roomRestrictionCheck(tx, tenantId, propertyId, {
+        roomId,
+        ...input,
+      });
       return {
         roomId,
         startsOn: input.startsOn,
         endsOn: input.endsOn,
-        isAvailable: await this.roomIsAvailable(tx, tenantId, propertyId, { roomId, ...input }),
+        isAvailable:
+          restrictions.valid &&
+          (await this.roomIsAvailable(tx, tenantId, propertyId, { roomId, ...input })),
       };
     });
   }
@@ -325,7 +491,7 @@ export class AvailabilityService {
   ): Promise<void> {
     const input = this.roomAvailabilityInput(body);
     await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      await this.requireIndividualRoomMode(tx, propertyId);
+      await this.requireIndividualRoomMode(tx, tenantId, propertyId);
       await this.requireRoom(tx, tenantId, propertyId, roomId);
       await tx.$executeRaw`
         INSERT INTO room_availability (tenant_id, property_id, room_id, stays_on, is_available)
@@ -364,20 +530,81 @@ export class AvailabilityService {
     const input = this.availabilityBlockInput(body);
     const id = randomUUID();
     await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      if (input.roomIds.length > 0) await this.requireIndividualRoomMode(tx, propertyId);
+      const properties = await tx.$queryRaw<Array<{ timezone: string | null }>>`
+        SELECT timezone FROM properties WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid FOR UPDATE
+      `;
+      if (!properties[0]) throw new NotFoundException('Property was not found.');
+      const external = await tx.$queryRaw<
+        Array<{ id: string }>
+      >`SELECT pc.id FROM property_integration_connections pc JOIN integration_connections c ON c.tenant_id=pc.tenant_id AND c.id=pc.connection_id WHERE pc.tenant_id=${tenantId}::uuid AND pc.property_id=${propertyId}::uuid AND pc.enabled AND pc.kind='PMS' AND c.provider='CLOCK_PMS'`;
+      if (external.length) throw new ForbiddenException('Clock inventory is read-only.');
+      const rangeRules = evaluateBookingRules({
+        channel: 'block',
+        startsOn: input.startsOn,
+        endsOn: input.endsOn,
+        policy: properties[0],
+      });
+      if (!rangeRules.valid) throw new BadRequestException(rangeRules.errors[0]);
+      if (input.roomIds.length > 0) await this.requireIndividualRoomMode(tx, tenantId, propertyId);
       for (const roomTypeId of input.roomTypeIds)
         await this.requireRoomType(tx, tenantId, propertyId, roomTypeId);
       for (const roomId of input.roomIds) await this.requireRoom(tx, tenantId, propertyId, roomId);
 
+      // A block never cancels or moves a reservation: if one is in the way, stop and say which.
+      const conflicts = await tx.$queryRaw<
+        Array<{
+          id: string;
+          externalReference: string;
+          startsOn: string;
+          endsOn: string;
+          guestName: string | null;
+          roomName: string | null;
+        }>
+      >`
+        SELECT b.id, b.external_reference AS "externalReference", b.starts_on::text AS "startsOn",
+          b.ends_on::text AS "endsOn",
+          NULLIF(TRIM(CONCAT_WS(' ', ${bookingContactSql.firstName}, ${bookingContactSql.lastName})), '') AS "guestName",
+          r.name AS "roomName"
+        FROM bookings b
+        LEFT JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
+        LEFT JOIN rooms r ON r.tenant_id = b.tenant_id AND r.id = b.room_id
+        WHERE b.tenant_id = ${tenantId}::uuid AND b.property_id = ${propertyId}::uuid
+          AND b.starts_on < ${input.endsOn}::date AND b.ends_on > ${input.startsOn}::date
+          AND b.status NOT IN ('CANCELLED', 'EXPIRED', 'DRAFT', 'QUOTED')
+          AND (
+            ${input.all}
+            OR b.room_type_id = ANY(${input.roomTypeIds}::uuid[])
+            OR b.room_id = ANY(${input.roomIds}::uuid[])
+          )
+        ORDER BY b.starts_on
+        LIMIT 20
+      `;
+      const conflictRules = evaluateBookingRules({
+        channel: 'block',
+        startsOn: input.startsOn,
+        endsOn: input.endsOn,
+        policy: properties[0],
+        conflicts: conflicts.map((conflict) => ({ ...conflict, kind: 'booking' as const })),
+      });
+      const conflict = conflictRules.errors.find(
+        (error) => error.code === 'BLOCK_RESERVATION_CONFLICT',
+      );
+      if (conflict) throw new ConflictException({ ...conflict, conflicts });
+
       await tx.$executeRaw`
-        INSERT INTO availability_blocks (id, tenant_id, property_id, starts_on, ends_on, blocks_all)
+        INSERT INTO availability_blocks (id, tenant_id, property_id, starts_on, ends_on, blocks_all,
+          reason, note, reference, created_by_user_id)
         VALUES (
           ${id}::uuid,
           ${tenantId}::uuid,
           ${propertyId}::uuid,
           ${input.startsOn}::date,
           ${input.endsOn}::date,
-          ${input.all}
+          ${input.all},
+          ${input.reason ?? null},
+          ${input.note ?? null},
+          ${input.reference ?? null},
+          ${actorUserId}::uuid
         )
       `;
       for (const roomTypeId of input.roomTypeIds)
@@ -409,7 +636,7 @@ export class AvailabilityService {
       (tx) =>
         tx.$queryRaw<AvailabilityBlock[]>`
         SELECT ab.id, ab.starts_on::text AS "startsOn", ab.ends_on::text AS "endsOn",
-          ab.blocks_all AS "all",
+          ab.blocks_all AS "all", ab.reason, ab.note, ab.reference, ab.inventory_reference AS "inventoryReference", ab.version, ab.lifecycle, u.email AS "createdByEmail",
           COALESCE(ARRAY_AGG(DISTINCT abrt.room_type_id::text) FILTER (WHERE abrt.room_type_id IS NOT NULL), ARRAY[]::text[]) AS "roomTypeIds",
           COALESCE(ARRAY_AGG(DISTINCT abr.room_id::text) FILTER (WHERE abr.room_id IS NOT NULL), ARRAY[]::text[]) AS "roomIds"
         FROM availability_blocks ab
@@ -417,8 +644,9 @@ export class AvailabilityService {
           ON abrt.tenant_id = ab.tenant_id AND abrt.property_id = ab.property_id AND abrt.block_id = ab.id
         LEFT JOIN availability_block_rooms abr
           ON abr.tenant_id = ab.tenant_id AND abr.property_id = ab.property_id AND abr.block_id = ab.id
-        WHERE ab.tenant_id = ${tenantId}::uuid AND ab.property_id = ${propertyId}::uuid
-        GROUP BY ab.id
+        LEFT JOIN users u ON u.id = ab.created_by_user_id
+        WHERE ab.tenant_id = ${tenantId}::uuid AND ab.property_id = ${propertyId}::uuid AND ab.lifecycle IN ('Active','Scheduled')
+        GROUP BY ab.id, u.email
         ORDER BY ab.starts_on ASC, ab.created_at ASC, ab.id ASC
       `,
     );
@@ -431,10 +659,15 @@ export class AvailabilityService {
     actorUserId: string,
   ): Promise<void> {
     await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      await tx.$queryRaw`SELECT id FROM properties WHERE tenant_id=${tenantId}::uuid AND id=${propertyId}::uuid FOR UPDATE`;
+      const external = await tx.$queryRaw<
+        Array<{ id: string }>
+      >`SELECT pc.id FROM property_integration_connections pc JOIN integration_connections c ON c.tenant_id=pc.tenant_id AND c.id=pc.connection_id WHERE pc.tenant_id=${tenantId}::uuid AND pc.property_id=${propertyId}::uuid AND pc.enabled AND pc.kind='PMS' AND c.provider='CLOCK_PMS'`;
+      if (external.length) throw new ForbiddenException('Clock inventory is read-only.');
       const removed = await tx.$queryRaw<Array<{ id: string }>>`
         DELETE FROM availability_blocks
         WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
-          AND id = ${availabilityBlockId}::uuid
+          AND id = ${availabilityBlockId}::uuid AND inventory_reference IS NULL
         RETURNING id
       `;
       if (!removed[0]) throw new NotFoundException('Availability block not found.');
@@ -455,6 +688,9 @@ export class AvailabilityService {
     propertyId: string,
     input: InventoryBookedUnitsInput,
   ): Promise<boolean> {
+    await tx.$queryRaw`SELECT id FROM properties WHERE tenant_id=${tenantId}::uuid AND id=${propertyId}::uuid FOR UPDATE`;
+    const rules = await this.restrictionCheck(tx, tenantId, propertyId, input.roomTypeId, input);
+    if (!rules.valid) return false;
     return this.adjustBookedUnits(tx, tenantId, propertyId, input, 1);
   }
 
@@ -464,6 +700,7 @@ export class AvailabilityService {
     propertyId: string,
     roomTypeId: string,
   ): Promise<void> {
+    await tx.$queryRaw`SELECT id FROM properties WHERE tenant_id=${tenantId}::uuid AND id=${propertyId}::uuid FOR UPDATE`;
     const inventoryLockKey = `${tenantId}:${propertyId}:${roomTypeId}`;
     await tx.$executeRaw`
       SELECT pg_advisory_xact_lock(hashtextextended(${inventoryLockKey}, 0))
@@ -478,7 +715,8 @@ export class AvailabilityService {
   ): Promise<boolean> {
     const reservation = this.roomBookedInput(input);
     await this.lockRoom(tx, tenantId, propertyId, reservation.roomId);
-    return this.roomIsAvailable(tx, tenantId, propertyId, reservation);
+    const rules = await this.roomRestrictionCheck(tx, tenantId, propertyId, reservation);
+    return rules.valid && this.roomIsAvailable(tx, tenantId, propertyId, reservation);
   }
 
   async lockRoom(
@@ -487,10 +725,69 @@ export class AvailabilityService {
     propertyId: string,
     roomId: string,
   ): Promise<void> {
+    await tx.$queryRaw`SELECT id FROM properties WHERE tenant_id=${tenantId}::uuid AND id=${propertyId}::uuid FOR UPDATE`;
     const roomLockKey = `${tenantId}:${propertyId}:${roomId}`;
     await tx.$executeRaw`
       SELECT pg_advisory_xact_lock(hashtextextended(${roomLockKey}, 0))
     `;
+  }
+
+  /** Uses creation's stock/room checks. Preview changes are rolled back to the savepoint;
+   * the outer property lock keeps the release/claim invisible and serial with creation. */
+  async amendStayInventory(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+    input: {
+      bookingId: string;
+      roomTypeId: string;
+      roomId: string | null;
+      oldStartsOn: string;
+      oldEndsOn: string;
+      startsOn: string;
+      endsOn: string;
+    },
+    apply = false,
+    reasons?: string[],
+  ): Promise<boolean> {
+    await tx.$executeRawUnsafe('SAVEPOINT booking_amend_inventory');
+    // Assigned rooms are held by the booking row, exactly as in creation.
+    const pooled = !input.roomId;
+    if (pooled) {
+      await this.releaseBookedUnits(tx, tenantId, propertyId, {
+        roomTypeId: input.roomTypeId,
+        startsOn: input.oldStartsOn,
+        endsOn: input.oldEndsOn,
+        units: 1,
+      });
+    }
+    let available = pooled
+      ? await this.reserveBookedUnits(tx, tenantId, propertyId, { ...input, units: 1 })
+      : !!input.roomId;
+    if (available && input.roomId) {
+      await this.lockRoom(tx, tenantId, propertyId, input.roomId);
+      available = await this.roomIsAvailable(
+        tx,
+        tenantId,
+        propertyId,
+        { ...input, roomId: input.roomId },
+        input.bookingId,
+        reasons,
+      );
+    }
+    if (!available && reasons && reasons.length === 0) {
+      const blocked =
+        pooled && (await this.roomTypeIsBlocked(tx, tenantId, propertyId, input.roomTypeId, input));
+      reasons.push(
+        blocked
+          ? 'Blocked: a manual block overlaps these dates.'
+          : 'Booked or unavailable: the same accommodation has no inventory for these dates.',
+      );
+    }
+    if (!apply || !available)
+      await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT booking_amend_inventory');
+    await tx.$executeRawUnsafe('RELEASE SAVEPOINT booking_amend_inventory');
+    return available;
   }
 
   async releaseBookedUnits(
@@ -514,17 +811,9 @@ export class AvailabilityService {
     const value = (query ?? {}) as Record<string, unknown>;
     const startsOn = this.date(value.startsOn, 'startsOn');
     const endsOn = this.date(value.endsOn, 'endsOn');
-    if (endsOn <= startsOn) throw new BadRequestException('endsOn must be after startsOn.');
+    const invalidRange = rangeViolation(startsOn, endsOn);
+    if (invalidRange) throw new BadRequestException(invalidRange);
     return { startsOn, endsOn };
-  }
-
-  private inventoryInput(body: unknown): InventoryInput {
-    const input = this.input(body);
-    const value = (body ?? {}) as Record<string, unknown>;
-    const availableUnits = typeof value.availableUnits === 'number' ? value.availableUnits : NaN;
-    if (!Number.isInteger(availableUnits) || availableUnits < 0)
-      throw new BadRequestException('availableUnits must be a non-negative integer.');
-    return { ...input, availableUnits };
   }
 
   private roomAvailabilityInput(body: unknown): RoomAvailabilityInput {
@@ -544,7 +833,28 @@ export class AvailabilityService {
     const roomIds = this.targetIds(value.roomIds, 'roomIds');
     if (!all && roomTypeIds.length === 0 && roomIds.length === 0)
       throw new BadRequestException('At least one availability-block target is required.');
-    return { ...range, all, roomTypeIds, roomIds };
+    const reason = value.reason;
+    if (
+      reason !== undefined &&
+      !(typeof reason === 'string' && (BLOCK_REASONS as readonly string[]).includes(reason))
+    )
+      throw new BadRequestException(`reason must be one of ${BLOCK_REASONS.join(', ')}.`);
+    const text = (field: 'note' | 'reference', max: number): string | undefined => {
+      const raw = value[field];
+      if (raw === undefined || raw === null || raw === '') return undefined;
+      if (typeof raw !== 'string' || raw.trim().length > max)
+        throw new BadRequestException(`${field} must be text of up to ${max} characters.`);
+      return raw.trim();
+    };
+    return {
+      ...range,
+      all,
+      roomTypeIds,
+      roomIds,
+      ...(reason ? { reason: reason as (typeof BLOCK_REASONS)[number] } : {}),
+      ...(text('note', 500) ? { note: text('note', 500) } : {}),
+      ...(text('reference', 80) ? { reference: text('reference', 80) } : {}),
+    };
   }
 
   private targetIds(value: unknown, field: string): string[] {
@@ -556,6 +866,22 @@ export class AvailabilityService {
     return value;
   }
 
+  private async stockManagedInClock(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+  ): Promise<boolean> {
+    const rows = await tx.$queryRaw<Array<{ managed: boolean }>>`
+      SELECT EXISTS (
+        SELECT 1 FROM property_integration_connections pic
+        JOIN integration_connections c ON c.tenant_id = pic.tenant_id AND c.id = pic.connection_id
+        WHERE pic.tenant_id = ${tenantId}::uuid AND pic.property_id = ${propertyId}::uuid
+          AND pic.kind = 'PMS' AND pic.enabled = true AND c.provider = 'CLOCK_PMS'
+      ) AS managed
+    `;
+    return rows[0]?.managed === true;
+  }
+
   private async adjustBookedUnits(
     tx: TenantTransaction,
     tenantId: string,
@@ -564,6 +890,15 @@ export class AvailabilityService {
     direction: 1 | -1,
   ): Promise<boolean> {
     const adjustment = this.bookedUnitsInput(input);
+    if (direction === 1) {
+      const typeRows = await tx.$queryRaw<Array<{ isPublished: boolean }>>`
+        SELECT status = 'PUBLISHED'::"RoomTypeStatus" AS "isPublished"
+        FROM room_types
+        WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+          AND id = ${adjustment.roomTypeId}::uuid
+      `;
+      if (!typeRows[0]?.isPublished) return false;
+    }
     await this.lockBookedUnits(tx, tenantId, propertyId, adjustment.roomTypeId);
     if (
       direction === 1 &&
@@ -583,6 +918,11 @@ export class AvailabilityService {
         AND stays_on < ${adjustment.endsOn}::date
       FOR UPDATE
     `;
+
+    // A Clock-connected hotel never keeps local stock (Clock owns it), so there is nothing to
+    // reserve or release here; Clock's own availability is confirmed before the booking is made.
+    if (rows.length === 0 && (await this.stockManagedInClock(tx, tenantId, propertyId)))
+      return true;
 
     const expectedNights = this.nightCount(adjustment.startsOn, adjustment.endsOn);
     const canAdjust =
@@ -618,15 +958,48 @@ export class AvailabilityService {
     return { roomId: input.roomId, ...this.rangeInput(input) };
   }
 
+  async unavailableRoomsForMove(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+    query: { roomIds: string[]; startsOn: string; endsOn: string; excludeBookingId: string },
+  ): Promise<string[]> {
+    const unavailable: string[] = [];
+    for (const roomId of query.roomIds) {
+      if (
+        !(await this.roomIsAvailable(
+          tx,
+          tenantId,
+          propertyId,
+          { roomId, startsOn: query.startsOn, endsOn: query.endsOn },
+          query.excludeBookingId,
+        ))
+      )
+        unavailable.push(roomId);
+    }
+    return unavailable;
+  }
+
   private async roomIsAvailable(
     tx: TenantTransaction,
     tenantId: string,
     propertyId: string,
     input: RoomBookedInput,
+    excludeBookingId?: string,
+    reasons?: string[],
   ): Promise<boolean> {
-    const rows = await tx.$queryRaw<Array<{ isAvailable: boolean }>>`
+    const rows = await tx.$queryRaw<
+      Array<{ active: boolean; closed: boolean; booked: boolean; blocked: boolean }>
+    >`
       SELECT
-        NOT EXISTS (
+        EXISTS (
+          SELECT 1 FROM rooms r
+          WHERE r.tenant_id = ${tenantId}::uuid
+            AND r.property_id = ${propertyId}::uuid
+            AND r.id = ${input.roomId}::uuid
+            AND r.is_active = true
+        ) AS active
+        , EXISTS (
           SELECT 1
           FROM room_availability
           WHERE tenant_id = ${tenantId}::uuid
@@ -635,13 +1008,14 @@ export class AvailabilityService {
             AND stays_on >= ${input.startsOn}::date
             AND stays_on < ${input.endsOn}::date
             AND is_available = false
-        )
-        AND NOT EXISTS (
+        ) AS closed
+        , EXISTS (
           SELECT 1
           FROM bookings
           WHERE tenant_id = ${tenantId}::uuid
             AND property_id = ${propertyId}::uuid
             AND room_id = ${input.roomId}::uuid
+            AND (${excludeBookingId ?? null}::uuid IS NULL OR id <> ${excludeBookingId ?? null}::uuid)
             AND starts_on < ${input.endsOn}::date
             AND ends_on > ${input.startsOn}::date
             AND status IN (
@@ -655,11 +1029,11 @@ export class AvailabilityService {
               'PMS_REJECTED'::"BookingStatus",
               'MANUAL_REVIEW'::"BookingStatus"
             )
-        )
-        AND NOT EXISTS (
+        ) AS booked
+        , EXISTS (
           SELECT 1
           FROM availability_blocks ab
-          WHERE ab.tenant_id = ${tenantId}::uuid
+          WHERE ab.lifecycle IN ('Active','Scheduled') AND ab.tenant_id = ${tenantId}::uuid
             AND ab.property_id = ${propertyId}::uuid
             AND ab.starts_on < ${input.endsOn}::date
             AND ab.ends_on > ${input.startsOn}::date
@@ -686,9 +1060,15 @@ export class AvailabilityService {
                   AND abrt.room_type_id = r.room_type_id
               )
             )
-        ) AS "isAvailable"
+        ) AS blocked
     `;
-    return rows[0]?.isAvailable ?? false;
+    const row = rows[0];
+    if (row && reasons) {
+      if (!row.active) reasons.push('Closed: this room is inactive.');
+      if (row.closed || row.blocked) reasons.push('Blocked: a manual block overlaps these dates.');
+      if (row.booked) reasons.push('Booked: another reservation overlaps these dates.');
+    }
+    return !!row && row.active && !row.closed && !row.booked && !row.blocked;
   }
 
   private async roomTypeIsBlocked(
@@ -702,7 +1082,7 @@ export class AvailabilityService {
       SELECT EXISTS (
         SELECT 1
         FROM availability_blocks ab
-        WHERE ab.tenant_id = ${tenantId}::uuid
+        WHERE ab.lifecycle IN ('Active','Scheduled') AND ab.tenant_id = ${tenantId}::uuid
           AND ab.property_id = ${propertyId}::uuid
           AND ab.starts_on < ${range.endsOn}::date
           AND ab.ends_on > ${range.startsOn}::date
@@ -740,12 +1120,32 @@ export class AvailabilityService {
     tenantId: string,
     propertyId: string,
     roomTypeId: string,
-  ) {
-    const rows = await tx.$queryRaw<Array<{ id: string }>>`
-      SELECT id FROM room_types
+  ): Promise<{ id: string; status: string }> {
+    const rows = await tx.$queryRaw<Array<{ id: string; status: string }>>`
+      SELECT id, status::text AS status FROM room_types
       WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND id = ${roomTypeId}::uuid
     `;
     if (!rows[0]) throw new NotFoundException('Room type not found.');
+    return rows[0];
+  }
+
+  async assertBookableSelection(
+    tenantId: string,
+    propertyId: string,
+    roomTypeId: string,
+    roomId?: string,
+  ) {
+    await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      const roomType = await this.requireRoomType(tx, tenantId, propertyId, roomTypeId);
+      if (roomType.status !== 'PUBLISHED') throw new NotFoundException('Room type not found.');
+      if (roomId) {
+        const rows = await tx.$queryRaw<Array<{ id: string }>>`
+          SELECT id FROM rooms WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+            AND id = ${roomId}::uuid AND room_type_id = ${roomTypeId}::uuid AND is_active = true
+        `;
+        if (!rows[0]) throw new NotFoundException('Room not found.');
+      }
+    });
   }
 
   private async requireRoom(
@@ -761,9 +1161,13 @@ export class AvailabilityService {
     if (!rows[0]) throw new NotFoundException('Room not found.');
   }
 
-  private async requireIndividualRoomMode(tx: TenantTransaction, propertyId: string) {
+  private async requireIndividualRoomMode(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+  ) {
     const rows = await tx.$queryRaw<Array<{ bookingMode: string }>>`
-      SELECT booking_mode AS "bookingMode" FROM properties WHERE id = ${propertyId}::uuid
+      SELECT booking_mode AS "bookingMode" FROM properties WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid
     `;
     if (!rows[0]) throw new NotFoundException('Property not found.');
     if (rows[0].bookingMode === 'ROOM_TYPE_ONLY')

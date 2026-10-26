@@ -1,3 +1,6 @@
+import { localPricing } from '../tenancy/pricing.repository';
+import { applicableRestrictions } from '../tenancy/inventory-restrictions.repository';
+import type { BookingRulePolicy, BookingRestriction } from './booking-rules';
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import type { Money, NightlyRate } from '@must/domain-contracts';
@@ -9,6 +12,15 @@ import {
   type ClockStayQuoteQuery,
 } from '../integrations/clock/clock-availability.service';
 import { resolveBookingOccupancy, validBookingOccupancy } from './booking-occupancy';
+import {
+  PromoCodeService,
+  discountNights,
+  normalizePromoCode,
+  toMinor,
+  type PromoSummary,
+} from './promo-code.service';
+import { evaluateBookingRules, sameDayBookingViolation, rangeViolation } from './booking-rules';
+export { propertyClock, isSameDayBookingClosed } from './booking-rules';
 
 export type QuoteInput = {
   roomTypeId: string;
@@ -21,8 +33,23 @@ export type QuoteInput = {
   endsOn: string;
   adults?: number;
   children?: number;
+  childrenAges?: number[];
   guestCount?: number;
+  /**
+   * Clock hotels only: the published Clock rate the guest chose from the offers (for example
+   * Bed & breakfast or Full board). Signed into the quote token, so a booking cannot change it.
+   * Omitted means the cheapest or staff-ranked rate, as before.
+   */
+  clockRateId?: string;
+  /**
+   * A promo code the guest or staff member entered. Signed into the quote token, so a booking
+   * cannot swap or add a code afterwards.
+   */
+  promoCode?: string;
 };
+
+/** A promo applied to a quote: the discount, the original price and whose code it was. */
+export type PromoApplied = PromoSummary & { source: 'own' | 'clock' };
 
 type QuotePayload = QuoteInput & {
   version: 1;
@@ -30,11 +57,12 @@ type QuotePayload = QuoteInput & {
   propertyId: string;
   total: { amount: string; currency: string };
   nightlyRates: NightlyRate[];
+  promo?: PromoApplied;
   expiresAt: string;
   sessionBinding: string;
 };
 
-export type PricedQuote = { total: Money; nightlyRates: NightlyRate[] };
+export type PricedQuote = { total: Money; nightlyRates: NightlyRate[]; promo?: PromoApplied };
 
 export type DisplayPriceItem = {
   key: string;
@@ -64,6 +92,7 @@ export class QuoteService {
     @Inject(IntegrationConnectionsService)
     private readonly connections: IntegrationConnectionsService,
     @Inject(ClockAvailabilityService) private readonly clockAvailability: ClockAvailabilityService,
+    @Inject(PromoCodeService) private readonly promos: PromoCodeService,
   ) {}
 
   async create(
@@ -77,10 +106,16 @@ export class QuoteService {
     if (!Number.isInteger(ttlSeconds) || ttlSeconds < 1)
       throw new BadRequestException('Quote expiry must be a positive number of seconds.');
 
-    const normalizedInput = this.normalizeOccupancy(input);
-    // Guest-facing quotes only: staff walk-ins price through price(), which skips this.
+    const promoCode = normalizePromoCode(input.promoCode) ?? undefined;
+    const normalizedInput = { ...this.normalizeOccupancy(input), promoCode };
+    // Public quotes also preflight the property-local cutoff; shared validation covers staff too.
     await this.enforceGuestSameDayRule(tenantId, propertyId, normalizedInput.startsOn);
-    const quote = await this.priceWithNightlyRates(tenantId, propertyId, normalizedInput);
+    const quote = await this.priceWithNightlyRates(
+      tenantId,
+      propertyId,
+      normalizedInput,
+      'website',
+    );
 
     const payload: QuotePayload = {
       version: 1,
@@ -89,16 +124,30 @@ export class QuoteService {
       ...normalizedInput,
       total: quote.total,
       nightlyRates: quote.nightlyRates,
+      ...(quote.promo ? { promo: quote.promo } : {}),
       expiresAt: new Date(Date.now() + ttlSeconds * 1000).toISOString(),
       sessionBinding: this.sessionBinding(sessionId),
     };
     return { ...payload, quoteToken: this.sign(payload) };
   }
 
-  async price(tenantId: string, propertyId: string, input: QuoteInput): Promise<Money> {
+  /**
+   * `skipRules` exists only for the local development demo seed, which prices stays in the past
+   * to build booking history. No request path passes it.
+   */
+  async price(
+    tenantId: string,
+    propertyId: string,
+    input: QuoteInput,
+    options: { skipRules?: boolean } = {},
+  ): Promise<Money> {
     const normalizedInput = this.normalizeOccupancy(input);
+    if (normalizedInput.promoCode)
+      return (
+        await this.priceWithNightlyRates(tenantId, propertyId, normalizedInput, 'staff', options)
+      ).total;
     this.validStayInput(normalizedInput);
-    await this.enforceBookingRules(tenantId, propertyId, normalizedInput);
+    if (!options.skipRules) await this.enforceBookingRules(tenantId, propertyId, normalizedInput);
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
     if (connection?.provider === 'CLOCK_PMS') {
       const quote = await this.clockAvailability.getQuote(tenantId, propertyId, {
@@ -107,21 +156,68 @@ export class QuoteService {
         endsOn: normalizedInput.endsOn,
         adultCount: normalizedInput.adults,
         childrenCount: normalizedInput.children,
+        childrenAges: normalizedInput.childrenAges,
+        clockRateId: normalizedInput.clockRateId,
       });
       if (!quote.ok) throw new BadRequestException(quote.error.message);
       return quote.value;
     }
-    return (await this.priceWithNightlyRates(tenantId, propertyId, normalizedInput)).total;
+    return (
+      await this.priceWithNightlyRates(tenantId, propertyId, normalizedInput, 'staff', options)
+    ).total;
   }
 
+  /** The price of a stay with the promo code applied, when one was entered. */
   async priceWithNightlyRates(
     tenantId: string,
     propertyId: string,
     input: QuoteInput,
+    pricingChannel: 'website' | 'staff' = 'staff',
+    options: { skipRules?: boolean } = {},
+  ): Promise<PricedQuote> {
+    const base = await this.priceBase(tenantId, propertyId, input, pricingChannel, options);
+    const code = normalizePromoCode(input.promoCode);
+    if (!code) return base;
+    return this.applyPromo(tenantId, propertyId, code, input, base);
+  }
+
+  /** The hotel's own code takes its discount off the price, spread over the nights. */
+  private async applyPromo(
+    tenantId: string,
+    propertyId: string,
+    code: string,
+    input: QuoteInput,
+    base: PricedQuote,
+  ): Promise<PricedQuote> {
+    const result = await this.promos.evaluate(tenantId, propertyId, {
+      code,
+      roomTypeId: input.roomTypeId,
+      startsOn: input.startsOn,
+      endsOn: input.endsOn,
+      total: base.total,
+    });
+    if (!result.applies) throw new BadRequestException(result.reason);
+    return {
+      total: result.total,
+      nightlyRates: discountNights(
+        base.nightlyRates,
+        toMinor(base.total.amount),
+        toMinor(result.promo.discount.amount),
+      ),
+      promo: { ...result.promo, source: 'own' },
+    };
+  }
+
+  private async priceBase(
+    tenantId: string,
+    propertyId: string,
+    input: QuoteInput,
+    pricingChannel: 'website' | 'staff' = 'staff',
+    options: { skipRules?: boolean } = {},
   ): Promise<PricedQuote> {
     const normalizedInput = this.normalizeOccupancy(input);
     this.validStayInput(normalizedInput);
-    await this.enforceBookingRules(tenantId, propertyId, normalizedInput);
+    if (!options.skipRules) await this.enforceBookingRules(tenantId, propertyId, normalizedInput);
 
     // Clock-connected properties are always quoted live against Clock's own
     // /products endpoint (owner's call — no local rate_plan mirror). Rate is
@@ -135,6 +231,8 @@ export class QuoteService {
         endsOn: normalizedInput.endsOn,
         adultCount: normalizedInput.adults,
         childrenCount: normalizedInput.children,
+        childrenAges: normalizedInput.childrenAges,
+        clockRateId: normalizedInput.clockRateId,
       });
       if (!quote.ok) throw new BadRequestException(quote.error.message);
       return quote.value;
@@ -150,65 +248,23 @@ export class QuoteService {
           normalizedInput.roomId,
           normalizedInput.roomTypeId,
         );
-      const rows = await tx.$queryRaw<
-        Array<{ currency: string; amount: string; pricedNights: bigint; nightlyRates: unknown }>
-      >`
-        SELECT rp.currency, COALESCE(SUM(COALESCE(room_override.amount, resolved.amount)), 0)::text AS amount,
-          COUNT(COALESCE(room_override.amount, resolved.amount))::bigint AS "pricedNights",
-          COALESCE(
-            jsonb_agg(
-              jsonb_build_object(
-                'date', to_char(stay.stays_on::date, 'YYYY-MM-DD'),
-                'amount', COALESCE(room_override.amount, resolved.amount)::text
-              ) ORDER BY stay.stays_on
-            ) FILTER (WHERE COALESCE(room_override.amount, resolved.amount) IS NOT NULL),
-            '[]'::jsonb
-          ) AS "nightlyRates"
-        FROM rate_plans rp
-        CROSS JOIN generate_series(
-          ${normalizedInput.startsOn}::date,
-          (${normalizedInput.endsOn}::date - INTERVAL '1 day'),
-          INTERVAL '1 day'
-        ) AS stay(stays_on)
-        LEFT JOIN LATERAL (
-          SELECT rr.amount
-          FROM rate_rules rr
-          WHERE rr.tenant_id = ${tenantId}::uuid
-            AND rr.property_id = ${propertyId}::uuid
-            AND rr.rate_plan_id = rp.id
-            AND rr.room_type_id = ${normalizedInput.roomTypeId}::uuid
-            AND EXTRACT(DOW FROM stay.stays_on)::smallint = ANY(rr.weekdays)
-            AND (
-              (rr.starts_on IS NOT NULL AND rr.starts_on <= stay.stays_on::date AND rr.ends_on >= stay.stays_on::date)
-              OR rr.starts_on IS NULL
-            )
-          ORDER BY (rr.starts_on IS NULL), rr.created_at DESC
-          LIMIT 1
-        ) resolved ON TRUE
-        LEFT JOIN room_price_overrides room_override
-          ON room_override.tenant_id = ${tenantId}::uuid
-          AND room_override.property_id = ${propertyId}::uuid
-          AND room_override.rate_plan_id = rp.id
-          AND room_override.room_id = ${normalizedInput.roomId ?? null}::uuid
-        WHERE rp.id = ${normalizedInput.ratePlanId}::uuid
-          AND rp.tenant_id = ${tenantId}::uuid
-          AND rp.property_id = ${propertyId}::uuid
-          AND rp.is_active = true
-        GROUP BY rp.currency
-      `;
-      const row = rows[0];
-      if (!row) throw new NotFoundException('Active rate plan was not found.');
-      const nightCount = this.nightCount(normalizedInput.startsOn, normalizedInput.endsOn);
-      if (Number(row.pricedNights) !== nightCount)
-        throw new BadRequestException('The requested stay does not have a rate for every night.');
-      return {
-        total: { amount: row.amount, currency: row.currency },
-        nightlyRates: this.normalizeNightlyRates(
-          row.nightlyRates,
-          normalizedInput.startsOn,
-          normalizedInput.endsOn,
-        ),
-      };
+      const result = await localPricing(tx, tenantId, propertyId, {
+        roomTypeId: normalizedInput.roomTypeId,
+        roomId: normalizedInput.roomId,
+        ratePlanId: normalizedInput.ratePlanId!,
+        startsOn: normalizedInput.startsOn,
+        endsOn: normalizedInput.endsOn,
+        adults: normalizedInput.adults,
+        children: normalizedInput.children,
+        channel: pricingChannel,
+      });
+      if (!result.valid || !result.total)
+        throw new BadRequestException({
+          code: result.errors[0]?.code ?? 'PRICING_UNAVAILABLE',
+          message: result.errors.map((e) => e.message).join(' '),
+          errors: result.errors,
+        });
+      return { total: result.total, nightlyRates: result.nightlyRates };
     });
   }
 
@@ -230,28 +286,56 @@ export class QuoteService {
       Number.isInteger(requestedRoomCount) && (requestedRoomCount ?? 0) > 0
         ? requestedRoomCount!
         : 1;
-    const normalized = this.normalizeOccupancy({ roomTypeId: 'display', ...quoteInput });
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (
+      items.some((item) => !uuid.test(item.roomTypeId) || (item.roomId && !uuid.test(item.roomId)))
+    )
+      throw new BadRequestException('Invalid room selection.');
+    const normalized = this.normalizeOccupancy({ roomTypeId: items[0].roomTypeId, ...quoteInput });
     this.validStayInput(normalized);
-    await this.enforceBookingRules(tenantId, propertyId, normalized);
-
+    const eligibility = new Map<string, boolean>();
+    for (const item of items) {
+      const key = item.roomTypeId + ':' + (item.roomId ?? '');
+      if (eligibility.has(key)) continue;
+      try {
+        await this.enforceBookingRules(tenantId, propertyId, {
+          ...normalized,
+          roomTypeId: item.roomTypeId,
+          roomId: item.roomId,
+        });
+        eligibility.set(key, true);
+      } catch (error) {
+        if (!(error instanceof BadRequestException || error instanceof NotFoundException))
+          throw error;
+        eligibility.set(key, false);
+      }
+    }
+    const eligible = items.filter((item) =>
+      eligibility.get(item.roomTypeId + ':' + (item.roomId ?? '')),
+    );
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
     if (connection?.provider === 'CLOCK_PMS') {
-      const queries: ClockStayQuoteQuery[] = items.map((item) => ({
+      const queries: ClockStayQuoteQuery[] = eligible.map((item) => ({
         roomTypeId: item.roomTypeId,
         startsOn: normalized.startsOn,
         endsOn: normalized.endsOn,
         adultCount: normalized.adults,
         childrenCount: normalized.children,
+        childrenAges: normalized.childrenAges,
         roomCount,
         currency: item.currency,
       }));
-      const quotes = await this.clockAvailability.getQuotesForStay(tenantId, propertyId, queries);
+      const quotes = queries.length
+        ? await this.clockAvailability.getQuotesForStay(tenantId, propertyId, queries)
+        : {};
       return items.map((item) => {
         const quote = quotes[item.roomTypeId];
         return {
           key: item.key,
           roomTypeId: item.roomTypeId,
-          available: Boolean(quote?.ok),
+          available:
+            eligibility.get(item.roomTypeId + ':' + (item.roomId ?? '')) === true &&
+            Boolean(quote?.ok),
           ...(quote?.ok ? { total: quote.value } : {}),
         };
       });
@@ -260,16 +344,21 @@ export class QuoteService {
     const prices = await Promise.all(
       items.map(async (item) => {
         try {
-          const quote = await this.priceWithNightlyRates(tenantId, propertyId, {
-            roomTypeId: item.roomTypeId,
-            roomId: item.roomId,
-            ratePlanId: item.ratePlanId,
-            startsOn: normalized.startsOn,
-            endsOn: normalized.endsOn,
-            adults: normalized.adults,
-            children: normalized.children,
-            guestCount: normalized.guestCount,
-          });
+          const quote = await this.priceWithNightlyRates(
+            tenantId,
+            propertyId,
+            {
+              roomTypeId: item.roomTypeId,
+              roomId: item.roomId,
+              ratePlanId: item.ratePlanId,
+              startsOn: normalized.startsOn,
+              endsOn: normalized.endsOn,
+              adults: normalized.adults,
+              children: normalized.children,
+              guestCount: normalized.guestCount,
+            },
+            'website',
+          );
           return {
             key: item.key,
             roomTypeId: item.roomTypeId,
@@ -284,6 +373,12 @@ export class QuoteService {
     return prices;
   }
 
+  /** Read only after validate() succeeds: the promo that was signed into the quote, if any. */
+  promoOf(token: string | undefined): PromoApplied | null {
+    const payload = token ? this.read(token) : null;
+    return payload?.promo ?? null;
+  }
+
   /** Read only after validate() succeeds; the quote token is the source of truth for booking snapshots. */
   nightlyRates(token: string | undefined): NightlyRate[] | null {
     const payload = token ? this.read(token) : null;
@@ -296,20 +391,42 @@ export class QuoteService {
     input: QuoteInput,
   ): Promise<void> {
     await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      const catalog = await tx.$queryRaw<
+        Array<{ id: string; maxOccupancy: number; status: string }>
+      >`
+        SELECT id, max_occupancy AS "maxOccupancy", status::text AS status FROM room_types
+        WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+          AND id = ${input.roomTypeId}::uuid
+      `;
+      if (!catalog[0]) throw new NotFoundException('Room type not found.');
+      const room = input.roomId
+        ? await this.requireRoomForType(tx, tenantId, propertyId, input.roomId, input.roomTypeId)
+        : undefined;
       const properties = await tx.$queryRaw<
         Array<{
           minStayNights: number | null;
           maxStayNights: number | null;
           advanceBookingDays: number | null;
           timezone: string | null;
+          sameDayBookingAllowed: boolean;
+          sameDayCutoffTime: string | null;
+          maxGuestsPerBooking: number | null;
+          maxRoomsPerBooking: number | null;
         }>
       >`
         SELECT min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
-          advance_booking_days AS "advanceBookingDays", timezone
-        FROM properties WHERE id = ${propertyId}::uuid
+          advance_booking_days AS "advanceBookingDays", timezone,same_day_booking_allowed AS "sameDayBookingAllowed",same_day_cutoff_time AS "sameDayCutoffTime",max_guests_per_booking AS "maxGuestsPerBooking",max_rooms_per_booking AS "maxRoomsPerBooking"
+        FROM properties WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid
       `;
       if (!properties[0]) throw new NotFoundException('Property was not found.');
-      this.validateBookingRules(input, properties[0]);
+      const restrictions = await applicableRestrictions(tx, tenantId, propertyId, input.roomTypeId);
+      this.validateBookingRules(input, {
+        restrictions,
+        ...properties[0],
+        maxOccupancy: catalog[0].maxOccupancy,
+        roomTypeStatus: catalog[0].status,
+        roomActive: room?.isActive,
+      });
     });
   }
 
@@ -337,10 +454,14 @@ export class QuoteService {
       payload.roomTypeId !== expected.roomTypeId ||
       payload.roomId !== expected.roomId ||
       payload.ratePlanId !== expected.ratePlanId ||
+      payload.clockRateId !== expected.clockRateId ||
+      payload.promoCode !== expected.promoCode ||
       payload.startsOn !== expected.startsOn ||
       payload.endsOn !== expected.endsOn ||
       quotedOccupancy.adults !== expectedOccupancy.adults ||
       quotedOccupancy.children !== expectedOccupancy.children ||
+      JSON.stringify(payload.childrenAges ?? null) !==
+        JSON.stringify(expected.childrenAges ?? null) ||
       payload.total.amount !== expected.total.amount ||
       payload.total.currency !== expected.total.currency
     ) {
@@ -374,6 +495,8 @@ export class QuoteService {
         typeof value.roomTypeId !== 'string' ||
         (value.roomId !== undefined && typeof value.roomId !== 'string') ||
         typeof value.ratePlanId !== 'string' ||
+        (value.clockRateId !== undefined && typeof value.clockRateId !== 'string') ||
+        (value.promoCode !== undefined && typeof value.promoCode !== 'string') ||
         typeof value.startsOn !== 'string' ||
         typeof value.endsOn !== 'string' ||
         (value.adults !== undefined && (!Number.isInteger(value.adults) || value.adults < 1)) ||
@@ -430,7 +553,7 @@ export class QuoteService {
       throw new BadRequestException(
         'adults must be a positive integer and children must be a non-negative integer.',
       );
-    if (!this.date(input.startsOn) || !this.date(input.endsOn) || input.endsOn <= input.startsOn)
+    if (rangeViolation(input.startsOn, input.endsOn))
       throw new BadRequestException(
         'startsOn and endsOn must be a valid, non-empty ISO date range.',
       );
@@ -442,15 +565,16 @@ export class QuoteService {
     propertyId: string,
     roomId: string,
     roomTypeId: string,
-  ): Promise<void> {
-    const rooms = await tx.$queryRaw<Array<{ id: string }>>`
-      SELECT id FROM rooms
+  ): Promise<{ isActive: boolean }> {
+    const rooms = await tx.$queryRaw<Array<{ id: string; isActive: boolean }>>`
+      SELECT id, is_active AS "isActive" FROM rooms
       WHERE tenant_id = ${tenantId}::uuid
         AND property_id = ${propertyId}::uuid
         AND id = ${roomId}::uuid
         AND room_type_id = ${roomTypeId}::uuid
     `;
     if (!rooms[0]) throw new NotFoundException('Room not found for this room type.');
+    return rooms[0];
   }
 
   private date(value: string): boolean {
@@ -461,12 +585,6 @@ export class QuoteService {
 
   private nightCount(startsOn: string, endsOn: string): number {
     return (Date.parse(`${endsOn}T00:00:00Z`) - Date.parse(`${startsOn}T00:00:00Z`)) / 86_400_000;
-  }
-
-  private normalizeNightlyRates(value: unknown, startsOn: string, endsOn: string): NightlyRate[] {
-    if (!this.isNightlyRates(value, startsOn, endsOn))
-      throw new BadRequestException('The requested stay does not have a price for every night.');
-    return value.map((rate) => ({ date: rate.date, amount: rate.amount }));
   }
 
   private isNightlyRates(value: unknown, startsOn: string, endsOn: string): value is NightlyRate[] {
@@ -488,7 +606,7 @@ export class QuoteService {
   /**
    * The website's same-day rule: a stay that starts today is refused when the
    * property turned same-day booking off, or once its local cutoff time has
-   * passed. Only the guest channel calls this; staff bookings never do.
+   * passed. Staff pricing and creation enforce the same property policy.
    */
   async enforceGuestSameDayRule(
     tenantId: string,
@@ -505,82 +623,50 @@ export class QuoteService {
       >`
         SELECT timezone, same_day_booking_allowed AS "sameDayBookingAllowed",
           same_day_cutoff_time AS "sameDayCutoffTime"
-        FROM properties WHERE id = ${propertyId}::uuid
+        FROM properties WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid
       `;
       return rows[0];
     });
     if (!rule) throw new NotFoundException('Property was not found.');
-    if (!isSameDayBookingClosed(startsOn, rule)) return;
-    throw new BadRequestException(
-      'Same-day bookings are closed for today. Please choose a later check-in date.',
-    );
+    const violation = sameDayBookingViolation(startsOn, rule);
+    if (violation) throw new BadRequestException(violation);
   }
 
   private validateBookingRules(
     input: QuoteInput,
-    rules: {
+    rules: BookingRulePolicy & {
       minStayNights: number | null;
       maxStayNights: number | null;
       advanceBookingDays: number | null;
       timezone?: string | null;
+      maxOccupancy?: number;
+      roomTypeStatus?: string;
+      roomActive?: boolean;
+      restrictions?: BookingRestriction[];
     },
   ): void {
-    const nights = this.nightCount(input.startsOn, input.endsOn);
-    if (rules.minStayNights !== null && nights < rules.minStayNights)
-      throw new BadRequestException(`A minimum stay of ${rules.minStayNights} nights is required.`);
-    if (rules.maxStayNights !== null && nights > rules.maxStayNights)
-      throw new BadRequestException(`A maximum stay of ${rules.maxStayNights} nights is allowed.`);
-    if (rules.advanceBookingDays !== null) {
-      const today = propertyClock(rules.timezone).date;
-      const daysAhead = this.nightCount(today, input.startsOn);
-      if (daysAhead > rules.advanceBookingDays)
-        throw new BadRequestException(
-          `Bookings can be made at most ${rules.advanceBookingDays} days in advance.`,
-        );
-    }
+    const occupancy = resolveBookingOccupancy(input);
+    const result = evaluateBookingRules({
+      channel: 'staff',
+      startsOn: input.startsOn,
+      endsOn: input.endsOn,
+      policy: rules,
+      restrictions: rules.restrictions,
+      adults: occupancy.adults,
+      children: occupancy.children,
+      maxOccupancy: rules.maxOccupancy,
+      roomTypeStatus: rules.roomTypeStatus,
+      roomActive: rules.roomActive,
+    });
+    const unavailable = result.errors.find(
+      (error) => error.code === 'ROOM_TYPE_NOT_AVAILABLE' || error.code === 'ROOM_NOT_AVAILABLE',
+    );
+    if (unavailable)
+      throw new NotFoundException(
+        unavailable.code === 'ROOM_TYPE_NOT_AVAILABLE'
+          ? 'Room type not found.'
+          : 'Room not found for this room type.',
+      );
+    if (!result.valid) throw new BadRequestException(result.errors[0]);
   }
-}
-
-/** Today's date and minutes-since-midnight on the property's own clock (UTC when unset/invalid). */
-export function propertyClock(
-  timezone: string | null | undefined,
-  now: Date = new Date(),
-): { date: string; minutes: number } {
-  try {
-    const parts = Object.fromEntries(
-      new Intl.DateTimeFormat('en-CA', {
-        timeZone: timezone || 'UTC',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        hourCycle: 'h23',
-      })
-        .formatToParts(now)
-        .map((part) => [part.type, part.value]),
-    ) as Record<string, string>;
-    return {
-      date: `${parts.year}-${parts.month}-${parts.day}`,
-      minutes: (Number(parts.hour) % 24) * 60 + Number(parts.minute),
-    };
-  } catch {
-    return propertyClock('UTC', now);
-  }
-}
-
-export function isSameDayBookingClosed(
-  startsOn: string,
-  rule: {
-    timezone: string | null;
-    sameDayBookingAllowed: boolean;
-    sameDayCutoffTime: string | null;
-  },
-  now: Date = new Date(),
-): boolean {
-  const clock = propertyClock(rule.timezone, now);
-  if (startsOn !== clock.date) return false;
-  if (!rule.sameDayBookingAllowed) return true;
-  const cutoff = /^(\d{1,2}):(\d{2})$/.exec(rule.sameDayCutoffTime ?? '');
-  return cutoff !== null && clock.minutes >= Number(cutoff[1]) * 60 + Number(cutoff[2]);
 }

@@ -3,7 +3,13 @@
 import { Palette } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../../components/ui/select';
 
 export const designThemes = [
   { id: 'neutral', label: 'Neutral (default)', swatch: '#18181b' },

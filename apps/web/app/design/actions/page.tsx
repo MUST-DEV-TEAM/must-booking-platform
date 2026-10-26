@@ -28,11 +28,17 @@ import {
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 
-import { cn } from '../_lib/utils';
-import { Alert, AlertDescription } from '../_ui/alert';
-import { Badge } from '../_ui/badge';
-import { Button } from '../_ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../_ui/card';
+import { cn } from '../../../lib/utils';
+import { Alert, AlertDescription } from '../../../components/ui/alert';
+import { Badge } from '../../../components/ui/badge';
+import { Button } from '../../../components/ui/button';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../../../components/ui/card';
 import {
   Dialog,
   DialogClose,
@@ -42,18 +48,25 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from '../_ui/dialog';
+} from '../../../components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '../_ui/dropdown-menu';
+} from '../../../components/ui/dropdown-menu';
 import { PageHeader } from '../_ui/hotel';
-import { Input } from '../_ui/input';
-import { Label } from '../_ui/label';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../_ui/table';
+import { Input } from '../../../components/ui/input';
+import { Label } from '../../../components/ui/label';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../../../components/ui/table';
 
 type Variant = 'default' | 'secondary' | 'ghost' | 'destructive' | 'success';
 type ButtonState = 'default' | 'hover' | 'pressed' | 'focus' | 'disabled' | 'loading';
@@ -226,7 +239,7 @@ const commonActions: ReadonlyArray<{
 
 function ActionPatterns() {
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="grid grid-cols-1 gap-3 @sm/design-preview:grid-cols-2 @lg/design-preview:grid-cols-3">
       {commonActions.map(({ label, note, variant, icon: Icon }) => (
         <div key={label} className="flex items-center gap-3 rounded-xl border bg-card p-3">
           <Button
@@ -289,8 +302,8 @@ function SplitButton({
           <DropdownMenuItem>
             <Plus /> Create and add payment
           </DropdownMenuItem>
-          <DropdownMenuItem>
-            <Send /> Create and send confirmation
+          <DropdownMenuItem className="whitespace-nowrap text-xs">
+            <Send /> Create &amp; send confirmation
           </DropdownMenuItem>
           <DropdownMenuItem>
             <Save /> Save as draft
@@ -673,7 +686,7 @@ export default function ActionsDesignPage() {
         title="Dropdown item"
         note="Explicit verbs and outcomes. Destructive, lifecycle and financial choices stay visible, permission-gated and confirmation-gated."
       >
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 @md/design-preview:grid-cols-2">
           <Card className="gap-1 px-3">
             <MenuRow icon={Eye} label="View booking" hint="Open" />
             <MenuRow icon={Eye} label="View booking" hint="Open" state="hover" />
@@ -752,8 +765,8 @@ export default function ActionsDesignPage() {
         title="In context"
         note="The same buttons where they live: a table row, a card header, a form footer and a confirmation dialog."
       >
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <Card className="gap-0 px-0 lg:col-span-2">
+        <div className="grid grid-cols-1 gap-4 @lg/design-preview:grid-cols-2">
+          <Card className="gap-0 px-0 @lg/design-preview:col-span-2">
             <CardHeader className="flex-row items-center justify-between gap-3 border-b pb-4">
               <div>
                 <CardTitle>Arrivals today</CardTitle>
@@ -856,7 +869,7 @@ export default function ActionsDesignPage() {
             </Dialog>
           </Card>
 
-          <Card className="px-6 lg:col-span-2">
+          <Card className="px-6 @lg/design-preview:col-span-2">
             <p className="text-sm font-bold">Page footer on a phone</p>
             <div className="mx-auto w-full max-w-xs space-y-2 rounded-xl border bg-background p-3">
               <Button className="w-full" size="lg">
@@ -877,7 +890,7 @@ export default function ActionsDesignPage() {
         title="Reservation action patterns"
         note="Backend permissions, current booking and payment state and provider capability remain authoritative."
       >
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 @md/design-preview:grid-cols-2">
           {patternGroups.map((group) => (
             <Card key={group.title} className="gap-3 px-5">
               <div>
@@ -934,7 +947,7 @@ export default function ActionsDesignPage() {
             </TableBody>
           </Table>
         </Card>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 @sm/design-preview:grid-cols-2 @lg/design-preview:grid-cols-4">
           {confirmLevels.map((level) => (
             <div key={level.title} className={cn('space-y-1 rounded-xl border p-4', level.tone)}>
               <p className="text-sm font-bold">{level.title}</p>

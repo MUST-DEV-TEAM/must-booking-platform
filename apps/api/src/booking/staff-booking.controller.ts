@@ -1,3 +1,7 @@
+import { StaffAvailabilityService } from './staff-availability.service';
+import { normalizePromoCode } from './promo-code.service';
+import { BookingRequestsService, type CancellationInput } from './booking-requests.service';
+import { countryCode } from '@must/domain-contracts';
 import {
   BadRequestException,
   Body,
@@ -23,42 +27,76 @@ import { QuoteService } from './quote.service';
 @Controller('tenants/:tenantId/properties/:propertyId/staff-bookings')
 export class StaffBookingController {
   constructor(
+    @Inject(BookingRequestsService) private readonly requests: BookingRequestsService,
     @Inject(LocalPmsProvider) private readonly provider: LocalPmsProvider,
     @Inject(QuoteService) private readonly quotes: QuoteService,
+    @Inject(StaffAvailabilityService) private readonly availability: StaffAvailabilityService,
   ) {}
+
+  @Post('offers')
+  @HttpCode(200)
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('bookings.create')
+  offers(
+    @Req() req: { tenantContext: { tenantId: string; propertyId: string } },
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.availability.search(req.tenantContext, body ?? {});
+  }
+
+  /** What a promo code does to the price of the chosen stay, before the reservation is created. */
+  @Post('promo-check')
+  @HttpCode(200)
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('bookings.create')
+  async promoCheck(
+    @Req() req: { tenantContext: { tenantId: string; propertyId: string } },
+    @Body() body: unknown,
+  ) {
+    const input = this.input(body);
+    if (!input.promoCode) throw new BadRequestException('Enter a promo code.');
+    const priced = await this.quotes.priceWithNightlyRates(
+      req.tenantContext.tenantId,
+      req.tenantContext.propertyId,
+      input,
+      'staff',
+    );
+    return { total: priced.total, promo: priced.promo ?? null };
+  }
+
+  @Post('rate-offers')
+  @HttpCode(200)
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('bookings.create')
+  rateOffers(
+    @Req() req: { tenantContext: { tenantId: string; propertyId: string } },
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.availability.rateOffers(req.tenantContext, body ?? {});
+  }
 
   @Delete(':bookingId')
   @HttpCode(200)
   @TenantScoped({ propertyParam: 'propertyId' })
   @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
-  @RequiresCapability('bookings.manage')
+  @RequiresCapability('bookings.cancel')
   @RequiresVerifiedEmail()
   async cancel(
     @Param('bookingId') bookingId: string,
     @Body() body: unknown,
-    @Headers('idempotency-key') idempotencyKey: string | undefined,
     @Req() request: { tenantContext: { tenantId: string; propertyId: string; userId: string } },
   ) {
-    const value = (body ?? {}) as Record<string, unknown>;
-    const result = await this.provider.cancelBooking(request.tenantContext, {
-      idempotencyKey: this.idempotencyKey(idempotencyKey),
-      bookingId,
-      expectedVersion: typeof value.expectedVersion === 'number' ? value.expectedVersion : NaN,
-      reason: typeof value.reason === 'string' ? value.reason : null,
-      staffActorId: request.tenantContext.userId,
-    });
-    if (!result.ok && result.error.code === 'IDEMPOTENCY_KEY_CONFLICT')
-      throw new ConflictException(
-        'This idempotency key was already used with a different request.',
-      );
-    return result;
+    return this.requests.submit(request.tenantContext, bookingId, body as CancellationInput);
   }
 
   @Post()
   @HttpCode(201)
   @TenantScoped({ propertyParam: 'propertyId' })
   @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
-  @RequiresCapability('bookings.manage')
+  @RequiresCapability('bookings.create')
   @RequiresVerifiedEmail()
   async create(
     @Body() body: unknown,
@@ -66,17 +104,30 @@ export class StaffBookingController {
     @Req() request: { tenantContext: { tenantId: string; propertyId: string; userId: string } },
   ) {
     const input = this.input(body);
+    this.validateGuest(input.guest);
     const key = this.idempotencyKey(idempotencyKey);
-    const total = await this.quotes.price(
-      request.tenantContext.tenantId,
-      request.tenantContext.propertyId,
-      input,
-    );
+    // With a promo code the price comes from the full pricing path, which also says what was taken off.
+    const priced = input.promoCode
+      ? await this.quotes.priceWithNightlyRates(
+          request.tenantContext.tenantId,
+          request.tenantContext.propertyId,
+          input,
+          'staff',
+        )
+      : null;
+    const total =
+      priced?.total ??
+      (await this.quotes.price(
+        request.tenantContext.tenantId,
+        request.tenantContext.propertyId,
+        input,
+      ));
     const result = await this.provider.createBooking(request.tenantContext, {
       ...input,
       idempotencyKey: key,
       externalReference: this.externalReference(body),
       total,
+      ...(priced?.promo ? { promo: priced.promo } : {}),
       staffActorId: request.tenantContext.userId,
       skipQuoteValidation: true,
     });
@@ -87,6 +138,25 @@ export class StaffBookingController {
     return result;
   }
 
+  /** The same rules the dashboard form applies, so other clients cannot save bad contact data. */
+  private validateGuest(guest: {
+    email: string;
+    firstName: string;
+    lastName: string;
+    phone: string | null;
+  }) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(guest.email.trim()) || guest.email.length > 254)
+      throw new BadRequestException('A valid guest email address is required.');
+    if (!guest.firstName.trim() || guest.firstName.length > 100)
+      throw new BadRequestException('A guest first name of up to 100 characters is required.');
+    if (!guest.lastName.trim() || guest.lastName.length > 100)
+      throw new BadRequestException('A guest last name of up to 100 characters is required.');
+    if (guest.phone && !/^\+?[0-9][0-9 ]{4,19}$/.test(guest.phone.trim()))
+      throw new BadRequestException(
+        'The guest phone number may contain only digits and a country prefix.',
+      );
+  }
+
   private input(body: unknown) {
     const value = (body ?? {}) as Record<string, unknown>;
     const guest = (value.guest ?? {}) as Record<string, unknown>;
@@ -94,10 +164,14 @@ export class StaffBookingController {
       roomTypeId: typeof value.roomTypeId === 'string' ? value.roomTypeId : '',
       roomId: typeof value.roomId === 'string' ? value.roomId : undefined,
       ratePlanId: typeof value.ratePlanId === 'string' ? value.ratePlanId : '',
+      clockRateId:
+        typeof value.clockRateId === 'string' && value.clockRateId ? value.clockRateId : undefined,
+      promoCode: normalizePromoCode(value.promoCode) ?? undefined,
       startsOn: typeof value.startsOn === 'string' ? value.startsOn : '',
       endsOn: typeof value.endsOn === 'string' ? value.endsOn : '',
       adults: typeof value.adults === 'number' ? value.adults : undefined,
       children: typeof value.children === 'number' ? value.children : undefined,
+      childrenAges: value.childrenAges as number[] | undefined,
       guestCount: typeof value.guestCount === 'number' ? value.guestCount : undefined,
       paymentMethod:
         value.paymentMethod === 'stripe' ||
@@ -115,6 +189,9 @@ export class StaffBookingController {
         city: this.optionalNullableString(guest.city),
         county: this.optionalNullableString(guest.county),
         postcode: this.optionalNullableString(guest.postcode),
+        countryCode: this.country(guest.countryCode),
+        specialRequests:
+          typeof guest.specialRequests === 'string' ? guest.specialRequests : undefined,
       },
     };
   }
@@ -138,5 +215,12 @@ export class StaffBookingController {
   private idempotencyKey(value: string | undefined): string {
     if (!value?.trim()) throw new BadRequestException('Idempotency-Key header is required.');
     return value;
+  }
+  private country(value: unknown) {
+    try {
+      return countryCode(value);
+    } catch {
+      throw new BadRequestException('Choose an assigned ISO country code.');
+    }
   }
 }

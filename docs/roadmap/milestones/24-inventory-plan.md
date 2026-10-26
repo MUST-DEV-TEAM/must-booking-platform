@@ -1,0 +1,175 @@
+# Milestone 24 — Inventory (Availability) plan (decided 2026-10-18)
+
+Sidebar item "Inventory", design in `24-dashboard-redesign.md` Page 14 (14a to 14i). Rule semantics were decided earlier (D58 to D67, S81 to S97); this file fixes the **first-release scope and build order**. Claude builds the backend, Codex builds the screens against the contract below, Claude verifies both.
+
+## Owner decisions (2026-10-18)
+
+- **Scope:** Overview, Restrictions and Manual Blocks. Conflict Review stays a read-only list for hotels with an external PMS (S95, S96); assignment, SLA and evidence export are later.
+- **Restriction targets:** whole property, a category, or a room type. Rate-plan and per-unit restrictions are later.
+- **Standard:** industry practice wherever the design leaves a choice (owner instruction).
+
+## What already exists (verified in code)
+
+- `availability_blocks` already stores dates, `reason`, `note`, `reference` and `created_by_user_id`, with property, room-type and room targets. G41 is therefore partly done; lifecycle, title, owner and versioning are not.
+- `booking/booking-rules.ts` is the single pure evaluator for property-wide minimum and maximum stay, advance days, same day, capacity and conflicts; `GET .../booking-rules/evaluate` exposes it. **Restrictions must extend this module** so search, staff booking, the calendar and the preview run the same code (S83).
+
+## Restriction model (G85, first release)
+
+Types: minimum stay, maximum stay, closed to arrival, closed to departure, stop sell, minimum advance (S84). Fields: name, reference (RST-YYYY-NNNN), type, value, scope (`property` | `category` | `room_type` plus target ids), start and end date (end optional), weekdays (default all), priority Low 25 / Normal 50 / High 75 / Critical 100 (S85), lifecycle Draft / Scheduled / Active / Paused / Expired / Archived, internal reason, version, created and updated by.
+
+Evaluation (S82): a stay must satisfy every restriction type that applies to it. Within one type and one night or arrival, the **higher priority wins**; equal priority with contradicting values is a blocking conflict and cannot be activated. Date applicability is by **arrival date** for stay-length rules and closed-to-arrival, by **departure date** for closed-to-departure, by **each night** for stop sell. Property-wide numbers in Settings are shown as read-only base restrictions (S86). Clock hotels show Clock's restrictions read-only (S81). Existing bookings are never modified by a restriction.
+
+## Block model v2 (G92, first release)
+
+Add title, lifecycle (Draft / Scheduled / Active / Ended / Cancelled), responsible staff, end reason, version. Reason list per S92. Scope is fixed once active, period may be extended or shortened after validation, ending early needs a reason, overlap with a reservation or payment-pending hold is a hard stop (S91, G93). Date-based only (S90). Clock room-level push stays out until proven in the sandbox (S93, G94).
+
+## Build order
+
+| # | Task | Owner | Done when |
+| --- | --- | --- | --- |
+| I1 | Migration and API: restrictions CRUD, lifecycle, validation, conflict check, versioning, audit; restriction evaluation added to `booking-rules.ts` and wired into quote, availability and the calendar | Claude | Unit tests for every rule type and priority case, tenant/property scoping tests, integration test, contract below filled in |
+| I2 | Block model v2 and list read model (status, reason, creator, ending soon), conflict detection | Claude | Same as I1 |
+| I3 | Overview read model: sellable-night percentage, counts by type, needs-attention items (conflicting rules, restriction ending soon), booking-effect preview endpoint | Claude | Preview uses the same evaluator as search |
+| I4 | Screens: Overview, Restrictions list and create/edit, booking-effect preview, Manual Blocks list and create/edit, Conflict Review list | Codex | Handoff method; mocked fetch against the contract |
+| Stock follow-up (owner authorized 2026-10-18) | Pool-stock grid and safe bulk edits inside Inventory; Part A test typing correction | Codex | Preview, atomic floor checks, retry/concurrency/isolation tests, source/mode gates and handoff verification |
+
+Not in the first release: usage counters (S88), rate-plan scope, daily activation times, maximum advance, conflict assignment and SLA, time-of-day blocks.
+
+## API contract
+
+I1 implemented by Codex under the owner's explicit backend authorization (2026-10-18); awaiting review. I2 is implemented under the same authorization and awaits review; I3 is implemented and awaiting review. Inventory screens are I4 and are not built in I1.
+
+### I1 restrictions
+
+Base: `/tenants/:tenantId/properties/:propertyId/inventory/restrictions`. Every route uses tenant/property context. Reads require `calendar.view`; validation and mutations require `calendar.block` and a verified email. No capability keys were added. An enabled Clock PMS assignment makes local restriction validation/mutations read-only, including when that connection is unhealthy; it does not trigger a provider call.
+
+| Method | Path relative to base | Request | Result |
+| --- | --- | --- | --- |
+| GET | `/` | None | List envelope below |
+| GET | `/:id` | UUID | One saved record, derived lifecycle, validation and conflicts; 404 outside scope |
+| GET | `/:id/history` | UUID | Scoped audit entries with actor ID, action, before/after snapshots and timestamp; deleted drafts retain history |
+| POST | `/validate` | Restriction fields below; optional `id` excludes that saved rule | `{ valid, conflicts, errors }`; advisory only, activation repeats validation under lock; no stock reservation or mutation |
+| POST | `/` | Restriction fields; optional `lifecycle: "Draft"` only | 201; new Draft, generated ID/reference, version 1 |
+| PATCH | `/:id` | Full editable restriction fields plus current `version`; no lifecycle field | 200; saved record and incremented version |
+| POST | `/:id/activate` | `{ version }` | 201; Scheduled or Active according to property-local today; revalidates conflicts |
+| POST | `/:id/pause` | `{ version }` | 201; Paused; only Active/Scheduled rules |
+| POST | `/:id/archive` | `{ version }` | 201; Archived |
+| POST | `/:id/duplicate` | `{ version }` | 201; new Draft, new reference, version 1; source unchanged |
+| DELETE | `/:id` | `{ version }` | 200 `{ deleted: true, id }`; Draft only; other states must be archived |
+
+All mutating routes require `Idempotency-Key` (1?128 non-space printable ASCII characters). Use one new key per intended operation and retain it when retrying that operation. The key is unique within the tenant/property across all restriction mutations. A property row lock serializes writes and conflict checks; an atomic receipt stores the normalized request hash (including actor/action/version) and response in the same transaction as the record, reference sequence and audit. Identical concurrent/retried requests replay the original response without another version/audit/sequence increment. Reusing a committed key for a different request returns 409 `IDEMPOTENCY_KEY_REUSED`. Failed transactions leave no success receipt. Keys/receipts currently have no expiry. `version` is optimistic concurrency control, independent of the idempotency key; stale writes return 409 `RESTRICTION_VERSION_CONFLICT` with `currentVersion`. UPDATE/DELETE also predicate on the expected version.
+
+Editable fields:
+
+```json
+{
+  "name": "Weekend minimum stay",
+  "type": "minimum_stay",
+  "value": 3,
+  "scope": "category",
+  "targetIds": ["category-uuid"],
+  "startsOn": "2026-11-01",
+  "endsOn": "2026-11-30",
+  "weekdays": [5, 6, 7],
+  "priority": 50,
+  "internalReason": "Local operations policy"
+}
+```
+
+- Types: `minimum_stay`, `maximum_stay`, `closed_to_arrival`, `closed_to_departure`, `stop_sell`, `minimum_advance`. Values are integers: stay lengths >=1, advance >=0, closures 1 = closed / 0 = open exception. Maximum stored integer is 2,147,483,647. Minimum advance applies to the arrival date, for guest and staff alike; the existing guest-only same-day cutoff remains separate.
+- Scope is `property` with `targetIds: []`, or `category`/`room_type` with 1?500 unique target UUIDs belonging to this property. UUID casing and target/weekday order are normalized. There is no per-room or rate-plan restriction scope. Category membership is resolved at evaluation time, so moving a type changes which category rules apply.
+- Dates are valid ISO property-local calendar dates. Restriction end dates are **inclusive**, unlike the stay's exclusive checkout. A same-date restriction is valid. `endsOn: null` or omitted means no end. Weekdays use ISO Monday=1 to Sunday=7, default all; duplicates, empty selections and finite periods containing none of the selected weekdays are rejected.
+- Priority defaults to 50, accepts integer 1?100 (presets 25/50/75/100). Higher priority wins per type/applicable date, including open exceptions; scope specificity is not a tiebreaker. Equal-priority differing values conflict, even if two minimums could be interpreted as a stricter combined minimum. Identical values do not conflict.
+- Name is required, trimmed, <=200 characters; it need not be unique. Internal reason is optional, trimmed, <=4,000 characters. Reference `RST-YYYY-NNNN` is allocated per property and property-local current year; the suffix can grow past four digits and is not reused after draft deletion. Author IDs and creation/update timestamps are server-owned.
+
+List envelope: `{ source: "LOCAL" | "CLOCK_PMS", readOnly, timezone, today, baseRestrictions, items, providerRestrictions? }`. Each item has the editable fields plus `id`, `reference`, `lifecycle`, `version`, `createdByUserId`, `updatedByUserId`, `createdAt`, `updatedAt`, `validation` (`Healthy`, `Conflict`, `Missing targets`), and `conflicts: [{ id, name, date, code }]`. Settings min/max stay and maximum advance appear in `baseRestrictions` as read-only property rules at priority 0 with source `settings`; their IDs start `base:` and cannot be mutated here. Scoped min/max stay winners can relax these base values (S82/S86). The existing maximum-advance setting stays enforced and is not an editable new restriction type.
+
+Lifecycle is derived without a scheduled writer: enabled records are Scheduled before start, Active from start through inclusive end, then Expired. Draft/Archived take precedence; a paused rule becomes Expired after end. Drafts may have historical dates, but an already-ended rule cannot activate. Archived and Expired records cannot be edited; duplicate to a new draft. Archived is terminal. A draft duplicate is fully target-validated. Active material edits (type, value, scope, targets, dates, weekdays, priority) revalidate; name/reason-only edits do not rerun overlap validation. Pausing/archiving/deleting a draft remains possible after a catalog target is removed.
+
+Targets are retained as scoped UUID arrays rather than cascading away when a catalog object is deleted. Save/activation validates ownership in the serialized transaction. A removed target is reported as Missing targets, never promoted to property scope; searches cannot match a missing type/category. Later catalog membership changes can create a new tie: list validation detects it and the live evaluator rejects affected stays with `RESTRICTION_PRIORITY_CONFLICT`; there is no force override. This does not edit the catalog or an existing booking.
+
+Errors: 400 `RESTRICTION_INVALID` for invalid fields/actions, 409 `RESTRICTION_PRIORITY_CONFLICT` with conflict records for blocked activation/material edits, 409 version/key conflicts as above, 403 `EXTERNAL_RESTRICTIONS_READ_ONLY` for local restriction writes/validation at Clock hotels, scoped 404 for missing records, existing authentication/capability 401/403. The validation endpoint reports an already-ended period as `RESTRICTION_EXPIRED` with `valid: false`.
+
+### I1 shared evaluation and client effects
+
+`booking/booking-rules.ts` calls the pure `inventory-restriction-rules.ts` helper. It is used by quote creation/pricing (website and staff), local availability, public catalog searches with dates, calendar selection, and the reservation boundary before local inventory is claimed. No restriction code writes a booking, payment, cancellation or Clock record. Existing inventory/room locks remain responsible for stock concurrency. If a rule changes after quoting, the reservation path reads restrictions again in its transaction. Concurrent in-flight work is evaluated at that read; activation does not retroactively invalidate an already evaluated/created booking.
+
+Rule errors: `MIN_STAY`, `MAX_STAY`, `CLOSED_TO_ARRIVAL`, `CLOSED_TO_DEPARTURE`, `STOP_SELL`, `MINIMUM_ADVANCE`, `RESTRICTION_PRIORITY_CONFLICT`. Different types all apply. Manual blocks/reservations retain their separate constraints; an open stop-sell exception cannot reopen blocked or occupied inventory. Restriction effects do not apply to creating a manual block. No new rule changes capacity, prices or existing reservations.
+
+`GET .../booking-rules/evaluate` retains its endpoint and returns effective selected-stay min/max metadata from the evaluator when scoped rules apply. The existing CalendarBoard header/night stepper uses that metadata; its New booking action follows `booking.valid`, independently of `block.valid`. The future I3 preview must call this evaluator, not implement its own semantics.
+
+Local `GET .../availability` may add `restrictionErrors: [{ code, message }]` when rules reject a stay and returns `availableUnits: 0, isAvailable: false`. Calendar day projections add restriction error metadata when local rules exist; only stop-sell/arrival closures or priority conflicts close a day cell, because the cell has no selected departure. Length/departure decisions use full-stay evaluation. The public catalog with dates omits types rejected by applicable local restrictions; no-date catalog reads retain their existing behavior and no response field was removed. WordPress code was not edited: its dated catalog, availability and quote calls inherit the server rejection without client-side rule logic.
+
+For Clock properties the list returns `readOnly: true`, `items: []`, `baseRestrictions: []`, `providerRestrictions: null`. Existing `GET .../availability-calendar?roomTypeId=...&month=YYYY-MM` supplies supported Clock day/minimum-stay/stop-sale observations read-only. A complete provider restriction/lifecycle/history catalog is not available (G186); I4 must omit unsupported values and show Unknown when provider data cannot be verified. No Clock request was made during I1 verification; Clock regressions use mocks.
+
+### I1 migration and verification
+
+Migration `20261018150000_inventory_restrictions` creates `inventory_restrictions`, `inventory_restriction_sequences`, and `inventory_restriction_operations`. Every table has mandatory tenant/property IDs, a composite property FK, and forced RLS requiring both contexts. Database constraints enforce supported types/scopes/states, integer values, date order, weekday bounds, priority/version and property-vs-target shape. There is no booking/backfill mutation. Audit snapshots use existing scoped `audit_logs`. Schema models and tenant test-fixture cleanup are updated.
+
+Applied on verified localhost, then executed again successfully to check idempotency. Behavioral tests cover direct application-role RLS rejection, HTTP capabilities, concurrent create replay/activation ties/stale edits, receipt/audit/version behavior, public search/quote/calendar/local stock enforcement and a confirmed booking snapshot remaining unchanged. The browser used the existing calendar to verify a temporary three-night rule; it was archived afterward. Inventory remains its existing placeholder until I4. Detailed command results and screenshots are in the dashboard progress log.
+
+### I2 manual blocks
+
+Base: `/tenants/:tenantId/properties/:propertyId/inventory/blocks`. Reads (`GET /`, `GET /:id`, `GET /:id/history`) require `calendar.view`. `POST /validate`, `POST /`, `PATCH /:id`, `POST /:id/{activate,end,cancel}`, `DELETE /:id` require `calendar.block` and verified email. No provider writes or new capabilities. Clock assignments (including FAILED) reject all mutations and validation with 403 `EXTERNAL_BLOCKS_READ_ONLY`. List includes existing local block history, explicitly local and read-only at Clock properties; it is not provider block data.
+
+Create/edit fields: `{ title, reason, startsOn, endsOn, all, roomTypeIds, roomIds, responsibleStaffId?, reference?, note? }`. Edit additionally requires `version`. Create is Draft; activate is separate. `reference` remains the optional work order (80 characters); server `inventoryReference` is `BLK-YYYY-NNNN` with an atomic property/year sequence. Legacy blocks keep a null inventoryReference rather than inventing historical references. Title is trimmed, required, max 200; note max 500. Reasons: maintenance, renovation, safety_inspection, deep_cleaning, owner_use, house_use (House or staff use), event, out_of_service, other. Scope is property (`all:true`, empty targets) or scoped room types/rooms (unique UUIDs, max 500 each). Rooms are disallowed in ROOM_TYPE_ONLY. Responsible staff must be a tenant Owner/Admin or have a non-suspended property assignment; it is optional, never a global arbitrary user.
+
+Dates are property-local, start inclusive / available-again exclusive. Drafts can retain past dates; activation cannot start in the past. Scheduled becomes Active on start, Ended on available-again without a cron. Draft/Ended/Cancelled states take precedence. Scope becomes permanently locked once Active (including a scheduled block whose start passed); changing scope requires ending and creating another. Period edits revalidate, shortening an Active period requires `endReason` (trimmed, max 4000). `end` applies only to Active and requires a reason; `cancel` applies to Draft/Scheduled; delete applies only to Draft. Ended/Cancelled records are read-only. Early ending retains the originally saved dates and records lifecycle/end reason/audit rather than erasing history; it releases future local blocking immediately.
+
+Mutation responses include the saved record/version (201 POST, 200 PATCH); DELETE returns `{deleted:true,id}`. List: `{source,readOnly,timezone,bookingMode,today,items}`. Items add creator email/ID, updated actor/time, version, derived lifecycle, endingSoon (enabled and ending within seven property-local days), validation and conflicts. Conflicts identify kind `reservation`, `hold` or `block`, ID, reference and dates; no guest PII. History returns scoped audit snapshots. Errors: 400 `BLOCK_INVALID`, 409 `BLOCK_CONFLICT`, 409 `BLOCK_VERSION_CONFLICT` with currentVersion, 409 `IDEMPOTENCY_KEY_REUSED`, scoped 404 and normal 401/403.
+
+All v2 mutations require Idempotency-Key (1?128 printable non-space ASCII). A property row lock serializes mutations, target/conflict checks and receipts; normalized actor/action/fields/version/endReason are hashed. Matching retries return the original response without another audit/version/reference increment; changed requests with the same key return 409. Receipts and sequence allocation commit atomically with the change. Edits use version CAS. Receipt retention currently has no expiry.
+
+Activation/material live edits hard-stop on overlapping reservations, payment holds **or another enabled block**. Adjacent checkout/start dates do not overlap. A room-target block conservatively conflicts with unassigned reservations for its type. No reservation is changed. New booking claims and legacy calendar block creation take the same property lock before inventory/room locks; a racing claim and activation cannot both succeed past each other's committed facts. Existing stock locks remain. All availability, calendar, public catalog and dashboard overview block queries ignore Draft/Ended/Cancelled. The legacy calendar endpoints remain for existing calendar creates/removals; they reject external writes and cannot delete v2 records. The calendar uses the v2 lifecycle route/reason dialog for v2 records.
+
+Migration `20261018170000_inventory_blocks_v2` adds metadata to existing blocks (existing rows default Active with locked scope; dates still determine effect) and two tenant/property tables for receipts/sequences, both strict forced RLS. Target tables retain existing composite scoped foreign keys. Rollback: deploy a compatibility build that retains lifecycle filtering, disable v2 writes, and retain/export metadata and receipts. Do not run a pre-I2 reader against Draft/Ended/Cancelled rows: it would treat them as blocking. Returning to a pre-I2 binary requires an owner-approved data restoration plan. No destructive rollback was executed; existing bookings are untouched.
+
+### I3 overview and booking-effect preview
+
+Read-only routes at `/tenants/:tenantId/properties/:propertyId/inventory`, all require `calendar.view`:
+
+- `GET /overview`: `{source,readOnly,timezone,today,endsOn,activeRestrictions,activeBlocks,countsByType,needsAttention,totalNights,sellableNights,sellablePercentage,coverage,providerHealth,conflictReviewAvailable}`. Horizon is 30 property-local dates starting today, exclusive endsOn. Counts are current Active rules/blocks, rules grouped by type. Attention includes missing targets/conflicting rules/blocks and enabled rules/blocks ending within seven days. No usage counters are implied.
+- `POST /preview`: `{roomTypeId,roomId?,startsOn,endsOn,adults?,children?,channel?:"staff"|"guest"}` returns `{channel,scope:"saved_rules",today,minStayNights,maxStayNights,disabledDates,booking,block,pastDateMessage}`. Uses `AvailabilityService.evaluateRules` and `evaluatePropertyBookingRules`, the existing pure `booking-rules.ts` evaluator and live availability checks; no copied rule algorithm. Staff defaults; Guest applies the existing guest-only same-day policy too. A room must be supplied to test a specific physical unit. Preview never reserves stock or promises pricing/checkout success; booking claims recheck. Invalid fields return 400; capability/scope guards fail closed (401/403). POST returns 201, no persistent mutation/idempotency receipt.
+- `GET /conflicts`: `{source,readOnly:true,available:false,items:null,reason}`. There is no persisted availability-specific provider mismatch queue, so no generic booking/payment review records are repurposed. Native properties hide this tab; external properties explain unavailable provider validation data (G188). No fabricated empty/healthy queue.
+
+Coverage contains published room types with 30 `{date,capacity,available,restrictionErrors}` days, reused from the existing availability calendar. ROOM_TYPE_ONLY denominator is configured per-night inventory; physical mode uses active rooms; MIXED uses the minimum of physical and configured pool stock, counted once. Missing configured stock counts as zero. Reservations, holds, room closures and enabled manual blocks reduce free stock through the existing calendar. Stop sell, arrival closure and priority conflicts close calendar days through the same pure evaluator. Stay-length/departure/advance conditions remain stay-specific; a free room night is not a guarantee a particular stay is bookable. Percentage is rounded to a whole percent; zero capacity is null (Unknown). Calendar facts are a current read projection across queries, not a transactional stock hold; cost scales with active physical rooms/months (no new cache).
+
+Clock returns null for coverage/stock percentages and active provider counts, without making provider calls or substituting local inventory. Provider health details remain null/G88. Full provider restriction data remains G186. Preview is saved-rules-only (G187); unsaved what-if edits are not falsely previewed. No migration in I3.
+
+### I4 screens (implementation, awaiting review)
+
+`apps/web/app/dashboard/inventory.tsx` replaces the sidebar placeholder. Reads fail closed until `/capabilities/mine` confirms `calendar.view`; writes additionally require `calendar.block`, verified email and a LOCAL source. Inventory is now available to assigned staff with calendar.view, matching the new API contract; Settings remains owner/admin-only. No capability catalog or authentication rules changed.
+
+Overview composes the 30-day coverage, counts, by-type breakdown, attention links and booking-effect preview. Restrictions and Manual Blocks have lifecycle/count views, type/reason/scope/validation/priority/date filters, search, sorting, sticky headers, selection, copy/CSV, persistent columns/density, pagination, row menus and quick peeks. Create/edit dialogs support scoped target multi-selects, local dates, weekdays/priorities, reason/ownership fields, advisory validation, draft saving and save/activate. Activation errors preserve a saved draft; active block scope is disabled. Quick peeks expose identity, effect, schedule, source fields, conflicts and actual audit history, with versioned lifecycle confirmation actions. Early reopening requires a written reason. Operation keys survive uncertain response retries, including the calendar's v2 reopening action.
+
+Shared additions: `components/ui/record-directory.tsx` and `availability-grid.tsx`, each with behavior tests. Editors and preview compose existing Dialog, ConfirmDialog, FormField, Combobox, MultiSelect, Input, Alert and table components. Existing creator IDs are resolved to current-user/staff names where authorized; unknown names are labeled unavailable rather than exposing raw IDs as names. Responsible-staff picker is hidden when staff.view is absent or lookup fails; the saved assignment is preserved. Dates remain native date fields inside the shared Input component.
+
+Clock properties show read-only Unknown states for full restrictions, room-level blocks, stock summary and availability-specific Conflict Review; local history is not displayed as provider inventory. Existing Calendar remains linked for supported provider day data. No retry/assignment/export-evidence/provider-write controls are invented. Unsaved-rule what-if preview remains G187; its caption explicitly says drafts must activate before their effect can be tested. Price readiness/pipeline, provider freshness detail and per-block saved-vs-proposed room-night impact are unavailable and omitted (G88/G189). These are data limits, not zero/healthy metrics. No migration or API contract change in I4.
+
+### Stock follow-up contract (owner authorized 2026-10-18)
+
+- `GET /tenants/:tenantId/properties/:propertyId/inventory/stock?startsOn=YYYY-MM-DD`: `calendar.view`; returns `{source, readOnly, bookingMode, timezone, today, startsOn, endsOn, explanation, rows}`. Default start is property-local today; exactly 30 calendar dates, exclusive `endsOn`. Rows include every local room type (including unpublished types for configuration), `{id,label,days:[{date,stock,soldHeld,remaining,blocked,markers}]}`. `stock` is configured total capacity; `soldHeld` is the existing combined `booked_units` commitment counter, not an invented sold/hold split; `remaining=max(0,stock-soldHeld)`. These are stock counts, not a promise of stay eligibility or pricing.
+- LOCAL `ROOM_TYPE_ONLY` and `MIXED` show the pool. Individual mode is read-only, derives capacity from active rooms and counts committed room reservations, and marks unavailable rooms/blocks. MIXED pool counts do not replace the existing physical-room limits in search. Enabled Clock assignments, even failed connections, return read-only Unknown/null stock and "managed in Clock" without loading credentials or calling a provider. No public catalog/search, price, booking or provider logic changed.
+- `POST .../inventory/stock/preview`: `calendar.block` plus verified email. Advisory, read-only preview under the property/stock row locks; rejects non-local and non-pool modes. Returns `{valid,previewToken,changes:[{roomTypeId,date,before,after,soldHeld,remaining,error}]}`. Each validation error identifies its date. Preview does not reserve stock.
+- Existing `PUT .../inventory-units` remains 204 and now uses `calendar.block` plus verified email (no new capabilities). Every HTTP write requires `Idempotency-Key`, 1-128 printable non-space ASCII characters. Legacy shape `{roomTypeId,startsOn,endsOn,availableUnits}` is a set operation with the same validation and locking. Existing local test seed clients now supply keys.
+- Bulk shape: `{operation:"set"|"add"|"subtract"|"reset",value,weekdays?,previewToken?,cells:[{roomTypeId,date}]}` OR `{operation,value,weekdays?,previewToken?,roomTypeIds,startsOn,endsOn}`. Do not mix explicit cells and a rectangle. The UI previews and submits its token. `endsOn` is exclusive; UI date range labels both selected dates as inclusive and converts the end once. Weekdays are ISO Monday=1 through Sunday=7, default all. Empty/duplicate/invalid weekday and target selections fail; no matching cells fails. Request cap is 1,000 unique cells, counted before weekday filtering; duplicate explicit cells fail. Integers are 0 through 2,147,483,647; editable cells use years 0001 through 9999, excluding 9999-12-31 so their exclusive end stays representable. Negative results, overflow, dates before property-local today and stock below sold/held reject the whole bulk change. No clamping or partial save.
+- Reset restores **0**, explicitly confirmed by the owner; missing inventory rows also retain existing zero behavior. Reset with sold/held rooms fails. Set replaces capacity, add/subtract adjust current capacity rather than remaining stock. A bulk operation can configure unpublished room types but does not publish them.
+- Apply acquires the same property `FOR UPDATE` lock used by booking inventory claims, then stock rows. All cells, one audit snapshot and one receipt commit in a single transaction. Receipt table `inventory_stock_operations` has mandatory tenant/property columns, scoped composite property FK, scoped key PK and forced RLS; missing or wrong property context cannot read it. Normalized request hash includes actor, operation and preview token. Same-key retries replay without another stock/audit change; key reuse for different content returns 409 `IDEMPOTENCY_KEY_REUSED`. No receipt expiry is introduced. Missing stock rows are safe because the property lock serializes their creation. Successful retries replay before stale-preview validation.
+- Preview token fingerprints normalized before/after/sold-held counts and property-local today. A change since preview returns 409 `STOCK_PREVIEW_STALE`; refresh/re-preview before saving. Legacy callers without preview still get locking and all validations. Failed validations return 409 `STOCK_VALIDATION_FAILED` with date-specific `errors` and create no receipt; invalid input/key returns 400 `STOCK_INVALID`; read-only mode/source returns 403 `STOCK_READ_ONLY`; out-of-scope types return 404. Authentication/capability guards may return 401/403 before scoped service lookup.
+- Audit action `inventory_units.bulk_change`, target `inventory_stock`, records operation, each cell's before/after/sold-held counts and aggregate before/after counts once per bulk transaction. No password or credentials enter these payloads. The additive receipt migration is repeatable; rollback is application-first, retaining receipts until exported. Stock rows/counters are not migrated.
+- Grid markers use saved block scope/lifecycle (exclusive block end), including individual-room block targets, and the existing pure booking evaluator for stop sell, arrival/departure closures and priority conflicts. Stay-length/advance rules do not pretend to close a whole date. Raw capacity/remaining are not overwritten by these markers. Full stay eligibility remains in the existing shared evaluator/search.
+- Shared `AvailabilityGrid` now supports cell, shift-rectangle, date-column and whole-row selection, excluding disabled past dates; static overview callers retain their existing display. Stock composes shared cards, fields, combobox, multi-select, calendar picker, table, alerts and confirmation dialog. Field/selection changes invalidate the preview (including an in-flight response); uncertain PUT retries retain the same key. Previous/next paging is 30 calendar days; jump/today clear selection. Source/mode/capability checks fail closed independently of the server.
+- Assumptions: past stock is read-only; all configured room types are shown; raw remaining is stock minus combined commitments (not restriction-adjusted availability); one cell is one room-type/property-local date; manual blocks mark dates without silently changing configured stock; no distinct held-versus-sold count is fabricated. Clock numeric stock remains unavailable (G190). Browser mode fixtures are labeled when mocked; no Clock probing is authorized.
+
+### Stock grid create shortcuts (2026-10-18)
+
+Selected Stock cells open the existing restriction or block create dialog; no routes or API fields changed. Prefill deduplicates selected room types and takes the earliest/latest selected calendar date. Restrictions use an inclusive end; blocks use the next day as exclusive available-again. The restriction defaults to Stop sell and its type remains selectable in the dialog. Prefill is separate from a saved record, so it never sends PATCH or a saved version. Existing create/validate/activation, Idempotency-Key retries and capability/email guards remain authoritative. Clock and individual-room Stock modes hide both shortcuts. Reset is labeled "Reset stock to 0".
+
+Assumption/limit (G191): existing dialogs represent a single contiguous interval across their chosen targets. A sparse selection therefore pre-fills its enclosing interval, including gaps, and the dialog explicitly warns staff to review scope and dates before saving. Nothing is saved or activated by selecting a shortcut. No new arbitrary-cell restriction/block contract is invented.
+
+
+### Upcoming availability room expansion (2026-10-18 follow-up)
+
+`GET /inventory/overview` retains its published-room-type scope and unchanged parent availability totals. Each LOCAL coverage item now adds `rooms: [{id,name,days:[{date,available:boolean|null,restrictionErrors}]}]` for active physical rooms in INDIVIDUAL_ROOM_ONLY/MIXED. It reuses the room calendars already read for the parent summary; no new availability evaluator or provider call. ROOM_TYPE_ONLY returns an empty room list; Clock coverage remains Unknown/null. No migration or write route changes.
+
+The shared AvailabilityGrid expands a room type into read-only unit rows, labeled Available/Unavailable/Unknown. An unavailable room is not automatically labeled Booked because the calendar may reflect blocks or restrictions. A free room does not override pool stock, unassigned reservations or full-stay eligibility. Draft types remain unpublished and excluded; the overview names hidden drafts using the existing room-type catalog instead of silently publishing them.

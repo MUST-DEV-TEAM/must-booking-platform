@@ -1,6 +1,49 @@
-import { Module } from '@nestjs/common';
+import { AuditMutationInterceptor } from './tenancy/audit-mutation.interceptor';
+import { ClockStayAmendmentService } from './integrations/clock/clock-stay-amendment.service';
+import { BookingRoomMoveController } from './booking/booking-room-move.controller';
+import { requestLogPath } from './observability/request-log-path';
+import { GuestBookingManageController } from './booking/guest-booking-manage.controller';
+import { ClockFinancialService } from './integrations/clock/clock-financial.service';
+import {
+  ClockBackgroundSyncService,
+  ClockBackgroundSyncController,
+} from './integrations/clock/clock-background-sync.service';
+import {
+  ClockGuestImportController,
+  ClockGuestImportService,
+} from './integrations/clock/clock-guest-import.service';
+import { StaffAvailabilityService } from './booking/staff-availability.service';
+import { PaymentCollectionService } from './payments/payment-collection.service';
+import {
+  ClockImportController,
+  ClockImportService,
+} from './integrations/clock/clock-import.service';
+import { BookingAmendService } from './booking/booking-amend.service';
+import { BookingAmendController } from './booking/booking-amend.controller';
+import { BookingDetailsService } from './booking/booking-details.service';
+import { BookingDetailsController } from './booking/booking-details.controller';
+import { BookingRequestsService } from './booking/booking-requests.service';
+import { BookingRequestsController } from './booking/booking-requests.controller';
+import { ReportOtbService } from './tenancy/report-otb.service';
+import { PricingController } from './tenancy/pricing.controller';
+import { PricingService } from './tenancy/pricing.service';
+import { PricingWrites } from './tenancy/pricing-writes.service';
+import { InventoryStockController } from './tenancy/inventory-stock.controller';
+import { InventoryStockService } from './tenancy/inventory-stock.service';
+import { InventoryOverviewController } from './tenancy/inventory-overview.controller';
+import { SystemHealthController, SystemHealthService } from './tenancy/system-health.service';
+import { GlobalSearchController, GlobalSearchService } from './tenancy/global-search.service';
+import { InventoryOverviewService } from './tenancy/inventory-overview.service';
+import { InventoryBlocksController } from './tenancy/inventory-blocks.controller';
+import { InventoryBlocksService } from './tenancy/inventory-blocks.service';
+import { InventoryRestrictionsController } from './tenancy/inventory-restrictions.controller';
+import { InventoryRestrictionsService } from './tenancy/inventory-restrictions.service';
+import { Module, type NestModule, type MiddlewareConsumer } from '@nestjs/common';
+import { auditRequestContext } from './tenancy/audit-request-context';
+import { ActivityAuditController } from './tenancy/activity-audit.controller';
+import { ActivityAuditService } from './tenancy/activity-audit.service';
 import { ConfigModule } from '@nestjs/config';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { LoggerModule } from 'nestjs-pino';
@@ -18,6 +61,22 @@ import { PublicTenantScopedGuard } from './tenancy/public-tenant-scoped.guard';
 import { PublicRateLimitGuard } from './tenancy/public-rate-limit.guard';
 import { PublicRateLimiterService } from './tenancy/public-rate-limiter.service';
 import { RolesGuard } from './tenancy/roles.guard';
+import { PlatformAccessGuard } from './platform/console/platform-access.guard';
+import { PlatformAuditService } from './platform/console/platform-audit.service';
+import { PlatformAuditController } from './platform/console/platform-audit.controller';
+import { PlatformHotelsController } from './platform/console/platform-hotels.controller';
+import { PlatformHotelsService } from './platform/console/platform-hotels.service';
+import { PlatformLifecycleService } from './platform/console/platform-lifecycle.service';
+import { HotelSupportController } from './platform/console/hotel-support.controller';
+import { PlatformSupportController } from './platform/console/platform-support.controller';
+import { PlatformSupportService } from './platform/console/platform-support.service';
+import { PlatformAuthController } from './platform/console/platform-auth.controller';
+import { PlatformAuthService } from './platform/console/platform-auth.service';
+import { PlatformIdempotencyService } from './platform/console/platform-idempotency.service';
+import { PlatformRouteInterceptor } from './platform/console/platform-route.interceptor';
+import { PlatformSessionService } from './platform/console/platform-session.service';
+import { PlatformTeamController } from './platform/console/platform-team.controller';
+import { PlatformTeamService } from './platform/console/platform-team.service';
 import { CapabilitiesGuard } from './tenancy/capabilities.guard';
 import { CapabilitiesService } from './tenancy/capabilities.service';
 import { CapabilitiesController } from './tenancy/capabilities.controller';
@@ -26,17 +85,38 @@ import { StaffInviteService } from './tenancy/staff-invite.service';
 import { StaffInviteController } from './tenancy/staff-invite.controller';
 import { AdminStaffController } from './tenancy/admin-staff.controller';
 import { AdminStaffService } from './tenancy/admin-staff.service';
+import { StaffAccessService } from './tenancy/staff-access.service';
 import { GuestsController } from './tenancy/guests.controller';
 import { GuestsService } from './tenancy/guests.service';
 import { ReportsController } from './tenancy/reports.controller';
 import { ReportsService } from './tenancy/reports.service';
+import { ReportDefinitionsService } from './tenancy/report-definitions.service';
+import { ReportViewsController } from './tenancy/report-views.controller';
+import { ReportViewsService } from './tenancy/report-views.service';
+import { DashboardMetricsService } from './tenancy/dashboard-metrics.service';
+import { ReportWorkspaceService } from './tenancy/report-workspace.service';
 import { OverviewController } from './tenancy/overview.controller';
 import { OverviewService } from './tenancy/overview.service';
+import { NotificationInboxService } from './tenancy/notification-inbox.service';
+import { NotificationRetentionService } from './tenancy/notification-retention.service';
 import { NotificationsController } from './tenancy/notifications.controller';
 import { NotificationsService } from './tenancy/notifications.service';
 import { AuditLogController } from './tenancy/audit-log.controller';
 import { AuditLogService } from './tenancy/audit-log.service';
 import { MAIL_PROVIDER } from './mail/mail.provider';
+import { EmailMessageArchiveService } from './mail/email-message-archive.service';
+import { EmailTransportJournal } from './mail/email-transport-journal';
+import { EmailTransportFailures } from './mail/email-transport-failures';
+import { EmailSenderTestService } from './tenancy/email-sender-test.service';
+import { PropertyMailDispatcher } from './mail/property-mail-dispatcher';
+import { EmailTransportCredentialService } from './mail/email-transport-credentials';
+import { SmtpTransport } from './mail/smtp-transport';
+import { EmailSendingProfileController } from './tenancy/email-sending-profile.controller';
+import { EmailSendingProfileService } from './tenancy/email-sending-profile.service';
+import { EmailSenderVerificationService } from './tenancy/email-sender-verification.service';
+import { EmailDomainVerificationService } from './tenancy/email-domain-verification.service';
+import { SenderVerificationStore } from './mail/sender-verification-store';
+import { SenderVerificationPayloadService } from './mail/sender-verification-secrets';
 import { ResendMailProvider } from './mail/resend-mail.provider';
 import { MailDeliveryService } from './mail/mail-delivery.service';
 import { AlertEmailService } from './mail/alert-email.service';
@@ -64,6 +144,16 @@ import {
 } from './tenancy/email-activity.controller';
 import { EmailActivityService } from './tenancy/email-activity.service';
 import { ReviewLinksController, ReviewLinksService } from './tenancy/review-links.controller';
+import { EmailTemplateVersionsController } from './tenancy/email-template-versions.controller';
+import { EmailTemplateVersionsService } from './tenancy/email-template-versions.service';
+import {
+  EmailConfigurationController,
+  EmailConfigurationService,
+} from './tenancy/email-configuration.controller';
+import {
+  EmailSuppressionsController,
+  EmailSuppressionsService,
+} from './tenancy/email-suppressions.controller';
 import { EmailTemplatesController } from './tenancy/email-templates.controller';
 import { EmailTemplatesService } from './tenancy/email-templates.service';
 import { STORAGE_PROVIDER } from './storage/storage.provider';
@@ -71,8 +161,13 @@ import { R2StorageProvider } from './storage/r2-storage.provider';
 import { LocalStorageProvider } from './storage/local-storage.provider';
 import { PhotoUploadsController } from './storage/photo-uploads.controller';
 import { RoomTypesController } from './tenancy/room-types.controller';
+import { AccommodationImportController } from './tenancy/accommodation-import.controller';
 import { PropertyImageLibraryController } from './tenancy/property-image-library.controller';
 import { RoomTypesService } from './tenancy/room-types.service';
+import { AccommodationImportService } from './tenancy/accommodation-import.service';
+import { RoomCategoriesController } from './tenancy/room-categories.controller';
+import { RoomCategoriesService } from './tenancy/room-categories.service';
+import { AccommodationsAuditController } from './tenancy/accommodations-audit.controller';
 import { RoomsController } from './tenancy/rooms.controller';
 import { PropertyRoomsController } from './tenancy/property-rooms.controller';
 import { RoomsService } from './tenancy/rooms.service';
@@ -83,6 +178,13 @@ import { AmenitiesService } from './tenancy/amenities.service';
 import { AvailabilityController } from './tenancy/availability.controller';
 import { AvailabilityService } from './tenancy/availability.service';
 import { PublicAvailabilityController } from './tenancy/public-availability.controller';
+import { PublicExchangeRatesController } from './tenancy/public-exchange-rates.controller';
+import { PropertyCurrencyController } from './tenancy/property-currency.controller';
+import { PropertyCurrencyService } from './tenancy/property-currency.service';
+import { PromoCodeService } from './booking/promo-code.service';
+import { PromoCodeAdminService } from './booking/promo-code-admin.service';
+import { PromoCodesController } from './booking/promo-codes.controller';
+import { ExchangeRatesService } from './tenancy/exchange-rates.service';
 import { PublicCatalogController } from './tenancy/public-catalog.controller';
 import { PublicCatalogService } from './tenancy/public-catalog.service';
 import { WordpressPairingController } from './tenancy/wordpress-pairing.controller';
@@ -133,6 +235,9 @@ import { ClockConnectionTester } from './integrations/clock/clock-connection-tes
 import { ClockPmsProvider } from './integrations/clock/clock-pms.provider';
 import { ClockCatalogSyncService } from './integrations/clock/clock-catalog-sync.service';
 import { ClockCatalogSyncController } from './integrations/clock/clock-catalog-sync.controller';
+import { ClockPermissionsController } from './integrations/clock/clock-permissions.controller';
+import { ClockPermissionsService } from './integrations/clock/clock-permissions.service';
+import { ClockPermissionsMonitorService } from './integrations/clock/clock-permissions-monitor.service';
 import { ClockAvailabilityService } from './integrations/clock/clock-availability.service';
 import { ClockPrePaymentAvailability } from './integrations/clock/clock-pre-payment-availability';
 import { PrePaymentAvailabilityRegistry } from './booking/pre-payment-availability';
@@ -142,6 +247,7 @@ import {
   ClockRateRankingController,
 } from './integrations/clock/clock-rate-ranking.controller';
 import { ClockBookingService } from './integrations/clock/clock-booking.service';
+import { BookingReviewController, BookingReviewService } from './booking/booking-review.service';
 import { ClockBookingConsistencyService } from './integrations/clock/clock-booking-consistency.service';
 import { ClockBookingHydrationService } from './integrations/clock/clock-booking-hydration.service';
 import { ClockFolioHydrationService } from './integrations/clock/clock-folio-hydration.service';
@@ -177,7 +283,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
           req: (request: IncomingMessage & { id?: string }) => ({
             id: request.id,
             method: request.method,
-            path: request.url,
+            path: requestLogPath(request.url),
           }),
           res: (response: ServerResponse) => ({
             statusCode: response.statusCode,
@@ -187,14 +293,19 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     }),
   ],
   controllers: [
+    ClockImportController,
+    ClockGuestImportController,
+    ClockBackgroundSyncController,
     HealthController,
     AuthController,
     StaffInviteController,
     AdminStaffController,
     GuestsController,
     ReportsController,
+    ReportViewsController,
     OverviewController,
     NotificationsController,
+    ActivityAuditController,
     AuditLogController,
     PlanUsageController,
     PropertiesController,
@@ -202,10 +313,25 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     NotificationSettingsController,
     EmailPreferencesController,
     EmailTemplatesController,
+    EmailSuppressionsController,
+    EmailConfigurationController,
+    EmailSendingProfileController,
+    EmailTemplateVersionsController,
     EmailActivityController,
     EmailSenderController,
     ReviewLinksController,
     RoomTypesController,
+    AccommodationImportController,
+    RoomCategoriesController,
+    InventoryRestrictionsController,
+    InventoryBlocksController,
+    InventoryOverviewController,
+    BookingReviewController,
+    SystemHealthController,
+    GlobalSearchController,
+    InventoryStockController,
+    PricingController,
+    AccommodationsAuditController,
     PropertyImageLibraryController,
     PhotoUploadsController,
     RoomsController,
@@ -215,11 +341,19 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     AvailabilityController,
     CapabilitiesController,
     PublicAvailabilityController,
+    PublicExchangeRatesController,
+    PropertyCurrencyController,
+    PromoCodesController,
     PublicCatalogController,
     WordpressPairingController,
     WordpressPairingRedeemController,
     QuoteController,
     BookingController,
+    GuestBookingManageController,
+    BookingRequestsController,
+    BookingDetailsController,
+    BookingAmendController,
+    BookingRoomMoveController,
     StaffBookingController,
     PublicBookingController,
     StripeWebhookController,
@@ -229,14 +363,35 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     PaymentLedgerController,
     ManualPaymentController,
     PlatformAdminController,
+    PlatformAuthController,
+    PlatformTeamController,
+    PlatformAuditController,
+    PlatformHotelsController,
+    PlatformSupportController,
+    HotelSupportController,
     IntegrationConnectionsController,
     ClockCatalogSyncController,
+    ClockPermissionsController,
     ClockRateRankingController,
     ClockRateRankingBatchController,
     ClockWebhookController,
   ],
   providers: [
     TenantDatabaseService,
+    ExchangeRatesService,
+    PropertyCurrencyService,
+    PromoCodeService,
+    PromoCodeAdminService,
+    PlatformSessionService,
+    PlatformAuditService,
+    PlatformIdempotencyService,
+    PlatformAuthService,
+    PlatformTeamService,
+    PlatformLifecycleService,
+    PlatformHotelsService,
+    PlatformSupportService,
+    PlatformAccessGuard,
+    PlatformRouteInterceptor,
     AuthService,
     EmailVerificationGuard,
     SignupRateLimitGuard,
@@ -251,19 +406,48 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     PropertyRoleTemplatesService,
     StaffInviteService,
     AdminStaffService,
+    StaffAccessService,
     GuestsService,
     ReportsService,
+    ReportDefinitionsService,
+    ReportWorkspaceService,
+    ReportOtbService,
+    DashboardMetricsService,
+    ReportViewsService,
     OverviewService,
     NotificationsService,
+    ActivityAuditService,
+    NotificationInboxService,
+    NotificationRetentionService,
     AuditLogService,
     PlanUsageService,
     PropertiesService,
     CancellationPoliciesService,
     NotificationSettingsService,
     EmailTemplatesService,
+    EmailSuppressionsService,
+    EmailConfigurationService,
+    EmailSendingProfileService,
+    EmailSenderVerificationService,
+    EmailDomainVerificationService,
+    SenderVerificationStore,
+    SenderVerificationPayloadService,
+    { provide: SmtpTransport, useFactory: () => new SmtpTransport() },
+    EmailTransportCredentialService,
+    EmailTemplateVersionsService,
     EmailActivityService,
     ReviewLinksService,
     RoomTypesService,
+    AccommodationImportService,
+    RoomCategoriesService,
+    InventoryRestrictionsService,
+    InventoryBlocksService,
+    InventoryOverviewService,
+    SystemHealthService,
+    GlobalSearchService,
+    InventoryStockService,
+    PricingService,
+    PricingWrites,
     RoomsService,
     RatePlansService,
     AmenitiesService,
@@ -275,7 +459,12 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     CancellationLinkService,
     MultiRoomBookingService,
     QuoteService,
+    StaffAvailabilityService,
     LocalPmsProvider,
+    BookingRequestsService,
+    BookingDetailsService,
+    BookingAmendService,
+    ClockStayAmendmentService,
     { provide: PMS_PROVIDER, useExisting: LocalPmsProvider },
     StripePaymentProvider,
     PokPayPaymentProvider,
@@ -288,6 +477,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     PaymentRefundService,
     PaymentLedgerService,
     ManualPaymentService,
+    PaymentCollectionService,
     PlatformAdminService,
     ProviderHealthService,
     LocalDemoSeedService,
@@ -302,12 +492,19 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     ClockPmsProvider,
     PmsProviderRegistry,
     ClockCatalogSyncService,
+    ClockPermissionsService,
+    ClockPermissionsMonitorService,
     ClockAvailabilityService,
     ClockPrePaymentAvailability,
     PrePaymentAvailabilityRegistry,
     ClockRateRankingService,
     ClockBookingService,
+    BookingReviewService,
     ClockBookingConsistencyService,
+    ClockImportService,
+    ClockGuestImportService,
+    ClockBackgroundSyncService,
+    ClockFinancialService,
     ClockBookingHydrationService,
     ClockFolioHydrationService,
     ClockPaymentReconciliationService,
@@ -333,6 +530,11 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
         throw new Error('STORAGE_DRIVER must be local or r2.');
       },
     },
+    EmailMessageArchiveService,
+    EmailTransportJournal,
+    EmailTransportFailures,
+    EmailSenderTestService,
+    PropertyMailDispatcher,
     ResendMailProvider,
     MailDeliveryService,
     ScheduledEmailService,
@@ -343,12 +545,19 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     BookingConfirmationNotificationService,
     BookingCancellationNotificationService,
     { provide: MAIL_PROVIDER, useExisting: ResendMailProvider },
+    { provide: APP_INTERCEPTOR, useClass: AuditMutationInterceptor },
     { provide: APP_GUARD, useExisting: TenantContextGuard },
     { provide: APP_GUARD, useExisting: PublicTenantScopedGuard },
     { provide: APP_GUARD, useExisting: RolesGuard },
     { provide: APP_GUARD, useExisting: CapabilitiesGuard },
     { provide: APP_GUARD, useExisting: EmailVerificationGuard },
     { provide: APP_GUARD, useExisting: SignupRateLimitGuard },
+    { provide: APP_GUARD, useExisting: PlatformAccessGuard },
+    { provide: APP_INTERCEPTOR, useExisting: PlatformRouteInterceptor },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(auditRequestContext).forRoutes('*');
+  }
+}

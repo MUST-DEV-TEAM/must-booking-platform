@@ -9,6 +9,7 @@ import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
 import { ClockAvailabilityService } from '../src/integrations/clock/clock-availability.service';
 import { ClockBookingService } from '../src/integrations/clock/clock-booking.service';
 import { cleanupTenant } from './helpers/cleanup-tenant';
+import { STAY_STARTS_ON, STAY_ENDS_ON } from './helpers/future-stay';
 import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
 
 // Milestone 11 Task 16: the milestone's actual "done" gate — one chained
@@ -183,8 +184,8 @@ describe.skipIf(!hasSandboxCredentials)('Clock sandbox validation (Task 16, real
     const availability = app!.get(ClockAvailabilityService);
     const availabilityResult = await availability.getAvailability(tenantId, propertyId, {
       roomTypeId: localRoomType[0]!.id,
-      startsOn: '2026-08-16',
-      endsOn: '2026-08-18',
+      startsOn: STAY_STARTS_ON,
+      endsOn: STAY_ENDS_ON,
     });
     expect(availabilityResult.ok).toBe(true);
     if (availabilityResult.ok) expect(availabilityResult.value.isAvailable).toBe(true);
@@ -202,8 +203,8 @@ describe.skipIf(!hasSandboxCredentials)('Clock sandbox validation (Task 16, real
       externalReference: `must-validation-${randomUUID()}`,
       roomTypeId: localRoomType[0]!.id,
       ratePlanId,
-      startsOn: '2026-08-16',
-      endsOn: '2026-08-18',
+      startsOn: STAY_STARTS_ON,
+      endsOn: STAY_ENDS_ON,
       guest: {
         email: 'validation-guest@example.test',
         firstName: 'Val',

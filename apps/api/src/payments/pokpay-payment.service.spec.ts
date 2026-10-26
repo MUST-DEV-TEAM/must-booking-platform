@@ -42,6 +42,7 @@ describe('PokPayPaymentService duplicate recovery', () => {
         },
       } as never,
       { sendAfterConfirmation: vi.fn().mockResolvedValue(undefined) } as never,
+      { process: vi.fn().mockResolvedValue(null) } as never,
     );
 
     const result = await service.processAuthoritativeOrder('order-1');

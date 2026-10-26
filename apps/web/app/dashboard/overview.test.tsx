@@ -3,7 +3,7 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { DashboardOverview } from './overview';
+import { DashboardOverview, type Overview } from './overview';
 import { DashboardQueryProvider } from './query-provider';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -93,6 +93,25 @@ const overview = {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('DashboardOverview', () => {
+  it('shows nothing due today rather than unknown when there are no desk arrivals', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(
+            JSON.stringify({ ...overview, balancesDueAtDesk: [], balanceDueAtDesk: null }),
+          ),
+        ),
+    );
+    const { container, root } = await mount();
+    await act(async () => {
+      await settle();
+    });
+    expect(container.textContent).toContain('Nothing due today');
+    await act(async () => root.unmount());
+  });
+
   it('renders an accessible skeleton before overview data is available', async () => {
     let resolveFetch!: (value: Response) => void;
     vi.stubGlobal(
@@ -129,22 +148,24 @@ describe('DashboardOverview', () => {
 
     await click(
       Array.from(container.querySelectorAll('button')).find(
-        (button) => button.textContent === 'Retry',
+        (button) => button.textContent === 'Try again',
       )!,
     );
 
     expect(fetch).toHaveBeenCalledTimes(2);
-    expect(container.textContent).not.toContain('Ada Guest');
-    expect(container.textContent).toContain('71%');
+    expect(container.textContent).toContain('71.0%');
     await act(async () => root.unmount());
   });
 
   it('uses supplied overview data without an additional request', async () => {
     const fetch = vi.fn();
     vi.stubGlobal('fetch', fetch);
-    const { container, root } = await mount({ initialOverview: overview });
+    const { container, root } = await mount({
+      initialOverview: overview,
+      canManageQuickBooking: true,
+    });
 
-    expect(container.textContent).not.toContain('Ada Guest');
+    expect(container.textContent).toContain('Ada Guest');
     expect(container.textContent).toContain('Ana Arrival booked');
     expect(container.textContent).toContain('New booking');
     expect(container.textContent).toContain('Add staff');
@@ -157,16 +178,16 @@ describe('DashboardOverview', () => {
 
     // New sections: today's arrivals/departures, upcoming arrivals, revenue,
     // balance due, sold-out rooms, and recent cancellations.
-    expect(container.textContent).toContain('Today’s arrivals (1)');
+    expect(container.textContent).toContain('Today’s arrivals');
     expect(container.textContent).toContain('Ana Arrival');
     expect(container.textContent).toContain('2 adults');
     expect(container.textContent).toContain('Special request');
     expect(container.textContent).toContain('MB-1001');
-    expect(container.textContent).toContain('350.00 EUR');
-    expect(container.textContent).toContain('120.00 EUR');
+    expect(container.textContent).toContain('EUR 350.00');
+    expect(container.textContent).toContain('EUR 120.00');
     expect(container.textContent).toContain('Uma Upcoming');
     expect(container.textContent).toContain('1 adult, 1 child');
-    expect(container.textContent).toContain('Sold out tonight (1)');
+    expect(container.textContent).toContain('Sold out tonight');
     expect(container.textContent).toContain('Double room — 102');
     expect(container.textContent).toContain('Cara Cancelme');
 
@@ -179,9 +200,115 @@ describe('DashboardOverview', () => {
     expect(fetch).not.toHaveBeenCalled();
     await act(async () => root.unmount());
   });
+
+  it('shows only the widgets the server lists for this person and always offers My tasks', async () => {
+    const fetch = vi.fn(async () => Response.json({ items: [] }));
+    vi.stubGlobal('fetch', fetch);
+    const { container, root } = await mount({
+      initialOverview: {
+        ...overview,
+        view: {
+          type: 'finance',
+          widgets: ['tile.collectedToday', 'tile.needsAttention', 'panel.myTasks'],
+        },
+      },
+    });
+    const text = container.textContent ?? '';
+    expect(text).toContain('Collected today');
+    expect(text).toContain('My tasks');
+    expect(text).toContain('Your tasks and the parts of the hotel you work with.');
+    for (const hidden of [
+      'Arrivals',
+      'Departures',
+      'In house',
+      'Occupancy',
+      'Due at the desk',
+      'New bookings',
+      'Today’s arrivals',
+      'Upcoming arrivals',
+      'Sold out tonight',
+      'Recent activity',
+    ])
+      expect(text).not.toContain(hidden);
+    await act(async () => root.unmount());
+  });
+  it('hides the calendar shortcut when the role cannot open calendar', async () => {
+    const { container, root } = await mount({ initialOverview: overview, canOpen: () => false });
+    expect(container.textContent).not.toContain('Open calendar');
+    await act(async () => root.unmount());
+  });
+
+  it('hides booking creation when the capability prop is omitted', async () => {
+    vi.stubGlobal('fetch', vi.fn());
+    const { container, root } = await mount({ initialOverview: overview });
+    expect(container.querySelector('a[href*="tab=quick-booking"]')).toBeNull();
+    await act(async () => root.unmount());
+  });
+  it('keeps currencies separate and reads actual configured Clock rooms', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        Response.json({
+          data: { configuredRooms: 81, byRoomType: {}, readAt: '2026-10-21' },
+          status: 'SYNCED',
+          lastSyncedAt: '2026-10-21',
+        }),
+      ),
+    );
+    const { container, root } = await mount({
+      initialOverview: {
+        ...overview,
+        kpis: { ...overview.kpis, availableRoomNights: null, occupancyRate: null },
+        revenue: {
+          today: null,
+          byCurrency: [
+            { currency: 'EUR', amount: '1.01' },
+            { currency: 'USD', amount: '2.02' },
+          ],
+        },
+        balancesDueAtDesk: [
+          { currency: 'EUR', amount: '3.00' },
+          { currency: 'USD', amount: '4.00' },
+        ],
+        metricBasis: { source: 'CLOCK', timezone: 'UTC', moneyVisible: true },
+        soldOutRooms: [],
+      },
+    });
+    expect(container.textContent).toContain('EUR 1.01 / USD 2.02');
+    expect(container.textContent).not.toContain('3.03');
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(container.textContent).toContain('Rooms in Clock');
+    expect(container.textContent).toContain('81');
+    expect(container.textContent).not.toContain('Unknown gross room-nights');
+    expect(container.textContent).toContain('Configured rooms from Clock');
+    await act(async () => root.unmount());
+  });
+  it('hides financial headline cards when the server denies money access', async () => {
+    vi.stubGlobal('fetch', vi.fn());
+    const { container, root } = await mount({
+      initialOverview: {
+        ...overview,
+        metricBasis: { source: 'LOCAL', timezone: 'Europe/Tirane', moneyVisible: false },
+      },
+    });
+    expect(container.textContent).not.toContain('Collected today');
+    expect(container.textContent).not.toContain('Due at the desk');
+    expect(container.textContent).not.toContain('EUR 350.00');
+    await act(async () => root.unmount());
+  });
 });
 
-async function mount({ initialOverview }: { initialOverview?: typeof overview } = {}) {
+async function mount({
+  initialOverview,
+  canManageQuickBooking,
+  canOpen,
+}: {
+  initialOverview?: Overview;
+  canManageQuickBooking?: boolean;
+  canOpen?: (section: string) => boolean;
+} = {}) {
   const container = document.createElement('div');
   const root = createRoot(container);
   await act(async () => {
@@ -194,6 +321,8 @@ async function mount({ initialOverview }: { initialOverview?: typeof overview } 
           propertyId: 'property-1',
           role: 'OWNER',
           initialOverview,
+          canOpen,
+          ...(canManageQuickBooking === undefined ? {} : { canManageQuickBooking }),
         }),
       ),
     );

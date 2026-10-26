@@ -1,3 +1,5 @@
+import { AuditLogService } from './audit-log.service';
+import { auditDenial } from './audit-denial';
 import {
   CanActivate,
   ExecutionContext,
@@ -24,6 +26,7 @@ export class RolesGuard implements CanActivate {
     @Inject(Reflector) private readonly reflector: Reflector,
     @Inject(AuthService) private readonly auth: AuthService,
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
+    @Inject(AuditLogService) private readonly audit: AuditLogService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -49,8 +52,10 @@ export class RolesGuard implements CanActivate {
       throw new ForbiddenException('A tenant context is required for role checks.');
 
     const roles = await this.effectiveRoles(tenantContext);
-    if (!required.some((role) => roles.has(role)))
+    if (!required.some((role) => roles.has(role))) {
+      await auditDenial(this.audit, tenantContext, 'ROLE_REQUIRED');
       throw new ForbiddenException('Insufficient role.');
+    }
     return true;
   }
 
@@ -72,6 +77,7 @@ export class RolesGuard implements CanActivate {
           WHERE "tenant_id" = ${context.tenantId}::uuid
             AND "property_id" = ${context.propertyId}::uuid
             AND "user_id" = ${context.userId}::uuid
+            AND "suspended_at" IS NULL
         `;
         if (staff.length > 0) roles.add(Role.PropertyStaff);
       }

@@ -7,6 +7,8 @@ import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { withoutExternalWorkers } from './helpers/without-external-workers';
+import { MailDeliveryService } from '../src/mail/mail-delivery.service';
 import { PropertyRoleTemplatesService } from '../src/tenancy/property-role-templates.service';
 
 const migrationPrisma = new PrismaClient({
@@ -58,7 +60,11 @@ describe('audit logs', () => {
     process.env.REDIS_URL = 'redis://localhost:6379';
     process.env.WEB_APP_URL = 'http://localhost:3001';
     const { AppModule } = await import('../src/app.module');
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    const moduleRef = await withoutExternalWorkers(
+      Test.createTestingModule({ imports: [AppModule] })
+        .overrideProvider(MailDeliveryService)
+        .useValue({ async dispatch() {} }),
+    ).compile();
     app = moduleRef.createNestApplication();
     await app.init();
     const templates = moduleRef.get(PropertyRoleTemplatesService);

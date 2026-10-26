@@ -16,7 +16,7 @@ export function paceClockRequests(): void {
   installed = true;
   const original = ClockHttpClient.prototype.request;
   let queue: Promise<void> = Promise.resolve();
-  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
   ClockHttpClient.prototype.request = async function paced(this: ClockHttpClient, ...args) {
     const turn = queue.then(() => sleep(MIN_GAP_MS));

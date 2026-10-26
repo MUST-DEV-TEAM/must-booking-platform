@@ -6,8 +6,11 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { RenderedEmailCommand } from '@must/domain-contracts';
 
+import { isolatedMailDelivery } from './helpers/isolated-mail-delivery';
+import { MailDeliveryService } from '../src/mail/mail-delivery.service';
 import { MailDeliveryError } from '../src/mail/mail-delivery-error';
 import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
+import { withoutExternalWorkers } from './helpers/without-external-workers';
 import { cleanupTenant } from './helpers/cleanup-tenant';
 import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
 
@@ -64,10 +67,12 @@ describe('email activity (every email a property sent, and sending failed ones a
     process.env.MAIL_FROM_EMAIL = 'MUST Booking <bookings@mail.example.test>';
     await clearSignupRateLimits();
     const { AppModule } = await import('../src/app.module');
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+    const moduleBuilder = Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(MAIL_PROVIDER)
       .useValue(mail)
-      .compile();
+      .overrideProvider(MailDeliveryService)
+      .useFactory(isolatedMailDelivery);
+    const moduleRef = await withoutExternalWorkers(moduleBuilder).compile();
     app = moduleRef.createNestApplication();
     await app.init();
 
@@ -109,7 +114,8 @@ describe('email activity (every email a property sent, and sending failed ones a
     await http()
       .post(`${base()}/email-templates/pre_arrival/test`)
       .set('Cookie', cookie)
-      .send({})
+      .set('Idempotency-Key', randomUUID())
+      .send({ version: 0, reason: 'Check delivery recovery' })
       .expect(200);
     const status = async () =>
       (
@@ -140,7 +146,7 @@ describe('email activity (every email a property sent, and sending failed ones a
     await waitFor(async () => (await status()) === 'SENT');
     expect(await status()).toBe('SENT');
     expect(rendered).toHaveLength(1);
-    expect(rendered[0]!.subject).toContain('[Test]');
+    expect(rendered[0]!.subject).toContain('[TEST]');
 
     // Sent now: it cannot be sent again.
     await http()

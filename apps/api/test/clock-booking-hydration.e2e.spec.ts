@@ -59,8 +59,14 @@ describe('Clock booking hydration', () => {
   let verificationToken = '';
   const email = `clock-hydration-${randomUUID()}@example.test`;
   let queuedResponses: ClockResponse[] = [];
+  let duringRead: (() => Promise<void>) | undefined;
   const httpClientStub: Pick<ClockHttpClient, 'request'> = {
     request: async <T = unknown>() => {
+      if (duringRead) {
+        const hook = duringRead;
+        duringRead = undefined;
+        await hook();
+      }
       const next = queuedResponses.shift();
       if (!next) throw new Error('No stubbed Clock response queued.');
       return next as ClockResponse<T>;
@@ -238,6 +244,62 @@ describe('Clock booking hydration', () => {
     expect(row.ratePlanId).toBe(shadowRatePlan[0]!.id);
   });
 
+  it('preserves Clock chronology and sends no historical mail during a repeat bulk import', async () => {
+    const detail = realBookingDetail({
+      id: 38144990,
+      number: 'bulk-history',
+      status: 'canceled',
+      created_at: '2024-01-02T10:00:00Z',
+      updated_at: '2024-02-03T11:00:00Z',
+      guest_e_mail: 'history@example.test',
+    });
+    const hydration = app!.get(ClockBookingHydrationService);
+    for (let n = 0; n < 2; n++) {
+      queuedResponses = [{ status: 200, body: detail }];
+      await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38144990', undefined, {
+        notify: false,
+      });
+      if (n === 0)
+        await admin.$executeRaw`UPDATE bookings SET created_at=now(),updated_at=now() WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND external_booking_id='38144990'`;
+    }
+    const rows = await admin.$queryRaw<
+      Array<{ createdAt: Date; updatedAt: Date; mail: bigint }>
+    >`SELECT b.created_at AS "createdAt",b.updated_at AS "updatedAt",(SELECT COUNT(*) FROM email_messages m WHERE m.tenant_id=b.tenant_id AND m.booking_id=b.id) AS mail FROM bookings b WHERE b.tenant_id=${tenantId}::uuid AND b.property_id=${propertyId}::uuid AND b.external_booking_id='38144990'`;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].createdAt.toISOString()).toBe('2024-01-02T10:00:00.000Z');
+    expect(rows[0].updatedAt.toISOString()).toBe('2024-02-03T11:00:00.000Z');
+    expect(rows[0].mail).toBe(0n);
+  });
+
+  it('does not let an older background read resurrect a cancellation', async () => {
+    const hydration = app!.get(ClockBookingHydrationService);
+    for (const [status, updated_at] of [
+      ['expected', '2024-01-01T10:00:00Z'],
+      ['canceled', '2024-01-03T10:00:00Z'],
+      ['expected', '2024-01-02T10:00:00Z'],
+    ]) {
+      queuedResponses = [
+        {
+          status: 200,
+          body: realBookingDetail({
+            id: 38144991,
+            number: 'source-order',
+            status,
+            created_at: '2023-01-01T10:00:00Z',
+            updated_at,
+          }),
+        },
+      ];
+      await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38144991', undefined, {
+        notify: false,
+      });
+    }
+    const rows = await admin.$queryRaw<
+      Array<{ status: string; source: Date }>
+    >`SELECT status::text AS status,pms_source_updated_at AS source FROM bookings WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND external_booking_id='38144991'`;
+    expect(rows[0].status).toBe('CANCELLED');
+    expect(rows[0].source.toISOString()).toBe('2024-01-03T10:00:00.000Z');
+  });
   it('is idempotent — re-hydrating the same Clock booking updates the same row instead of duplicating', async () => {
     queuedResponses = [{ status: 200, body: realBookingDetail({ departure: '2026-09-25' }) }];
     const hydration = app!.get(ClockBookingHydrationService);
@@ -558,5 +620,54 @@ describe('Clock booking hydration', () => {
     ];
     await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38144020');
     expect(await changedEmails()).toHaveLength(1);
+  });
+  it('keeps the Clock contact name and child ages when a historical guest has no email', async () => {
+    queuedResponses = [
+      {
+        status: 200,
+        body: realBookingDetail({
+          id: 38144999,
+          number: '999',
+          guest_e_mail: null,
+          guest_first_name: 'No email guest',
+          children_ages: [2],
+        }),
+      },
+    ];
+    const result = await app!
+      .get(ClockBookingHydrationService)
+      .hydrateBooking(tenantId, propertyId, connectionId, '38144999', undefined, { notify: false });
+    expect(result.outcome).toBe('created');
+    const rows = await admin.$queryRaw<
+      Array<{ contact: { firstName: string; email: null }; ages: number[] }>
+    >`SELECT guest_contact AS contact,children_ages AS ages FROM bookings WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND external_booking_id='38144999'`;
+    expect(rows[0].contact.firstName).toBe('No email guest');
+    expect(rows[0].contact.email).toBeNull();
+    expect(rows[0].ages).toEqual([2]);
+  });
+
+  it('does not overwrite a cancellation committed while the remote read was in flight', async () => {
+    const hydration = app!.get(ClockBookingHydrationService);
+    const detail = realBookingDetail({
+      id: 38144992,
+      number: 'in-flight-race',
+      created_at: '2024-01-01T00:00:00Z',
+      updated_at: '2024-01-02T00:00:00Z',
+    });
+    queuedResponses = [{ status: 200, body: detail }];
+    await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38144992', undefined, {
+      notify: false,
+    });
+    duringRead = async () => {
+      await admin.$executeRaw`UPDATE bookings SET status='CANCELLED',version=version+1,updated_at=now() WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND external_booking_id='38144992'`;
+    };
+    queuedResponses = [{ status: 200, body: { ...detail, updated_at: '2025-01-01T00:00:00Z' } }];
+    await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38144992', undefined, {
+      notify: false,
+    });
+    const rows = await admin.$queryRaw<
+      Array<{ status: string }>
+    >`SELECT status::text AS status FROM bookings WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND external_booking_id='38144992'`;
+    expect(rows[0].status).toBe('CANCELLED');
   });
 });

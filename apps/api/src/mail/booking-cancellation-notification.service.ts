@@ -1,9 +1,10 @@
+import { bookingContactSql } from '../booking/booking-contact';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { PaymentProviderContext } from '@must/domain-contracts';
 
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
 import { PaymentNotificationService } from './payment-notification.service';
-import { staffRecipients } from './notification-recipients';
+import { staffDeliveryGroups, staffRecipients } from './notification-recipients';
 
 type CancellationRow = {
   email: string | null;
@@ -17,6 +18,9 @@ type CancellationRow = {
   nightlyRates: Array<{ date: string; amount: string }> | null;
   roomName: string;
   propertyName: string;
+  brandColour: string | null;
+  emailFooterText: string | null;
+  termsUrl: string | null;
   logoUrl: string | null;
   supportEmail: string | null;
   propertyPhone: string | null;
@@ -60,12 +64,12 @@ export class BookingCancellationNotificationService {
     const notifyGuest = options.notifyGuest ?? true;
     const notification = await this.database.withTenantTransaction(context, async (tx) => {
       const rows = await tx.$queryRaw<CancellationRow[]>`
-        SELECT g.email, g.first_name AS "firstName", g.last_name AS "lastName", g.phone,
+        SELECT ${bookingContactSql.email} AS email, ${bookingContactSql.firstName} AS "firstName", ${bookingContactSql.lastName} AS "lastName", ${bookingContactSql.phone} AS phone,
           b.external_reference AS "externalReference", b.starts_on::text AS "startsOn",
           b.ends_on::text AS "endsOn", (b.adults + b.children) AS "guestCount",
           b.nightly_rates AS "nightlyRates",
           COALESCE(r.name, rt.name) AS "roomName", p.name AS "propertyName",
-          p.logo_url AS "logoUrl", p.support_email AS "supportEmail", p.phone AS "propertyPhone",
+          p.brand_colour AS "brandColour",p.email_footer_text AS "emailFooterText",p.terms_url AS "termsUrl",p.logo_url AS "logoUrl", p.support_email AS "supportEmail", p.phone AS "propertyPhone",
           p.public_website_origin AS "publicWebsiteOrigin", p.address AS "propertyAddress"
         FROM bookings b
         JOIN properties p ON p.tenant_id = b.tenant_id AND p.id = b.property_id
@@ -132,6 +136,9 @@ export class BookingCancellationNotificationService {
       [row.firstName, row.lastName].filter(Boolean).join(' ').trim() || row.email || 'Guest';
     const brand = {
       name: row.propertyName,
+      brandColour: row.brandColour,
+      emailFooterText: row.emailFooterText,
+      termsUrl: row.termsUrl,
       logoUrl: row.logoUrl,
       supportEmail: row.supportEmail,
       phone: row.propertyPhone,
@@ -172,11 +179,12 @@ export class BookingCancellationNotificationService {
         { to: row.email, ...details },
         context,
       );
-    for (const recipient of staff)
+    for (const recipient of staffDeliveryGroups(staff))
       await this.notifications.sendBookingCancelledStaffNotificationSafely(
         {
           ...details,
           staffUserId: recipient.staffUserId,
+          ...(recipient.envelope ? { recipientEnvelope: recipient.envelope } : {}),
           to: recipient.email,
           guest: { name: guestName, email: row.email ?? '', phone: row.phone },
           ...(refundDetails ? { refund: refundDetails } : {}),

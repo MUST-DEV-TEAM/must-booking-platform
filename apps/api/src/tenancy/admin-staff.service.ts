@@ -45,7 +45,7 @@ export class AdminStaffService {
     await this.database.withTenantTransaction({ tenantId }, async (tx) => {
       const memberships = await tx.$queryRaw<Array<{ role: MembershipRole }>>`
         SELECT "role" FROM "tenant_memberships"
-        WHERE "tenant_id" = ${tenantId}::uuid AND "user_id" = ${userId}::uuid
+        WHERE "tenant_id" = ${tenantId}::uuid AND "user_id" = ${userId}::uuid FOR UPDATE
       `;
       if (!memberships[0]) throw new NotFoundException('Tenant membership not found.');
       if (memberships[0].role === 'OWNER')
@@ -60,7 +60,11 @@ export class AdminStaffService {
         action: 'membership.role_changed',
         targetType: 'user',
         targetId: userId,
-        details: { previousRole: memberships[0].role, role },
+        details: {
+          previousRole: memberships[0].role,
+          role,
+          changes: { Role: { old: memberships[0].role, new: role } },
+        },
       });
     });
   }
@@ -104,8 +108,14 @@ export class AdminStaffService {
     Array<{
       userId: string;
       email: string;
+      firstName: string | null;
+      lastName: string | null;
       roleTemplateId: string;
       roleTemplateName: string;
+      status: 'ACTIVE' | 'SUSPENDED';
+      lastActiveAt: Date | null;
+      createdAt: Date;
+      createdByEmail: string | null;
       overrides: Array<{ capabilityKey: string; granted: boolean }>;
     }>
   > {
@@ -116,21 +126,33 @@ export class AdminStaffService {
           Array<{
             userId: string;
             email: string;
+            firstName: string | null;
+            lastName: string | null;
             roleTemplateId: string;
             roleTemplateName: string;
+            status: 'ACTIVE' | 'SUSPENDED';
+            lastActiveAt: Date | null;
+            createdAt: Date;
+            createdByEmail: string | null;
             overrides: Array<{ capabilityKey: string; granted: boolean }>;
           }>
         >`
-        SELECT psa."user_id" AS "userId", u."email", psa."role_template_id" AS "roleTemplateId", prt."name" AS "roleTemplateName",
+        SELECT psa."user_id" AS "userId", u."email", u."first_name" AS "firstName", u."last_name" AS "lastName",
+          psa."role_template_id" AS "roleTemplateId", prt."name" AS "roleTemplateName",
+          CASE WHEN psa."suspended_at" IS NULL THEN 'ACTIVE' ELSE 'SUSPENDED' END AS "status",
+          (SELECT MAX(al."created_at") FROM "audit_logs" al
+            WHERE al."tenant_id" = psa."tenant_id" AND al."actor_user_id" = psa."user_id") AS "lastActiveAt",
+          psa."created_at" AS "createdAt", cb."email" AS "createdByEmail",
           COALESCE(json_agg(json_build_object('capabilityKey', c."key", 'granted', o."granted")) FILTER (WHERE o."capability_id" IS NOT NULL), '[]'::json) AS "overrides"
         FROM "property_staff_assignments" psa
         JOIN "users" u ON u."id" = psa."user_id"
+        LEFT JOIN "users" cb ON cb."id" = psa."created_by_user_id"
         JOIN "property_role_templates" prt
           ON prt."tenant_id" = psa."tenant_id" AND prt."property_id" = psa."property_id" AND prt."id" = psa."role_template_id"
         LEFT JOIN "property_staff_capability_overrides" o ON o."tenant_id" = psa."tenant_id" AND o."property_id" = psa."property_id" AND o."user_id" = psa."user_id"
         LEFT JOIN "capabilities" c ON c."tenant_id" = o."tenant_id" AND c."id" = o."capability_id"
         WHERE psa."tenant_id" = ${tenantId}::uuid AND psa."property_id" = ${propertyId}::uuid
-        GROUP BY psa."user_id", u."email", psa."role_template_id", prt."name"
+        GROUP BY psa."user_id", psa."tenant_id", u."email", u."first_name", u."last_name", psa."role_template_id", prt."name", psa."suspended_at", psa."created_at", cb."email"
         ORDER BY u."email"
       `,
     );

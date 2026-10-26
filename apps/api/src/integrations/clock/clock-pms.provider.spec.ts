@@ -7,11 +7,15 @@ const context = {
   propertyId: '22222222-2222-4222-8222-222222222222',
 };
 
+type InitialArgs<T extends unknown[]> = T extends [...infer Initial, unknown] ? Initial : never;
+function makeProvider(...args: InitialArgs<ConstructorParameters<typeof ClockPmsProvider>>) {
+  return new ClockPmsProvider(...args, {} as never);
+}
 describe('ClockPmsProvider.testConnection', () => {
   it('reports a clear configuration error when the property has no active PMS connection', async () => {
     const connections = { activePmsConnectionCredentials: vi.fn().mockResolvedValue(null) };
     const ping = { ping: vi.fn() };
-    const provider = new ClockPmsProvider(
+    const provider = makeProvider(
       connections as never,
       ping as never,
       {} as never,
@@ -40,7 +44,7 @@ describe('ClockPmsProvider.testConnection', () => {
         .mockResolvedValue({ connectionId: 'c1', provider: 'STRIPE', credentials: {} }),
     };
     const ping = { ping: vi.fn() };
-    const provider = new ClockPmsProvider(
+    const provider = makeProvider(
       connections as never,
       ping as never,
       {} as never,
@@ -71,7 +75,7 @@ describe('ClockPmsProvider.testConnection', () => {
     const ping = {
       ping: vi.fn().mockResolvedValue({ ok: true, message: 'Connected to Clock successfully.' }),
     };
-    const provider = new ClockPmsProvider(
+    const provider = makeProvider(
       connections as never,
       ping as never,
       {} as never,
@@ -95,7 +99,7 @@ describe('ClockPmsProvider.testConnection', () => {
     const ping = {
       ping: vi.fn().mockResolvedValue({ ok: false, message: 'Clock rejected the credentials.' }),
     };
-    const provider = new ClockPmsProvider(
+    const provider = makeProvider(
       connections as never,
       ping as never,
       {} as never,
@@ -130,7 +134,7 @@ describe('ClockPmsProvider.syncCatalog', () => {
         callback({ $queryRaw: vi.fn().mockResolvedValue(roomTypeRows) }),
       ),
     };
-    const provider = new ClockPmsProvider(
+    const provider = makeProvider(
       connections as never,
       ping as never,
       catalogSync as never,
@@ -162,11 +166,16 @@ describe('ClockPmsProvider.getAvailability', () => {
       },
     };
     const availability = { getAvailability: vi.fn().mockResolvedValue(availabilityResult) };
-    const provider = new ClockPmsProvider(
+    const database = {
+      withTenantTransaction: vi.fn((_ctx, callback) =>
+        callback({ $queryRaw: vi.fn().mockResolvedValue([{ id: 'rt-1' }]) }),
+      ),
+    };
+    const provider = makeProvider(
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
+      database as never,
       availability as never,
       {} as never,
     );
@@ -181,11 +190,37 @@ describe('ClockPmsProvider.getAvailability', () => {
     );
     expect(result).toEqual(availabilityResult);
   });
+
+  it('does not ask Clock for availability when the room type is not published', async () => {
+    const availability = { getAvailability: vi.fn() };
+    const database = {
+      withTenantTransaction: vi.fn((_ctx, callback) =>
+        callback({ $queryRaw: vi.fn().mockResolvedValue([]) }),
+      ),
+    };
+    const provider = makeProvider(
+      {} as never,
+      {} as never,
+      {} as never,
+      database as never,
+      availability as never,
+      {} as never,
+    );
+
+    await expect(
+      provider.getAvailability(context, {
+        roomTypeId: 'rt-draft',
+        startsOn: '2026-08-10',
+        endsOn: '2026-08-12',
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'ROOM_TYPE_NOT_AVAILABLE' } });
+    expect(availability.getAvailability).not.toHaveBeenCalled();
+  });
 });
 
 describe('ClockPmsProvider booking CRUD delegation', () => {
   function providerWithBooking(booking: Record<string, ReturnType<typeof vi.fn>>) {
-    return new ClockPmsProvider(
+    return makeProvider(
       {} as never,
       {} as never,
       {} as never,

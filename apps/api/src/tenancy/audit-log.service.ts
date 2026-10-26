@@ -1,4 +1,15 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import {
+  AUDIT_EVENTS,
+  explicitAuditResult,
+  operationReference,
+  type AuditResult,
+  type AuditSource,
+} from './audit-event';
+import { safeAuditValue } from './audit-workspace';
+import { reportOperationalFailure } from '../observability/error-tracking';
+import { currentAuditContext } from './audit-request-context';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 
 import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
 
@@ -13,18 +24,22 @@ export interface AuditEntry {
   tenantId?: string;
   propertyId?: string;
   details?: Record<string, unknown>;
+  result?: AuditResult;
+  source?: AuditSource;
+  operationId?: string;
+  affectedPropertyIds?: string[];
 }
 
 @Injectable()
 export class AuditLogService {
+  private readonly logger = new Logger(AuditLogService.name);
   constructor(@Inject(TenantDatabaseService) private readonly database: TenantDatabaseService) {}
 
   async record(entry: AuditEntry): Promise<void> {
     if (!entry.tenantId) {
-      await this.database.$executeRaw`
-        INSERT INTO "audit_logs" ("actor_user_id", "actor_type", "action", "target_type", "target_id", "details")
-        VALUES (${entry.actorUserId}::uuid, ${entry.actorType ?? 'TENANT_USER'}::"AuditActorType", ${entry.action}, ${entry.targetType}, ${entry.targetId}, ${JSON.stringify(entry.details ?? {})}::jsonb)
-      `;
+      await this.database.$transaction(async (tx) => {
+        await this.recordAccountEventInTransaction(tx, entry);
+      });
       return;
     }
     await this.database.withTenantTransaction(
@@ -34,10 +49,117 @@ export class AuditLogService {
   }
 
   async recordInTransaction(tx: TenantTransaction, entry: AuditEntry): Promise<void> {
-    await tx.$executeRaw`
-      INSERT INTO "audit_logs" ("tenant_id", "property_id", "actor_user_id", "actor_type", "action", "target_type", "target_id", "details")
-      VALUES (${entry.tenantId ?? null}::uuid, ${entry.propertyId ?? null}::uuid, ${entry.actorUserId}::uuid, ${entry.actorType ?? 'TENANT_USER'}::"AuditActorType", ${entry.action}, ${entry.targetType}, ${entry.targetId}, ${JSON.stringify(entry.details ?? {})}::jsonb)
+    const definition = AUDIT_EVENTS[entry.action];
+    const sharedConnection =
+      !!entry.tenantId &&
+      !entry.propertyId &&
+      entry.targetType === 'integration_connection' &&
+      /^[a-f0-9-]{36}$/i.test(entry.targetId);
+    const sharedMembership =
+      !!entry.tenantId &&
+      !entry.propertyId &&
+      ['membership.role_changed', 'membership.removed'].includes(entry.action);
+    const operationId =
+      operationReference(entry.operationId ?? entry.details?.operationId) ??
+      (sharedConnection || sharedMembership ? 'shared:' + randomUUID() : undefined);
+    const result =
+      entry.result ??
+      explicitAuditResult(entry.details?.result ?? entry.details?.outcome) ??
+      definition?.result;
+    const cleaned = safeAuditValue(entry.details ?? {}, true) as Record<string, unknown>;
+    const details = {
+      ...cleaned,
+      _audit: {
+        version: 1,
+        ...(result ? { result } : {}),
+        source:
+          entry.source ??
+          definition?.source ??
+          (entry.actorType === 'PLATFORM_ADMIN'
+            ? 'PLATFORM_ADMIN'
+            : entry.actorUserId
+              ? 'MUST_STAFF'
+              : entry.details?.source === 'WEBSITE'
+                ? 'GUEST'
+                : 'MUST_AUTOMATION'),
+        ...(operationId ? { operationId } : {}),
+      },
+    };
+    try {
+      await tx.$executeRaw`
+      INSERT INTO "audit_logs" ("tenant_id", "property_id", "actor_user_id", "actor_type", "action", "target_type", "target_id", "details", "request_context")
+      VALUES (${entry.tenantId ?? null}::uuid, ${entry.propertyId ?? null}::uuid, ${entry.actorUserId}::uuid, ${entry.actorType ?? 'TENANT_USER'}::"AuditActorType", ${entry.action}, ${entry.targetType}, ${entry.targetId}, ${JSON.stringify(details)}::jsonb, ${JSON.stringify(currentAuditContext())}::jsonb)
     `;
+      if (sharedConnection || sharedMembership) {
+        const properties =
+          entry.affectedPropertyIds?.map((id) => ({ id })) ??
+          (sharedConnection
+            ? await tx.$queryRaw<
+                Array<{ id: string }>
+              >`SELECT property_id AS id FROM property_integration_connections WHERE tenant_id=${entry.tenantId!}::uuid AND connection_id=${entry.targetId}::uuid`
+            : await tx.$queryRaw<
+                Array<{ id: string }>
+              >`SELECT id FROM properties WHERE tenant_id=${entry.tenantId!}::uuid`);
+        for (const property of properties)
+          await this.recordInTransaction(tx, {
+            ...entry,
+            propertyId: property.id,
+            operationId,
+            details: {
+              ...entry.details,
+              eventScope: sharedConnection
+                ? 'Shared connection event; hotel assignment existed at occurrence.'
+                : 'Shared tenant access event; not a claim that the actor used this hotel.',
+            },
+          });
+      }
+    } catch (error) {
+      this.logger.error(
+        'Audit record could not be stored; the associated local transaction must not be reported as committed.',
+      );
+      reportOperationalFailure(new Error('Audit storage write failed'), {
+        component: 'audit',
+        operation: 'record',
+        tenantId: entry.tenantId,
+        propertyId: entry.propertyId,
+      });
+      throw error;
+    }
+  }
+
+  /** Copy new successful account observations only to the properties accessible at occurrence. */
+  async recordAccountEventInTransaction(tx: TenantTransaction, entry: AuditEntry): Promise<void> {
+    await this.recordInTransaction(tx, entry);
+    if (
+      !entry.actorUserId ||
+      !['auth.login', 'auth.logout', 'auth.password_changed', 'auth.session_revoked'].includes(
+        entry.action,
+      )
+    )
+      return;
+    const memberships = await tx.$queryRaw<
+      { tenantId: string; role: string }[]
+    >`SELECT "tenantId",role FROM auth_list_user_tenants(${entry.actorUserId}::uuid)`;
+    for (const membership of memberships) {
+      await tx.$executeRaw`SELECT set_config('app.tenant_id',${membership.tenantId},true),set_config('app.property_id','',true)`;
+      const properties = await tx.$queryRaw<
+        { id: string }[]
+      >`SELECT p.id FROM properties p WHERE p.tenant_id=${membership.tenantId}::uuid AND (${['OWNER', 'ADMIN'].includes(membership.role)} OR EXISTS(SELECT 1 FROM property_staff_assignments s WHERE s.tenant_id=${membership.tenantId}::uuid AND s.property_id=p.id AND s.user_id=${entry.actorUserId}::uuid AND s.suspended_at IS NULL))`;
+      for (const property of properties) {
+        await tx.$executeRaw`SELECT set_config('app.property_id',${property.id},true)`;
+        await this.recordInTransaction(tx, {
+          ...entry,
+          tenantId: membership.tenantId,
+          propertyId: property.id,
+          details: {
+            ...entry.details,
+            result: 'succeeded',
+            scope: 'Account event; property access existed at occurrence',
+          },
+        });
+      }
+    }
+    await tx.$executeRaw`SELECT set_config('app.tenant_id','',true),set_config('app.property_id','',true)`;
   }
 
   async list(tenantId: string): Promise<
@@ -93,6 +215,68 @@ export class AuditLogService {
         WHERE "tenant_id" = ${tenantId}::uuid AND "property_id" = ${propertyId}::uuid
         ORDER BY "created_at" DESC
         LIMIT 10
+      `,
+    );
+  }
+
+  async listAccommodationsForProperty(
+    tenantId: string,
+    propertyId: string,
+  ): Promise<
+    Array<{
+      id: string;
+      actorUserId: string | null;
+      actorName: string | null;
+      action: string;
+      targetType: string;
+      targetId: string;
+      targetName: string | null;
+      details: Record<string, unknown>;
+      createdAt: Date;
+    }>
+  > {
+    return this.database.withTenantTransaction(
+      { tenantId, propertyId },
+      (tx) =>
+        tx.$queryRaw`
+        SELECT a.id, a.actor_user_id AS "actorUserId",
+          COALESCE(NULLIF(BTRIM(CONCAT_WS(' ', u.first_name, u.last_name)), ''), u.email) AS "actorName",
+          a.action, a.target_type AS "targetType", a.target_id AS "targetId",
+          COALESCE(
+            NULLIF(a.details->>'targetName', ''),
+            room_type.name, room.name, category.name,
+            CASE a.target_type WHEN 'accommodation_import' THEN
+              CASE a.details->>'kind' WHEN 'room-types' THEN 'room types' WHEN 'rooms' THEN 'rooms' ELSE 'accommodation data' END
+            END
+          ) AS "targetName",
+          CASE WHEN a.action IN ('room_type.status_changed', 'room.active_changed')
+            THEN jsonb_build_object('to', a.details->'to') ELSE '{}'::jsonb END AS "details",
+          a.created_at AS "createdAt"
+        FROM audit_logs a
+        LEFT JOIN users u ON u.id = a.actor_user_id
+        LEFT JOIN room_type_images type_image ON type_image.tenant_id = a.tenant_id
+          AND type_image.property_id = a.property_id AND type_image.id::text = a.target_id
+        LEFT JOIN room_images room_image ON room_image.tenant_id = a.tenant_id
+          AND room_image.property_id = a.property_id AND room_image.id::text = a.target_id
+        LEFT JOIN room_types room_type ON room_type.tenant_id = a.tenant_id
+          AND room_type.property_id = a.property_id AND room_type.id::text = CASE
+            WHEN a.target_type = 'room_type' THEN a.target_id
+            WHEN a.target_type = 'room_type_image' THEN COALESCE(type_image.room_type_id::text, a.details->>'roomTypeId')
+          END
+        LEFT JOIN rooms room ON room.tenant_id = a.tenant_id
+          AND room.property_id = a.property_id AND room.id::text = CASE
+            WHEN a.target_type = 'room' THEN a.target_id
+            WHEN a.target_type = 'room_image' THEN COALESCE(room_image.room_id::text, a.details->>'roomId')
+          END
+        LEFT JOIN room_categories category ON a.target_type = 'room_category'
+          AND category.tenant_id = a.tenant_id
+          AND category.property_id = a.property_id AND category.id::text = a.target_id
+        WHERE a.tenant_id = ${tenantId}::uuid AND a.property_id = ${propertyId}::uuid
+          AND (a.action LIKE 'room_type.%' OR a.action LIKE 'room_type_image.%'
+            OR a.action LIKE 'room_type_images.%' OR a.action LIKE 'room_category.%' OR a.action LIKE 'room.%'
+            OR a.action = 'accommodation.imported')
+        ORDER BY a.created_at DESC
+        LIMIT 100
       `,
     );
   }

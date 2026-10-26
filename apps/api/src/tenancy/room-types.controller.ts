@@ -32,7 +32,8 @@ export class RoomTypesController {
 
   @Post()
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('accommodations.manage')
   @RequiresVerifiedEmail()
   create(
     @Body() body: unknown,
@@ -48,7 +49,8 @@ export class RoomTypesController {
 
   @Patch(':roomTypeId')
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('accommodations.manage')
   @RequiresVerifiedEmail()
   update(
     @Param('roomTypeId') roomTypeId: string,
@@ -67,7 +69,8 @@ export class RoomTypesController {
   @Delete(':roomTypeId')
   @HttpCode(204)
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('accommodations.manage')
   @RequiresVerifiedEmail()
   remove(
     @Param('roomTypeId') roomTypeId: string,

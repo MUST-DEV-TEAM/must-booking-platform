@@ -10,6 +10,7 @@ import {
   currentTenant,
   login,
   membershipCount,
+  createPlatformAccount,
   promoteToPlatformAdmin,
   resetSignupRateLimit,
   signup,
@@ -57,6 +58,7 @@ test('signup, verification, login, and tenant/platform redirects run against the
       await verifyEmail(platformSignupPage, platformAccount);
       const platformTenant = await currentTenant(platformSignupPage);
       await promoteToPlatformAdmin(platformTenant.tenantId, platformAccount.email);
+      await createPlatformAccount(platformAccount.email);
     } finally {
       await platformSignupContext.close();
     }
@@ -64,11 +66,15 @@ test('signup, verification, login, and tenant/platform redirects run against the
     const platformLoginContext = await browser.newContext();
     const platformLoginPage = await platformLoginContext.newPage();
     try {
-      await login(platformLoginPage, platformAccount);
+      // Platform staff use their own console sign-in, not the hotel sign-in.
+      await platformLoginPage.goto('/platform/login');
+      await platformLoginPage.getByLabel('Email').fill(platformAccount.email);
+      await platformLoginPage
+        .getByLabel('Password', { exact: true })
+        .fill(platformAccount.password);
+      await platformLoginPage.getByRole('button', { name: 'Sign in', exact: true }).click();
       await expect(platformLoginPage).toHaveURL(/\/platform$/);
-      await expect(
-        platformLoginPage.getByRole('heading', { name: 'Platform operations' }),
-      ).toBeVisible();
+      await expect(platformLoginPage.getByRole('heading', { name: /^Welcome/ })).toBeVisible();
     } finally {
       await platformLoginContext.close();
     }

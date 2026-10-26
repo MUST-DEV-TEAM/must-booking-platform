@@ -1,3 +1,5 @@
+import { savedTemplate, renderTemplate } from '../mail/email-templates';
+import type { MailBrand } from '@must/domain-contracts';
 import {
   BadRequestException,
   ConflictException,
@@ -19,6 +21,14 @@ export interface StaffInvite {
   tenantId: string;
   email: string;
   assignments: Array<{ propertyId: string; roleTemplateId: string; capabilityKeys?: string[] }>;
+  /** Hotel membership the invitee receives. Defaults to STAFF; the platform console invites owners. */
+  membershipRole?: 'OWNER' | 'STAFF';
+}
+
+/** Set when a platform account (not a hotel user) sends the invitation. */
+export interface InviteSender {
+  email: string;
+  type: 'PLATFORM_ADMIN';
 }
 
 @Injectable()
@@ -35,7 +45,7 @@ export class StaffInviteService implements OnModuleDestroy {
     this.redis = createClient({ url: process.env.REDIS_URL });
   }
 
-  async invite(command: StaffInvite, actorUserId: string): Promise<string> {
+  async invite(command: StaffInvite, actorUserId: string, sender?: InviteSender): Promise<string> {
     if (!command.assignments.length)
       throw new BadRequestException('At least one property assignment is required.');
     try {
@@ -63,13 +73,110 @@ export class StaffInviteService implements OnModuleDestroy {
     await this.auditLogs.record({
       tenantId: command.tenantId,
       actorUserId,
+      actorType: sender?.type,
       action: 'staff.invite_created',
       targetType: 'staff_invitation',
       targetId: command.email.toLowerCase(),
-      details: { propertyIds: command.assignments.map((assignment) => assignment.propertyId) },
+      details: {
+        propertyIds: command.assignments.map((assignment) => assignment.propertyId),
+        ...(command.membershipRole === 'OWNER' ? { membershipRole: 'OWNER' } : {}),
+      },
     });
-    await this.sendInvitationEmailSafely(command, actorUserId, token);
+    await this.sendInvitationEmailSafely(command, actorUserId, token, sender?.email);
     return token;
+  }
+
+  /**
+   * Creates the account right away, for a hotel manager who chose the password himself. The
+   * address counts as verified because the person adding the account vouches for it. An email that
+   * already has an account is refused: setting someone else's password is not allowed, and a
+   * person who already has an account joins another hotel through an invitation instead.
+   */
+  async createDirect(command: {
+    tenantId: string;
+    propertyId: string;
+    actorUserId: string;
+    firstName: string;
+    lastName: string | null;
+    email: string;
+    password: string;
+    roleTemplateId: string;
+    extraCapabilities: string[];
+    deniedCapabilities: string[];
+  }): Promise<{ userId: string }> {
+    const userId = randomUUID();
+    const passwordHash = await bcrypt.hash(command.password, 12);
+    try {
+      await this.database.withTenantTransaction(
+        { tenantId: command.tenantId, propertyId: command.propertyId },
+        async (tx) => {
+          await this.ensureStaffSeatAvailable(tx, command.tenantId, { email: command.email });
+          const existing = await tx.$queryRaw<Array<{ found: number }>>`
+            SELECT 1 AS found FROM "users" WHERE "email" = ${command.email}
+          `;
+          if (existing[0])
+            throw new ConflictException(
+              'That email already has an account. Send an invitation instead so they can join this hotel.',
+            );
+          await tx.$executeRaw`
+            INSERT INTO "users" ("id", "email", "password_hash", "email_verified_at", "is_auto_provisioned", "first_name", "last_name")
+            VALUES (${userId}::uuid, ${command.email}, ${passwordHash}, CURRENT_TIMESTAMP, false, ${command.firstName}, ${command.lastName})
+          `;
+          await tx.$executeRaw`
+            INSERT INTO "tenant_memberships" ("tenant_id", "user_id", "role", "is_auto_provisioned")
+            VALUES (${command.tenantId}::uuid, ${userId}::uuid, 'STAFF', false)
+          `;
+          const template = await tx.$queryRaw<Array<{ found: number }>>`
+            SELECT 1 AS found FROM "property_role_templates"
+            WHERE "tenant_id" = ${command.tenantId}::uuid AND "property_id" = ${command.propertyId}::uuid
+              AND "id" = ${command.roleTemplateId}::uuid
+          `;
+          if (!template[0]) throw new BadRequestException('The role does not exist at this hotel.');
+          await tx.$executeRaw`
+            INSERT INTO "property_staff_assignments" ("tenant_id", "property_id", "user_id", "role_template_id", "created_by_user_id")
+            VALUES (${command.tenantId}::uuid, ${command.propertyId}::uuid, ${userId}::uuid, ${command.roleTemplateId}::uuid, ${command.actorUserId}::uuid)
+          `;
+          for (const [keys, granted] of [
+            [command.extraCapabilities, true],
+            [command.deniedCapabilities, false],
+          ] as const) {
+            for (const key of keys) {
+              await tx.$executeRaw`
+                INSERT INTO "property_staff_capability_overrides" ("tenant_id", "property_id", "user_id", "capability_id", "granted")
+                SELECT ${command.tenantId}::uuid, ${command.propertyId}::uuid, ${userId}::uuid, "id", ${granted}
+                FROM "capabilities" WHERE "tenant_id" = ${command.tenantId}::uuid AND "key" = ${key}
+              `;
+            }
+          }
+          await this.auditLogs.recordInTransaction(tx, {
+            tenantId: command.tenantId,
+            propertyId: command.propertyId,
+            actorUserId: command.actorUserId,
+            action: 'staff.created',
+            targetType: 'user',
+            targetId: userId,
+            details: { email: command.email, roleTemplateId: command.roleTemplateId },
+          });
+        },
+      );
+    } catch (error) {
+      if (this.isUniqueEmailViolation(error))
+        throw new ConflictException(
+          'That email already has an account. Send an invitation instead so they can join this hotel.',
+        );
+      if (error instanceof StaffSeatLimitReachedError)
+        await this.notifications.record(
+          command.tenantId,
+          command.propertyId,
+          'STAFF_SEAT_CAP_REACHED',
+          {
+            maxStaffSeats: error.maxStaffSeats,
+            staffSeats: error.staffSeats,
+          },
+        );
+      throw error;
+    }
+    return { userId };
   }
 
   async accept(token: string, userId: string): Promise<void> {
@@ -118,6 +225,7 @@ export class StaffInviteService implements OnModuleDestroy {
     command: StaffInvite,
     actorUserId: string,
     token: string,
+    senderEmail?: string,
   ): Promise<void> {
     try {
       const invitationUrl = new URL('/staff-invitation', process.env.WEB_APP_URL);
@@ -128,9 +236,9 @@ export class StaffInviteService implements OnModuleDestroy {
           const organization = await tx.$queryRaw<
             Array<{ organizationName: string; invitedByEmail: string }>
           >`
-            SELECT o.name AS "organizationName", u.email AS "invitedByEmail"
+            SELECT o.name AS "organizationName", COALESCE(${senderEmail ?? null}::text, u.email) AS "invitedByEmail"
             FROM organizations o
-            JOIN users u ON u.id = ${actorUserId}::uuid
+            LEFT JOIN users u ON u.id = ${actorUserId}::uuid
             WHERE o.id = ${command.tenantId}::uuid
           `;
           const assignments = await Promise.all(
@@ -152,16 +260,43 @@ export class StaffInviteService implements OnModuleDestroy {
           return { organization: organization[0], assignments: assignments.map((rows) => rows[0]) };
         },
       );
+      const propertyId =
+        command.assignments.length === 1 ? command.assignments[0]!.propertyId : null;
+      const customized = propertyId
+        ? await this.database.withTenantTransaction(
+            { tenantId: command.tenantId, propertyId },
+            async (tx) => {
+              const [brand] = await tx.$queryRaw<
+                MailBrand[]
+              >`SELECT name,logo_url AS "logoUrl",support_email AS "supportEmail",phone,address,public_website_origin AS "websiteUrl" FROM properties WHERE tenant_id=${command.tenantId}::uuid AND id=${propertyId}::uuid`;
+              const saved = await savedTemplate(
+                tx,
+                { tenantId: command.tenantId, propertyId },
+                'staff_invitation',
+              );
+              return {
+                brand,
+                template: renderTemplate('staff_invitation', saved, {
+                  hotel_name: brand?.name ?? details.organization.organizationName,
+                  staff_name: 'colleague',
+                  role_name: details.assignments[0]?.roleTemplateName ?? 'staff',
+                  invitation_link: invitationUrl.toString(),
+                }),
+              };
+            },
+          )
+        : {};
       await this.delivery.dispatch(
         'staffInvitation',
         {
           to: command.email,
+          ...customized,
           organizationName: details.organization.organizationName,
           invitedByEmail: details.organization.invitedByEmail,
           assignments: details.assignments,
           invitationUrl: invitationUrl.toString(),
         },
-        { tenantId: command.tenantId, propertyId: null },
+        { tenantId: command.tenantId, propertyId },
         { inlineFirst: true },
       );
     } catch (error) {
@@ -188,7 +323,14 @@ export class StaffInviteService implements OnModuleDestroy {
     invite: StaffInvite,
     userId: string,
   ): Promise<void> {
-    await this.assignStaffInTransaction(tx, invite.tenantId, userId, invite.assignments, false);
+    await this.assignStaffInTransaction(
+      tx,
+      invite.tenantId,
+      userId,
+      invite.assignments,
+      false,
+      invite.membershipRole === 'OWNER' ? 'OWNER' : 'STAFF',
+    );
     await this.auditLogs.recordInTransaction(tx, {
       tenantId: invite.tenantId,
       actorUserId: userId,
@@ -219,11 +361,12 @@ export class StaffInviteService implements OnModuleDestroy {
     userId: string,
     assignments: StaffInvite['assignments'],
     autoProvisioned: boolean,
+    membershipRole: 'OWNER' | 'STAFF' = 'STAFF',
   ): Promise<void> {
     await this.ensureTenantMembershipAllowed(tx, userId);
     await tx.$executeRaw`
       INSERT INTO "tenant_memberships" ("tenant_id", "user_id", "role", "is_auto_provisioned")
-      VALUES (${tenantId}::uuid, ${userId}::uuid, 'STAFF', ${autoProvisioned})
+      VALUES (${tenantId}::uuid, ${userId}::uuid, ${membershipRole}::"TenantMembershipRole", ${autoProvisioned})
       ON CONFLICT ("tenant_id", "user_id") DO NOTHING
     `;
     for (const assignment of assignments) {

@@ -1,23 +1,38 @@
 'use client';
-import { Card, Heading, Stack, StatePanel, StatusBadge, Text } from '@must/ui';
+import { ClockFinancialCard, useClockFinancial, moneyText } from './clock-financial';
+import { CancellationDialog } from './cancellation-dialog';
+import { BookingReviewCard } from './booking-review-card';
+import { CollectPaymentActions } from './collect-payment-actions';
 import { useQuery } from '@tanstack/react-query';
-import { Loader2 } from 'lucide-react';
+import { ArrowLeft, CircleDot, Landmark, Undo2 } from 'lucide-react';
 import { useState } from 'react';
+import { ActivityFeed, type ActivityEntry } from '../../components/ui/activity-feed';
+import { Badge } from '../../components/ui/badge';
+import { Button } from '../../components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
+import { DetailHeader } from '../../components/ui/detail-header';
+import { DetailList } from '../../components/ui/detail-list';
+import { StatTile } from '../../components/ui/stat-tile';
+import { EmptyPanel, ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
+import { BookingStatusBadge } from '../../components/ui/status-badge';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../../components/ui/table';
 import { RefundDialog } from './payment-refund-dialog';
 import {
+  PAYMENT_BADGE_TONE,
   hasRefundableBalance,
   outstandingAmount,
   paymentMethodLabel,
   paymentStatus,
   remainingRefundable,
 } from './payment-status';
-import {
-  fetchPropertyBookings,
-  guestName,
-  reservationStatusBadge,
-  type Reservation,
-} from './reservations';
-import styles from './data-table.module.css';
+import { fetchPropertyBookings, guestName, type Reservation } from './reservations';
 
 export type LedgerEntry = {
   id: string;
@@ -62,6 +77,19 @@ function eventDetail(event: LedgerEvent) {
   if (typeof event.details.folioId === 'number' || typeof event.details.folioId === 'string')
     parts.push(`folio ${event.details.folioId}`);
   if (typeof event.details.note === 'string') parts.push(event.details.note);
+  const evidence = event.details.evidence;
+  if (evidence && typeof evidence === 'object' && !Array.isArray(evidence)) {
+    const labels: Record<string, string> = {
+      receivedOn: 'Received',
+      reference: 'Reference',
+      payerName: 'Payer',
+      terminalId: 'Terminal',
+    };
+    for (const [key, label] of Object.entries(labels)) {
+      const value = (evidence as Record<string, unknown>)[key];
+      if (typeof value === 'string' && value) parts.push(`${label}: ${value}`);
+    }
+  }
   return parts.join(' · ');
 }
 
@@ -115,6 +143,8 @@ export function PaymentDetail({
 }) {
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
   const [refunding, setRefunding] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const financial = useClockFinancial(tenantId, propertyId, bookingId);
   const bookingsQuery = useQuery({
     queryKey: ['dashboard', 'payments-bookings', tenantId, propertyId],
     queryFn: () => fetchPropertyBookings(tenantId, propertyId),
@@ -139,236 +169,318 @@ export function PaymentDetail({
     },
   });
 
-  const back = (
-    <a className={styles.backLink} href={listHref(tenantId, propertyId)}>
-      ← All payments
-    </a>
-  );
+  const back = {
+    backHref: listHref(tenantId, propertyId),
+    backLabel: 'Back to payments',
+  };
 
   if (bookingsQuery.isPending || capabilitiesQuery.isPending || ledgerQuery.isPending)
     return (
-      <Stack gap="lg">
-        {back}
-        <StatePanel
-          body={null}
-          icon={<Loader2 aria-hidden="true" />}
-          title="Loading payment…"
-          variant="loading"
-        />
-      </Stack>
+      <div className="space-y-5">
+        <Button variant="link" size="sm" asChild className="h-auto !px-0 py-0 text-xs">
+          <a href={back.backHref}>
+            <ArrowLeft aria-hidden="true" className="size-3.5" /> {back.backLabel}
+          </a>
+        </Button>
+        <ListSkeleton rows={4} />
+      </div>
     );
   const loadError = bookingsQuery.error ?? capabilitiesQuery.error ?? ledgerQuery.error;
   if (loadError)
     return (
-      <Stack gap="lg">
-        {back}
-        <div role="alert">
-          <Text>{loadError.message}</Text>
-        </div>
-      </Stack>
+      <ErrorPanel
+        title="This payment could not be loaded"
+        description={loadError.message}
+        onRetry={() => {
+          void bookingsQuery.refetch();
+          void capabilitiesQuery.refetch();
+          void ledgerQuery.refetch();
+        }}
+      />
     );
 
   const booking: Reservation | undefined = bookingsQuery.data?.find((b) => b.id === bookingId);
   if (!booking || !ledgerQuery.data)
     return (
-      <Stack gap="lg">
-        {back}
-        <StatePanel
-          action={null}
-          body="This booking is not in this property."
-          icon={null}
-          title="Payment not found"
-          variant="empty"
-        />
-      </Stack>
+      <div className="space-y-5">
+        <Button variant="link" size="sm" asChild className="h-auto !px-0 py-0 text-xs">
+          <a href={back.backHref}>
+            <ArrowLeft aria-hidden="true" className="size-3.5" /> {back.backLabel}
+          </a>
+        </Button>
+        <EmptyPanel title="Payment not found" description="This booking is not in this property." />
+      </div>
     );
 
   const ledger = ledgerQuery.data;
   const status = paymentStatus(booking);
-  const bookingBadge = reservationStatusBadge(booking.status ?? '');
   const currency = booking.total.currency;
+  const money = (amount: string, code = currency) =>
+    new Intl.NumberFormat(undefined, { style: 'currency', currency: code }).format(Number(amount));
   const canRefund = (capabilitiesQuery.data ?? []).includes('payments.refund');
+  const canCancel = (capabilitiesQuery.data ?? []).includes('bookings.cancel');
+  const clockMoney = financial.data?.data;
   const refundable = remainingRefundable(booking);
   const folios = booking.clockFolios ?? [];
   const hasOpenDeposit = folios.some((folio) => folio.isDeposit && !folio.closedAt);
+  const feed: ActivityEntry[] = [...ledger.events]
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .map((event, index) => ({
+      key: `${event.action}-${event.createdAt}-${index}`,
+      title: eventLabel(event.action),
+      detail: eventDetail(event) || undefined,
+      at: event.createdAt,
+      actor: event.actorEmail,
+      icon:
+        event.action === 'payment.refunded'
+          ? Undo2
+          : event.action.includes('clock')
+            ? Landmark
+            : CircleDot,
+      tone: event.action === 'payment.refunded' ? ('danger' as const) : ('default' as const),
+    }));
 
   return (
-    <Stack gap="lg">
-      {back}
-      <header className={styles.detailHeader}>
-        <div>
-          <Heading>
-            <code className={styles.reference}>{booking.externalReference ?? booking.id}</code>
-          </Heading>
-          <Text tone="secondary">
-            <a href={guestHref(tenantId, propertyId, booking.guestId)}>{guestName(booking)}</a>
+    <div className="space-y-5">
+      <DetailHeader
+        {...back}
+        reference={booking.externalReference ?? booking.id}
+        title={guestName(booking)}
+        subtitle={
+          <>
             {booking.startsOn && booking.endsOn
-              ? ` · ${formatDay(booking.startsOn, false)} → ${formatDay(booking.endsOn, true)}`
+              ? `${formatDay(booking.startsOn, false)} → ${formatDay(booking.endsOn, true)}`
               : ''}
             {booking.roomTypeName ? ` · ${booking.roomTypeName}` : ''}
-          </Text>
-          <div className={styles.badges}>
-            {booking.status ? (
-              <StatusBadge domain="booking" state={bookingBadge.state} label={bookingBadge.label} />
+            {booking.guestId ? (
+              <>
+                {' · '}
+                <a
+                  className="font-semibold text-primary no-underline hover:underline"
+                  href={guestHref(tenantId, propertyId, booking.guestId)}
+                >
+                  Open guest
+                </a>
+              </>
             ) : null}
-            <StatusBadge domain="payment" state={status.state} label={status.label} />
-          </div>
-        </div>
-        {canRefund && hasRefundableBalance(booking) ? (
-          <button
-            className="must-button must-button--danger"
-            onClick={() => setRefunding(true)}
-            type="button"
-          >
-            Refund
-          </button>
-        ) : null}
-      </header>
+          </>
+        }
+        badges={
+          <>
+            {booking.status ? <BookingStatusBadge status={booking.status} /> : null}
+            <Badge
+              variant={PAYMENT_BADGE_TONE[status.state]}
+              className="rounded-full px-2.5 py-0.5 text-xs font-semibold"
+            >
+              {status.label}
+            </Badge>
+          </>
+        }
+        actions={
+          <>
+            {canRefund && hasRefundableBalance(booking) ? (
+              <Button variant="outline" onClick={() => setRefunding(true)}>
+                Refund
+              </Button>
+            ) : null}
+            {canCancel && booking.status === 'CONFIRMED' ? (
+              <Button variant="outline" onClick={() => setCancelling(true)}>
+                Cancel booking
+              </Button>
+            ) : null}
+          </>
+        }
+      />
+      {['PMS_UNKNOWN_RESULT', 'MANUAL_REVIEW'].includes(booking.status) ? (
+        <BookingReviewCard
+          tenantId={tenantId}
+          propertyId={propertyId}
+          bookingId={bookingId}
+          canRunCheck={(capabilitiesQuery.data ?? []).includes('bookings.edit')}
+        />
+      ) : null}
+      {booking.balanceBasis === 'CLOCK' || clockMoney ? (
+        <ClockFinancialCard
+          data={clockMoney}
+          status={financial.data?.status}
+          error={financial.error?.message || financial.data?.lastError}
+          localPaid={booking.paidAmount}
+        />
+      ) : null}
+      {['AVAILABILITY_FAILED', 'PMS_REJECTED', 'PAYMENT_FAILED'].includes(booking.status) ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>This booking attempt is closed</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p>
+              No payment is due because a reservation was not created. The original attempt remains
+              in the history.
+            </p>
+            <Button asChild variant="outline">
+              <a
+                href={`/dashboard/${tenantId}?propertyId=${propertyId}&section=overview&tab=quick-booking`}
+              >
+                Search for a new booking
+              </a>
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
+      <CollectPaymentActions tenantId={tenantId} propertyId={propertyId} booking={booking} />
+      {cancelling ? (
+        <CancellationDialog
+          tenantId={tenantId}
+          propertyId={propertyId}
+          bookingId={bookingId}
+          open
+          onOpenChange={setCancelling}
+          canCancel={canCancel}
+          canRefund={canRefund}
+        />
+      ) : null}
 
-      <Card>
-        <Heading>Summary</Heading>
-        <dl className={styles.summary}>
-          <div>
-            <dt>Total</dt>
-            <dd>
-              {booking.total.amount} {currency}
-            </dd>
-          </div>
-          <div>
-            <dt>Paid</dt>
-            <dd>
-              {booking.paidAmount} {currency}
-            </dd>
-          </div>
-          <div>
-            <dt>Refunded</dt>
-            <dd>
-              {booking.refundedAmount} {currency}
-            </dd>
-          </div>
-          <div>
-            <dt>Refundable</dt>
-            <dd>
-              {refundable.amount} {currency}
-            </dd>
-          </div>
-          <div>
-            <dt>Outstanding</dt>
-            <dd>
-              {outstandingAmount(booking)} {currency}
-            </dd>
-          </div>
-        </dl>
-      </Card>
+      <div
+        aria-label="Payment summary"
+        className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5"
+        role="group"
+      >
+        <StatTile label="Total" size="sm" value={money(booking.total.amount)} />
+        <StatTile label="Paid" size="sm" value={money(booking.paidAmount)} />
+        <StatTile label="Refunded" size="sm" value={money(booking.refundedAmount)} />
+        <StatTile label="Refundable" size="sm" value={money(refundable.amount)} />
+        <StatTile
+          label={
+            clockMoney?.balance.amount.startsWith('-') ? 'Guest credit in Clock' : 'Outstanding'
+          }
+          size="sm"
+          value={
+            booking.balanceBasis === 'CLOCK' || clockMoney
+              ? clockMoney
+                ? moneyText({
+                    ...clockMoney.balance,
+                    amount: clockMoney.balance.amount.replace(/^-/, ''),
+                  })
+                : 'Verifying Clock balance'
+              : [
+                    'PMS_UNKNOWN_RESULT',
+                    'MANUAL_REVIEW',
+                    'PMS_CREATION_PENDING',
+                    'PMS_CONFIRMATION_PENDING',
+                  ].includes(booking.status)
+                ? 'Balance not confirmed'
+                : ['AVAILABILITY_FAILED', 'PMS_REJECTED', 'PAYMENT_FAILED'].includes(booking.status)
+                  ? 'No balance - booking was not created'
+                  : money(outstandingAmount(booking))
+          }
+          tone={Number(outstandingAmount(booking)) > 0 ? 'warning' : 'default'}
+        />
+      </div>
 
-      <Card>
-        <Heading>Payments and refunds</Heading>
-        <div className={styles.tableWrap}>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>When</th>
-                <th>Type</th>
-                <th>
-                  <span className={styles.numHeader}>Amount</span>
-                </th>
-                <th>Method</th>
-                <th>Reference</th>
-                <th>Status</th>
-                <th>By</th>
-                <th>Note</th>
-              </tr>
-            </thead>
-            <tbody>
-              {ledger.entries.length === 0 ? (
-                <tr>
-                  <td colSpan={8}>No payments have been recorded for this booking.</td>
-                </tr>
-              ) : null}
+      <Card className="gap-0 overflow-clip p-0">
+        <CardHeader className="border-b p-4">
+          <CardTitle className="text-base">Payments and refunds</CardTitle>
+        </CardHeader>
+        {ledger.entries.length === 0 ? (
+          <p className="m-0 p-4 text-sm text-muted-foreground">
+            No payments have been recorded for this booking.
+          </p>
+        ) : (
+          <Table>
+            <TableHeader className="bg-muted">
+              <TableRow className="hover:bg-muted">
+                <TableHead className="px-3 py-2">When</TableHead>
+                <TableHead className="px-2 py-2">Type</TableHead>
+                <TableHead className="px-2 py-2 text-right">Amount</TableHead>
+                <TableHead className="px-2 py-2">Method</TableHead>
+                <TableHead className="px-2 py-2">Reference</TableHead>
+                <TableHead className="px-2 py-2">Status</TableHead>
+                <TableHead className="px-2 py-2">By</TableHead>
+                <TableHead className="px-2 py-2">Note</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {ledger.entries.map((entry) => (
-                <tr key={entry.id}>
-                  <td>{formatTime(entry.createdAt)}</td>
-                  <td>{entry.kind === 'REFUND' ? 'Refund' : 'Payment'}</td>
-                  <td>
-                    <span className={styles.num}>
-                      {entry.kind === 'REFUND' ? '−' : '+'}
-                      {entry.amount} {entry.currency}
-                    </span>
-                  </td>
-                  <td>{entryMethod(entry)}</td>
-                  <td>
-                    <code className={styles.reference} title={entry.externalPaymentId}>
+                <TableRow key={entry.id}>
+                  <TableCell className="px-3 py-2 whitespace-nowrap">
+                    {formatTime(entry.createdAt)}
+                  </TableCell>
+                  <TableCell className="px-2 py-2">
+                    {entry.kind === 'REFUND' ? 'Refund' : 'Payment'}
+                  </TableCell>
+                  <TableCell className="px-2 py-2 text-right font-semibold whitespace-nowrap">
+                    {entry.kind === 'REFUND' ? '−' : '+'}
+                    {money(entry.amount, entry.currency)}
+                  </TableCell>
+                  <TableCell className="px-2 py-2">{entryMethod(entry)}</TableCell>
+                  <TableCell className="px-2 py-2">
+                    <code title={entry.externalPaymentId}>
                       {entry.externalPaymentId.length > 14
                         ? `…${entry.externalPaymentId.slice(-12)}`
                         : entry.externalPaymentId}
                     </code>
-                  </td>
-                  <td>{entry.status}</td>
-                  <td>{entry.actorEmail ?? '—'}</td>
-                  <td>{entry.note ?? ''}</td>
-                </tr>
+                  </TableCell>
+                  <TableCell className="px-2 py-2">{entry.status}</TableCell>
+                  <TableCell className="px-2 py-2">{entry.actorEmail ?? '—'}</TableCell>
+                  <TableCell className="px-2 py-2">{entry.note ?? ''}</TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </TableBody>
+          </Table>
+        )}
       </Card>
 
-      <Card>
-        <Heading>Clock accounting</Heading>
-        {folios.length === 0 ? (
-          <Text tone="secondary">No Clock folios are recorded for this booking.</Text>
-        ) : (
-          <ul className={styles.plainList}>
-            {folios.map((folio) => (
-              <li key={folio.id}>
-                Folio {folio.id} · {folio.isDeposit ? 'Deposit' : 'General'} ·{' '}
-                {folio.closedAt ? `Closed ${formatTime(folio.closedAt)}` : 'Open'}
-                {folio.balance !== null ? ` · balance ${folio.balance}` : ''}
-              </li>
-            ))}
-          </ul>
-        )}
-        {hasOpenDeposit ? (
-          <Text tone="secondary">
-            An open deposit folio counts toward the booking balance in Clock, so a fully paid
-            booking shows 0.00 there. When the hotel converts it to an advance in Clock, the balance
-            returns to the full stay amount until check-in.
-          </Text>
+      <div className={folios.length > 0 ? 'grid gap-5 lg:grid-cols-2' : 'grid gap-5'}>
+        {folios.length > 0 ? (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Clock accounting</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {folios.length === 0 ? (
+                <p className="m-0 text-sm text-muted-foreground">
+                  No Clock folios are recorded for this booking.
+                </p>
+              ) : (
+                <DetailList
+                  items={folios.map((folio) => ({
+                    label: `Folio ${folio.id} · ${folio.isDeposit ? 'Deposit' : 'General'}`,
+                    value: `${folio.closedAt ? `Closed ${formatTime(folio.closedAt)}` : 'Open'}${folio.balance !== null ? ` · balance ${folio.balance}` : ''}`,
+                  }))}
+                />
+              )}
+              {hasOpenDeposit ? (
+                <p className="m-0 text-xs text-muted-foreground">
+                  An open deposit folio counts toward the booking balance in Clock, so a fully paid
+                  booking shows 0.00 there. When the hotel converts it to an advance in Clock, the
+                  balance returns to the full stay amount until check-in.
+                </p>
+              ) : null}
+            </CardContent>
+          </Card>
         ) : null}
-      </Card>
-
-      <Card>
-        <Heading>Activity</Heading>
-        {ledger.events.length === 0 ? (
-          <Text tone="secondary">No activity has been recorded for this booking.</Text>
-        ) : (
-          <ul className={styles.plainList}>
-            {ledger.events.map((event, index) => (
-              <li key={`${event.action}-${event.createdAt}-${index}`}>
-                <strong>{eventLabel(event.action)}</strong>
-                {eventDetail(event) ? ` · ${eventDetail(event)}` : ''}
-                <span className={styles.muted}>
-                  {' '}
-                  {formatTime(event.createdAt)}
-                  {event.actorEmail ? ` · ${event.actorEmail}` : ''}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Activity</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ActivityFeed entries={feed} empty="No activity has been recorded for this booking." />
+          </CardContent>
+        </Card>
+      </div>
 
       {refunding ? (
         <RefundDialog
           base={base}
           booking={booking}
           onClose={() => setRefunding(false)}
+          canCancel={canCancel}
           onRefunded={() => {
             void bookingsQuery.refetch();
             void ledgerQuery.refetch();
           }}
         />
       ) : null}
-    </Stack>
+    </div>
   );
 }

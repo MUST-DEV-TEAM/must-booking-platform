@@ -1,4 +1,5 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import type { MoveBookingRoomCommand } from '@must/domain-contracts';
+import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import {
   BookingPaymentMethod,
@@ -49,6 +50,12 @@ interface ClockBookingResource {
   id: number;
   lock_version: number;
   status: string;
+  arrival?: string;
+  departure?: string;
+  arrival_room_id?: number | string | null;
+  arrival_room_type_id?: number | string | null;
+  guarantee_policy_id?: number | string | null;
+  total_booking_value?: { cents: number; currency: string };
   main_booking_guest?: {
     guest_id?: number | string;
   } | null;
@@ -134,6 +141,35 @@ export function isClockCreditItemResource(value: unknown): value is ClockCreditI
   );
 }
 
+// Up to three more tries after a rate limit, waiting about 0.4s, 0.8s and 1.6s.
+const RATE_LIMIT_RETRIES = 3;
+const RATE_LIMIT_BACKOFF_MS = 400;
+
+/** The reservation's marketing source, so the hotel can report how many bookings used a code. */
+export function promoMarketingSource(code: string): string {
+  return `MUST promo ${code}`;
+}
+
+/** What front desk reads on the Clock reservation when the guest used a MUST promo code. */
+export function promoNote(
+  promo: {
+    promoCode: string | null;
+    promoDiscount: string | null;
+    promoOriginal: string | null;
+    paidTotal: string;
+  },
+  currency: string | null | undefined,
+): string {
+  const unit = currency ? ` ${currency}` : '';
+  return [
+    `MUST promo code ${promo.promoCode}${promo.promoDiscount ? `: ${promo.promoDiscount}${unit} off` : ''}.`,
+    promo.promoOriginal
+      ? `Original price ${promo.promoOriginal}${unit}; the guest pays ${promo.paidTotal}${unit} through MUST.`
+      : `The guest pays ${promo.paidTotal}${unit} through MUST.`,
+    'Clock shows the rate before the code; the discount is posted on the bill as a credit "Promo code (MUST)".',
+  ].join(' ');
+}
+
 function sleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
@@ -153,6 +189,8 @@ type BookingRow = {
   totalAmount: string;
   adults: number;
   children: number;
+  childrenAges: number[] | null;
+  clockRateId: string | null;
   currency: string;
   externalReference: string;
   roomGuestFirstName: string | null;
@@ -187,13 +225,13 @@ export class ClockBookingService {
 
   async createBooking(
     context: PmsProviderContext,
-    command: CreateBookingCommand,
+    command: CreateBookingCommand & { childrenAges?: number[]; clockRateId?: string },
   ): Promise<Result<Booking>> {
     const occupancy = resolveBookingOccupancy(command);
     if (
       !this.validStay(command.startsOn, command.endsOn) ||
       !this.validAmount(command.total.amount) ||
-      !this.validGuestCount(occupancy.adults, occupancy.children)
+      !validBookingOccupancy(command)
     )
       return this.failure(
         'INVALID_BOOKING_COMMAND',
@@ -210,6 +248,22 @@ export class ClockBookingService {
       context,
       (tx) =>
         this.withIdempotency(tx, context, command.idempotencyKey, command, null, async () => {
+          const bookableRows = await tx.$queryRaw<Array<{ id: string }>>`
+            SELECT id FROM room_types
+            WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+              AND id = ${command.roomTypeId}::uuid AND status = 'PUBLISHED'::"RoomTypeStatus"
+          `;
+          if (!bookableRows[0])
+            return this.failure('ROOM_TYPE_NOT_AVAILABLE', 'Room type is not published.');
+          if (command.roomId) {
+            const roomRows = await tx.$queryRaw<Array<{ id: string }>>`
+              SELECT id FROM rooms
+              WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+                AND id = ${command.roomId}::uuid AND room_type_id = ${command.roomTypeId}::uuid
+                AND is_active = true
+            `;
+            if (!roomRows[0]) return this.failure('ROOM_NOT_AVAILABLE', 'Room is not active.');
+          }
           const externalRoomTypeId = await this.mappedExternalId(
             tx,
             context,
@@ -233,15 +287,15 @@ export class ClockBookingService {
           INSERT INTO bookings (
             tenant_id, property_id, room_type_id, room_id, guest_id, external_reference,
             status, payment_method, starts_on, ends_on, rate_plan_id, total_amount,
-            adults, children, guest_count
+            adults, children, children_ages, guest_count, source, clock_rate_id
           ) VALUES (
             ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${command.roomTypeId}::uuid,
             ${command.roomId ?? null}::uuid, ${guestId}::uuid, ${externalReference},
             ${BookingStatus.DRAFT}::"BookingStatus",
             ${this.paymentMethodOf(command)}::"BookingPaymentMethod",
             ${command.startsOn}::date, ${command.endsOn}::date, ${command.ratePlanId}::uuid,
-            ${command.total.amount}::numeric, ${occupancy.adults}, ${occupancy.children},
-            ${occupancy.guestCount}
+            ${command.total.amount}::numeric, ${occupancy.adults}, ${occupancy.children}, ${command.childrenAges === undefined ? null : JSON.stringify(command.childrenAges)}::jsonb,
+            ${occupancy.guestCount}, ${(command as CreateBookingCommand & { staffActorId?: string }).staffActorId ? 'DIRECT' : 'WEBSITE'}, ${command.clockRateId ?? null}
           )
           RETURNING id
         `;
@@ -289,8 +343,21 @@ export class ClockBookingService {
             command.endsOn,
             occupancy.adults,
             occupancy.children,
+            command.childrenAges,
+            command.clockRateId,
           );
           if (!rate.ok) {
+            if (rate.error.code === 'clock_rate_unavailable') {
+              // No booking POST was attempted: this is a definite availability failure.
+              await this.transition(
+                tx,
+                context,
+                bookingId,
+                status,
+                BookingStatus.AVAILABILITY_FAILED,
+              );
+              return rate;
+            }
             await this.transition(tx, context, bookingId, status, BookingStatus.PMS_UNKNOWN_RESULT);
             await this.recordPostCommitFailure(tx, context, bookingId, {
               category: 'UNKNOWN_RESULT',
@@ -337,6 +404,7 @@ export class ClockBookingService {
             reference_number: externalReference,
             adults: occupancy.adults,
             children: occupancy.children,
+            ...(command.childrenAges === undefined ? {} : { children_ages: command.childrenAges }),
             client_request: command.guest.specialRequests?.trim() || null,
           };
           const body = existingClockGuest.value
@@ -510,12 +578,18 @@ export class ClockBookingService {
         firstName: string | null;
         lastName: string | null;
         specialRequests: string | null;
+        promoCode: string | null;
+        promoDiscount: string | null;
+        promoOriginal: string | null;
+        paidTotal: string;
       }>
     >`
       SELECT g.email,
         COALESCE(${row.roomGuestFirstName}, g.first_name) AS "firstName",
         COALESCE(${row.roomGuestLastName}, g.last_name) AS "lastName",
-        b.special_requests AS "specialRequests"
+        b.special_requests AS "specialRequests",
+        b.promo_code AS "promoCode", b.promo_discount_amount::text AS "promoDiscount",
+        b.original_total_amount::text AS "promoOriginal", b.total_amount::text AS "paidTotal"
       FROM guests g
       JOIN bookings b ON b.id = ${bookingId}::uuid
       WHERE g.id = ${row.guestId}::uuid AND g.tenant_id = ${context.tenantId}::uuid
@@ -561,8 +635,21 @@ export class ClockBookingService {
       row.endsOn,
       row.adults,
       row.children,
+      row.childrenAges ?? undefined,
+      row.clockRateId ?? undefined,
     );
     if (!rate.ok) {
+      if (rate.error.code === 'clock_rate_unavailable') {
+        // A sold-out/restricted offer is known before any Clock booking POST.
+        await this.transition(
+          tx,
+          context,
+          bookingId,
+          BookingStatus.PMS_CREATION_PENDING,
+          BookingStatus.AVAILABILITY_FAILED,
+        );
+        return rate;
+      }
       await this.transition(
         tx,
         context,
@@ -617,7 +704,15 @@ export class ClockBookingService {
       reference_number: row.externalReference,
       adults: row.adults,
       children: row.children,
+      ...(row.childrenAges ? { children_ages: row.childrenAges } : {}),
       client_request: guest.specialRequests?.trim() || null,
+      // A MUST promo cannot lower the price inside Clock, so front desk is told on the reservation.
+      ...(guest.promoCode
+        ? {
+            note: promoNote(guest, row.currency),
+            marketing_source: promoMarketingSource(guest.promoCode),
+          }
+        : {}),
     };
     const body = existingClockGuest.value
       ? { main_booking_guest: existingClockGuest.value, booking }
@@ -720,6 +815,16 @@ export class ClockBookingService {
       targetId: bookingId,
       details: { externalBookingId: String(response.value.id) },
     });
+    if (guest.promoCode && guest.promoDiscount && Number(guest.promoDiscount) > 0)
+      await this.postPromoDiscount(
+        tx,
+        context,
+        connection.value,
+        bookingId,
+        String(response.value.id),
+        { amount: guest.promoDiscount, currency: row.currency ?? 'EUR' },
+        guest.promoCode,
+      );
     const updated = await this.bookingById(tx, context, bookingId);
     if (updated && this.toBooking(updated)) return { ok: true, value: this.toBooking(updated)! };
     await this.recordPostCommitFailure(tx, context, bookingId, {
@@ -780,6 +885,7 @@ export class ClockBookingService {
     paymentSubType: string,
     reference: string,
     paymentType: 'cash' | 'card' | 'bank' | 'on-line' = 'on-line',
+    auditOperationId?: string,
   ): Promise<Result<void>> {
     const connection = await this.credentials(context);
     if (!connection.ok) return connection;
@@ -833,6 +939,7 @@ export class ClockBookingService {
         propertyId: context.propertyId,
         actorUserId: null,
         action: 'booking.clock_deposit_posted',
+        operationId: auditOperationId,
         targetType: 'booking',
         targetId: bookingId,
         details: {
@@ -900,6 +1007,7 @@ export class ClockBookingService {
       propertyId: context.propertyId,
       actorUserId: null,
       action: 'booking.clock_deposit_posted',
+      operationId: auditOperationId,
       targetType: 'booking',
       targetId: bookingId,
       details: {
@@ -1221,6 +1329,77 @@ export class ClockBookingService {
     });
   }
 
+  /**
+   * A MUST promo cannot lower the price inside Clock, so the discount is posted on the reservation's
+   * main bill as a labelled credit. The bill then shows what the guest really owes (or has paid)
+   * instead of a balance that is too high by the discount. The reference makes it safe to repeat. A
+   * failure does not undo the reservation; it asks a person to post the credit by hand.
+   */
+  private async postPromoDiscount(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    credentials: ClockConnectionCredentials,
+    bookingId: string,
+    externalBookingId: string,
+    discount: { amount: string; currency: string },
+    code: string,
+  ): Promise<void> {
+    const folio = await this.withRetry(() =>
+      this.fetch<{ id?: unknown }>(credentials, {
+        method: 'GET',
+        path: `/bookings/${externalBookingId}/folios/default`,
+      }),
+    );
+    const folioId = folio.ok && typeof folio.value?.id === 'number' ? folio.value.id : null;
+    const posted =
+      folioId === null
+        ? null
+        : await this.withRetry(() =>
+            this.postCreditItem(
+              credentials,
+              folioId,
+              discount,
+              'MUST promo discount',
+              `promo:${bookingId}`,
+              'payment',
+              'cash',
+              `Promo code ${code} (MUST)`,
+            ),
+          );
+    if (posted?.ok) {
+      await this.audit.recordInTransaction(tx, {
+        tenantId: context.tenantId,
+        propertyId: context.propertyId,
+        actorUserId: null,
+        action: 'booking.clock_promo_discount_posted',
+        targetType: 'booking',
+        targetId: bookingId,
+        details: { externalBookingId, folioId, code, discount },
+      });
+      return;
+    }
+    const message = !folio.ok
+      ? folio.error.message
+      : posted
+        ? posted.error.message
+        : 'The reservation has no default bill.';
+    await this.manualReview.recordInTransaction(tx, {
+      tenantId: context.tenantId,
+      propertyId: context.propertyId,
+      category: 'PAYMENT_BOOKING_MISMATCH',
+      referenceType: 'booking',
+      referenceId: bookingId,
+      message: `The promo discount could not be posted on the Clock bill: ${message}`,
+      context: { externalBookingId, code, discount },
+    });
+    await this.notifications.recordInTransaction(tx, {
+      tenantId: context.tenantId,
+      propertyId: context.propertyId,
+      type: 'BOOKING_NEEDS_ATTENTION',
+      payload: { bookingId, reason: 'clock_promo_discount_failed' },
+    });
+  }
+
   /** Posts the credit item, or reconciles against an existing one by our own
    * `reference` if the POST itself failed ambiguously (timeout/network/5xx) —
    * the credit_item endpoint has no idempotency key of its own. */
@@ -1232,6 +1411,7 @@ export class ClockBookingService {
     reference: string,
     kind: 'payment' | 'refund' = 'payment',
     paymentType: 'cash' | 'card' | 'bank' | 'on-line' = 'on-line',
+    text?: string,
   ): Promise<ClockOutcome<ClockCreditItemResource>> {
     const existing = await this.creditItemByReference(credentials, folioId, reference);
     if (existing.ok && existing.value) return { ok: true, value: existing.value };
@@ -1244,7 +1424,7 @@ export class ClockBookingService {
         credit_item: {
           payment_type: paymentType,
           payment_sub_type: paymentSubType,
-          text: `Website booking ${kind} via ${paymentSubType}`,
+          text: text ?? `Website booking ${kind} via ${paymentSubType}`,
           value: amount.amount,
           currency: amount.currency.toUpperCase(),
           reference,
@@ -1292,6 +1472,279 @@ export class ClockBookingService {
   // server-side filter.
   private asCreditItemList(value: unknown): ClockCreditItemResource[] {
     return Array.isArray(value) ? value.filter(isClockCreditItemResource) : [];
+  }
+
+  /** Adapter-internal shared HTTP path; callers bind the external id from a scoped booking. */
+  async amendmentRead(context: PmsProviderContext, id: string) {
+    const credentials = await this.credentials(context);
+    if (!credentials.ok) return credentials;
+    return this.fetch<
+      ClockBookingResource & {
+        rate_id?: number;
+        balance?: { cents: number; currency: string };
+        updated_at?: string;
+      }
+    >(credentials.value, { method: 'GET', path: '/bookings/' + id });
+  }
+  async amendmentWrite(context: PmsProviderContext, id: string, body: Record<string, unknown>) {
+    const credentials = await this.credentials(context);
+    if (!credentials.ok) return credentials;
+    return this.fetch<ClockBookingResource>(credentials.value, {
+      method: 'PUT',
+      path: '/bookings/' + id,
+      body: { booking: body },
+    });
+  }
+  async moveBookingRoom(
+    context: PmsProviderContext,
+    command: MoveBookingRoomCommand,
+  ): Promise<Result<Booking>> {
+    const connection = await this.credentials(context);
+    if (!connection.ok) return connection;
+    const key = 'clock-room-move:' + command.idempotencyKey,
+      fingerprint = this.requestHash(command);
+    const prepared = await this.database.withTenantTransaction(context, async (tx) => {
+      await tx.$queryRaw`SELECT id FROM properties WHERE tenant_id=${context.tenantId}::uuid AND id=${context.propertyId}::uuid FOR UPDATE`;
+      const previous = await tx.$queryRaw<
+        Array<{ hash: string; result: Record<string, unknown> }>
+      >`SELECT request_hash AS hash,result FROM integration_operations WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND idempotency_key=${key} FOR UPDATE`;
+      if (previous[0]) {
+        if (previous[0].hash !== fingerprint)
+          return {
+            failure: this.failure(
+              'IDEMPOTENCY_KEY_CONFLICT',
+              'This move key belongs to another request.',
+            ),
+          };
+        if (previous[0].result?.ok !== undefined)
+          return { failure: previous[0].result as unknown as Result<Booking> };
+        return { fresh: false, saved: previous[0].result };
+      }
+      const pending = await tx.$queryRaw<
+        Array<{ id: string }>
+      >`SELECT id FROM integration_operations WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND aggregate_id=${command.bookingId}::uuid AND (idempotency_key LIKE 'clock-room-move:%' OR idempotency_key LIKE 'clock-stay-amend:%') AND status='PENDING'`;
+      if (pending.length)
+        return {
+          failure: this.failure(
+            'MOVE_REQUIRES_REVIEW',
+            'An earlier room move needs a provider check before another move.',
+          ),
+        };
+      const row = await this.bookingById(tx, context, command.bookingId);
+      if (!row?.externalBookingId)
+        return { failure: this.failure('BOOKING_NOT_FOUND', 'Linked reservation not found.') };
+      if (row.version !== command.expectedVersion)
+        return {
+          failure: this.failure(
+            'VERSION_CONFLICT',
+            'The reservation changed. Reload it before moving.',
+          ),
+        };
+      if (row.status !== 'CONFIRMED')
+        return {
+          failure: this.failure(
+            'INVALID_BOOKING_STATE',
+            'Only confirmed reservations can move rooms.',
+          ),
+        };
+      const eligible = await tx.$queryRaw<
+        Array<{ allowed: boolean }>
+      >`SELECT (b.starts_on>=(now() AT TIME ZONE p.timezone)::date AND COALESCE(b.pms_stay_status,'expected')='expected') AS allowed FROM bookings b JOIN properties p ON p.tenant_id=b.tenant_id AND p.id=b.property_id WHERE b.tenant_id=${context.tenantId}::uuid AND b.property_id=${context.propertyId}::uuid AND b.id=${row.id}::uuid`;
+      if (!eligible[0]?.allowed)
+        return {
+          failure: this.failure(
+            'ROOM_MOVE_UNAVAILABLE',
+            'Only upcoming expected stays can be moved here.',
+          ),
+        };
+      const targets = await tx.$queryRaw<
+        Array<{ external: string; type: string }>
+      >`SELECT m.external_entity_id AS external,t.external_entity_id AS type FROM rooms r JOIN clock_catalog_mappings m ON m.tenant_id=r.tenant_id AND m.property_id=r.property_id AND m.local_entity_id=r.id AND m.entity_type='ROOM' AND m.sync_status='CONFIRMED' JOIN clock_catalog_mappings t ON t.tenant_id=r.tenant_id AND t.property_id=r.property_id AND t.local_entity_id=r.room_type_id AND t.entity_type='ROOM_TYPE' AND t.sync_status='CONFIRMED' AND t.connection_id=m.connection_id JOIN property_integration_connections pc ON pc.tenant_id=m.tenant_id AND pc.property_id=m.property_id AND pc.connection_id=m.connection_id AND pc.enabled AND pc.kind='PMS' WHERE r.tenant_id=${context.tenantId}::uuid AND r.property_id=${context.propertyId}::uuid AND r.id=${command.roomId}::uuid AND r.room_type_id=${row.roomTypeId}::uuid AND r.is_active`;
+      if (!targets[0] || !/^[1-9]\d*$/.test(targets[0].external))
+        return {
+          failure: this.failure('ROOM_NOT_FOUND', 'Choose a mapped room in the booked room type.'),
+        };
+      const saved = {
+        stage: 'PREPARED',
+        totalMinor: row.totalAmount.replace('.', ''),
+        currency: row.currency,
+        command,
+        roomTypeId: row.roomTypeId,
+        identity: [
+          connection.value.host,
+          connection.value.accountId,
+          connection.value.subscriptionId,
+        ],
+        externalBookingId: row.externalBookingId,
+        externalRoomId: targets[0].external,
+        externalTypeId: targets[0].type,
+        startsOn: row.startsOn,
+        endsOn: row.endsOn,
+        oldRoomId: row.roomId,
+      };
+      await tx.$executeRaw`INSERT INTO integration_operations(tenant_id,property_id,idempotency_key,aggregate_id,request_hash,status,result) VALUES(${context.tenantId}::uuid,${context.propertyId}::uuid,${key},${row.id}::uuid,${fingerprint},'PENDING',${JSON.stringify(saved)}::jsonb)`;
+      return { fresh: true, saved };
+    });
+    if (prepared.failure) return prepared.failure;
+    const saved = prepared.saved! as {
+      totalMinor: string;
+      currency: string;
+      externalBookingId: string;
+      externalRoomId: string;
+      externalTypeId: string;
+      startsOn: string;
+      endsOn: string;
+      oldRoomId: string | null;
+      roomTypeId: string;
+      identity: string[];
+    };
+    const flag = async () => {
+      await this.database.withTenantTransaction(context, async (tx) => {
+        await this.manualReview.recordInTransaction(tx, {
+          ...context,
+          category: 'SIMULTANEOUS_CHANGE',
+          referenceType: 'booking',
+          referenceId: command.bookingId,
+          message: 'Room move needs provider confirmation. Do not repeat the move.',
+          context: { operationKey: key, roomId: command.roomId },
+        });
+        await this.audit.recordInTransaction(tx, {
+          ...context,
+          actorUserId: command.staffActorId,
+          action: 'booking.room_move_unknown',
+          targetType: 'booking',
+          targetId: command.bookingId,
+          operationId: command.idempotencyKey,
+          details: { reason: 'Room move awaits provider verification; no second move was sent.' },
+        });
+      });
+      return this.failure(
+        'MOVE_REQUIRES_REVIEW',
+        'The room move is not yet verified. Check its provider status; no second move was sent.',
+      );
+    };
+    const finish = async () => {
+      const result = await this.database.withTenantTransaction(context, async (tx) => {
+        await tx.$queryRaw`SELECT id FROM properties WHERE tenant_id=${context.tenantId}::uuid AND id=${context.propertyId}::uuid FOR UPDATE`;
+        const row = await this.bookingById(tx, context, command.bookingId);
+        if (
+          !row ||
+          row.status !== 'CONFIRMED' ||
+          row.startsOn !== saved.startsOn ||
+          row.endsOn !== saved.endsOn ||
+          row.roomTypeId !== saved.roomTypeId ||
+          (row.version !== command.expectedVersion && row.roomId !== command.roomId)
+        )
+          return this.failure(
+            'MOVE_REQUIRES_REVIEW',
+            'Clock has the new room, but the local reservation changed. Synchronization must reconcile it.',
+          );
+        if (row.roomId !== command.roomId)
+          await tx.$executeRaw`UPDATE bookings SET room_id=${command.roomId}::uuid,version=version+1,updated_at=now() WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND id=${row.id}::uuid`;
+        const updated = await this.bookingById(tx, context, row.id),
+          result: Result<Booking> = { ok: true, value: this.toBooking(updated!)! };
+        await tx.$executeRaw`UPDATE integration_operations SET status='SUCCEEDED',result=${JSON.stringify(result)}::jsonb,updated_at=now() WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND idempotency_key=${key}`;
+        await tx.$executeRaw`UPDATE manual_review_items SET status='RESOLVED',resolved_at=now() WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND reference_id=${row.id} AND status='OPEN' AND context->>'operationKey'=${key}`;
+        await this.audit.recordInTransaction(tx, {
+          ...context,
+          actorUserId: command.staffActorId,
+          action: 'booking.room_moved',
+          operationId: command.idempotencyKey,
+          targetType: 'booking',
+          targetId: row.id,
+          details: {
+            oldRoomId: saved.oldRoomId,
+            newRoomId: command.roomId,
+            reason: command.reason,
+          },
+        });
+        return result;
+      });
+      return result.ok ? result : flag();
+    };
+    if (
+      JSON.stringify(saved.identity) !==
+      JSON.stringify([
+        connection.value.host,
+        connection.value.accountId,
+        connection.value.subscriptionId,
+      ])
+    )
+      return flag();
+    const current = await this.fetch<ClockBookingResource>(connection.value, {
+      method: 'GET',
+      path: `/bookings/${saved.externalBookingId}`,
+    });
+    if (!current.ok) return flag();
+    const samePrice = (value: ClockBookingResource) =>
+      Number.isSafeInteger(value.total_booking_value?.cents) &&
+      String(value.total_booking_value!.cents) === BigInt(saved.totalMinor).toString() &&
+      value.total_booking_value?.currency === saved.currency;
+    if (
+      !samePrice(current.value) ||
+      String(current.value.id) !== saved.externalBookingId ||
+      current.value.status !== 'expected' ||
+      current.value.arrival !== saved.startsOn ||
+      current.value.departure !== saved.endsOn ||
+      String(current.value.arrival_room_type_id) !== saved.externalTypeId
+    )
+      return flag();
+    if (String(current.value.arrival_room_id) === saved.externalRoomId) return finish();
+    if (!prepared.fresh) return flag();
+    const available = await this.availability.unavailableRoomsForBooking(
+      context.tenantId,
+      context.propertyId,
+      { roomIds: [command.roomId], startsOn: saved.startsOn, endsOn: saved.endsOn },
+    );
+    if (!available.ok || available.value.length) {
+      const result = this.failure(
+        'ROOM_UNAVAILABLE',
+        'This room cannot be verified as available for the whole stay.',
+      );
+      await this.database.withTenantTransaction(
+        context,
+        (tx) =>
+          tx.$executeRaw`UPDATE integration_operations SET status='FAILED',result=${JSON.stringify(result)}::jsonb WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND idempotency_key=${key}`,
+      );
+      return result;
+    }
+    const binding = await this.credentials(context);
+    if (
+      !binding.ok ||
+      JSON.stringify([
+        binding.value.host,
+        binding.value.accountId,
+        binding.value.subscriptionId,
+      ]) !== JSON.stringify(saved.identity)
+    )
+      return flag();
+    const response = await this.fetch<ClockBookingResource>(binding.value, {
+      method: 'PUT',
+      path: `/bookings/${saved.externalBookingId}`,
+      body: {
+        booking: {
+          arrival_room_id: Number(saved.externalRoomId),
+          lock_version: current.value.lock_version,
+        },
+      },
+    });
+    if (!response.ok) return flag();
+    const checked = await this.fetch<ClockBookingResource>(connection.value, {
+      method: 'GET',
+      path: `/bookings/${saved.externalBookingId}`,
+    });
+    if (
+      !checked.ok ||
+      !samePrice(checked.value) ||
+      String(checked.value.id) !== saved.externalBookingId ||
+      checked.value.status !== 'expected' ||
+      String(checked.value.arrival_room_type_id) !== saved.externalTypeId ||
+      String(checked.value.arrival_room_id) !== saved.externalRoomId ||
+      checked.value.arrival !== saved.startsOn ||
+      checked.value.departure !== saved.endsOn
+    )
+      return flag();
+    return finish();
   }
 
   async updateBooking(
@@ -1472,7 +1925,7 @@ export class ClockBookingService {
           b.room_id AS "roomId", b.guest_id AS "guestId", b.rate_plan_id AS "ratePlanId",
           b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
           b.payment_method AS "paymentMethod", b.total_amount::text AS "totalAmount",
-          b.adults, b.children, rp.currency,
+          b.adults, b.children,b.children_ages AS "childrenAges", b.clock_rate_id AS "clockRateId", rp.currency,
           b.external_reference AS "externalReference", b.external_booking_id AS "externalBookingId",
           b.version, b.created_at AS "createdAt", b.updated_at AS "updatedAt"
         FROM bookings b JOIN rate_plans rp
@@ -1494,7 +1947,7 @@ export class ClockBookingService {
           b.room_id AS "roomId", b.guest_id AS "guestId", b.rate_plan_id AS "ratePlanId",
           b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
           b.payment_method AS "paymentMethod", b.total_amount::text AS "totalAmount",
-          b.adults, b.children, rp.currency,
+          b.adults, b.children,b.children_ages AS "childrenAges", b.clock_rate_id AS "clockRateId", rp.currency,
           b.external_reference AS "externalReference", b.external_booking_id AS "externalBookingId",
           b.version, b.created_at AS "createdAt", b.updated_at AS "updatedAt"
         FROM bookings b JOIN rate_plans rp
@@ -1504,6 +1957,85 @@ export class ClockBookingService {
       `;
       return rows[0] ? this.toBooking(rows[0]) : null;
     });
+  }
+
+  /**
+   * Staff-run, strictly read-only check: does Clock have a booking carrying our reference? It never
+   * links, retries or changes anything locally or in Clock.
+   */
+  async checkRemoteBooking(
+    context: PmsProviderContext,
+    bookingId: string,
+  ): Promise<
+    | { result: 'found'; clockBookingId: string; linked: boolean }
+    | { result: 'not_found' }
+    | { result: 'unavailable'; message: string }
+  > {
+    const rows = await this.database.withTenantTransaction(
+      context,
+      (tx) =>
+        tx.$queryRaw<Array<{ reference: string | null; externalBookingId: string | null }>>`
+        SELECT external_reference AS reference, external_booking_id AS "externalBookingId"
+        FROM bookings
+        WHERE id = ${bookingId}::uuid AND tenant_id = ${context.tenantId}::uuid
+          AND property_id = ${context.propertyId}::uuid
+      `,
+    );
+    if (!rows[0]) throw new NotFoundException('Booking not found.');
+    if (!rows[0].reference)
+      return { result: 'unavailable', message: 'This booking has no reference to search for.' };
+    const credentials = await this.credentials(context);
+    if (!credentials.ok)
+      return { result: 'unavailable', message: 'Clock is not connected for this hotel.' };
+    const found = await this.fetch<Array<number | string | { id: string | number }>>(
+      credentials.value,
+      {
+        method: 'GET',
+        path: '/bookings/',
+        query: { reference_number: rows[0].reference },
+      },
+    );
+    if (!found.ok || !Array.isArray(found.value))
+      return { result: 'unavailable', message: 'Clock could not be checked. Try again shortly.' };
+    // Clock lists numeric IDs. Verify each reference rather than trusting a fuzzy filter.
+    if (found.value.length > 50)
+      return {
+        result: 'unavailable',
+        message: 'Clock returned too many matches. Review the reference in Clock.',
+      };
+    const matches: string[] = [];
+    for (const item of found.value) {
+      const id = typeof item === 'object' && item !== null ? item.id : item;
+      if (!/^\d+$/.test(String(id)))
+        return {
+          result: 'unavailable',
+          message: 'Clock returned an unreadable result. Please check in Clock.',
+        };
+      const detail = await this.fetch<{ id: string | number; reference_number?: string }>(
+        credentials.value,
+        { method: 'GET', path: `/bookings/${id}` },
+      );
+      if (!detail.ok)
+        return {
+          result: 'unavailable',
+          message: 'A Clock booking could not be checked. Try again shortly.',
+        };
+      if (detail.value.reference_number === rows[0].reference)
+        matches.push(String(detail.value.id));
+    }
+    if (matches.length === 0) return { result: 'not_found' };
+    if (matches.length > 1)
+      return {
+        result: 'unavailable',
+        message:
+          'Clock has multiple bookings with this reference. Review them in Clock before proceeding.',
+      };
+    const clockBookingId = matches[0]!;
+    return {
+      result: 'found',
+      clockBookingId,
+      linked: rows[0].externalBookingId === clockBookingId,
+    };
   }
 
   /** Section 18: after a creation timeout, search Clock itself (not just our
@@ -1671,6 +2203,8 @@ export class ClockBookingService {
     endsOn: string,
     adultCount: number,
     childrenCount: number,
+    childrenAges?: number[],
+    chosenRateId?: string,
   ): Promise<Result<string>> {
     const selection = await this.availability.selectRateForStay(credentials, {
       tenantId: context.tenantId,
@@ -1681,6 +2215,8 @@ export class ClockBookingService {
       endsOn,
       adultCount,
       childrenCount,
+      childrenAges,
+      chosenRateId,
     });
     if (!selection.ok) return selection;
     return { ok: true, value: selection.value.rateId };
@@ -1797,7 +2333,7 @@ export class ClockBookingService {
         b.room_id AS "roomId", b.guest_id AS "guestId", b.rate_plan_id AS "ratePlanId",
         b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
         b.payment_method AS "paymentMethod", b.total_amount::text AS "totalAmount",
-        b.adults, b.children, rp.currency,
+        b.adults, b.children,b.children_ages AS "childrenAges", b.clock_rate_id AS "clockRateId", rp.currency,
         b.external_reference AS "externalReference", b.external_booking_id AS "externalBookingId",
         b.room_guest_first_name AS "roomGuestFirstName", b.room_guest_last_name AS "roomGuestLastName",
         b.version, b.created_at AS "createdAt", b.updated_at AS "updatedAt"
@@ -1965,7 +2501,30 @@ export class ClockBookingService {
       );
   }
 
+  /**
+   * Every Clock request here goes through the rate limiter, and Clock itself answers 429 when it is
+   * flooded. Both mean the request was NOT processed, so retrying is safe even for a booking
+   * creation or a cancellation: wait a little longer each time and try again before giving up.
+   */
   private async fetch<T>(
+    credentials: ClockConnectionCredentials,
+    options: {
+      method: 'GET' | 'POST' | 'PUT';
+      path: string;
+      body?: unknown;
+      query?: Record<string, string>;
+      api?: 'pms_api' | 'base_api';
+    },
+  ): Promise<ClockOutcome<T>> {
+    for (let retry = 0; ; retry++) {
+      const result = await this.fetchOnce<T>(credentials, options);
+      if (result.ok || result.error.category !== 'rate_limited' || retry >= RATE_LIMIT_RETRIES)
+        return result;
+      await sleep(RATE_LIMIT_BACKOFF_MS * 2 ** retry + Math.floor(Math.random() * 200));
+    }
+  }
+
+  private async fetchOnce<T>(
     credentials: ClockConnectionCredentials,
     options: {
       method: 'GET' | 'POST' | 'PUT';

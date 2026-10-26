@@ -26,6 +26,8 @@ function service() {
   };
   const queryRaw = vi
     .fn()
+    // update() first locks the row, then reads it, then writes it.
+    .mockResolvedValueOnce([{ id: propertyId }])
     .mockResolvedValueOnce([property])
     .mockResolvedValueOnce([{ ...property, rules: 'No smoking.\nAdults only.' }]);
   const database = {

@@ -1,3 +1,9 @@
+import type {
+  RoomMoveAvailabilityQuery,
+  RoomMoveAvailabilitySnapshot,
+} from '@must/domain-contracts';
+import type { MoveBookingRoomCommand } from '@must/domain-contracts';
+import { enforcePropertyBookingLimits } from './property-booking-limits';
 import { BadRequestException, HttpException, Inject, Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import {
@@ -37,14 +43,25 @@ import { ClockBookingService } from '../integrations/clock/clock-booking.service
 import { PrePaymentAvailabilityRegistry } from './pre-payment-availability';
 import { generateBookingReference } from './booking-reference';
 import { resolveGuestWithPhoneSignal } from './guest-matching';
+import { PromoCodeService } from './promo-code.service';
+import type { PromoApplied } from './quote.service';
 
 export const PMS_PROVIDER = Symbol('PMS_PROVIDER');
 
 export type LocalCreateBookingCommand = CreateBookingCommand & {
+  childrenAges?: number[];
   quoteToken?: string;
   quoteSessionId?: string;
   staffActorId?: string;
   skipQuoteValidation?: boolean;
+  /** Clock hotels: the published Clock rate chosen for the stay; it is part of the signed quote. */
+  clockRateId?: string;
+  /** The promo code entered for this stay; it is part of the signed quote. */
+  promoCode?: string;
+  /** Staff bookings: the promo that was applied when the price was worked out. */
+  promo?: PromoApplied;
+  /** Only the local development demo seed sets this, to create booking history in the past. */
+  allowPastStay?: boolean;
   returnUrl?: string;
 };
 
@@ -71,6 +88,7 @@ type BookingRow = {
   totalAmount: string;
   adults: number;
   children: number;
+  childrenAges: number[] | null;
   currency: string;
   nightlyRates: unknown;
   externalReference: string;
@@ -86,7 +104,7 @@ type IntegrationOperationRow = {
   result: Result<BookingWithCheckout> | null;
 };
 
-type BookingWithCheckout = Booking & { checkoutUrl?: string };
+type BookingWithCheckout = Booking & { checkoutUrl?: string; checkoutOrderId?: string };
 
 type ConfirmedPaymentDetails = {
   reference: string;
@@ -116,6 +134,7 @@ type CancellationPolicy = {
   freeCancellationUntilHours: number | null;
   cutoffAt: Date | null;
   isFree: boolean;
+  autoRefund?: boolean;
 };
 
 type MultiRoomCancellation = {
@@ -148,6 +167,7 @@ export class LocalPmsProvider implements PmsProvider {
     @Inject(ClockBookingService) private readonly clockBooking: ClockBookingService,
     @Inject(PrePaymentAvailabilityRegistry)
     private readonly prePaymentAvailability: PrePaymentAvailabilityRegistry,
+    @Inject(PromoCodeService) private readonly promos?: PromoCodeService,
   ) {}
 
   /** Milestone 11.5 Task 4/2: whether this property should get a real Clock
@@ -263,7 +283,7 @@ export class LocalPmsProvider implements PmsProvider {
     if (
       !this.validStay(command.startsOn, command.endsOn) ||
       !this.validAmount(command.total.amount) ||
-      !this.validGuestCount(occupancy.adults, occupancy.children) ||
+      !validBookingOccupancy(command) ||
       !(command.quoteSessionId ?? command.staffActorId)
     ) {
       return this.failure(
@@ -314,6 +334,14 @@ export class LocalPmsProvider implements PmsProvider {
                   'RATE_PLAN_REQUIRED',
                   'A rate plan is required for this room type.',
                 );
+              if (!command.allowPastStay)
+                await enforcePropertyBookingLimits(tx, context, {
+                  startsOn: command.startsOn,
+                  endsOn: command.endsOn,
+                  adults: occupancy.adults,
+                  children: occupancy.children,
+                  roomCount: 1,
+                });
               const catalogError = await this.validateCatalog(
                 tx,
                 context,
@@ -332,11 +360,27 @@ export class LocalPmsProvider implements PmsProvider {
               const externalReference =
                 command.externalReference ?? (await this.generatedExternalReference(tx, context));
 
+              // The promo signed into the quote (guest) or applied to the staff price. Whether one more use is
+              // left is checked under a lock; the booking itself is what counts as a use, and a booking
+              // that fails validation or availability stops counting by itself.
+              const promo =
+                command.promo ??
+                (command.promoCode ? this.quotes.promoOf(command.quoteToken) : null);
+              if (promo?.source === 'own') {
+                const redeemed = await this.promos?.reserveUse(tx, context, promo.code);
+                if (!redeemed)
+                  return this.failure(
+                    'PROMO_UNAVAILABLE',
+                    'This code has just been used up. Please request a new quote.',
+                  );
+              }
+
               const inserted = await tx.$queryRaw<Array<{ id: string }>>`
         INSERT INTO bookings (
           tenant_id, property_id, room_type_id, room_id, guest_id, external_reference,
           guest_session_id, special_requests, status, payment_method, starts_on, ends_on, rate_plan_id, total_amount,
-          adults, children, guest_count
+          adults, children, children_ages, guest_count, source, clock_rate_id,
+          promo_code, promo_discount_amount, original_total_amount
         ) VALUES (
           ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${command.roomTypeId}::uuid,
           ${command.roomId ?? null}::uuid, ${guestId}::uuid, ${externalReference},
@@ -345,8 +389,9 @@ export class LocalPmsProvider implements PmsProvider {
           ${BookingStatus.DRAFT}::"BookingStatus",
           ${paymentMethod.value}::"BookingPaymentMethod",
           ${command.startsOn}::date, ${command.endsOn}::date, ${ratePlanId}::uuid,
-          ${command.total.amount}::numeric, ${occupancy.adults}, ${occupancy.children},
-          ${occupancy.guestCount}
+          ${command.total.amount}::numeric, ${occupancy.adults}, ${occupancy.children}, ${command.childrenAges === undefined ? null : JSON.stringify(command.childrenAges)}::jsonb,
+          ${occupancy.guestCount}, ${command.staffActorId ? 'DIRECT' : 'WEBSITE'}, ${command.clockRateId ?? null},
+          ${promo?.code ?? null}, ${promo?.discount.amount ?? null}::numeric, ${promo?.originalTotal.amount ?? null}::numeric
         )
         RETURNING id
       `;
@@ -363,6 +408,8 @@ export class LocalPmsProvider implements PmsProvider {
                 propertyId: context.propertyId,
                 actorUserId: command.staffActorId ?? null,
                 action: 'booking.created',
+                source: command.staffActorId ? 'MUST_STAFF' : 'GUEST',
+                operationId: command.idempotencyKey,
                 targetType: 'booking',
                 targetId: bookingId,
                 details: { guestId },
@@ -392,10 +439,13 @@ export class LocalPmsProvider implements PmsProvider {
                     roomTypeId: command.roomTypeId,
                     roomId: command.roomId,
                     ratePlanId: command.ratePlanId,
+                    clockRateId: command.clockRateId,
+                    promoCode: command.promoCode,
                     startsOn: command.startsOn,
                     endsOn: command.endsOn,
                     adults: occupancy.adults,
                     children: occupancy.children,
+                    childrenAges: command.childrenAges,
                     guestCount: occupancy.guestCount,
                     total: command.total,
                   },
@@ -503,6 +553,7 @@ export class LocalPmsProvider implements PmsProvider {
                       roomId: command.roomId,
                       adults: occupancy.adults,
                       children: occupancy.children,
+                      childrenAges: command.childrenAges,
                     },
                   ],
                 });
@@ -524,8 +575,8 @@ export class LocalPmsProvider implements PmsProvider {
                   idempotencyKey: command.idempotencyKey,
                   bookingId,
                   amount: command.total,
-                  successUrl: this.checkoutReturnUrl(bookingId, 'success', guestReturnUrl),
-                  cancelUrl: this.checkoutReturnUrl(bookingId, 'cancel', guestReturnUrl),
+                  successUrl: this.checkoutReturnUrl(bookingId, 'success', guestReturnUrl, context),
+                  cancelUrl: this.checkoutReturnUrl(bookingId, 'cancel', guestReturnUrl, context),
                 });
                 if (!checkout.ok) throw new CheckoutSessionCreationError(checkout);
                 if (paymentMethod.value === BookingPaymentMethod.POKPAY) {
@@ -542,7 +593,14 @@ export class LocalPmsProvider implements PmsProvider {
                 const row = await this.bookingById(tx, context, bookingId);
                 const booking = row && this.toBooking(row);
                 return booking
-                  ? { ok: true, value: { ...booking, checkoutUrl: checkout.value.url } }
+                  ? {
+                      ok: true,
+                      value: {
+                        ...booking,
+                        checkoutUrl: checkout.value.url,
+                        checkoutOrderId: checkout.value.id,
+                      },
+                    }
                   : this.failure('BOOKING_NOT_FOUND', 'Created booking could not be loaded.');
               }
 
@@ -611,6 +669,115 @@ export class LocalPmsProvider implements PmsProvider {
       if (error instanceof PrePaymentAvailabilityError) return error.result;
       throw error;
     }
+  }
+
+  async unavailableRoomsForMove(
+    context: PmsProviderContext,
+    query: RoomMoveAvailabilityQuery,
+  ): Promise<Result<RoomMoveAvailabilitySnapshot>> {
+    // Clock properties must never fall back to local occupancy.
+    if (await this.isClockConnected(context))
+      return this.failure(
+        'PROVIDER_REQUIRED',
+        'The Clock connection must be available to check rooms.',
+      );
+    const unavailable = await this.database.withTenantTransaction(context, (tx) =>
+      this.availability.unavailableRoomsForMove(tx, context.tenantId, context.propertyId, query),
+    );
+    return {
+      ok: true,
+      value: {
+        unavailableRoomIds: unavailable,
+        source: 'LOCAL',
+        lastSyncedAt: new Date().toISOString(),
+        complete: true,
+        stale: false,
+      },
+    };
+  }
+
+  async moveBookingRoom(
+    context: PmsProviderContext,
+    command: MoveBookingRoomCommand,
+  ): Promise<Result<Booking>> {
+    return this.database.withTenantTransaction(context, (tx) =>
+      this.withIdempotency(
+        tx,
+        context,
+        'move-room:' + command.idempotencyKey,
+        command,
+        command.bookingId,
+        null,
+        async () => {
+          await this.availability.lockRoom(
+            tx,
+            context.tenantId,
+            context.propertyId,
+            command.roomId,
+          );
+          const row = await this.bookingById(tx, context, command.bookingId);
+          if (!row) return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
+          if (row.version !== command.expectedVersion)
+            return this.failure('VERSION_CONFLICT', 'The reservation changed. Review it again.');
+          if (row.status !== 'CONFIRMED')
+            return this.failure(
+              'INVALID_BOOKING_STATE',
+              'Only confirmed reservations can move rooms.',
+            );
+          if (row.externalBookingId || (await this.isClockConnected(context)))
+            return this.failure(
+              'PROVIDER_REQUIRED',
+              'Use the active PMS connection to move this reservation.',
+            );
+          const eligible = await tx.$queryRaw<
+            Array<{ allowed: boolean }>
+          >`SELECT (p.booking_mode<>'ROOM_TYPE_ONLY' AND b.starts_on>=(now() AT TIME ZONE p.timezone)::date AND COALESCE(b.pms_stay_status,'expected')='expected') AS allowed FROM bookings b JOIN properties p ON p.tenant_id=b.tenant_id AND p.id=b.property_id WHERE b.tenant_id=${context.tenantId}::uuid AND b.property_id=${context.propertyId}::uuid AND b.id=${row.id}::uuid`;
+          if (!eligible[0]?.allowed)
+            return this.failure(
+              'ROOM_MOVE_UNAVAILABLE',
+              'Only upcoming stays with individual room assignment can move rooms here.',
+            );
+          const rooms = await tx.$queryRaw<
+            Array<{ id: string }>
+          >`SELECT id FROM rooms WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND id=${command.roomId}::uuid AND room_type_id=${row.roomTypeId}::uuid AND is_active`;
+          if (!rooms[0])
+            return this.failure('ROOM_NOT_FOUND', 'Choose an active room in the booked room type.');
+          if (row.roomId === command.roomId) return { ok: true, value: this.toBooking(row)! };
+          const available = await this.availability.reserveRoom(
+            tx,
+            context.tenantId,
+            context.propertyId,
+            { roomId: command.roomId, startsOn: row.startsOn, endsOn: row.endsOn },
+          );
+          if (!available)
+            return this.failure(
+              'ROOM_UNAVAILABLE',
+              'This room is no longer available for the whole stay.',
+            );
+          if (!row.roomId)
+            await this.availability.releaseBookedUnits(tx, context.tenantId, context.propertyId, {
+              roomTypeId: row.roomTypeId,
+              startsOn: row.startsOn,
+              endsOn: row.endsOn,
+              units: 1,
+            });
+          await tx.$executeRaw`UPDATE bookings SET room_id=${command.roomId}::uuid,version=version+1,updated_at=now() WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND id=${row.id}::uuid`;
+          await this.audit.recordInTransaction(tx, {
+            ...context,
+            actorUserId: command.staffActorId,
+            action: 'booking.room_moved',
+            operationId: command.idempotencyKey,
+            targetType: 'booking',
+            targetId: row.id,
+            details: { oldRoomId: row.roomId, newRoomId: command.roomId, reason: command.reason },
+          });
+          return {
+            ok: true,
+            value: this.toBooking((await this.bookingById(tx, context, row.id))!)!,
+          };
+        },
+      ),
+    );
   }
 
   async updateBooking(
@@ -727,8 +894,18 @@ export class LocalPmsProvider implements PmsProvider {
               idempotencyKey: command.idempotencyKey,
               bookingId: booking.id,
               amount: { amount: checkoutAmount, currency: booking.currency },
-              successUrl: this.checkoutReturnUrl(booking.id, 'success', booking.guestReturnUrl),
-              cancelUrl: this.checkoutReturnUrl(booking.id, 'cancel', booking.guestReturnUrl),
+              successUrl: this.checkoutReturnUrl(
+                booking.id,
+                'success',
+                booking.guestReturnUrl,
+                context,
+              ),
+              cancelUrl: this.checkoutReturnUrl(
+                booking.id,
+                'cancel',
+                booking.guestReturnUrl,
+                context,
+              ),
             });
             if (!checkout.ok) return checkout;
             // Keep every gateway order binding. A guest may still complete an
@@ -754,11 +931,38 @@ export class LocalPmsProvider implements PmsProvider {
             });
             const value = this.toBooking(booking);
             return value
-              ? { ok: true, value: { ...value, checkoutUrl: checkout.value.url } }
+              ? {
+                  ok: true,
+                  value: {
+                    ...value,
+                    checkoutUrl: checkout.value.url,
+                    checkoutOrderId: checkout.value.id,
+                  },
+                }
               : this.failure('BOOKING_NOT_FOUND', 'Booking could not be reloaded.');
           },
         ),
       { timeoutMs: 30_000 },
+    );
+  }
+
+  async mirrorConfirmedPayment(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    bookingId: string,
+    amount: Money,
+    reference: string,
+    method: 'cash' | 'card_in_person' | 'bank_transfer',
+  ) {
+    if (!(await this.isClockConnected(context))) return;
+    await this.clockBooking.postDeposit(
+      tx,
+      context,
+      bookingId,
+      amount,
+      method === 'cash' ? 'Cash' : method === 'card_in_person' ? 'Card / POS' : 'Bank transfer',
+      reference,
+      method === 'cash' ? 'cash' : method === 'card_in_person' ? 'card' : 'bank',
     );
   }
 
@@ -911,6 +1115,10 @@ export class LocalPmsProvider implements PmsProvider {
     bookingId: string,
     cutoffAt: Date,
   ): Promise<boolean> {
+    const settings = await tx.$queryRaw<
+      { minutes: number }[]
+    >`SELECT online_payment_hold_minutes AS minutes FROM properties WHERE tenant_id=${context.tenantId}::uuid AND id=${context.propertyId}::uuid FOR UPDATE`;
+    cutoffAt = new Date(cutoffAt.getTime() + (30 - (settings[0]?.minutes ?? 30)) * 60000);
     const row = await this.bookingById(tx, context, bookingId);
     if (
       !row ||
@@ -972,7 +1180,7 @@ export class LocalPmsProvider implements PmsProvider {
 
   async cancelBooking(
     context: PmsProviderContext,
-    command: CancelBookingCommand,
+    command: CancelBookingCommand & { notifyGuest?: boolean; singleBooking?: boolean },
   ): Promise<Result<Booking>> {
     const refundConfirmations: RefundConfirmation[] = [];
     const cancelledBookingIds: string[] = [];
@@ -997,7 +1205,12 @@ export class LocalPmsProvider implements PmsProvider {
                 'Booking has changed; reload it before cancelling.',
                 true,
               );
-            if (row.orderReference) {
+            if (row.orderReference && !(command.staffActorId && command.singleBooking)) {
+              if (!command.staffActorId && (await this.isClockConnected(context)))
+                return this.failure(
+                  'CANCELLATION_REQUIRES_REVIEW',
+                  'Multi-room Clock bookings require staff review. Please send a cancellation request.',
+                );
               const cancelled = await this.cancelMultiRoomOrder(tx, context, command, row);
               refundConfirmations.push(...cancelled.refundConfirmations);
               cancelledBookingIds.push(...cancelled.cancelledBookingIds);
@@ -1020,8 +1233,9 @@ export class LocalPmsProvider implements PmsProvider {
             const selfServiceWindow = command.staffActorId
               ? [{ canCancel: true }]
               : await tx.$queryRaw<Array<{ canCancel: boolean }>>`
-            SELECT CURRENT_TIMESTAMP <= (b.starts_on::timestamp AT TIME ZONE p.timezone)
-              - make_interval(days => p.free_cancellation_days_before_arrival) AS "canCancel"
+            SELECT CASE WHEN b.cancellation_terms IS NOT NULL THEN b.cancellation_terms->>'arrivalDate'=b.starts_on::text AND CURRENT_TIMESTAMP <= (b.cancellation_terms->>'cutoffAt')::timestamptz
+              WHEN b.external_booking_id IS NOT NULL OR EXISTS(SELECT 1 FROM property_integration_connections pc JOIN integration_connections ic ON ic.tenant_id=pc.tenant_id AND ic.id=pc.connection_id WHERE pc.tenant_id=b.tenant_id AND pc.property_id=b.property_id AND pc.enabled AND pc.kind='PMS' AND ic.provider='CLOCK_PMS') THEN false
+              ELSE CURRENT_TIMESTAMP <= (b.starts_on::timestamp AT TIME ZONE p.timezone)-make_interval(days=>p.free_cancellation_days_before_arrival) END AS "canCancel"
             FROM bookings b JOIN properties p ON p.tenant_id = b.tenant_id AND p.id = b.property_id
             WHERE b.id = ${row.id}::uuid AND b.tenant_id = ${context.tenantId}::uuid
           `;
@@ -1032,6 +1246,23 @@ export class LocalPmsProvider implements PmsProvider {
               );
 
             if (await this.isClockConnected(context)) {
+              if (!command.staffActorId) {
+                const checked = await tx.$queryRaw<
+                  Array<{ safe: boolean }>
+                >`SELECT EXISTS(SELECT 1 FROM clock_sync_jobs j JOIN property_integration_connections pc ON pc.tenant_id=j.tenant_id AND pc.property_id=j.property_id AND pc.connection_id=j.connection_id AND pc.enabled AND pc.kind='PMS' WHERE j.tenant_id=${context.tenantId}::uuid AND j.property_id=${context.propertyId}::uuid AND j.resource=${'financial:' + row.id} AND j.status='SYNCED' AND j.last_error IS NULL AND (j.snapshot->>'fetchedAt')::timestamptz>now()-interval '60 seconds' AND (j.snapshot->>'bookingVersion')::int=${row.version}
+                  AND (j.snapshot#>>'{paid,amount}')::numeric=(j.snapshot->>'localPaid')::numeric
+                  AND (j.snapshot#>>'{refunded,amount}')::numeric=(j.snapshot->>'localRefunded')::numeric
+                  AND j.snapshot#>>'{balance,currency}'=${row.currency}
+                  AND (j.snapshot#>>'{balance,amount}')::numeric>=0
+                  AND (SELECT count(*) FROM payments WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND booking_id=${row.id}::uuid AND kind='CHARGE' AND status IN ('PAID','succeeded'))<=1
+                  AND NOT EXISTS(SELECT 1 FROM payments WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND booking_id=${row.id}::uuid AND kind='CHARGE' AND status IN ('PAID','succeeded') AND provider NOT IN ('pokpay','stripe'))
+                  AND (j.snapshot->>'localPaid')::numeric=COALESCE((SELECT sum(amount) FROM payments WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND booking_id=${row.id}::uuid AND kind='CHARGE' AND status IN ('PAID','succeeded')),0) AND (j.snapshot->>'localRefunded')::numeric=COALESCE((SELECT sum(amount) FROM payments WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND booking_id=${row.id}::uuid AND kind='REFUND' AND status='REFUNDED'),0)) AS safe`;
+                if (!checked[0]?.safe)
+                  return this.failure(
+                    'CANCELLATION_REQUIRES_REVIEW',
+                    'The payment position changed. Hotel staff must review this cancellation.',
+                  );
+              }
               if (row.externalBookingId) {
                 const cancelledAtClock = await this.clockBooking.cancelRealReservation(
                   context,
@@ -1042,7 +1273,11 @@ export class LocalPmsProvider implements PmsProvider {
             }
 
             const cancellationPolicy = await this.cancellationPolicy(tx, context, row.id);
-            if (cancellationPolicy.isFree) {
+            if (
+              cancellationPolicy.isFree &&
+              cancellationPolicy.autoRefund !== false &&
+              !command.skipAutomaticRefund
+            ) {
               const refunded = await this.refunds.refundPaidChargeForBooking(
                 tx,
                 context,
@@ -1109,7 +1344,9 @@ export class LocalPmsProvider implements PmsProvider {
     for (const refundConfirmation of refundConfirmations)
       await this.notifications.sendRefundConfirmationEmailSafely(refundConfirmation, context);
     for (const cancelledBookingId of cancelledBookingIds)
-      await this.cancellations.sendAfterCancellation(context, cancelledBookingId);
+      await this.cancellations.sendAfterCancellation(context, cancelledBookingId, {
+        notifyGuest: command.notifyGuest,
+      });
     return result;
   }
 
@@ -1221,7 +1458,7 @@ export class LocalPmsProvider implements PmsProvider {
 
     let refundableMinorUnits = 0n;
     for (const { row, cancellationPolicy } of cancelledChildren) {
-      if (!cancellationPolicy.isFree) continue;
+      if (!cancellationPolicy.isFree || cancellationPolicy.autoRefund === false) continue;
       refundableMinorUnits += this.minorUnits(row.totalAmount);
     }
 
@@ -1313,8 +1550,10 @@ export class LocalPmsProvider implements PmsProvider {
     bookingId: string,
   ): Promise<boolean> {
     const rows = await tx.$queryRaw<Array<{ canCancel: boolean }>>`
-      SELECT CURRENT_TIMESTAMP <= (b.starts_on::timestamp AT TIME ZONE p.timezone)
-        - make_interval(days => p.free_cancellation_days_before_arrival) AS "canCancel"
+      SELECT CASE WHEN b.cancellation_terms IS NOT NULL THEN
+        b.cancellation_terms->>'arrivalDate'=b.starts_on::text AND CURRENT_TIMESTAMP <= (b.cancellation_terms->>'cutoffAt')::timestamptz
+        ELSE CURRENT_TIMESTAMP <= (b.starts_on::timestamp AT TIME ZONE p.timezone)
+        - make_interval(days => p.free_cancellation_days_before_arrival) END AS "canCancel"
       FROM bookings b JOIN properties p ON p.tenant_id = b.tenant_id AND p.id = b.property_id
       WHERE b.id = ${bookingId}::uuid AND b.tenant_id = ${context.tenantId}::uuid
         AND b.property_id = ${context.propertyId}::uuid
@@ -1479,7 +1718,7 @@ export class LocalPmsProvider implements PmsProvider {
     const roomTypes = await tx.$queryRaw<Array<{ id: string }>>`
       SELECT id FROM room_types
       WHERE id = ${roomTypeId}::uuid AND tenant_id = ${context.tenantId}::uuid
-        AND property_id = ${context.propertyId}::uuid
+        AND property_id = ${context.propertyId}::uuid AND status = 'PUBLISHED'::"RoomTypeStatus"
     `;
     if (!roomTypes[0]) return this.failure('ROOM_TYPE_NOT_FOUND', 'Room type was not found.');
     const ratePlans = await tx.$queryRaw<Array<{ id: string; currency: string }>>`
@@ -1500,7 +1739,7 @@ export class LocalPmsProvider implements PmsProvider {
   private async validateRoomSelection(
     tx: TenantTransaction,
     context: PmsProviderContext,
-    command: CreateBookingCommand,
+    command: LocalCreateBookingCommand,
   ): Promise<RoomSelection | Result<Booking>> {
     const properties = await tx.$queryRaw<Array<{ bookingMode: string }>>`
       SELECT booking_mode AS "bookingMode"
@@ -1528,6 +1767,7 @@ export class LocalPmsProvider implements PmsProvider {
         AND property_id = ${context.propertyId}::uuid
         AND id = ${command.roomId}::uuid
         AND room_type_id = ${command.roomTypeId}::uuid
+        AND is_active = true
     `;
     return rooms[0]
       ? { autoAssign: false }
@@ -1537,7 +1777,7 @@ export class LocalPmsProvider implements PmsProvider {
   private async reserveSamePricedRoom(
     tx: TenantTransaction,
     context: PmsProviderContext,
-    command: CreateBookingCommand,
+    command: LocalCreateBookingCommand,
   ): Promise<string | null> {
     const occupancy = resolveBookingOccupancy(command);
     const rooms = await tx.$queryRaw<Array<{ id: string }>>`
@@ -1546,6 +1786,7 @@ export class LocalPmsProvider implements PmsProvider {
       WHERE tenant_id = ${context.tenantId}::uuid
         AND property_id = ${context.propertyId}::uuid
         AND room_type_id = ${command.roomTypeId}::uuid
+        AND is_active = true
       ORDER BY created_at
     `;
     for (const room of rooms) {
@@ -1553,10 +1794,14 @@ export class LocalPmsProvider implements PmsProvider {
         roomTypeId: command.roomTypeId,
         roomId: room.id,
         ratePlanId: command.ratePlanId,
+        // The room must cost the same under the rate the guest chose, not the default rate.
+        clockRateId: command.clockRateId,
+        promoCode: command.promoCode,
         startsOn: command.startsOn,
         endsOn: command.endsOn,
         adults: occupancy.adults,
         children: occupancy.children,
+        childrenAges: command.childrenAges,
         guestCount: occupancy.guestCount,
       });
       if (price.amount !== command.total.amount || price.currency !== command.total.currency)
@@ -1581,14 +1826,40 @@ export class LocalPmsProvider implements PmsProvider {
     context: PmsProviderContext,
     bookingId: string,
   ): Promise<CancellationPolicy> {
+    const saved = await tx.$queryRaw<
+      Array<{
+        terms: {
+          arrivalDate: string;
+          cutoffAt: string;
+          freeCancellationUntilHours: number;
+          autoRefund: boolean;
+        } | null;
+        arrival: string;
+        external: string | null;
+        clock: boolean;
+      }>
+    >`SELECT b.cancellation_terms AS terms,b.starts_on::text AS arrival,b.external_booking_id AS external,EXISTS(SELECT 1 FROM property_integration_connections pc JOIN integration_connections ic ON ic.tenant_id=pc.tenant_id AND ic.id=pc.connection_id WHERE pc.tenant_id=b.tenant_id AND pc.property_id=b.property_id AND pc.enabled AND pc.kind='PMS' AND ic.provider='CLOCK_PMS') AS clock FROM bookings b WHERE b.tenant_id=${context.tenantId}::uuid AND b.property_id=${context.propertyId}::uuid AND b.id=${bookingId}::uuid`;
+    if (saved[0]?.terms) {
+      const terms = saved[0].terms;
+      const cutoffAt = new Date(terms.cutoffAt);
+      return {
+        freeCancellationUntilHours: terms.freeCancellationUntilHours,
+        cutoffAt,
+        isFree: terms.arrivalDate === saved[0].arrival && Date.now() <= cutoffAt.valueOf(),
+        autoRefund: terms.autoRefund,
+      };
+    }
+    if (saved[0]?.clock || saved[0]?.external)
+      return { freeCancellationUntilHours: null, cutoffAt: null, isFree: false, autoRefund: false };
     const rows = await tx.$queryRaw<
       Array<{
         freeCancellationUntilHours: number | null;
         cutoffAt: Date | null;
         isFree: boolean;
+        autoRefund: boolean;
       }>
     >`
-      SELECT COALESCE(cp.free_cancellation_days_before_arrival * 24, rp.free_cancellation_until_hours) AS "freeCancellationUntilHours",
+      SELECT p.auto_refund_on_free_cancellation AS "autoRefund", COALESCE(cp.free_cancellation_days_before_arrival * 24, rp.free_cancellation_until_hours) AS "freeCancellationUntilHours",
         CASE
           WHEN COALESCE(cp.free_cancellation_days_before_arrival * 24, rp.free_cancellation_until_hours) IS NULL THEN NULL
           ELSE (b.starts_on::timestamp AT TIME ZONE p.timezone)
@@ -1694,7 +1965,7 @@ export class LocalPmsProvider implements PmsProvider {
         b.guest_session_id AS "guestSessionId", b.guest_return_url AS "guestReturnUrl", b.rate_plan_id AS "ratePlanId",
         b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
         b.payment_method AS "paymentMethod",
-        b.total_amount::text AS "totalAmount", b.adults, b.children, b.nightly_rates AS "nightlyRates",
+        b.total_amount::text AS "totalAmount", b.adults, b.children, b.children_ages AS "childrenAges", b.nightly_rates AS "nightlyRates",
         rp.currency, b.external_reference AS "externalReference", b.order_reference AS "orderReference",
         b.external_booking_id AS "externalBookingId",
         b.version, b.created_at AS "createdAt", b.updated_at AS "updatedAt"
@@ -1718,7 +1989,7 @@ export class LocalPmsProvider implements PmsProvider {
         b.guest_return_url AS "guestReturnUrl", b.rate_plan_id AS "ratePlanId",
         b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
         b.payment_method AS "paymentMethod",
-        b.total_amount::text AS "totalAmount", b.adults, b.children, b.nightly_rates AS "nightlyRates",
+        b.total_amount::text AS "totalAmount", b.adults, b.children, b.children_ages AS "childrenAges", b.nightly_rates AS "nightlyRates",
         rp.currency, b.external_reference AS "externalReference", b.order_reference AS "orderReference",
         b.version, b.created_at AS "createdAt", b.updated_at AS "updatedAt"
       FROM bookings b JOIN rate_plans rp
@@ -1815,7 +2086,7 @@ export class LocalPmsProvider implements PmsProvider {
   private async paymentMethod(
     tx: TenantTransaction,
     context: PmsProviderContext,
-    command: CreateBookingCommand,
+    command: LocalCreateBookingCommand,
   ): Promise<Result<BookingPaymentMethod>> {
     if (!this.requiresCheckout(command.total.amount))
       return { ok: true, value: BookingPaymentMethod.FREE };
@@ -1869,12 +2140,16 @@ export class LocalPmsProvider implements PmsProvider {
     bookingId: string,
     outcome: 'success' | 'cancel',
     returnUrl?: string | null,
+    scope?: { tenantId: string; propertyId: string },
   ): string {
-    if (!returnUrl)
-      return new URL(
-        `/bookings/${bookingId}/payment/${outcome}`,
-        process.env.WEB_APP_URL!,
-      ).toString();
+    if (!returnUrl) {
+      const result = new URL(`/bookings/${bookingId}/payment/${outcome}`, process.env.WEB_APP_URL!);
+      if (scope) {
+        result.searchParams.set('tenantId', scope.tenantId);
+        result.searchParams.set('propertyId', scope.propertyId);
+      }
+      return result.toString();
+    }
 
     const candidate = new URL(returnUrl);
     candidate.searchParams.set('booking_id', bookingId);

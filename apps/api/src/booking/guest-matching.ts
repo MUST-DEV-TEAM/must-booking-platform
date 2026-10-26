@@ -1,4 +1,4 @@
-import type { CreateBookingCommand } from '@must/domain-contracts';
+import { countryCode, type CreateBookingCommand } from '@must/domain-contracts';
 
 import type { TenantTransaction } from '../tenancy/tenant-database.service';
 
@@ -24,6 +24,12 @@ export async function resolveGuestWithPhoneSignal(
   guest: CreateBookingCommand['guest'],
   options: GuestMatchingOptions,
 ): Promise<string | null> {
+  const country = countryCode(guest.countryCode);
+  const captureCountry = async (id: string) => {
+    if (country !== undefined)
+      await tx.$executeRaw`UPDATE guests SET country_code=${country},capture_version=capture_version+1,updated_at=CURRENT_TIMESTAMP WHERE tenant_id=${tenantId}::uuid AND id=${id}::uuid`;
+    return id;
+  };
   const email = guest.email.trim().toLowerCase();
   const existingByEmail = await tx.$queryRaw<Array<{ id: string }>>`
     WITH RECURSIVE guest_chain AS (
@@ -65,7 +71,7 @@ export async function resolveGuestWithPhoneSignal(
   if (existingByEmail[0]) {
     await flagSuspectedDuplicate(existingByEmail[0].id);
     await options.onEmailMatch?.(existingByEmail[0].id);
-    return existingByEmail[0].id;
+    return captureCountry(existingByEmail[0].id);
   }
 
   const inserted = await options.insertGuest({
@@ -73,7 +79,7 @@ export async function resolveGuestWithPhoneSignal(
     phone,
     suspectedDuplicateOfGuestId: phoneCandidateId,
   });
-  if (inserted) return inserted;
+  if (inserted) return captureCountry(inserted);
 
   const matched = await tx.$queryRaw<Array<{ id: string }>>`
     WITH RECURSIVE guest_chain AS (
@@ -90,5 +96,5 @@ export async function resolveGuestWithPhoneSignal(
   `;
   if (!matched[0]) return null;
   await flagSuspectedDuplicate(matched[0].id);
-  return matched[0].id;
+  return captureCountry(matched[0].id);
 }

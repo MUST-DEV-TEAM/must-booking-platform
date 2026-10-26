@@ -13,6 +13,7 @@ import {
 
 import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator';
 import { TenantScoped } from './tenant-context.decorator';
+import { RequiresCapability } from './capabilities.decorator';
 import { Role, Roles } from './roles.decorator';
 import { AmenitiesService } from './amenities.service';
 
@@ -30,7 +31,8 @@ export class AmenitiesController {
 
   @Post('amenities')
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('accommodations.manage')
   @RequiresVerifiedEmail()
   create(
     @Body() body: unknown,
@@ -47,7 +49,8 @@ export class AmenitiesController {
   @Delete('amenities/:amenityId')
   @HttpCode(204)
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('accommodations.manage')
   @RequiresVerifiedEmail()
   remove(
     @Param('amenityId') amenityId: string,
@@ -76,7 +79,8 @@ export class AmenitiesController {
 
   @Put('room-types/:roomTypeId/amenities')
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('accommodations.manage')
   @RequiresVerifiedEmail()
   setRoomTypeAmenities(
     @Param('roomTypeId') roomTypeId: string,
@@ -104,7 +108,8 @@ export class AmenitiesController {
 
   @Put('rooms/:roomId/amenities')
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('accommodations.manage')
   @RequiresVerifiedEmail()
   setRoomAmenities(
     @Param('roomId') roomId: string,

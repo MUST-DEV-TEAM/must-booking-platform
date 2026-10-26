@@ -1,29 +1,51 @@
 'use client';
-import { Card, Heading, Stack, StatePanel, StatusBadge, Text } from '@must/ui';
-import { useQuery } from '@tanstack/react-query';
-import { Loader2 } from 'lucide-react';
-import { useMemo } from 'react';
-import { guestHref, paymentHref } from './payment-detail';
-import { outstandingAmount, paymentStatus, sortNewestFirst, summarize } from './payment-status';
-import {
-  fetchPropertyBookings,
-  guestName,
-  reservationStatusBadge,
-  type Reservation,
-} from './reservations';
-import styles from './data-table.module.css';
 
-function formatDay(value: string | undefined, withYear: boolean) {
-  if (!value) return '';
-  const date = new Date(`${value}T00:00:00Z`);
-  if (Number.isNaN(date.valueOf())) return value;
-  return date.toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    ...(withYear ? { year: 'numeric' } : {}),
-    timeZone: 'UTC',
-  });
-}
+import { useQuery } from '@tanstack/react-query';
+import { Ban, CalendarPlus, Mail, Pencil, Phone } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+
+import { GuestCountryEditor } from './guest-country-editor';
+import { ActivityFeed, type ActivityEntry } from '../../components/ui/activity-feed';
+import { DetailList } from '../../components/ui/detail-list';
+import { TabBar } from '../../components/ui/tab-bar';
+import { nightsBetween } from '../../lib/reservation-display';
+import { formatMoneyList, guestStatsById } from './guest-stats';
+import { dayLabel, GuestBadges, stayLabel } from './guest-sheet';
+
+import { Badge } from '../../components/ui/badge';
+import { BookingStatusBadge } from '../../components/ui/status-badge';
+import { Button } from '../../components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
+import { DetailHeader } from '../../components/ui/detail-header';
+import { ListCard, ListRow } from '../../components/ui/list-card';
+import { PageHeader } from '../../components/ui/page-header';
+import { Pagination } from '../../components/ui/pagination';
+import { EmptyPanel, ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
+import { StatTile } from '../../components/ui/stat-tile';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../../components/ui/table';
+import { guestHref, paymentHref } from './payment-detail';
+import {
+  outstandingAmount,
+  PAYMENT_BADGE_TONE,
+  paymentMethodLabel,
+  paymentStatus,
+  sortNewestFirst,
+} from './payment-status';
+import { fetchPropertyBookings, guestName, type Reservation } from './reservations';
+
+const PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
+
+type ProfileTab = 'reservations' | 'payments' | 'activity';
+const todayIso = () => new Date().toISOString().slice(0, 10);
+const reservationHref = (tenantId: string, propertyId: string, bookingId: string) =>
+  `/dashboard/${tenantId}?propertyId=${encodeURIComponent(propertyId)}&section=reservations&reservation=${encodeURIComponent(bookingId)}`;
 
 function normalize(value: string | null | undefined) {
   return (value ?? '').trim().toLocaleLowerCase();
@@ -51,16 +73,34 @@ export function backToGuestsHref(tenantId: string, propertyId: string) {
   return `/dashboard/${tenantId}?propertyId=${encodeURIComponent(propertyId)}&section=guests`;
 }
 
-/** One guest: who they are, what they have paid, and every booking they have made. */
+function BackToGuests({ tenantId, propertyId }: { tenantId: string; propertyId: string }) {
+  return (
+    <Button variant="link" size="sm" asChild className="h-auto !px-0 py-0 text-xs">
+      <a href={backToGuestsHref(tenantId, propertyId)}>← All guests</a>
+    </Button>
+  );
+}
+
+function formattedMoney(amount: string, currency: string) {
+  return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(Number(amount));
+}
+
+/** One guest profile, built from the property's existing booking and payment data. */
 export function GuestDetail({
   tenantId,
   propertyId,
   guestId,
+  canEditCountry = false,
 }: {
   tenantId: string;
   propertyId: string;
   guestId: string;
+  canEditCountry?: boolean;
 }) {
+  const [editCountry, setEditCountry] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(10);
+  const [tab, setTab] = useState<ProfileTab>('reservations');
   const bookingsQuery = useQuery({
     queryKey: ['dashboard', 'payments-bookings', tenantId, propertyId],
     queryFn: () => fetchPropertyBookings(tenantId, propertyId),
@@ -71,51 +111,41 @@ export function GuestDetail({
     [all, guestId],
   );
   const duplicates = useMemo(() => possibleDuplicates(guestId, all ?? []), [all, guestId]);
-  const totals = useMemo(() => summarize(bookings), [bookings]);
 
-  const back = (
-    <a className={styles.backLink} href={backToGuestsHref(tenantId, propertyId)}>
-      ← All guests
-    </a>
-  );
+  useEffect(() => setPage(1), [guestId]);
 
   if (bookingsQuery.isPending)
     return (
-      <Stack gap="lg">
-        {back}
-        <StatePanel
-          body={null}
-          icon={<Loader2 aria-hidden="true" />}
-          title="Loading guest…"
-          variant="loading"
-        />
-      </Stack>
+      <div className="space-y-5">
+        <BackToGuests tenantId={tenantId} propertyId={propertyId} />
+        <PageHeader title="Guest profile" />
+        <ListSkeleton rows={5} />
+      </div>
     );
   if (bookingsQuery.error)
     return (
-      <Stack gap="lg">
-        {back}
-        <div role="alert">
-          <Text>{bookingsQuery.error.message}</Text>
-        </div>
-      </Stack>
+      <div className="space-y-5">
+        <BackToGuests tenantId={tenantId} propertyId={propertyId} />
+        <ErrorPanel
+          title="Guest profile could not be loaded"
+          description={bookingsQuery.error.message}
+          onRetry={() => void bookingsQuery.refetch()}
+        />
+      </div>
     );
   if (bookings.length === 0)
     return (
-      <Stack gap="lg">
-        {back}
-        <StatePanel
-          action={null}
-          body="This guest has no bookings in this property."
-          icon={null}
+      <div className="space-y-5">
+        <BackToGuests tenantId={tenantId} propertyId={propertyId} />
+        <EmptyPanel
           title="Guest not found"
-          variant="empty"
+          description="This guest has no bookings in this property."
         />
-      </Stack>
+      </div>
     );
 
   // The newest booking carries the most recent contact details.
-  const profile = bookings[0];
+  const profile = bookings[0]!;
   const address = [
     profile.guestStreetAddress,
     profile.guestAddressLine2,
@@ -125,156 +155,327 @@ export function GuestDetail({
   ]
     .filter(Boolean)
     .join(', ');
-  const cancelled = bookings.filter((booking) => booking.status === 'CANCELLED').length;
+  const stats = guestStatsById(bookings, todayIso()).get(guestId);
+  const name = guestName(profile);
+  const nextLabel = stats?.current
+    ? { label: 'Staying now', value: stayLabel(stats.current) }
+    : stats?.next
+      ? { label: 'Next stay', value: stayLabel(stats.next) }
+      : { label: 'Last stay', value: stayLabel(stats?.last) };
+  const feed: ActivityEntry[] = bookings
+    .flatMap((booking) => {
+      const entries: ActivityEntry[] = [
+        {
+          key: `created-${booking.id}`,
+          title: `Reservation ${booking.externalReference ?? ''} created`,
+          detail: `${stayLabel(booking) ?? ''} · ${booking.roomTypeName}`,
+          at: booking.createdAt,
+          icon: CalendarPlus,
+        },
+      ];
+      if (booking.status === 'CANCELLED')
+        entries.push({
+          key: `cancelled-${booking.id}`,
+          title: `Reservation ${booking.externalReference ?? ''} cancelled`,
+          detail:
+            Number(booking.refundedAmount) > 0
+              ? `Refunded ${formattedMoney(booking.refundedAmount, booking.total.currency)}`
+              : undefined,
+          at: booking.updatedAt,
+          icon: Ban,
+          tone: 'danger',
+        });
+      return entries;
+    })
+    .sort((a, b) => b.at.localeCompare(a.at));
+  const pageBookings = bookings.slice((page - 1) * pageSize, page * pageSize);
+  const pagination = (
+    <Pagination
+      page={page}
+      pageSize={pageSize}
+      total={bookings.length}
+      onPage={setPage}
+      noun="reservations"
+      pageSizeOptions={PAGE_SIZE_OPTIONS}
+      onPageSize={(size) => {
+        setPageSize(size);
+        setPage(1);
+      }}
+    />
+  );
 
   return (
-    <Stack gap="lg">
-      {back}
-      <header>
-        <Heading>{guestName(profile)}</Heading>
-        <Text tone="secondary">
-          {[profile.guestEmail, profile.guestPhone, address].filter(Boolean).join(' · ') ||
-            'No contact details on file'}
-        </Text>
-      </header>
+    <div className="space-y-5">
+      <DetailHeader
+        backHref={backToGuestsHref(tenantId, propertyId)}
+        backLabel="All guests"
+        title={name}
+        subtitle={
+          [profile.guestEmail, profile.guestPhone].filter(Boolean).join(' · ') ||
+          'No contact details on file'
+        }
+        badges={<GuestBadges stats={stats} duplicate={duplicates.length > 0} />}
+        actions={
+          <>
+            {profile.guestEmail ? (
+              <Button variant="outline" size="sm" asChild>
+                <a href={`mailto:${profile.guestEmail}`}>
+                  <Mail aria-hidden="true" /> Email
+                </a>
+              </Button>
+            ) : null}
+            {profile.guestPhone ? (
+              <Button variant="outline" size="sm" asChild>
+                <a href={`tel:${profile.guestPhone.replaceAll(' ', '')}`}>
+                  <Phone aria-hidden="true" /> Call
+                </a>
+              </Button>
+            ) : null}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled
+              title="Editing guest details is not available yet"
+            >
+              <Pencil aria-hidden="true" /> Edit
+            </Button>
+          </>
+        }
+      />
 
-      <Card>
-        <Heading>Payments</Heading>
-        <dl className={styles.summary}>
-          <div>
-            <dt>Bookings</dt>
-            <dd>
-              {bookings.length}
-              {cancelled > 0 ? ` (${cancelled} cancelled)` : ''}
-            </dd>
-          </div>
-          {totals.byCurrency.flatMap((row) => [
-            <div key={`${row.currency}-paid`}>
-              <dt>Paid</dt>
-              <dd>
-                {row.collected} {row.currency}
-              </dd>
-            </div>,
-            <div key={`${row.currency}-refunded`}>
-              <dt>Refunded</dt>
-              <dd>
-                {row.refunded} {row.currency}
-              </dd>
-            </div>,
-            <div key={`${row.currency}-net`}>
-              <dt>Net</dt>
-              <dd>
-                {row.net} {row.currency}
-              </dd>
-            </div>,
-            <div key={`${row.currency}-outstanding`}>
-              <dt>Outstanding</dt>
-              <dd>
-                {row.outstanding} {row.currency}
-              </dd>
-            </div>,
-          ])}
-        </dl>
-      </Card>
+      <div
+        aria-label="Guest summary"
+        className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
+        role="group"
+      >
+        <StatTile
+          label="Reservations"
+          size="sm"
+          value={stats?.stays ?? bookings.length}
+          note={stats && stats.cancelled > 0 ? `${stats.cancelled} cancelled` : undefined}
+        />
+        <StatTile
+          label="Net paid"
+          size="sm"
+          value={formatMoneyList(stats?.net ?? [])}
+          note="Collected minus refunds"
+        />
+        <StatTile
+          label="Still owed"
+          size="sm"
+          value={stats?.hasBalance ? formatMoneyList(stats.outstanding) : '—'}
+          tone={stats?.hasBalance ? 'warning' : 'default'}
+        />
+        <StatTile label={nextLabel.label} size="sm" value={nextLabel.value ?? '—'} />
+      </div>
 
-      <Card>
-        <Heading>Bookings</Heading>
-        <div className={styles.tableWrap}>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>Reference</th>
-                <th>Stay</th>
-                <th>Booking</th>
-                <th>Payment</th>
-                <th>
-                  <span className={styles.numHeader}>Total</span>
-                </th>
-                <th>
-                  <span className={styles.numHeader}>Paid</span>
-                </th>
-                <th>
-                  <span className={styles.numHeader}>Refunded</span>
-                </th>
-                <th>
-                  <span className={styles.numHeader}>Outstanding</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {bookings.map((booking) => {
-                const status = paymentStatus(booking);
-                const badge = reservationStatusBadge(booking.status ?? '');
-                return (
-                  <tr key={booking.id}>
-                    <td>
-                      <a href={paymentHref(tenantId, propertyId, booking.id)}>
-                        <code className={styles.reference}>
-                          {booking.externalReference ?? booking.id}
-                        </code>
-                      </a>
-                    </td>
-                    <td>
-                      {booking.startsOn && booking.endsOn
-                        ? `${formatDay(booking.startsOn, false)} → ${formatDay(booking.endsOn, true)}`
-                        : '—'}
-                      {booking.roomTypeName ? <span>{booking.roomTypeName}</span> : null}
-                    </td>
-                    <td>
-                      {booking.status ? (
-                        <StatusBadge domain="booking" state={badge.state} label={badge.label} />
-                      ) : null}
-                    </td>
-                    <td>
-                      <StatusBadge domain="payment" state={status.state} label={status.label} />
-                    </td>
-                    <td>
-                      <span className={styles.num}>
-                        {booking.total.amount} {booking.total.currency}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={styles.num}>
-                        {booking.paidAmount} {booking.total.currency}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={styles.num}>
-                        {booking.refundedAmount} {booking.total.currency}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={styles.num}>
-                        {outstandingAmount(booking)} {booking.total.currency}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+      <div className="grid items-start gap-5 lg:grid-cols-[22rem_minmax(0,1fr)]">
+        <div className="space-y-5">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Contact and identity</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <DetailList
+                items={[
+                  { label: 'Email', value: profile.guestEmail },
+                  { label: 'Phone', value: profile.guestPhone ?? 'Not on file' },
+                  { label: 'Address', value: address || 'Not on file' },
+                  {
+                    label: 'Country',
+                    value: profile.guestCountryCode
+                      ? new Intl.DisplayNames(['en'], { type: 'region' }).of(
+                          profile.guestCountryCode,
+                        )
+                      : 'Not recorded',
+                  },
+                  { label: 'Guest since', value: dayLabel(stats?.firstBookedAt?.slice(0, 10)) },
+                  {
+                    label: 'Latest booking',
+                    value: dayLabel(bookings[0]?.createdAt?.slice(0, 10)),
+                  },
+                ]}
+              />
+              {canEditCountry && profile.guestCaptureVersion ? (
+                <Button variant="outline" onClick={() => setEditCountry(true)}>
+                  Edit country
+                </Button>
+              ) : null}
+              {editCountry && profile.guestCaptureVersion ? (
+                <GuestCountryEditor
+                  base={`/api/tenants/${tenantId}/properties/${propertyId}`}
+                  id={guestId}
+                  country={profile.guestCountryCode ?? null}
+                  version={profile.guestCaptureVersion}
+                  onClose={() => setEditCountry(false)}
+                />
+              ) : null}
+            </CardContent>
+          </Card>
+          {duplicates.length > 0 ? (
+            <ListCard
+              title="Possible duplicate profiles"
+              count={duplicates.length}
+              description="These profiles share this guest's email or name. Review and merge them from the Guests directory."
+            >
+              {duplicates.map((other) => (
+                <ListRow
+                  key={other.guestId}
+                  title={guestName(other)}
+                  subtitle={
+                    other.guestEmail && other.guestEmail !== guestName(other)
+                      ? other.guestEmail
+                      : undefined
+                  }
+                  href={guestHref(tenantId, propertyId, other.guestId)}
+                />
+              ))}
+            </ListCard>
+          ) : null}
         </div>
-      </Card>
 
-      {duplicates.length > 0 ? (
-        <Card>
-          <Heading>Possible duplicate profiles</Heading>
-          <Text tone="secondary">
-            These profiles share this guest&apos;s email or name. Review and merge them from the
-            Guests page (suspected duplicates).
-          </Text>
-          <ul className={styles.plainList}>
-            {duplicates.map((other) => (
-              <li key={other.guestId}>
-                <a href={guestHref(tenantId, propertyId, other.guestId)}>{guestName(other)}</a>
-                {other.guestEmail && other.guestEmail !== guestName(other) ? (
-                  <span className={styles.muted}> · {other.guestEmail}</span>
-                ) : null}
-              </li>
-            ))}
-          </ul>
+        <Card className="gap-0 overflow-clip p-0">
+          <div className="border-b px-4 pt-3">
+            <TabBar
+              tabs={[
+                { id: 'reservations', label: 'Reservations', count: bookings.length },
+                { id: 'payments', label: 'Payments' },
+                { id: 'activity', label: 'Activity', count: feed.length },
+              ]}
+              current={tab}
+              onSelect={(id) => {
+                setTab(id as ProfileTab);
+                setPage(1);
+              }}
+              label="Guest sections"
+            />
+          </div>
+          {tab === 'reservations' ? (
+            <>
+              <Table containerClassName="overflow-x-clip" className="text-[11px]">
+                <TableHeader className="bg-muted">
+                  <TableRow className="hover:bg-muted">
+                    <TableHead className="px-3 py-2">Reservation</TableHead>
+                    <TableHead className="px-2 py-2">Stay</TableHead>
+                    <TableHead className="px-2 py-2">Room</TableHead>
+                    <TableHead className="px-2 py-2">Status</TableHead>
+                    <TableHead className="px-2 py-2 text-right">Total</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {pageBookings.map((booking) => {
+                    const nights = nightsBetween(booking.startsOn, booking.endsOn);
+                    return (
+                      <TableRow
+                        key={booking.id}
+                        className="h-12 cursor-pointer"
+                        onClick={(event) => {
+                          if ((event.target as HTMLElement).closest('a, button')) return;
+                          window.location.assign(reservationHref(tenantId, propertyId, booking.id));
+                        }}
+                      >
+                        <TableCell className="px-3 py-2">
+                          <a
+                            className="font-semibold text-primary no-underline hover:underline"
+                            href={reservationHref(tenantId, propertyId, booking.id)}
+                          >
+                            <code>{booking.externalReference ?? '—'}</code>
+                          </a>
+                          <span className="block text-[10px] text-muted-foreground">
+                            Created {dayLabel(booking.createdAt.slice(0, 10))}
+                          </span>
+                        </TableCell>
+                        <TableCell className="px-2 py-2">
+                          <span className="block whitespace-nowrap">{stayLabel(booking)}</span>
+                          <span className="block text-[10px] text-muted-foreground">
+                            {nights} night{nights === 1 ? '' : 's'}
+                          </span>
+                        </TableCell>
+                        <TableCell className="px-2 py-2">{booking.roomTypeName}</TableCell>
+                        <TableCell className="px-2 py-2">
+                          <BookingStatusBadge status={booking.status} />
+                        </TableCell>
+                        <TableCell className="px-2 py-2 text-right font-semibold tabular-nums">
+                          {formattedMoney(booking.total.amount, booking.total.currency)}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+              {pagination}
+            </>
+          ) : null}
+          {tab === 'payments' ? (
+            <>
+              <Table containerClassName="overflow-x-clip" className="text-[11px]">
+                <TableHeader className="bg-muted">
+                  <TableRow className="hover:bg-muted">
+                    <TableHead className="px-3 py-2">Reservation</TableHead>
+                    <TableHead className="px-2 py-2">Payment</TableHead>
+                    <TableHead className="px-2 py-2 text-right">Total</TableHead>
+                    <TableHead className="px-2 py-2 text-right">Paid</TableHead>
+                    <TableHead className="px-2 py-2 text-right">Refunded</TableHead>
+                    <TableHead className="px-2 py-2 text-right">Owed</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {pageBookings.map((booking) => {
+                    const status = paymentStatus(booking);
+                    const amount = (value: string) => formattedMoney(value, booking.total.currency);
+                    return (
+                      <TableRow key={booking.id} className="h-12">
+                        <TableCell className="px-3 py-2">
+                          <a
+                            className="font-semibold text-primary no-underline hover:underline"
+                            href={paymentHref(tenantId, propertyId, booking.id)}
+                          >
+                            <code>{booking.externalReference ?? '—'}</code>
+                          </a>
+                        </TableCell>
+                        <TableCell className="px-2 py-2">
+                          <Badge
+                            variant={PAYMENT_BADGE_TONE[status.state]}
+                            className="rounded-full px-2 py-0 text-[10px]"
+                          >
+                            {status.label}
+                          </Badge>
+                          <span className="block text-[10px] text-muted-foreground">
+                            {paymentMethodLabel(booking.paymentMethod)}
+                          </span>
+                        </TableCell>
+                        <TableCell className="px-2 py-2 text-right tabular-nums">
+                          {amount(booking.total.amount)}
+                        </TableCell>
+                        <TableCell className="px-2 py-2 text-right tabular-nums">
+                          {amount(booking.paidAmount)}
+                        </TableCell>
+                        <TableCell className="px-2 py-2 text-right tabular-nums">
+                          {amount(booking.refundedAmount)}
+                        </TableCell>
+                        <TableCell
+                          className={`px-2 py-2 text-right tabular-nums ${Number(outstandingAmount(booking)) > 0 ? 'font-semibold text-warning' : 'text-muted-foreground'}`}
+                        >
+                          {booking.balanceBasis === 'CLOCK' ||
+                          ['PMS_UNKNOWN_RESULT', 'MANUAL_REVIEW'].includes(booking.status)
+                            ? 'Balance not confirmed'
+                            : amount(outstandingAmount(booking))}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+              {pagination}
+            </>
+          ) : null}
+          {tab === 'activity' ? (
+            <div className="p-4">
+              <ActivityFeed entries={feed} empty="Nothing has happened for this guest yet." />
+            </div>
+          ) : null}
         </Card>
-      ) : null}
-    </Stack>
+      </div>
+    </div>
   );
 }

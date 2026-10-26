@@ -1,302 +1,363 @@
 // @vitest-environment jsdom
 import { act, createElement } from 'react';
-import { createRoot } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-
 import { DashboardNotifications, NotificationsInbox } from './notifications';
 import { DashboardQueryProvider } from './query-provider';
-
+import type { InboxNotification, InboxPage } from '../../lib/notification-inbox';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-
-const notifications = [
-  { id: 'booking', type: 'BOOKING_CREATED', payload: {}, readAt: null, createdAt: '2026-08-03' },
-  {
-    id: 'attention',
-    type: 'BOOKING_NEEDS_ATTENTION',
-    payload: {},
-    readAt: null,
-    createdAt: '2026-08-03',
+class Observer {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+globalThis.ResizeObserver ??= Observer as unknown as typeof ResizeObserver;
+Element.prototype.scrollIntoView ??= () => {};
+Element.prototype.hasPointerCapture ??= () => false;
+Element.prototype.releasePointerCapture ??= () => {};
+const row: InboxNotification = {
+  id: 'n-1',
+  type: 'BOOKING_NEEDS_ATTENTION',
+  title: 'Booking needs attention',
+  description: 'Review the linked reservation.',
+  category: 'Reservations',
+  priority: 'High',
+  capability: 'bookings.view',
+  readAt: null,
+  createdAt: '2026-10-19T09:00:00Z',
+  needsAction: true,
+  href: '/dashboard/t?propertyId=p&section=reservations&reservation=b-1',
+  limitedContext: null,
+  booking: {
+    id: 'b-1',
+    externalReference: 'MUST-123',
+    status: 'MANUAL_REVIEW',
+    guestName: 'Guest Example',
+    startsOn: '2026-10-20',
+    endsOn: '2026-10-22',
   },
-  {
-    id: 'refund',
-    type: 'PAYMENT_REFUNDED',
-    payload: {},
-    readAt: '2026-08-03T10:00:00.000Z',
-    createdAt: '2026-08-03',
-  },
-  {
-    id: 'seat-cap',
-    type: 'STAFF_SEAT_CAP_REACHED',
-    payload: {},
-    readAt: null,
-    createdAt: '2026-08-03',
-  },
-] as const;
-
-afterEach(() => vi.unstubAllGlobals());
-
-describe('DashboardNotifications', () => {
-  it('uses the shared dashboard skeleton while notifications are loading', async () => {
-    let resolveFetch!: (value: Response) => void;
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(() => new Promise<Response>((resolve) => (resolveFetch = resolve))),
+};
+const page = (overrides: Partial<InboxPage> = {}): InboxPage => ({
+  items: [row],
+  total: 1,
+  page: 1,
+  pageSize: 20,
+  unreadTotal: 7,
+  version: 3,
+  through: '2026-10-19T10:00:00.000Z',
+  canMarkRead: true,
+  counts: { critical: 0, today: 1, needsAction: 1 },
+  registry: [
+    {
+      type: row.type,
+      title: row.title,
+      category: row.category,
+      priority: row.priority,
+      capability: row.capability,
+    },
+  ],
+  ...overrides,
+});
+const roots: Root[] = [];
+afterEach(async () => {
+  for (const root of roots.splice(0)) await act(async () => root.unmount());
+  vi.unstubAllGlobals();
+  document.body.replaceChildren();
+  localStorage.clear();
+  history.replaceState({}, '', '/');
+});
+const settle = async () => {
+  for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 15));
+};
+async function mount(bell = false) {
+  const root = createRoot(document.body.appendChild(document.createElement('div')));
+  roots.push(root);
+  await act(async () => {
+    root.render(
+      createElement(
+        DashboardQueryProvider,
+        undefined,
+        createElement(bell ? DashboardNotifications : NotificationsInbox, {
+          tenantId: 't',
+          propertyId: 'p',
+        }),
+      ),
     );
-    const { container, root } = await mount({ settle: false });
-
-    await click(container.querySelector('[aria-label="Notifications"]')!);
-    expect(container.querySelector('[aria-busy="true"]')?.textContent).toContain(
-      'Loading notifications…',
-    );
-
+    await settle();
+  });
+  await act(settle);
+  return root;
+}
+function button(text: string) {
+  const result = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+    (b) =>
+      b.textContent?.trim() === text || (text === row.title && b.textContent?.startsWith(text)),
+  );
+  if (!result) throw new Error(`Missing button ${text}`);
+  return result;
+}
+async function click(el: HTMLElement) {
+  await act(async () => {
+    el.click();
+    await settle();
+  });
+}
+function fixture(overrides: Partial<InboxPage> = {}) {
+  let current = page(overrides);
+  const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+    if (init?.method === 'PATCH') {
+      current = {
+        ...current,
+        version: 4,
+        unreadTotal: 6,
+        items: current.items.map((r) => ({ ...r, readAt: '2026-10-19T10:01:00Z' })),
+      };
+      return Response.json({ updated: 1, version: 4 });
+    }
+    return Response.json(url.endsWith('/n-1') ? current.items[0] : current);
+  });
+  vi.stubGlobal('fetch', fetch);
+  return fetch;
+}
+describe('personal notification workspace', () => {
+  it('uses real bell count and links to the permission-aware inbox detail without marking everyone read', async () => {
+    const fetch = fixture();
+    await mount(true);
+    const bell = document.querySelector<HTMLButtonElement>(
+      '[aria-label="Notifications (7 unread)"]',
+    )!;
+    expect(bell).not.toBeNull();
     await act(async () => {
-      resolveFetch(new Response(JSON.stringify({ items: [] })));
-      await Promise.resolve();
+      bell.dispatchEvent(
+        new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 }),
+      );
+      await settle();
     });
-    await act(async () => root.unmount());
-  });
-
-  it('uses fetched unread rows for the badge and updates it after marking one read', async () => {
-    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
-      if (init?.method === 'PATCH')
-        return new Response(
-          JSON.stringify({ ...notifications[0], readAt: '2026-08-03T11:00:00.000Z' }),
-        );
-      expect(url).toBe('/api/tenants/t/properties/p/notifications?page=1&pageSize=20');
-      return new Response(JSON.stringify({ items: notifications }));
-    });
-    vi.stubGlobal('fetch', fetch);
-    const { container, root } = await mount();
-
-    const bell = container.querySelector('[aria-label="Notifications (3 unread)"]')!;
-    expect(bell.textContent).toBe('3');
-    await click(bell);
-    for (const label of [
-      'Booking created',
-      'Booking needs attention',
-      'Payment refunded',
-      'Staff seat cap reached',
-    ])
-      expect(container.textContent).toContain(label);
-
     expect(
-      container.querySelector('a[href="/dashboard/t?propertyId=p&section=notifications"]')
-        ?.textContent,
-    ).toBe('View all notifications');
-
-    await click(
-      Array.from(container.querySelectorAll('button')).find(
-        (button) => button.textContent === 'Mark as read',
-      )!,
-    );
-    expect(container.querySelector('[aria-label="Notifications (2 unread)"]')?.textContent).toBe(
-      '2',
-    );
-    expect(fetch.mock.calls.filter(([, init]) => !init?.method)).toHaveLength(1);
-    expect(fetch.mock.calls.find(([, init]) => init?.method === 'PATCH')?.[0]).toBe(
-      '/api/tenants/t/properties/p/notifications/booking',
-    );
-    await act(async () => root.unmount());
+      document.querySelector(
+        'a[href="/dashboard/t?propertyId=p&section=notifications&notification=n-1"]',
+      ),
+    ).not.toBeNull();
+    expect(document.querySelector('a[href*="section=reservations"]')).toBeNull();
+    expect(fetch.mock.calls.every(([, init]) => !init?.method)).toBe(true);
   });
-
-  it('caps the dropdown at 10 items and offers Mark all as read for the rest', async () => {
-    const eighteenUnread = Array.from({ length: 18 }, (_, index) => ({
-      ...notifications[0],
-      id: `booking-${index}`,
-    }));
-    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
-      if (init?.method === 'PATCH' && url.endsWith('/mark-all-read')) {
-        return new Response(null, { status: 200 });
-      }
-      expect(url).toBe('/api/tenants/t/properties/p/notifications?page=1&pageSize=20');
-      return new Response(JSON.stringify({ items: eighteenUnread, total: 18 }));
+  it('shows registry, counters and a rich detail side panel with authorized action', async () => {
+    fixture();
+    await mount();
+    expect(document.body.textContent).toContain('Categories and routing');
+    expect(document.body.textContent).toContain('bookings.view');
+    expect(document.querySelector('[aria-label="Columns"]')).toBeTruthy();
+    await click(button(row.title));
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(document.body.textContent).toContain('Guest Example');
+    expect(document.body.textContent).toContain('Needs action - reading does not resolve it');
+    expect(document.querySelector('a[href="' + row.href + '"]')?.textContent).toBe(
+      'Open reservation',
+    );
+  });
+  it('marks only actually visible rows with version/key and keeps needs-action after read', async () => {
+    const fetch = fixture();
+    await mount();
+    await click(button('Mark visible as read'));
+    const write = fetch.mock.calls.find(([, init]) => init?.method === 'PATCH')!;
+    expect(write[0]).toBe('/api/tenants/t/properties/p/notifications/mark-visible-read');
+    expect(JSON.parse(write[1]!.body as string)).toEqual({ version: 3, ids: ['n-1'] });
+    expect((write[1]!.headers as Record<string, string>)['Idempotency-Key']).toBeTruthy();
+    expect(document.body.textContent).toContain('Needs action');
+    expect(document.body.textContent).not.toContain('Unread7');
+  });
+  it('mark all uses the observed cutoff and personal version', async () => {
+    const fetch = fixture();
+    await mount();
+    await click(button('Mark all as read'));
+    const write = fetch.mock.calls.find(([, init]) => init?.method === 'PATCH')!;
+    expect(JSON.parse(write[1]!.body as string)).toEqual({
+      version: 3,
+      through: '2026-10-19T10:00:00.000Z',
     });
-    vi.stubGlobal('fetch', fetch);
-    const { container, root } = await mount();
-
-    await click(container.querySelector('[aria-label="Notifications (18 unread)"]')!);
-    const rows = container.querySelectorAll('ul li');
-    expect(rows).toHaveLength(10);
-
-    await click(
-      Array.from(container.querySelectorAll('button')).find(
-        (button) => button.textContent === 'Mark all as read',
-      )!,
-    );
-    expect(fetch.mock.calls.find(([, init]) => init?.method === 'PATCH')?.[0]).toBe(
-      '/api/tenants/t/properties/p/notifications/mark-all-read',
-    );
-    expect(container.querySelector('[aria-label="Notifications"]')?.textContent).not.toContain(
-      'unread',
-    );
-
-    await act(async () => root.unmount());
   });
-
-  it('uses an explicit 20+ badge when the first page is truncated', async () => {
-    const firstPage = Array.from({ length: 20 }, (_, index) => ({
-      ...notifications[0],
-      id: `booking-${index}`,
+  it('filters unread and needs-action on the server and sends global search/date inputs', async () => {
+    const fetch = fixture();
+    await mount();
+    await click(button('Unread7'));
+    expect(fetch.mock.calls.some(([url]) => url.includes('unread=1'))).toBe(true);
+    const needs = [...document.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((b) =>
+      b.textContent?.startsWith('Needs action'),
+    )!;
+    await click(needs);
+    expect(fetch.mock.calls.some(([url]) => url.includes('needsAction=1'))).toBe(true);
+    const input = document.querySelector<HTMLInputElement>('[aria-label="Search inbox"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+        input,
+        'MUST-123',
+      );
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await settle();
+    });
+    expect(fetch.mock.calls.some(([url]) => url.includes('search=MUST-123'))).toBe(true);
+  });
+  it('bell lists up to 10, marks one item read and marks all read', async () => {
+    const items = Array.from({ length: 12 }, (_, i) => ({
+      ...row,
+      id: `n-${i + 1}`,
+      title: `Alert ${i + 1}`,
+      readAt: i === 1 ? '2026-10-19T09:30:00Z' : null,
     }));
+    const fetch = fixture({ items, pageSize: 10 });
+    await mount(true);
+    await act(async () => {
+      document
+        .querySelector('[aria-label="Notifications (7 unread)"]')!
+        .dispatchEvent(
+          new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 }),
+        );
+      await settle();
+    });
+    expect(document.querySelectorAll('a[href*="&notification="]').length).toBe(10);
+    expect(document.querySelector(`[aria-label='Mark "Alert 2" as read']`)).toBeNull();
+    await click(
+      document.querySelector<HTMLButtonElement>(`[aria-label='Mark "Alert 1" as read']`)!,
+    );
+    const single = fetch.mock.calls.find(([, init]) => init?.method === 'PATCH')!;
+    expect(single[0]).toBe('/api/tenants/t/properties/p/notifications/n-1');
+    expect(JSON.parse(single[1]!.body as string)).toEqual({ version: 3 });
+  });
+  it('resolves an action item with a note and reopens a manual resolution', async () => {
+    let item: InboxNotification = {
+      ...row,
+      actionable: true,
+      resolution: { state: 'open' },
+      readBy: [{ name: 'Front Desk', readAt: '2026-10-19T09:10:00Z' }],
+    };
+    const calls: Array<[string, RequestInit | undefined]> = [];
     vi.stubGlobal(
       'fetch',
-      vi.fn(async (url: string) => {
-        expect(url).toBe('/api/tenants/t/properties/p/notifications?page=1&pageSize=20');
-        return new Response(JSON.stringify({ items: firstPage, total: 25 }));
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push([url, init]);
+        if (init?.method === 'PATCH' && url.endsWith('/resolve'))
+          item = {
+            ...item,
+            needsAction: false,
+            resolution: {
+              state: 'resolved',
+              source: 'manual',
+              by: 'Ana Owner',
+              at: '2026-10-19T11:00:00Z',
+              note: JSON.parse(String(init.body)).note ?? null,
+            },
+          };
+        if (init?.method === 'PATCH' && url.endsWith('/reopen'))
+          item = { ...item, needsAction: true, resolution: { state: 'open' } };
+        if (init?.method === 'PATCH') return Response.json({ changed: true });
+        return Response.json(url.endsWith('/n-1') ? item : page({ items: [item] }));
       }),
     );
-    const { container, root } = await mount();
-
-    const bell = container.querySelector('[aria-label="Notifications (20+ unread)"]');
-    expect(bell?.textContent).toBe('20+');
-
-    await act(async () => root.unmount());
+    await mount();
+    await click(button(row.title));
+    expect(document.body.textContent).toContain('Front Desk');
+    await click(button('Mark as resolved'));
+    const confirm = [...document.querySelectorAll<HTMLButtonElement>('button')]
+      .filter((b) => b.textContent?.trim() === 'Mark as resolved')
+      .at(-1)!;
+    const note = document.querySelector<HTMLTextAreaElement>('textarea')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(
+        note,
+        'Called the guest.',
+      );
+      note.dispatchEvent(new Event('input', { bubbles: true }));
+      await settle();
+    });
+    await click(confirm);
+    const resolveCall = calls.find(([url]) => url.endsWith('/n-1/resolve'))!;
+    expect(JSON.parse(String(resolveCall[1]!.body))).toEqual({ note: 'Called the guest.' });
+    expect(document.body.textContent).toContain('Ana Owner');
+    expect(document.body.textContent).toContain('Called the guest.');
+    await click(button('Reopen'));
+    await click(
+      [...document.querySelectorAll<HTMLButtonElement>('button')]
+        .filter((b) => b.textContent?.trim() === 'Reopen')
+        .at(-1)!,
+    );
+    expect(calls.some(([url]) => url.endsWith('/n-1/reopen'))).toBe(true);
   });
-
-  it('keeps the popover empty state reachable from the inbox link', async () => {
+  it('read-only and limited context hide unauthorized links and disable read writes', async () => {
+    fixture({
+      canMarkRead: false,
+      items: [{ ...row, href: null, booking: null, limitedContext: 'bookings.view' }],
+    });
+    await mount();
+    expect(button('Mark all as read').disabled).toBe(true);
+    expect(button('Mark visible as read').disabled).toBe(true);
+    await click(button(row.title));
+    expect(document.body.textContent).toContain('Limited context: bookings.view');
+    expect(document.body.textContent).not.toContain('Guest Example');
+    expect(document.querySelector('a[href*="section=reservations"]')).toBeNull();
+    expect(button('Mark as read').disabled).toBe(true);
+  });
+  it('shows truthful empty, failed and permission-denied states with request references', async () => {
+    fixture({ items: [], total: 0, unreadTotal: 0 });
+    const root = await mount();
+    expect(document.body.textContent).toContain('No notifications');
+    await act(async () => root.unmount());
+    roots.splice(roots.indexOf(root), 1);
     vi.stubGlobal(
       'fetch',
       vi.fn(
-        async () => new Response(JSON.stringify({ items: [], page: 1, pageSize: 20, total: 0 })),
+        async () =>
+          new Response(JSON.stringify({ message: 'Missing inbox access' }), {
+            status: 403,
+            headers: { 'x-request-id': 'notify-ref' },
+          }),
       ),
     );
-    const { container, root } = await mount();
-
-    await click(container.querySelector('[aria-label="Notifications"]')!);
-    expect(container.textContent).toContain('No notifications.');
-    expect(
-      container.querySelector('a[href="/dashboard/t?propertyId=p&section=notifications"]'),
-    ).not.toBeNull();
-
-    await act(async () => root.unmount());
+    await mount();
+    expect(document.body.textContent).toContain('Notifications access denied');
+    expect(document.body.textContent).toContain('notify-ref');
+    expect(document.querySelector('table')).toBeNull();
   });
-
-  it('shows the query error and loads notifications after Retry succeeds', async () => {
-    const fetch = vi
-      .fn()
-      .mockResolvedValueOnce(new Response(null, { status: 500 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ items: notifications })));
-    vi.stubGlobal('fetch', fetch);
-    const { container, root } = await mount();
-
-    await click(container.querySelector('[aria-label="Notifications"]')!);
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
-      'Unable to load notifications.',
-    );
-
-    await click(
-      Array.from(container.querySelectorAll('button')).find(
-        (button) => button.textContent === 'Retry',
-      )!,
-    );
-
-    expect(container.textContent).toContain('Booking created');
-    expect(fetch).toHaveBeenCalledTimes(2);
-    await act(async () => root.unmount());
-  });
-
-  it('paginates the inbox and exposes text-bearing unread status', async () => {
-    const firstPage = {
-      items: [notifications[0]],
-      page: 1,
-      pageSize: 20,
-      total: 21,
-    };
-    const secondPage = {
-      items: [{ ...notifications[2], id: 'refund-page-2' }],
-      page: 2,
-      pageSize: 20,
-      total: 21,
-    };
-    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
-      if (init?.method === 'PATCH')
-        return new Response(
-          JSON.stringify({ ...notifications[0], readAt: '2026-08-03T11:00:00.000Z' }),
-        );
-      if (url.endsWith('page=1&pageSize=20')) return new Response(JSON.stringify(firstPage));
-      if (url.endsWith('page=2&pageSize=20')) return new Response(JSON.stringify(secondPage));
-      throw new Error(`Unexpected request: ${url}`);
-    });
-    vi.stubGlobal('fetch', fetch);
-    const { container, root } = await mountInbox();
-
-    expect(container.textContent).toContain('Booking created');
-    expect(container.textContent).toContain('Unread');
-    expect(container.textContent).toContain('Page 1 of 2');
-    expect(container.textContent).not.toContain('Mark all as read');
-
-    await click(
-      Array.from(container.querySelectorAll('button')).find(
-        (button) => button.textContent === 'Mark as read',
-      )!,
-    );
-    expect(container.textContent).toContain('Read');
-    expect(fetch.mock.calls.find(([, init]) => init?.method === 'PATCH')?.[0]).toBe(
-      '/api/tenants/t/properties/p/notifications/booking',
-    );
-
-    await click(
-      Array.from(container.querySelectorAll('button')).find(
-        (button) => button.textContent === 'Next',
-      )!,
-    );
-    expect(container.textContent).toContain('Payment refunded');
-    expect(container.textContent).toContain('Page 2 of 2');
-    expect(container.textContent).toContain('Read');
-    expect(fetch.mock.calls.some(([url]) => url.endsWith('page=2&pageSize=20'))).toBe(true);
-
-    await act(async () => root.unmount());
+  it('opens a notification deep link and rejects an external destination defensively', async () => {
+    history.replaceState({}, '', '/?notification=n-1');
+    fixture({ items: [{ ...row, href: 'https://evil.invalid' }] });
+    await mount();
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(document.querySelector('a[href="https://evil.invalid"]')).toBeNull();
   });
 });
 
-async function mount({ settle = true }: { settle?: boolean } = {}) {
-  const container = document.createElement('div');
-  const root = createRoot(container);
+it('removes cached detail and navigation after inbox permission is revoked', async () => {
+  let denied = false;
+  vi.stubGlobal('fetch', async (url: string) =>
+    denied && !url.endsWith('/n-1')
+      ? new Response('{"message":"Access revoked"}', { status: 403 })
+      : Response.json(url.endsWith('/n-1') ? row : page()),
+  );
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+    root = createRoot(document.body.appendChild(document.createElement('div')));
+  roots.push(root);
   await act(async () => {
     root.render(
       createElement(
-        DashboardQueryProvider,
-        undefined,
-        createElement(DashboardNotifications, { tenantId: 't', propertyId: 'p' }),
-      ),
-    );
-  });
-  if (settle) {
-    await act(async () => {
-      await settleQueries();
-    });
-  }
-  return { container, root };
-}
-
-async function mountInbox() {
-  const container = document.createElement('div');
-  const root = createRoot(container);
-  await act(async () => {
-    root.render(
-      createElement(
-        DashboardQueryProvider,
-        undefined,
+        QueryClientProvider,
+        { client },
         createElement(NotificationsInbox, { tenantId: 't', propertyId: 'p' }),
       ),
     );
+    await settle();
   });
+  await act(settle);
+  await click(button(row.title));
+  expect(document.querySelector('a[href="' + row.href + '"]')).not.toBeNull();
+  denied = true;
   await act(async () => {
-    await settleQueries();
+    await client.invalidateQueries({ queryKey: ['dashboard', 'notifications'] });
+    await settle();
   });
-  return { container, root };
-}
-
-async function click(element: Element) {
-  await act(async () => {
-    (element as HTMLButtonElement).click();
-    await settleQueries();
-  });
-}
-
-async function settleQueries() {
-  for (let iteration = 0; iteration < 4; iteration += 1) {
-    await new Promise((resolve) => window.setTimeout(resolve, 20));
-    await Promise.resolve();
-  }
-}
+  expect(document.body.textContent).toContain('Notifications access denied');
+  expect(document.querySelector('a[href="' + row.href + '"]')).toBeNull();
+  expect(document.body.textContent).not.toContain('Guest Example');
+  expect(button('Mark all as read').disabled).toBe(true);
+  client.clear();
+});

@@ -1,22 +1,54 @@
 'use client';
+import { ClockRoomsTile } from './clock-room-counts';
 
-import { Card, Heading, Stack, StatePanel, StatusBadge, Text } from '@must/ui';
+import { reportValue } from '../../lib/report-presentation';
 import { useQuery } from '@tanstack/react-query';
-import { CalendarPlus, CircleAlert, CircleCheck, LoaderCircle, UserPlus } from 'lucide-react';
+import {
+  Ban,
+  BedDouble,
+  CalendarDays,
+  CalendarPlus,
+  CircleCheck,
+  CirclePlus,
+  CreditCard,
+  LogIn,
+  LogOut,
+  TriangleAlert,
+  UserPlus,
+  Users,
+  Wallet,
+  type LucideIcon,
+} from 'lucide-react';
 
-import styles from './overview.module.css';
+import { ActivityFeed, type ActivityEntry } from '../../components/ui/activity-feed';
+import { Badge } from '../../components/ui/badge';
+import { Button } from '../../components/ui/button';
+import { ListCard, ListRow } from '../../components/ui/list-card';
+import { PageHero } from '../../components/ui/page-hero';
+import { StatTile } from '../../components/ui/stat-tile';
+import { ErrorPanel } from '../../components/ui/state-panel';
+import { Skeleton } from '../../components/ui/skeleton';
+import { bookingStatusDisplay } from '../../lib/reservation-display';
+import { MyTasksCard } from './overview-my-tasks';
 
 export type Overview = {
+  /** Which widgets this person sees; absent from older answers, then everything is shown. */
+  view?: { type: string; widgets: string[] };
   kpis: {
     date: string;
     arrivals: number;
     departures: number;
     inHouse: number;
     bookedRoomNights: number;
-    availableRoomNights: number;
+    availableRoomNights: number | null;
     occupancyRate: number | null;
   };
-  revenue: { today: { amount: string; currency: string } | null };
+  revenue: {
+    today: { amount: string; currency: string } | null;
+    byCurrency?: Array<{ amount: string; currency: string }>;
+  };
+  balancesDueAtDesk?: Array<{ amount: string; currency: string }>;
+  metricBasis?: { asOf?: string; source: string; timezone: string; moneyVisible: boolean };
   balanceDueAtDesk: { amount: string; currency: string } | null;
   newBookingsSinceYesterday: number;
   needsAttentionCount: number;
@@ -78,10 +110,6 @@ type ActivityItem = {
   summary: string;
 };
 
-type AttentionStatusBadge =
-  | { domain: 'booking'; state: 'pending'; label: string }
-  | { domain: 'payment'; state: 'failed'; label: string };
-
 async function fetchOverview(tenantId: string, propertyId: string): Promise<Overview> {
   const response = await fetch(`/api/tenants/${tenantId}/properties/${propertyId}/overview`, {
     credentials: 'include',
@@ -90,222 +118,432 @@ async function fetchOverview(tenantId: string, propertyId: string): Promise<Over
   return (await response.json()) as Overview;
 }
 
-function useOverviewQuery(tenantId: string, propertyId: string, initialOverview?: Overview) {
+export function useOverviewQuery(tenantId: string, propertyId: string, initialOverview?: Overview) {
   return useQuery({
     queryKey: ['dashboard', 'overview', tenantId, propertyId],
     queryFn: () => fetchOverview(tenantId, propertyId),
     initialData: initialOverview,
     staleTime: initialOverview ? Infinity : 0,
+    refetchInterval: 60_000,
   });
+}
+
+function dashboardHref(tenantId: string, propertyId: string, section: string, extra?: string) {
+  const href = `/dashboard/${tenantId}?propertyId=${encodeURIComponent(propertyId)}&section=${section}`;
+  return extra ? `${href}&${extra}` : href;
 }
 
 export function DashboardOverview({
   tenantId,
   propertyId,
   role,
-  canManageQuickBooking,
+  canManageQuickBooking = false,
   initialOverview,
+  canOpen = () => true,
 }: {
   tenantId: string;
   propertyId: string;
   role: 'OWNER' | 'ADMIN' | 'STAFF';
   canManageQuickBooking?: boolean;
   initialOverview?: Overview;
+  canOpen?: (section: string) => boolean;
 }) {
   const overviewQuery = useOverviewQuery(tenantId, propertyId, initialOverview);
-  const canShowQuickBooking = canManageQuickBooking ?? role !== 'STAFF';
+  const canShowQuickBooking = canManageQuickBooking;
+  const link = (section: string, extra?: string) =>
+    dashboardHref(tenantId, propertyId, section, extra);
+  const reservation = (id: string) => link('reservations', `reservation=${id}`);
 
   if (overviewQuery.isPending)
     return (
-      <StatePanel
-        body={null}
-        icon={<LoaderCircle aria-hidden="true" />}
-        title="Loading overview…"
-        variant="loading"
-      />
+      <div aria-busy="true" aria-live="polite" className="space-y-4">
+        <span className="sr-only">Loading overview…</span>
+        <Skeleton className="h-40 w-full" />
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {Array.from({ length: 8 }, (_, index) => (
+            <Skeleton key={index} className="h-28 w-full" />
+          ))}
+        </div>
+      </div>
     );
   if (overviewQuery.isError)
     return (
-      <div className={styles.error} role="alert">
-        <Text>{overviewQuery.error.message}</Text>
-        <button onClick={() => void overviewQuery.refetch()} type="button">
-          Retry
-        </button>
-      </div>
+      <ErrorPanel
+        title="Couldn't load the overview"
+        description={overviewQuery.error.message}
+        onRetry={() => void overviewQuery.refetch()}
+      />
     );
 
-  const overview = overviewQuery.data;
+  // Older or partial API answers may leave the lists out; treat a missing list as empty.
+  const overview: Overview = {
+    ...overviewQuery.data,
+    todaysArrivals: overviewQuery.data.todaysArrivals ?? [],
+    todaysDepartures: overviewQuery.data.todaysDepartures ?? [],
+    upcomingArrivals: overviewQuery.data.upcomingArrivals ?? [],
+    soldOutRooms: overviewQuery.data.soldOutRooms ?? [],
+    recentCancellations: overviewQuery.data.recentCancellations ?? [],
+    recentActivity: overviewQuery.data.recentActivity ?? [],
+    needsAttention: overviewQuery.data.needsAttention ?? [],
+  };
+  const { kpis } = overview;
+  const today = new Intl.DateTimeFormat('en-GB', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  }).format(new Date(`${kpis.date}T00:00:00`));
+  const attention = overview.needsAttentionCount ?? 0;
+  const show = (key: string) => !overview.view || overview.view.widgets.includes(key);
+
+  const feed: ActivityEntry[] = overview.recentActivity.slice(0, 6).map((activity) => ({
+    key: activity.id,
+    title: activity.summary,
+    at: activity.createdAt,
+    ...activityLook(activity.action),
+  }));
 
   return (
-    <Stack className={styles.page} gap="lg">
-      <header className={styles.heading}>
-        <div>
-          <Text className={styles.eyebrow} tone="secondary">
-            DAILY OPERATIONS
-          </Text>
-          <Heading>Overview</Heading>
-          <Text tone="secondary">
-            A live view of today’s arrivals, stays, and property activity.
-          </Text>
-        </div>
-        <div aria-label="Quick actions" className={styles.quickActions} role="group">
-          {canShowQuickBooking ? (
-            <a href={dashboardHref(tenantId, propertyId, 'overview', 'quick-booking')}>
-              <CalendarPlus aria-hidden="true" size={18} /> New booking
-            </a>
-          ) : null}
-          {role !== 'STAFF' ? (
-            <a href={dashboardHref(tenantId, propertyId, 'staff')}>
-              <UserPlus aria-hidden="true" size={18} /> Add staff
-            </a>
-          ) : null}
-        </div>
-      </header>
+    <div className="space-y-6">
+      <PageHero
+        eyebrow={`Today · ${today}`}
+        title="Today at a glance"
+        description={
+          !show('tile.arrivals') || !show('tile.departures')
+            ? 'Your tasks and the parts of the hotel you work with.'
+            : `${kpis.arrivals} arrival${kpis.arrivals === 1 ? '' : 's'} · ${kpis.departures} departure${kpis.departures === 1 ? '' : 's'} · ${kpis.inHouse} ${kpis.inHouse === 1 ? 'stay' : 'stays'} in house.${attention > 0 ? ` ${attention} need${attention === 1 ? 's' : ''} your attention.` : ' Nothing needs your attention.'}`
+        }
+        actions={
+          <>
+            {canShowQuickBooking ? (
+              <Button asChild>
+                <a href={link('overview', 'tab=quick-booking')}>
+                  <CalendarPlus aria-hidden="true" /> New booking
+                </a>
+              </Button>
+            ) : null}
+            {canOpen('calendar') ? (
+              <Button variant="outline" asChild>
+                <a href={link('calendar')}>
+                  <CalendarDays aria-hidden="true" /> Open calendar
+                </a>
+              </Button>
+            ) : null}
+            {role !== 'STAFF' ? (
+              <Button variant="outline" asChild>
+                <a href={link('staff')}>
+                  <UserPlus aria-hidden="true" /> Add staff
+                </a>
+              </Button>
+            ) : null}
+          </>
+        }
+        chips={
+          <>
+            <Badge variant={attention > 0 ? 'warning' : 'success'} className="rounded-full px-2.5">
+              {attention > 0 ? `${attention} need attention` : 'All clear'}
+            </Badge>
+            {(overview.newBookingsSinceYesterday ?? 0) > 0 ? (
+              <Badge variant="info" className="rounded-full px-2.5">
+                {overview.newBookingsSinceYesterday} new since yesterday
+              </Badge>
+            ) : null}
+            {overview.soldOutRooms.length > 0 ? (
+              <Badge variant="secondary" className="rounded-full px-2.5">
+                {overview.soldOutRooms.length} room{overview.soldOutRooms.length === 1 ? '' : 's'}{' '}
+                sold out tonight
+              </Badge>
+            ) : null}
+          </>
+        }
+      />
 
-      <section aria-label="Today’s property statistics" className={styles.stats}>
-        <Stat label="Arrivals" value={overview.kpis.arrivals} />
-        <Stat label="Departures" value={overview.kpis.departures} />
-        <Stat label="In house" value={overview.kpis.inHouse} />
-        <Stat
-          label="Occupancy"
-          value={overview.kpis.occupancyRate === null ? '—' : `${overview.kpis.occupancyRate}%`}
-          detail={`${overview.kpis.bookedRoomNights} of ${overview.kpis.availableRoomNights} room-nights`}
-        />
-        <Stat
-          label="Today’s revenue"
-          value={overview.revenue.today ? formatMoney(overview.revenue.today) : '—'}
-        />
-        {overview.balanceDueAtDesk ? (
-          <Stat label="Due at the desk" value={formatMoney(overview.balanceDueAtDesk)} />
+      {overview.metricBasis?.asOf ? (
+        <Badge variant="secondary">
+          {overview.metricBasis.source === 'CLOCK'
+            ? 'Synced from Clock - locally stored records'
+            : 'MUST local records'}{' '}
+          - Updated{' '}
+          {new Date(overview.metricBasis.asOf).toLocaleString(undefined, {
+            timeZone: overview.metricBasis.timezone,
+          })}{' '}
+          ({overview.metricBasis.timezone})
+        </Badge>
+      ) : null}
+      <section
+        aria-label="Today’s property statistics"
+        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+      >
+        {show('tile.arrivals') ? (
+          <>
+            <StatTile
+              label="Arrivals"
+              icon={LogIn}
+              value={kpis.arrivals}
+              note="Confirmed scheduled arrivals today"
+              href={link('reservations', 'rv=arriving_today')}
+            />
+          </>
         ) : null}
-        <Stat
-          label="New bookings"
-          value={overview.newBookingsSinceYesterday}
-          detail="Since yesterday"
-        />
-        <a
-          className={styles.attentionStat}
-          href={dashboardHref(tenantId, propertyId, 'overview', 'needs-attention')}
-        >
-          <Stat label="Needs attention" value={overview.needsAttentionCount} />
-        </a>
+        {show('tile.departures') ? (
+          <>
+            <StatTile
+              label="Departures"
+              icon={LogOut}
+              value={kpis.departures}
+              note="Confirmed scheduled departures today"
+              href={link('reservations', 'rv=departing_today')}
+            />
+          </>
+        ) : null}
+        {show('tile.inHouse') ? (
+          <>
+            <StatTile
+              label="In house"
+              icon={Users}
+              value={kpis.inHouse}
+              note="Confirmed scheduled stays tonight"
+              href={link('reservations', 'rv=in_house')}
+            />
+          </>
+        ) : null}
+        {show('tile.occupancy') && overview.metricBasis?.source === 'CLOCK' ? (
+          <ClockRoomsTile
+            tenantId={tenantId}
+            propertyId={propertyId}
+            canOpenCalendar={canOpen('calendar')}
+          />
+        ) : show('tile.occupancy') ? (
+          <>
+            <StatTile
+              label="Occupancy"
+              icon={BedDouble}
+              value={reportValue(kpis.occupancyRate, 'percent')}
+              note={`${kpis.bookedRoomNights} of ${kpis.availableRoomNights ?? 'Unknown'} gross room-nights${overview.metricBasis?.source === 'CLOCK' ? ' - synced from Clock; supply Unknown' : ''}`}
+            />
+          </>
+        ) : null}
+        {show('tile.needsAttention') ? (
+          <>
+            <StatTile
+              label="Needs attention"
+              icon={TriangleAlert}
+              tone={attention > 0 ? 'warning' : 'default'}
+              value={attention}
+              note={attention > 0 ? 'Open the queue' : 'Nothing to follow up'}
+              href={link('overview', 'tab=needs-attention')}
+            />
+          </>
+        ) : null}
+        {show('tile.dueAtDesk') ? (
+          <>
+            {overview.metricBasis?.moneyVisible === false ? null : (
+              <StatTile
+                label="Due at the desk"
+                icon={Wallet}
+                value={
+                  (
+                    overview.balancesDueAtDesk ??
+                    (overview.balanceDueAtDesk ? [overview.balanceDueAtDesk] : [])
+                  )
+                    .map(formatMoney)
+                    .join(' / ') || 'Nothing due today'
+                }
+                note="Confirmed pay-at-hotel arrivals today; net balances."
+              />
+            )}
+          </>
+        ) : null}
+        {show('tile.collectedToday') ? (
+          <>
+            {overview.metricBasis?.moneyVisible === false ? null : (
+              <StatTile
+                label="Collected today"
+                icon={CreditCard}
+                value={
+                  (
+                    overview.revenue?.byCurrency ??
+                    (overview.revenue?.today ? [overview.revenue.today] : [])
+                  )
+                    .map(formatMoney)
+                    .join(' / ') || 'No payments today'
+                }
+                note="Successful charge postings today, per currency."
+                href={link('payments')}
+              />
+            )}
+          </>
+        ) : null}
+        {show('tile.newBookings') ? (
+          <>
+            <StatTile
+              label="New bookings"
+              icon={CirclePlus}
+              value={overview.newBookingsSinceYesterday ?? 0}
+              note="Since yesterday"
+              href={link('reservations')}
+            />
+          </>
+        ) : null}
       </section>
 
-      <div className={styles.columns}>
-        <Stack gap="lg">
-          <Card>
-            <Heading level={2}>Today’s arrivals ({overview.todaysArrivals.length})</Heading>
-            <GuestList empty="No arrivals expected today." items={overview.todaysArrivals} />
-          </Card>
-          <Card>
-            <Heading level={2}>Today’s departures ({overview.todaysDepartures.length})</Heading>
-            <GuestList empty="No departures expected today." items={overview.todaysDepartures} />
-          </Card>
-          <Card>
-            <Heading level={2}>Recent activity</Heading>
-            {overview.recentActivity.length === 0 ? (
-              <Text tone="secondary">No recent bookings or cancellations.</Text>
-            ) : (
-              <ul className={styles.list}>
-                {overview.recentActivity.map((activity) => (
-                  <li key={activity.id}>
-                    <Text>{activity.summary}</Text>
-                    <time dateTime={activity.createdAt}>{formatTime(activity.createdAt)}</time>
-                  </li>
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+        <div className="space-y-4">
+          {show('list.arrivals') ? (
+            <>
+              <ListCard
+                title="Today’s arrivals"
+                count={overview.todaysArrivals.length}
+                action={{ label: 'View all', href: link('reservations', 'rv=arriving_today') }}
+                empty="No arrivals expected today."
+              >
+                {overview.todaysArrivals.map((item) => (
+                  <GuestRow key={item.id} item={item} href={reservation(item.id)} />
                 ))}
-              </ul>
-            )}
-          </Card>
-        </Stack>
+              </ListCard>
+            </>
+          ) : null}
+          {show('list.departures') ? (
+            <>
+              <ListCard
+                title="Today’s departures"
+                count={overview.todaysDepartures.length}
+                action={{ label: 'View all', href: link('reservations', 'rv=departing_today') }}
+                empty="No departures expected today."
+              >
+                {overview.todaysDepartures.map((item) => (
+                  <GuestRow key={item.id} item={item} href={reservation(item.id)} />
+                ))}
+              </ListCard>
+            </>
+          ) : null}
+          {show('list.activity') ? (
+            <>
+              <ListCard
+                title="Recent activity"
+                description="Latest bookings and cancellations."
+                action={{ label: 'View reservations', href: link('reservations') }}
+              >
+                <li className="list-none">
+                  <ActivityFeed entries={feed} empty="No recent bookings or cancellations." />
+                </li>
+              </ListCard>
+            </>
+          ) : null}
+        </div>
 
-        <Stack gap="lg">
-          <Card>
-            <Heading level={2}>Upcoming arrivals (next 7 days)</Heading>
-            {overview.upcomingArrivals.length === 0 ? (
-              <Text tone="secondary">No arrivals in the next 7 days.</Text>
-            ) : (
-              <ul className={styles.list}>
+        <div className="space-y-4">
+          {overview.view?.widgets.includes('panel.myTasks') ? (
+            <MyTasksCard tenantId={tenantId} propertyId={propertyId} />
+          ) : null}
+          {show('list.needsAttention') ? (
+            <>
+              <ListCard
+                title="Needs attention"
+                count={attention}
+                action={{ label: 'Open queue', href: link('overview', 'tab=needs-attention') }}
+                empty="Nothing needs attention right now."
+              >
+                {overview.needsAttention.slice(0, 5).map((booking) => (
+                  <ListRow
+                    key={booking.id}
+                    href={reservation(booking.id)}
+                    title={booking.guestName ?? booking.guestEmail}
+                    subtitle={`${booking.roomTypeName} · ${booking.startsOn} – ${booking.endsOn}`}
+                    trailing={
+                      <Badge
+                        variant={bookingStatusDisplay(booking.status).tone}
+                        className="rounded-full px-2 py-0 text-[10px]"
+                      >
+                        {bookingStatusDisplay(booking.status).label}
+                      </Badge>
+                    }
+                  />
+                ))}
+              </ListCard>
+            </>
+          ) : null}
+          {show('list.upcomingArrivals') ? (
+            <>
+              <ListCard
+                title="Upcoming arrivals"
+                description="Next 7 days"
+                empty="No arrivals in the next 7 days."
+              >
                 {overview.upcomingArrivals.map((arrival) => (
-                  <li key={arrival.id}>
-                    <div>
-                      <strong>{arrival.guestName ?? arrival.guestEmail}</strong>
-                      <Text tone="secondary">
-                        {arrival.roomTypeName} · {partySize(arrival)}
-                        {arrival.hasSpecialRequests ? ' · Special request' : ''}
-                      </Text>
-                    </div>
-                    <time dateTime={arrival.startsOn}>{formatDay(arrival.startsOn)}</time>
-                  </li>
+                  <ListRow
+                    key={arrival.id}
+                    href={reservation(arrival.id)}
+                    title={arrival.guestName ?? arrival.guestEmail}
+                    subtitle={`${arrival.roomTypeName} · ${partySize(arrival)}${arrival.hasSpecialRequests ? ' · Special request' : ''}`}
+                    trailing={formatDay(arrival.startsOn)}
+                  />
                 ))}
-              </ul>
-            )}
-          </Card>
-          {overview.soldOutRooms.length > 0 ? (
-            <Card>
-              <Heading level={2}>Sold out tonight ({overview.soldOutRooms.length})</Heading>
-              <ul className={styles.list}>
-                {overview.soldOutRooms.map((room) => (
-                  <li key={room.roomId}>
-                    <div>
-                      <strong>
-                        {room.roomTypeName} — {room.roomName}
-                      </strong>
-                    </div>
-                    <StatusBadge
-                      domain="booking"
-                      label={room.reason === 'blocked' ? 'Blocked' : 'Booked'}
-                      state={room.reason === 'blocked' ? 'pending' : 'confirmed'}
+              </ListCard>
+            </>
+          ) : null}
+          {show('list.soldOut') ? (
+            <>
+              {overview.soldOutRooms.length > 0 ? (
+                <ListCard title="Sold out tonight" count={overview.soldOutRooms.length}>
+                  {overview.soldOutRooms.map((room) => (
+                    <ListRow
+                      key={room.roomId}
+                      title={`${room.roomTypeName} — ${room.roomName}`}
+                      trailing={
+                        <Badge
+                          variant={room.reason === 'blocked' ? 'warning' : 'secondary'}
+                          className="rounded-full px-2 py-0 text-[10px]"
+                        >
+                          {room.reason === 'blocked' ? 'Blocked' : 'Booked'}
+                        </Badge>
+                      }
                     />
-                  </li>
-                ))}
-              </ul>
-            </Card>
+                  ))}
+                </ListCard>
+              ) : null}
+            </>
           ) : null}
-          {overview.recentCancellations.length > 0 ? (
-            <Card>
-              <Heading level={2}>Cancelled in the last 24h</Heading>
-              <ul className={styles.list}>
-                {overview.recentCancellations.map((cancellation) => (
-                  <li key={cancellation.id}>
-                    <div>
-                      <strong>{cancellation.guestName ?? cancellation.guestEmail}</strong>
-                      <Text tone="secondary">
-                        {cancellation.roomTypeName} · {cancellation.startsOn} –{' '}
-                        {cancellation.endsOn}
-                      </Text>
-                    </div>
-                    <time dateTime={cancellation.cancelledAt}>
-                      {formatTime(cancellation.cancelledAt)}
-                    </time>
-                  </li>
-                ))}
-              </ul>
-            </Card>
+          {show('list.cancellations') ? (
+            <>
+              {overview.recentCancellations.length > 0 ? (
+                <ListCard
+                  title="Cancelled in the last 24h"
+                  count={overview.recentCancellations.length}
+                >
+                  {overview.recentCancellations.map((cancellation) => (
+                    <ListRow
+                      key={cancellation.id}
+                      href={reservation(cancellation.id)}
+                      title={cancellation.guestName ?? cancellation.guestEmail}
+                      subtitle={`${cancellation.roomTypeName} · ${cancellation.startsOn} – ${cancellation.endsOn}`}
+                      trailing={formatTime(cancellation.cancelledAt)}
+                    />
+                  ))}
+                </ListCard>
+              ) : null}
+            </>
           ) : null}
-        </Stack>
+        </div>
       </div>
-    </Stack>
+    </div>
   );
 }
 
-function GuestList({ items, empty }: { items: ArrivalDeparture[]; empty: string }) {
-  if (items.length === 0) return <Text tone="secondary">{empty}</Text>;
+function GuestRow({ item, href }: { item: ArrivalDeparture; href: string }) {
   return (
-    <ul className={styles.list}>
-      {items.map((item) => (
-        <li key={item.id}>
-          <div>
-            <strong>{item.guestName ?? item.guestEmail}</strong>
-            <Text tone="secondary">
-              {item.roomTypeName} · {partySize(item)}
-              {item.hasSpecialRequests ? ' · Special request' : ''}
-            </Text>
-          </div>
-          <Text tone="secondary">{item.externalReference}</Text>
-        </li>
-      ))}
-    </ul>
+    <ListRow
+      href={href}
+      title={item.guestName ?? item.guestEmail}
+      subtitle={`${item.roomTypeName} · ${partySize(item)}${item.hasSpecialRequests ? ' · Special request' : ''}`}
+      trailing={item.externalReference}
+    />
   );
+}
+
+function activityLook(action: string): { icon: LucideIcon; tone: ActivityEntry['tone'] } {
+  if (action.includes('cancel')) return { icon: Ban, tone: 'danger' };
+  if (action.includes('created')) return { icon: CirclePlus, tone: 'success' };
+  return { icon: CircleCheck, tone: 'default' };
 }
 
 function partySize(item: ArrivalDeparture): string {
@@ -314,119 +552,8 @@ function partySize(item: ArrivalDeparture): string {
   return `${item.adults} adult${item.adults === 1 ? '' : 's'}${children}`;
 }
 
-export function NeedsAttentionTab({
-  tenantId,
-  propertyId,
-}: {
-  tenantId: string;
-  propertyId: string;
-}) {
-  const overviewQuery = useOverviewQuery(tenantId, propertyId);
-
-  if (overviewQuery.isPending)
-    return (
-      <StatePanel
-        body={null}
-        icon={<LoaderCircle aria-hidden="true" />}
-        title="Loading needs attention..."
-        variant="loading"
-      />
-    );
-  if (overviewQuery.isError)
-    return (
-      <StatePanel
-        body={overviewQuery.error.message}
-        icon={<CircleAlert aria-hidden="true" />}
-        title="Needs attention unavailable"
-        variant="error"
-      />
-    );
-
-  // An older API answers with only the count; treat a missing list as empty, not a crash.
-  const bookings = overviewQuery.data.needsAttention ?? [];
-  return (
-    <Stack className={styles.page} gap="lg">
-      <header className={styles.heading}>
-        <div>
-          <Text className={styles.eyebrow} tone="secondary">
-            DAILY OPERATIONS
-          </Text>
-          <Heading>Needs attention</Heading>
-          <Text tone="secondary">Bookings requiring follow-up from the property team.</Text>
-        </div>
-      </header>
-      {bookings.length === 0 ? (
-        <StatePanel
-          action={
-            <a href={dashboardHref(tenantId, propertyId, 'overview', 'overview')}>
-              Back to Overview
-            </a>
-          }
-          body="No bookings need attention right now."
-          icon={<CircleCheck aria-hidden="true" />}
-          title="No bookings need attention"
-          variant="empty"
-        />
-      ) : (
-        <Card>
-          <ul aria-label="Bookings needing attention" className={styles.list}>
-            {bookings.map((booking) => (
-              <li key={booking.id}>
-                <div>
-                  <strong>{booking.guestName ?? booking.guestEmail}</strong>
-                  <Text tone="secondary">
-                    {booking.roomTypeName} - {booking.startsOn} - {booking.endsOn}
-                  </Text>
-                </div>
-                <StatusBadge {...attentionStatusBadge(booking.status)} />
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
-    </Stack>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  detail,
-}: {
-  label: string;
-  value: number | string;
-  detail?: string;
-}) {
-  return (
-    <Card className={styles.stat}>
-      <Text tone="secondary">{label}</Text>
-      <strong>{value}</strong>
-      {detail ? <Text tone="secondary">{detail}</Text> : null}
-    </Card>
-  );
-}
-
-function dashboardHref(tenantId: string, propertyId: string, section: string, tab?: string) {
-  const href = `/dashboard/${tenantId}?propertyId=${encodeURIComponent(propertyId)}&section=${section}`;
-  return tab ? `${href}&tab=${tab}` : href;
-}
-
-function formatStatus(status: string) {
-  return status.toLowerCase().replaceAll('_', ' ');
-}
-
-function attentionStatusBadge(status: string): AttentionStatusBadge {
-  if (status === 'PAYMENT_FAILED') {
-    return { domain: 'payment', state: 'failed', label: formatStatus(status) };
-  }
-  if (status === 'MANUAL_REVIEW') {
-    return { domain: 'booking', state: 'pending', label: 'Needs review' };
-  }
-  return { domain: 'booking', state: 'pending', label: formatStatus(status) };
-}
-
 function formatMoney(value: { amount: string; currency: string }): string {
-  return `${value.amount} ${value.currency}`;
+  return reportValue(value.amount, 'money', value.currency);
 }
 
 function formatTime(value: string) {

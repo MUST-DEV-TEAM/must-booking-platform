@@ -1,0 +1,153 @@
+/*
+ * Shared Tailwind theme for the redesigned UI (components in ../components/ui). Imported by a
+ * Tailwind entry file (design/design.css, dashboard/dashboard.css), never loaded on its own.
+ * Colors map onto the existing --must-* tokens from @must/ui. Everything is scoped to a page that
+ * renders a .ui-root element, so routes without one (login, signup, ...) are unaffected.
+ * Neutral by default, with selectable themes. Light mode only for now.
+ */
+
+@theme inline {
+  --font-sans: var(--must-font-sans);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-brass: var(--brass);
+  --color-destructive: var(--destructive);
+  --color-destructive-surface: var(--destructive-surface);
+  --color-success: var(--success);
+  --color-success-surface: var(--success-surface);
+  --color-warning: var(--warning);
+  --color-warning-surface: var(--warning-surface);
+  --color-info: var(--info);
+  --color-info-surface: var(--info-surface);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root:has(.ui-root) {
+  /* On :root so dialogs and menus rendered in portals outside .ui-root get them too.
+     Default theme is neutral. Themes below only swap the brand tokens; every color is a token. */
+  --radius: 0.75rem;
+  --background: #f6f6f7;
+  --foreground: #18181b;
+  --card: #ffffff;
+  --card-foreground: #18181b;
+  --popover: #ffffff;
+  --popover-foreground: #18181b;
+  --primary: #18181b;
+  --primary-hover: #3f3f46;
+  --primary-foreground: #ffffff;
+  --secondary: #efeff1;
+  --secondary-foreground: #18181b;
+  --muted: #efeff1;
+  --muted-foreground: #62626b;
+  --accent: #efeff1;
+  --accent-foreground: #18181b;
+  --brass: #8b8b94;
+  --destructive: var(--must-color-danger);
+  --destructive-surface: var(--must-color-danger-surface);
+  --success: var(--must-color-success);
+  --success-surface: var(--must-color-success-surface);
+  --warning: var(--must-color-warning);
+  --warning-surface: var(--must-color-warning-surface);
+  --info: var(--must-color-info);
+  --info-surface: var(--must-color-info-surface);
+  --border: #e4e4e7;
+  --input: #d4d4d8;
+  --ring: #71717a;
+}
+
+/* Selectable themes: set data-theme on <html> (see DesignShell). A client theme is one more block here. */
+:root[data-theme='pine']:has(.ui-root) {
+  --background: var(--must-color-canvas);
+  --foreground: var(--must-color-text-primary);
+  --card: var(--must-color-surface);
+  --card-foreground: var(--must-color-text-primary);
+  --popover: var(--must-color-surface);
+  --popover-foreground: var(--must-color-text-primary);
+  --primary: var(--must-color-ink);
+  --primary-hover: var(--must-color-ink-hover);
+  --secondary: var(--must-color-surface-selected);
+  --secondary-foreground: var(--must-color-ink);
+  --muted: #efece4;
+  --muted-foreground: var(--must-color-text-secondary);
+  --accent: var(--must-color-surface-selected);
+  --accent-foreground: var(--must-color-ink);
+  --brass: var(--must-color-accent-brass);
+  --border: var(--must-color-border);
+  --input: var(--must-color-border);
+}
+
+:root[data-theme='ocean']:has(.ui-root) {
+  --primary: #1d4ed8;
+  --primary-hover: #1e40af;
+  --secondary: #e8eefc;
+  --secondary-foreground: #1e3a8a;
+  --accent: #e8eefc;
+  --accent-foreground: #1e3a8a;
+  --brass: #60a5fa;
+}
+
+:root[data-theme='terracotta']:has(.ui-root) {
+  --background: #faf6f2;
+  --primary: #9a3412;
+  --primary-hover: #7c2d12;
+  --secondary: #f8e9df;
+  --secondary-foreground: #7c2d12;
+  --muted: #f3ebe4;
+  --accent: #f8e9df;
+  --accent-foreground: #7c2d12;
+  --brass: #d6a37c;
+  --border: #eadfd6;
+  --input: #dccdc0;
+}
+
+.ui-root {
+  background: var(--background);
+  color: var(--foreground);
+  min-height: 100vh;
+}
+
+:root[data-input-modality='pointer']:has(.ui-root) :focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+@layer base {
+  :root:has(.ui-root) * {
+    @apply border-border outline-ring/50;
+  }
+}
+
+@keyframes ui-progress-stripes {
+  to {
+    background-position-x: 32px;
+  }
+}
+
+.ui-progress-indeterminate {
+  animation: ui-progress-stripes 900ms linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-progress-indeterminate {
+    animation: none;
+  }
+}

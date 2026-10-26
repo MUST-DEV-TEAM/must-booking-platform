@@ -1,6 +1,10 @@
 import type { MailBrand } from '@must/domain-contracts';
 
-export type EmailBrand = MailBrand;
+export type EmailBrand = MailBrand & {
+  brandColour?: string | null;
+  emailFooterText?: string | null;
+  termsUrl?: string | null;
+};
 export type EmailSummaryRow = { label: string; value: string };
 export type SupportStyle = 'icon-grid' | 'plain';
 export type SupportLink = { href: string; label: string };
@@ -34,8 +38,16 @@ export function renderBrandedEmail(command: {
   const greeting = clean(command.greeting)
     ? `<p style="margin:0 0 18px 0;">${escapeHtml(command.greeting!)}.</p>`
     : '';
-  const summary = renderSummaryRows(command.summaryRows ?? [], command.summaryHeading);
-  const cta = command.cta ? renderCtaButton(command.cta) : '';
+  const paragraphs = command.summaryRows?.length
+    ? command.content.match(/^(<p\b[^>]*>[\s\S]*?<\/p>)([\s\S]*)$/i)
+    : null;
+  const content = paragraphs ? paragraphs[1] : command.content;
+  const summary = renderSummaryRows(
+    command.summaryRows ?? [],
+    command.summaryHeading,
+    paragraphs?.[2],
+  );
+  const cta = command.cta ? renderCtaButton(command.cta, command.brand.brandColour) : '';
   const support = renderSupportBlock(
     command.brand,
     command.supportStyle ?? 'icon-grid',
@@ -49,7 +61,23 @@ export function renderBrandedEmail(command: {
     ? `<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#f4f1ea;">${escapeHtml(command.preheader!)}</div>`
     : '';
 
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark"><title>${escapeHtml(command.subject)}</title><!--[if mso]><style type="text/css">table {border-collapse: collapse;}</style><![endif]--></head><body style="margin:0;padding:0;background:#f4f1ea;">${preheader}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f4f1ea;border-collapse:collapse;"><tr><td align="center" style="padding:32px 16px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;border-collapse:collapse;background:#ffffff;border:1px solid #e2dccf;"><tr><td style="padding:40px 40px 28px 40px;">${logo}${eyebrow}<h1 style="margin:0 0 16px 0;font-family:Arial,Helvetica,sans-serif;font-size:28px;line-height:1.25;font-weight:700;color:#141414;mso-line-height-rule:exactly;">${escapeHtml(command.heading)}</h1><div style="font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.7;color:#141414;">${greeting}${command.content}</div>${summary}${cta}${support}</td></tr><tr><td style="border-top:1px solid #ece6d9;"></td></tr><tr><td>${footer}</td></tr></table>${platformFooter}</td></tr></table></body></html>`;
+  const accent = /^#[0-9a-f]{6}$/i.test(command.brand.brandColour ?? '')
+    ? command.brand.brandColour!
+    : null;
+  const tintLinks = (html: string) =>
+    accent
+      ? html.replace(
+          /(<a\b[^>]*style=")([^"]*)(")/g,
+          (_all, open, style, end) =>
+            `${open}${style.replace(/(^|;)color:[^;]+;?/g, '$1')}color:${accent};${end}`,
+        )
+      : html;
+  const output = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark"><title>${escapeHtml(command.subject)}</title><!--[if mso]><style type="text/css">table {border-collapse: collapse;}</style><![endif]--></head><body style="margin:0;padding:0;background:#f4f1ea;">${preheader}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f4f1ea;border-collapse:collapse;"><tr><td align="center" style="padding:32px 16px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;border-collapse:collapse;background:#ffffff;border:1px solid #e2dccf;border-top:4px solid ${accent ?? '#215448'};border-radius:12px;"><tr><td style="padding:40px 40px 28px 40px;">${logo}${eyebrow}<h1 style="margin:0 0 16px 0;font-family:Arial,Helvetica,sans-serif;font-size:28px;line-height:1.25;font-weight:700;color:#141414;mso-line-height-rule:exactly;">${escapeHtml(command.heading)}</h1><div style="font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.7;color:#141414;">${greeting}${content}</div>${summary}${cta}${support}</td></tr><tr><td style="border-top:1px solid #ece6d9;"></td></tr><tr><td>${footer}</td></tr></table>${platformFooter}</td></tr></table></body></html>`;
+  // Preserve white CTA labels on their coloured background.
+  return tintLinks(output).replace(
+    /(padding:14px 26px;[^"<>]*?)color:#[0-9a-fA-F]{6};/g,
+    '$1color:#ffffff;',
+  );
 }
 
 export function escapeHtml(value: string): string {
@@ -74,16 +102,30 @@ function renderRowValue(value: string): string {
     : lines.join('<br><span style="display:inline-block;height:8px;"></span>');
 }
 
-function renderSummaryRows(rows: EmailSummaryRow[], heading = 'Booking Summary'): string {
+function renderSummaryRows(
+  rows: EmailSummaryRow[],
+  heading = 'Booking Summary',
+  detailsHtml = '',
+): string {
   const normalized = rows.filter((row) => clean(row.label) && clean(row.value));
   if (!normalized.length) return '';
+  const detailRows: string[] = [];
+  const remaining = detailsHtml.replace(
+    /<p data-summary-label="([^"]+)"[^>]*>([\s\S]*?)<\/p>/g,
+    (_all, label: string, value: string) => {
+      detailRows.push(
+        `<tr><td style="padding:12px 16px;width:38%;vertical-align:top;border-top:1px solid #e5dfd2;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:600;color:#58544a;">${escapeHtml(label)}</td><td style="padding:12px 16px;vertical-align:top;border-top:1px solid #e5dfd2;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#141414;">${value}</td></tr>`,
+      );
+      return '';
+    },
+  );
   const body = normalized
     .map(
       (row, index) =>
         `<tr><td style="padding:12px 16px;width:38%;vertical-align:top;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:600;color:#58544a;${index ? 'border-top:1px solid #e5dfd2;' : ''}">${escapeHtml(row.label)}</td><td style="padding:12px 16px;vertical-align:top;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#141414;${index ? 'border-top:1px solid #e5dfd2;' : ''}">${renderRowValue(row.value)}</td></tr>`,
     )
     .join('');
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;border:1px solid #d8d2c4;margin:28px 0 0 0;"><tr><td colspan="2" style="padding:12px 16px;background:#f7f4ec;font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#141414;">${escapeHtml(heading)}</td></tr>${body}</table>`;
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;border:1px solid #d8d2c4;margin:28px 0 0 0;"><tr><td colspan="2" style="padding:12px 16px;background:#f7f4ec;font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#141414;">${escapeHtml(heading)}</td></tr>${body}${detailRows.join('')}${remaining.trim() ? `<tr><td colspan="2" style="padding:16px;border-top:1px solid #e5dfd2;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;">${remaining}</td></tr>` : ''}</table>`;
 }
 
 function renderLogoBlock(brand: EmailBrand): string {
@@ -91,7 +133,7 @@ function renderLogoBlock(brand: EmailBrand): string {
   const logoUrl = safeHttpUrl(brand.logoUrl);
   const websiteUrl = safeHttpUrl(brand.websiteUrl);
   const inner = logoUrl
-    ? `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(name || 'Hotel logo')}" width="180" style="display:block;width:180px;max-width:180px;height:auto;border:0;outline:none;text-decoration:none;margin:0 auto;" />`
+    ? `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(name || 'Hotel logo')}" width="96" style="display:block;width:96px;max-width:96px;max-height:72px;object-fit:contain;height:auto;border:0;outline:none;text-decoration:none;margin:0 auto;" /><p style="margin:10px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;color:#215448;text-align:center;">${escapeHtml(name)}</p>`
     : name
       ? `<span style="font-family:Arial,Helvetica,sans-serif;font-size:18px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#141414;">${escapeHtml(name)}</span>`
       : '';
@@ -102,15 +144,15 @@ function renderLogoBlock(brand: EmailBrand): string {
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px 0;"><tr><td align="center">${linked}</td></tr></table>`;
 }
 
-export function renderCtaButton(cta: { url: string; label: string }): string {
+export function renderCtaButton(
+  cta: { url: string; label: string },
+  colour?: string | null,
+): string {
+  const accent = /^#[0-9a-f]{6}$/i.test(colour ?? '') ? colour! : '#141414';
   const url = safeHttpUrl(cta.url);
   const label = clean(cta.label);
   if (!url || !label) return '';
-  return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:28px 0 0 0;"><tr><td style="border-radius:2px;background:#141414;" bgcolor="#141414"><a href="${escapeHtml(url)}" style="display:block;padding:14px 26px;font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:700;letter-spacing:0.02em;color:#ffffff;text-decoration:none;" target="_blank">${escapeHtml(label)}</a></td></tr></table>`;
-}
-
-function supportIcon(href: string, glyph: string, label: string, glyphSize = 20): string {
-  return `<td align="center" style="padding:0 20px;"><a href="${escapeHtml(href)}" style="text-decoration:none;" target="_blank"><table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto 8px auto;"><tr><td width="48" height="48" align="center" valign="middle" style="width:48px;height:48px;border:1px solid #141414;border-radius:24px;font-family:Arial,Helvetica,sans-serif;font-size:${glyphSize}px;${glyph === 'WWW' ? 'font-weight:700;' : ''}color:#141414;">${glyph}</td></tr></table><span style="display:block;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#141414;text-decoration:underline;">${escapeHtml(label)}</span></a></td>`;
+  return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:28px 0 0 0;"><tr><td style="border-radius:6px;background-color:${accent};" bgcolor="${accent}"><a href="${escapeHtml(url)}" style="display:block;padding:14px 26px;font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:700;letter-spacing:0.02em;color:#ffffff;text-decoration:none;" target="_blank">${escapeHtml(label)}</a></td></tr></table>`;
 }
 
 function renderSupportBlock(brand: EmailBrand, style: SupportStyle, links?: SupportLink[]): string {
@@ -121,18 +163,29 @@ function renderSupportBlock(brand: EmailBrand, style: SupportStyle, links?: Supp
         `<a href="${escapeHtml(link.href)}" style="color:#141414;text-decoration:underline;"${link.href.startsWith('http') ? ' target="_blank"' : ''}>${escapeHtml(link.label)}</a>`,
     );
     if (!plainLinks.length) return '';
-    return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:28px 0 0 0;border:1px solid #ddd6c8;background:#faf7f0;"><tr><td style="padding:16px 18px;"><p style="margin:0 0 8px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#141414;text-align:center;">Need Help?</p><p style="margin:0;text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.7;color:#141414;">${plainLinks.join(' &nbsp;|&nbsp; ')}</p></td></tr></table>`;
+    return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:28px 0 0 0;border:1px solid #ddd6c8;background:#faf7f0;"><tr><td style="padding:16px 18px;"><p style="margin:0 0 8px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#141414;text-align:center;">Reservation support</p><p style="margin:0;text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.7;color:#141414;">${plainLinks.join(' &nbsp;|&nbsp; ')}</p></td></tr></table>`;
   }
   const email = clean(brand.supportEmail);
   const phone = clean(brand.phone);
   const websiteUrl = safeHttpUrl(brand.websiteUrl);
-  const icons = [
-    email && supportIcon(`mailto:${email}`, '&#9993;', 'Email'),
-    phone && supportIcon(`tel:${phone.replace(/[^+\d]/g, '')}`, '&#9742;', 'Phone'),
-    websiteUrl && supportIcon(websiteUrl, 'WWW', 'Website', 12),
-  ].filter(Boolean);
-  if (!icons.length) return '';
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:28px 0 0 0;border:1px solid #ddd6c8;background:#faf7f0;"><tr><td style="padding:24px 18px 22px 18px;text-align:center;"><p style="margin:0 0 16px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#141414;text-align:center;">Need Help?</p><table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;"><tr>${icons.join('')}</tr></table></td></tr></table>`;
+  const address = clean(brand.address);
+  const linksToHotel = [
+    email ? { href: `mailto:${email}`, label: 'Email the hotel', detail: email } : null,
+    phone
+      ? { href: `tel:${phone.replace(/[^+\d]/g, '')}`, label: 'Call the hotel', detail: phone }
+      : null,
+    address
+      ? {
+          href: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`,
+          label: 'Get directions',
+          detail: address,
+        }
+      : websiteUrl
+        ? { href: websiteUrl, label: 'Visit our website', detail: displayUrl(websiteUrl) }
+        : null,
+  ].filter((x): x is { href: string; label: string; detail: string } => !!x);
+  if (!linksToHotel.length) return '';
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:28px 0 0;border-top:1px solid #e2dccf;"><tr><td style="padding:22px 0 0;"><h2 style="margin:0 0 6px;font-family:Arial,Helvetica,sans-serif;font-size:18px;color:#141414;">Here to help with your stay</h2><p style="margin:0 0 16px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#555555;">Contact our team and quote your booking reference.</p>${`<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>${linksToHotel.map((link) => `<td align="center" valign="top" style="width:33%;padding:8px 4px;font-family:Arial,Helvetica,sans-serif;font-size:13px;"><a href="${escapeHtml(link.href)}" aria-label="${escapeHtml(link.label)}" style="display:block;color:#215448;text-decoration:none;"><span aria-hidden="true" style="display:block;font-size:28px;line-height:40px;">${link.href.startsWith('mailto:') ? '&#9993;' : link.href.startsWith('tel:') ? '&#9742;' : '&#10148;'}</span><span style="font-weight:700;">${escapeHtml(link.label)}</span></a></td>`).join('')}</tr></table>`}</td></tr></table>`;
 }
 
 function defaultPlainLinks(brand: EmailBrand): SupportLink[] {
@@ -145,7 +198,15 @@ function defaultPlainLinks(brand: EmailBrand): SupportLink[] {
 }
 
 function renderFooter(brand: EmailBrand, showBrand: boolean, footerNote?: string | null): string {
-  const brandFooter = showBrand ? renderFooterMeta(brand) : '';
+  const colour = /^#[0-9a-f]{6}$/i.test(brand.brandColour ?? '') ? brand.brandColour! : '#141414';
+  const terms =
+    brand.termsUrl?.startsWith('https://') && safeHttpUrl(brand.termsUrl)
+      ? `<p><a href="${escapeHtml(brand.termsUrl)}" style="color:${colour};">Terms and conditions</a></p>`
+      : '';
+  const custom = brand.emailFooterText
+    ? `<p>${escapeHtml(brand.emailFooterText).replace(/\r?\n/g, '<br>')}</p>`
+    : '';
+  const brandFooter = (showBrand ? renderFooterMeta(brand) : '') + custom + terms;
   const note = clean(footerNote)
     ? `<div style="${brandFooter ? 'margin-top:18px;' : 'margin-top:18px;'}font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:1.7;color:#a39a86;"><p style="margin:0;">${footerNote}</p></div>`
     : '';

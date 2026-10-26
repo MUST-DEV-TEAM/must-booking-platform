@@ -1,7 +1,26 @@
 # Milestone 22: Email Notifications (delivery, recipients, templates)
 
 Status: **Phase A and Phase B (Tasks 1-6) implemented and running in production since 2026-10-01 (verified below); Phases C-G (recipient rules, templates, Email tab, pluggable transport) not started.** One open correctness gap: guest pay-at-hotel bookings produced no email in the 2026-09-30 evidence (see "Verified in production 2026-10-01").
+**2026-10-25: this milestone ships with [Milestone 24](24-dashboard-redesign.md).** The email work (recipient rules, templates, Email screens, per-hotel sender) is built on the redesign branch and verified with it; deploying it is part of [Milestone 28](28-release-and-cutover.md). The 12 email situations with no sender yet are Task 2 there.
+
 Runs as an authorized ad hoc track, parallel to the main 13 - 14 - 15 sequence (same pattern as Milestone 21). It does not renumber the main sequence.
+
+## Reconciliation against the redesign branch (2026-10-25)
+
+The status line above is out of date for Phases C-G. Tasks 7-20 were built, in a different and larger form, on `codex/design-dashboard-latest` under [the Milestone 24 notifications/emails/audit plan](24-notifications-emails-audit-plan.md). **None of it is on `main` or live yet**: it ships with the redesign, and several migrations there are recorded as not yet replayed or deployed. Evidence below is from the code and schema on that branch, not from a live run.
+
+| Tasks here | What exists on the redesign branch | Reading |
+| --- | --- | --- |
+| 7-9 Recipient rules, resolver, API | `NotificationRecipientRule` with To/CC/BCC channels, `notification_recipients`/`recipient-envelope` resolver, topic settings API | Done in redesign (not live) |
+| 10-12 Template storage, defaults, API | `EmailTemplate`/head/revision tables, 26-situation catalog (14 wired to real producers, 12 can be drafted but not published until their producer exists), version compare/restore, preview, controlled test send | Done in redesign (not live); the 12 unwired situations are the remaining gap |
+| 13-15 Recipients, Templates, Sender/activity screens | `email-recipients`, `emails`, `email-sending-profile`, `email-sender-*` and activity/delivery screens with recovery and exports | Done in redesign (not live) |
+| 16 Transport abstraction | `prepared-mail-transport` with Resend and SMTP implementations | Done in redesign (not live) |
+| 18 Per-property sender and domain verification | `EmailSendingProfile`, exact-domain Resend verification, From-mailbox proof, explicit activate/pause | Done in redesign (not live) |
+| 19 Per-property own SMTP | SMTP transport, bounded-socket connection check, network policy, encrypted credentials, dispatcher with no cross-sender fallback | Done in redesign (not live) |
+| 20 UI for transports | Property Sender screen with the three states, verification and test send | Done for the property level; **no platform-admin transport screen** |
+| 17 Platform-wide SMTP transport chosen by the platform admin | **Not found.** The platform console has no mail-transport setting; the platform default stays Resend | **Moved to the platform admin plan, Phase 2 (owner decision 2026-10-25):** see [platform-wide mail transport](24-platform-admin-plan.md#planned-for-phase-2-platform-wide-mail-transport-moved-here-from-milestone-22-task-17-owner-decision-2026-10-25). Not built; not tracked here any more |
+
+Also on that branch beyond this milestone's scope: owner alerts when a custom sender fails (rolling-hour incident, fail-closed), suppressions and bounce/complaint handling, delivery exports, ADR-0037 audit evidence. Known open items there: eight real-Postgres owner-outbox test cases authored but unrun, and the new failure/outbox migration is not deployed. The pay-at-hotel guest-email gap noted above is not re-verified here.
 
 ## Goal
 
@@ -175,3 +194,6 @@ Ship Phase A immediately (it is a live bug). Phases B and C fix reliability and 
 ## Documentation to update when work lands
 
 `docs/architecture/frontends-and-api.md` (endpoints), `docs/architecture/data-and-access.md` (new tables/RLS), a new ADR for the email log/queue/template model, `docs/operations/` (required mail env vars and Resend domain/webhook setup), and the roadmap index.
+
+
+M24 owner-authorized A2 extends this implementation with versioned structured authoring, controlled tests, configuration and delivery recovery. The exact active contract, limitations and verification are owned by [24-notifications-emails-audit-plan.md](24-notifications-emails-audit-plan.md); historical task states above are not self-marked accepted. The previous Settings email screen becomes a compatibility entry into the same sidebar Emails workspace. Separate private recipient deliveries remain the supported transport behavior; CC/BCC headers are not implemented. Code inspection found no existing reserved-address/property-hourly safety checks: A2 adds them at the shared delivery boundary and records that as new behavior, rather than treating a requirement as historical implementation evidence.

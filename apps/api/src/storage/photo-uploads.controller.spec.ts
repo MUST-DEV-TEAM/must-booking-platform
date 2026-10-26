@@ -9,6 +9,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PhotoUploadsController } from './photo-uploads.controller';
 import { STORAGE_PROVIDER } from './storage.provider';
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
+import { AuditLogService } from '../tenancy/audit-log.service';
+import { PlatformSupportService } from '../platform/console/platform-support.service';
 import { TenantContextGuard } from '../tenancy/tenant-context.guard';
 import { RolesGuard } from '../tenancy/roles.guard';
 import { CapabilitiesGuard } from '../tenancy/capabilities.guard';
@@ -52,6 +54,7 @@ describe('authenticated photo upload HTTP endpoint', () => {
           $queryRaw: async (sql: TemplateStringsArray) => {
             const query = sql.join('');
             if (query.includes('tenant_memberships')) return member ? [{ allowed: 1, role }] : [];
+            if (query.includes('organizations')) return [{ state: 'ACTIVE' }];
             if (query.includes('property_staff_assignments')) return [];
             if (query.includes('property_library_images'))
               return reservation ? [{ id: 'reservation' }] : [];
@@ -67,6 +70,11 @@ describe('authenticated photo upload HTTP endpoint', () => {
         { provide: STORAGE_PROVIDER, useValue: { uploadObject } },
         { provide: TenantDatabaseService, useValue: database },
         { provide: AuthService, useValue: auth },
+        { provide: AuditLogService, useValue: { record: async () => undefined } },
+        {
+          provide: PlatformSupportService,
+          useValue: { resolveForTenant: async () => null, recordRequest: async () => undefined },
+        },
         { provide: CapabilitiesService, useValue: capabilities },
         ...[TenantContextGuard, RolesGuard, CapabilitiesGuard, EmailVerificationGuard].map(
           (guard) => ({ provide: APP_GUARD, useClass: guard }),

@@ -16,3 +16,6 @@ apps/api/.dev-certs/
 output/playwright/
 dump.rdb
 infrastructure/containers/.deployed-release
+
+# Local browser inspection snapshots
+.playwright-cli/

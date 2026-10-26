@@ -1,3 +1,4 @@
+import { validPokpayWebhook } from './pokpay-environment';
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 
 import { ConnectionTestRegistry, type ConnectionTester } from '../integrations/connection-tester';
@@ -31,11 +32,8 @@ export class PokpayConnectionTester implements ConnectionTester, OnModuleInit {
     if (!keyId || !keySecret || !merchantId || !webhookUrl)
       return { ok: false, message: 'keyId, keySecret, merchantId, and webhookUrl are required.' };
     if (!isAllowedPokpayBaseUrl(baseUrl)) return { ok: false, message: POKPAY_BASE_URL_MESSAGE };
-    try {
-      new URL(webhookUrl);
-    } catch {
-      return { ok: false, message: 'webhookUrl must be a valid URL.' };
-    }
+    if (!validPokpayWebhook(webhookUrl, baseUrl))
+      return { ok: false, message: 'Use a valid webhook URL; production requires public HTTPS.' };
 
     try {
       const login = await fetch(`${baseUrl}/auth/sdk/login`, {
@@ -52,16 +50,12 @@ export class PokpayConnectionTester implements ConnectionTester, OnModuleInit {
         }
       })();
       if (!login.ok || !body?.data?.accessToken) {
-        this.logger.warn(
-          `PokPay auth test failed for keyId ${keyId}: status=${login.status} body=${rawBody.slice(0, 500)}`,
-        );
+        this.logger.warn(`PokPay authentication failed: status=${login.status}`);
         return { ok: false, message: 'PokPay authentication failed.' };
       }
       return { ok: true, message: 'Connected to PokPay successfully.' };
-    } catch (error) {
-      this.logger.warn(
-        `PokPay auth test threw for keyId ${keyId}: ${error instanceof Error ? error.message : String(error)}`,
-      );
+    } catch {
+      this.logger.warn('PokPay authentication could not be completed.');
       return { ok: false, message: 'Could not reach PokPay.' };
     }
   }

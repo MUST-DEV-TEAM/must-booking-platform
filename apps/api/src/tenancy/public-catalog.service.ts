@@ -1,6 +1,14 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { pricingFacts } from './pricing.repository';
+import { evaluatePricing } from '../booking/pricing-evaluator';
+import { propertyClock } from '../booking/booking-rules';
+import { applicableRestrictions } from './inventory-restrictions.repository';
+import { evaluateBookingRules } from '../booking/booking-rules';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 
 import { TenantDatabaseService } from './tenant-database.service';
+import { roomImagePresentation, type RoomImageProjectionRow } from './room-image-projection';
+import { roomTypeImagePresentation } from './room-type-image-projection';
+import { resolveEffectiveHouseRules } from './effective-house-rules';
 import { STORAGE_PROVIDER, type StorageProvider } from '../storage/storage.provider';
 
 type PublicCatalogRoom = {
@@ -9,11 +17,14 @@ type PublicCatalogRoom = {
   title: string | null;
   roomSize: string | null;
   rules: string | null;
+  rulesSource: 'room' | 'room-type' | null;
   description: string | null;
   amenities: Array<{ id: string; name: string; icon: string | null }>;
   floor: number | null;
   viewType: string | null;
   isAvailable: boolean;
+  images: Array<{ id: string; url: string; sortOrder: number; isPrimary: boolean }>;
+  photoSource: 'room' | 'room_type' | 'none';
 };
 
 type PublicCatalogRoomType = {
@@ -21,6 +32,8 @@ type PublicCatalogRoomType = {
   name: string;
   description: string | null;
   amenitiesIntro: string | null;
+  rules: string | null;
+  rulesSource: 'room-type' | null;
   mainImageUrl: string | null;
   galleryImageUrls: string[];
   maxOccupancy: number;
@@ -39,9 +52,10 @@ type PublicCatalogRoomType = {
   // empty array there means the property is missing pricing configuration,
   // not that none is needed.
   requiresRatePlanSelection: boolean;
+  category: { id: string; name: string; description: string | null; sortOrder: number } | null;
 };
 
-type PublicCatalogRoomTypeRow = PublicCatalogRoomType & {
+type PublicCatalogRoomTypeRow = Omit<PublicCatalogRoomType, 'rulesSource'> & {
   imageRecords?: Array<{
     sourceUrl: string | null;
     objectKey: string | null;
@@ -66,6 +80,15 @@ export class PublicCatalogService {
     @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
   ) {}
 
+  async getBranding(tenantId: string, propertyId: string) {
+    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ name: string; logoUrl: string | null }>>`
+        SELECT name,logo_url AS "logoUrl" FROM properties WHERE tenant_id=${tenantId}::uuid AND id=${propertyId}::uuid`;
+      if (!rows[0]) throw new NotFoundException('Hotel not found.');
+      return { name: rows[0].name, logoUrl: rows[0].logoUrl };
+    });
+  }
+
   async getCatalog(tenantId: string, propertyId: string, query: unknown): Promise<PublicCatalog> {
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       const properties = await tx.$queryRaw<
@@ -73,11 +96,14 @@ export class PublicCatalogService {
           stripeEnabled: boolean;
           pokpayEnabled: boolean;
           payAtHotelEnabled: boolean;
+          timezone: string;
+          pricingSource: string;
           bookingMode: 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
         }>
       >`
         SELECT stripe_enabled AS "stripeEnabled", pokpay_enabled AS "pokpayEnabled",
-          pay_at_hotel_enabled AS "payAtHotelEnabled", booking_mode AS "bookingMode"
+          pay_at_hotel_enabled AS "payAtHotelEnabled", booking_mode AS "bookingMode",timezone,
+          CASE WHEN EXISTS(SELECT 1 FROM property_integration_connections pc JOIN integration_connections c ON c.tenant_id=pc.tenant_id AND c.id=pc.connection_id WHERE pc.tenant_id=${tenantId}::uuid AND pc.property_id=${propertyId}::uuid AND pc.kind='PMS' AND pc.enabled AND c.provider='CLOCK_PMS') THEN 'CLOCK_PMS' ELSE 'LOCAL' END AS "pricingSource"
         FROM properties
         WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid
       `;
@@ -100,9 +126,12 @@ export class PublicCatalogService {
           rt.name,
           rt.description,
           rt.amenities_intro AS "amenitiesIntro",
-          rt.main_image_url AS "mainImageUrl",
-          rt.gallery_image_urls AS "galleryImageUrls",
+          rt.rules,
           rt.max_occupancy AS "maxOccupancy",
+          CASE WHEN category.id IS NULL THEN NULL ELSE json_build_object(
+            'id', category.id, 'name', category.name, 'description', category.description,
+            'sortOrder', category.sort_order
+          ) END AS category,
           COALESCE((
             SELECT json_agg(json_build_object(
               'sourceUrl', images.source_url,
@@ -132,13 +161,10 @@ export class PublicCatalogService {
             FROM (
               SELECT DISTINCT rp.id, rp.name, rp.currency, rp.free_cancellation_until_hours, rp.created_at
               FROM rate_plans rp
-              JOIN rate_rules rr ON rr.rate_plan_id = rp.id
-              WHERE rp.tenant_id = ${tenantId}::uuid
-                AND rp.property_id = ${propertyId}::uuid
-                AND rp.is_active = true
-                AND rr.tenant_id = ${tenantId}::uuid
-                AND rr.property_id = ${propertyId}::uuid
-                AND rr.room_type_id = rt.id
+              WHERE rp.tenant_id=${tenantId}::uuid AND rp.property_id=${propertyId}::uuid AND rp.is_active=true AND rp.lifecycle='Active'
+                AND 'website'=ANY(rp.channels) AND (cardinality(rp.room_type_ids)=0 OR rt.id=ANY(rp.room_type_ids))
+                AND (EXISTS(SELECT 1 FROM rate_rules rr WHERE rr.tenant_id=${tenantId}::uuid AND rr.property_id=${propertyId}::uuid AND rr.rate_plan_id=COALESCE(rp.base_plan_id,rp.id) AND rr.room_type_id=rt.id)
+                  OR EXISTS(SELECT 1 FROM pricing_daily_prices dp WHERE dp.tenant_id=${tenantId}::uuid AND dp.property_id=${propertyId}::uuid AND dp.rate_plan_id=COALESCE(rp.base_plan_id,rp.id) AND dp.room_type_id=rt.id))
             ) plans
           ), '[]'::json) AS "ratePlans",
           NOT EXISTS (
@@ -148,26 +174,79 @@ export class PublicCatalogService {
               AND shadow.clock_shadow_room_type_id = rt.id
           ) AS "requiresRatePlanSelection"
         FROM room_types rt
+        LEFT JOIN room_categories category ON category.tenant_id = rt.tenant_id
+          AND category.property_id = rt.property_id AND category.id = rt.category_id
+          AND category.storefront_visible = true
         WHERE rt.tenant_id = ${tenantId}::uuid AND rt.property_id = ${propertyId}::uuid
+          AND rt.status = 'PUBLISHED'::"RoomTypeStatus"
         ORDER BY rt.created_at
       `;
-      const roomTypes: PublicCatalogRoomType[] = roomTypeRows.map((roomType) => {
+      let roomTypes: PublicCatalogRoomType[] = roomTypeRows.map((roomType) => {
         const imageRecords = roomType.imageRecords ?? [];
-        const managedUrls = imageRecords.map(
-          (image) => image.sourceUrl ?? this.storage.publicUrl(image.objectKey!),
+        const presentation = roomTypeImagePresentation(
+          imageRecords.map((image, sortOrder) => ({ ...image, sortOrder })),
+          (key) => this.storage.publicUrl(key),
         );
-        const primaryIndex = imageRecords.findIndex((image) => image.isPrimary);
-        const coverIndex = primaryIndex >= 0 ? primaryIndex : 0;
-        const mainImageUrl = managedUrls[coverIndex] ?? roomType.mainImageUrl;
-        const galleryImageUrls = [
-          ...managedUrls.filter((_, index) => index !== coverIndex),
-          ...(roomType.galleryImageUrls ?? []),
-        ].filter((url, index, urls) => url !== mainImageUrl && urls.indexOf(url) === index);
-        const publicRoomType = { ...roomType, mainImageUrl, galleryImageUrls };
+        const houseRules = resolveEffectiveHouseRules(null, roomType.rules);
+        const publicRoomType = {
+          ...roomType,
+          category: roomType.category ?? null,
+          ...presentation,
+          rules: houseRules.effectiveRules,
+          rulesSource: houseRules.effectiveRules ? ('room-type' as const) : null,
+        };
         delete publicRoomType.imageRecords;
         return publicRoomType;
       });
       const property = properties[0];
+      if (properties[0]?.pricingSource === 'CLOCK_PMS') {
+        for (const type of roomTypes) {
+          type.ratePlans = [];
+          type.requiresRatePlanSelection = false;
+        }
+      }
+      const requested = (query ?? {}) as Record<string, unknown>;
+      if (requested.startsOn !== undefined || requested.endsOn !== undefined) {
+        const stay = this.availabilityRange(query);
+        const pricing =
+          properties[0]?.pricingSource !== 'CLOCK_PMS' &&
+          roomTypes.some((t) => t.ratePlans.length > 0)
+            ? await pricingFacts(tx, tenantId, propertyId)
+            : null;
+        const permitted: PublicCatalogRoomType[] = [];
+        for (const type of roomTypes) {
+          const restrictions = await applicableRestrictions(tx, tenantId, propertyId, type.id);
+          if (
+            !restrictions.length ||
+            evaluateBookingRules({
+              channel: 'guest',
+              ...stay,
+              restrictions,
+              policy: { timezone: restrictions[0].timezone },
+            }).valid
+          ) {
+            if (type.requiresRatePlanSelection && !type.ratePlans.length) continue;
+            if (pricing && type.requiresRatePlanSelection) {
+              type.ratePlans = type.ratePlans.filter(
+                (plan) =>
+                  evaluatePricing(pricing, {
+                    ratePlanId: plan.id,
+                    roomTypeId: type.id,
+                    ...stay,
+                    adults: 1,
+                    children: 0,
+                    channel: 'website',
+                    today: propertyClock(properties[0]?.timezone).date,
+                  }).valid,
+              );
+              if (!type.ratePlans.length) continue;
+            }
+            permitted.push(type);
+          }
+        }
+        roomTypes = permitted;
+      }
+
       const connectedPaymentProviders = new Set(
         connectedPaymentConnections.map((connection) => connection.provider),
       );
@@ -186,9 +265,18 @@ export class PublicCatalogService {
         return { roomTypes, paymentMethods };
 
       const range = this.availabilityRange(query);
-      const rooms = await tx.$queryRaw<Array<PublicCatalogRoom & { roomTypeId: string }>>`
+      const roomRows = await tx.$queryRaw<
+        Array<
+          Omit<PublicCatalogRoom, 'images' | 'photoSource' | 'rulesSource'> & {
+            roomTypeRules: string | null;
+            roomTypeId: string;
+            roomImageRecords: RoomImageProjectionRow[];
+            roomTypeImageRecords: RoomImageProjectionRow[];
+          }
+        >
+      >`
         SELECT r.id, r.name, r.title, r.room_size AS "roomSize",
-          COALESCE(NULLIF(BTRIM(r.rules), ''), NULLIF(BTRIM(p.rules), '')) AS rules,
+          r.rules, rt.rules AS "roomTypeRules",
           COALESCE(NULLIF(BTRIM(r.description), ''), NULLIF(BTRIM(rt.description), '')) AS description,
           COALESCE(
             (
@@ -210,6 +298,24 @@ export class PublicCatalogService {
             '[]'::json
           ) AS amenities,
           r.floor, r.view_type AS "viewType", r.room_type_id AS "roomTypeId",
+          COALESCE((
+            SELECT json_agg(json_build_object(
+              'id', images.id, 'sourceUrl', images.source_url, 'objectKey', images.object_key,
+              'sortOrder', images.sort_order, 'isPrimary', images.is_primary, 'createdAt', images.created_at
+            ) ORDER BY images.sort_order, images.created_at, images.id)
+            FROM room_images images
+            WHERE images.tenant_id = ${tenantId}::uuid AND images.property_id = ${propertyId}::uuid
+              AND images.room_id = r.id
+          ), '[]'::json) AS "roomImageRecords",
+          COALESCE((
+            SELECT json_agg(json_build_object(
+              'id', images.id, 'sourceUrl', images.source_url, 'objectKey', images.object_key,
+              'sortOrder', images.sort_order, 'isPrimary', images.is_primary, 'createdAt', images.created_at
+            ) ORDER BY images.sort_order, images.created_at, images.id)
+            FROM room_type_images images
+            WHERE images.tenant_id = ${tenantId}::uuid AND images.property_id = ${propertyId}::uuid
+              AND images.room_type_id = r.room_type_id
+          ), '[]'::json) AS "roomTypeImageRecords",
           NOT EXISTS (
             SELECT 1
             FROM room_availability ra
@@ -243,7 +349,7 @@ export class PublicCatalogService {
           AND NOT EXISTS (
             SELECT 1
             FROM availability_blocks ab
-            WHERE ab.tenant_id = ${tenantId}::uuid
+            WHERE ab.lifecycle IN ('Active','Scheduled') AND ab.tenant_id = ${tenantId}::uuid
               AND ab.property_id = ${propertyId}::uuid
               AND ab.starts_on < ${range.endsOn}::date
               AND ab.ends_on > ${range.startsOn}::date
@@ -268,14 +374,34 @@ export class PublicCatalogService {
               )
           ) AS "isAvailable"
         FROM rooms r
-        JOIN properties p ON p.tenant_id = r.tenant_id AND p.id = r.property_id
         JOIN room_types rt ON rt.tenant_id = r.tenant_id AND rt.property_id = r.property_id AND rt.id = r.room_type_id
         WHERE r.tenant_id = ${tenantId}::uuid AND r.property_id = ${propertyId}::uuid
+          AND r.is_active = true AND rt.status = 'PUBLISHED'::"RoomTypeStatus"
         ORDER BY r.created_at
       `;
       const roomsByType = new Map<string, PublicCatalogRoom[]>();
-      for (const { roomTypeId, ...room } of rooms)
-        roomsByType.set(roomTypeId, [...(roomsByType.get(roomTypeId) ?? []), room]);
+      for (const {
+        roomTypeId,
+        roomImageRecords,
+        roomTypeImageRecords,
+        roomTypeRules,
+        rules: roomRules,
+        ...room
+      } of roomRows) {
+        const presentation = roomImagePresentation(
+          roomImageRecords ?? [],
+          roomTypeImageRecords ?? [],
+          (key) => this.storage.publicUrl(key),
+        );
+        const houseRules = resolveEffectiveHouseRules(roomRules, roomTypeRules);
+        const publicRoom = {
+          ...room,
+          rules: houseRules.effectiveRules,
+          rulesSource: houseRules.rulesSource,
+          ...presentation,
+        };
+        roomsByType.set(roomTypeId, [...(roomsByType.get(roomTypeId) ?? []), publicRoom]);
+      }
       return {
         bookingMode: property.bookingMode,
         roomTypes: roomTypes.map((roomType) => ({

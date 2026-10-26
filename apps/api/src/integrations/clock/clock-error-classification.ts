@@ -20,6 +20,13 @@ export type ClockErrorCategory =
 
 export interface ClockClassifiedError extends ResultError {
   category: ClockErrorCategory;
+  /** For a 403, the name of the Clock right the API user lacks (for example pms_api_rate_plans_index). */
+  missingRight?: string;
+}
+
+/** Clock words a missing right as "The User doesn't have <right> right". */
+export function extractMissingRight(message: string | undefined): string | undefined {
+  return message?.match(/doesn.t have (\S+) right/i)?.[1];
 }
 
 /**
@@ -38,8 +45,11 @@ export function classifyClockHttpResponse(status: number, body: unknown): ClockC
 
   // CONFIRMED_IN_SANDBOX: 403 with {"error":"The User doesn't have <right>"}
   // once Digest auth itself succeeded — an authenticated-but-forbidden case.
-  if (status === 403)
-    return build('authorization', message ?? 'The Clock API user lacks this right.', false);
+  if (status === 403) {
+    const error = build('authorization', message ?? 'The Clock API user lacks this right.', false);
+    const missingRight = extractMissingRight(message);
+    return missingRight ? { ...error, missingRight } : error;
+  }
 
   // CONFIRMED_IN_SANDBOX: 400 with a Contract validation error body on
   // /rates_availability when required params are missing.

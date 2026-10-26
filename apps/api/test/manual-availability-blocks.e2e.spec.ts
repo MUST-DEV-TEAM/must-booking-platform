@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 
 import { INestApplication } from '@nestjs/common';
@@ -136,12 +137,14 @@ describe('manual availability blocks', () => {
       .expect(201);
     const ratePlan = await request(app.getHttpServer())
       .post(`${propertyUrl}/rate-plans`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ name: 'Flexible', currency: 'EUR' })
       .expect(201);
     for (const roomTypeId of [firstType.body.id, secondType.body.id])
       await request(app.getHttpServer())
         .post(`${propertyUrl}/rate-plans/${ratePlan.body.id}/rules`)
+        .set('Idempotency-Key', globalThis.crypto.randomUUID())
         .set('Cookie', cookie)
         .send({ roomTypeId, startsOn: null, endsOn: null, amount: '100.00' })
         .expect(201);
@@ -156,6 +159,22 @@ describe('manual availability blocks', () => {
         .post(`${propertyUrl}/availability-blocks`)
         .set('Cookie', cookie)
         .send(body);
+
+    await block({ startsOn: '2000-01-01', endsOn: '2000-01-02', all: true })
+      .expect(400)
+      .expect((response) => expect(response.body.code).toBe('BLOCK_IN_PAST'));
+    await block({ startsOn: '2036-10-12', endsOn: '2036-10-10', all: true })
+      .expect(400)
+      .expect((response) => expect(response.body.code).toBe('INVALID_RANGE'));
+    await request(app.getHttpServer())
+      .get(`${propertyUrl}/booking-rules/evaluate`)
+      .set('Cookie', cookie)
+      .query({ startsOn: '2000-01-01', endsOn: '2000-01-02' })
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.booking.errors[0].code).toBe('CHECK_IN_PAST');
+        expect(response.body.block.errors[0].code).toBe('BLOCK_IN_PAST');
+      });
 
     await block({
       startsOn: '2036-10-10',
@@ -315,6 +334,7 @@ describe('manual availability blocks', () => {
       .expect(201);
     await request(app.getHttpServer())
       .put(`${pooledUrl}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', cookie)
       .send({
         roomTypeId: pooledType.body.id,
@@ -355,6 +375,7 @@ describe('manual availability blocks', () => {
 
     await request(app.getHttpServer())
       .put(`${pooledUrl}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', cookie)
       .send({
         roomTypeId: pooledType.body.id,

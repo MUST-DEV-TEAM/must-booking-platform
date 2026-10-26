@@ -1,4 +1,12 @@
-import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { bookingContactSql } from '../booking/booking-contact';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+  Optional,
+} from '@nestjs/common';
 import { Queue, Worker } from 'bullmq';
 import IORedis from 'ioredis';
 import type { MailBrand } from '@must/domain-contracts';
@@ -6,7 +14,14 @@ import type { MailBrand } from '@must/domain-contracts';
 import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant-database.service';
 import { renderTemplate, savedTemplate, stayTemplateValues } from './email-templates';
 import { MailDeliveryService } from './mail-delivery.service';
-import { scheduledGuestSettings, staffRecipients } from './notification-recipients';
+import { EmailSenderVerificationService } from '../tenancy/email-sender-verification.service';
+import { EmailTransportJournal } from './email-transport-journal';
+import { EmailSenderTestService } from '../tenancy/email-sender-test.service';
+import {
+  scheduledGuestSettings,
+  staffDeliveryGroups,
+  staffRecipients,
+} from './notification-recipients';
 import { reviewButtons, storedReviewLinks } from './review-links';
 import {
   ownerDailySummaryEmail,
@@ -27,6 +42,9 @@ const POST_STAY_HOUR = 10;
 type Context = { tenantId: string; propertyId: string };
 type PropertyRow = {
   name: string;
+  brandColour: string | null;
+  emailFooterText: string | null;
+  termsUrl: string | null;
   logoUrl: string | null;
   supportEmail: string | null;
   phone: string | null;
@@ -48,6 +66,7 @@ type StayRow = {
   paymentMethod: string;
   amount: string;
   currency: string;
+  nightlyRates: { date: string; amount: string }[] | null;
 };
 
 /** The calendar date and hour right now in a time zone (UTC if the zone is unknown). */
@@ -93,6 +112,15 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
   constructor(
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
     @Inject(MailDeliveryService) private readonly delivery: MailDeliveryService,
+    @Optional()
+    @Inject(EmailSenderVerificationService)
+    private readonly senderProofs?: EmailSenderVerificationService,
+    @Optional()
+    @Inject(EmailTransportJournal)
+    private readonly transportJournal?: EmailTransportJournal,
+    @Optional()
+    @Inject(EmailSenderTestService)
+    private readonly senderTests?: EmailSenderTestService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -133,6 +161,28 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
       const context = { tenantId: property.tenantId, propertyId: property.propertyId };
       const local = localNow(now, property.timezone);
       try {
+        await this.transportJournal?.cleanup(context);
+      } catch {
+        this.logger.warn(
+          `Expired email transport payload cleanup failed for property ${property.propertyId}.`,
+        );
+      }
+      try {
+        await this.delivery.recoverSenderFailures(context);
+      } catch {
+        this.logger.warn(
+          `Owner sender-alert publication is pending recovery for property ${property.propertyId}.`,
+        );
+      }
+      try {
+        await this.senderTests?.recover(context);
+      } catch {
+        this.logger.warn(
+          `Custom sender-test publication is pending recovery for property ${property.propertyId}.`,
+        );
+      }
+      try {
+        await this.senderProofs?.recover(context);
         if (local.hour >= OWNER_SUMMARY_HOUR)
           await this.sendOwnerSummary(context, property.timezone || 'UTC', local.date);
         if (local.hour >= PRE_ARRIVAL_HOUR)
@@ -158,10 +208,10 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
       const rows = await tx.$queryRaw<StayRow[]>`
         SELECT b.id::text, COALESCE(b.order_reference, b.id::text) AS "groupKey",
           COALESCE(b.order_reference, b.external_reference) AS reference,
-          g.email, g.first_name AS "firstName", g.last_name AS "lastName",
+          ${bookingContactSql.email} AS email, ${bookingContactSql.firstName} AS "firstName", ${bookingContactSql.lastName} AS "lastName",
           b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn",
           COALESCE(r.name, rt.name) AS "roomName", (b.adults + b.children) AS "guestCount",
-          b.payment_method::text AS "paymentMethod", b.total_amount::text AS amount, rp.currency
+          b.payment_method::text AS "paymentMethod", b.total_amount::text AS amount, rp.currency,b.nightly_rates AS "nightlyRates"
         FROM bookings b
         JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
         JOIN rate_plans rp ON rp.tenant_id = b.tenant_id AND rp.property_id = b.property_id AND rp.id = b.rate_plan_id
@@ -171,7 +221,7 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
           AND b.status = 'CONFIRMED'::"BookingStatus" AND b.starts_on = ${arrival}::date
           AND b.external_reference NOT LIKE 'CLOCK-%'
           AND (b.created_at AT TIME ZONE ${timeZone})::date < ${today}::date
-          AND COALESCE(g.email, '') <> ''
+          AND COALESCE(${bookingContactSql.email}, '') <> ''
         ORDER BY "groupKey", b.order_room_number NULLS FIRST, b.id
       `;
       if (!rows.length) return null;
@@ -188,6 +238,11 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
         work.template,
         stayTemplateValues({
           guestName: stay.guestName,
+          roomNightlyRates: stay.roomNightlyRates,
+          language: work.template?.language,
+          checkInTime: work.brand.checkInTime ?? undefined,
+          hotelContact: work.brand.supportEmail ?? work.brand.phone ?? undefined,
+          directions: work.brand.address ?? undefined,
           hotelName: work.brand.name || 'the hotel',
           reference: stay.reference,
           startsOn: stay.startsOn,
@@ -218,10 +273,10 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
       const rows = await tx.$queryRaw<StayRow[]>`
         SELECT b.id::text, COALESCE(b.order_reference, b.id::text) AS "groupKey",
           COALESCE(b.order_reference, b.external_reference) AS reference,
-          g.email, g.first_name AS "firstName", g.last_name AS "lastName",
+          ${bookingContactSql.email} AS email, ${bookingContactSql.firstName} AS "firstName", ${bookingContactSql.lastName} AS "lastName",
           b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn",
           COALESCE(r.name, rt.name) AS "roomName", (b.adults + b.children) AS "guestCount",
-          b.payment_method::text AS "paymentMethod", b.total_amount::text AS amount, rp.currency
+          b.payment_method::text AS "paymentMethod", b.total_amount::text AS amount, rp.currency,b.nightly_rates AS "nightlyRates"
         FROM bookings b
         JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
         JOIN rate_plans rp ON rp.tenant_id = b.tenant_id AND rp.property_id = b.property_id AND rp.id = b.rate_plan_id
@@ -231,7 +286,7 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
           AND b.status = 'CONFIRMED'::"BookingStatus" AND b.ends_on = ${departure}::date
           AND b.external_reference NOT LIKE 'CLOCK-%'
           AND COALESCE(b.pms_stay_status, '') <> 'no_show'
-          AND COALESCE(g.email, '') <> ''
+          AND COALESCE(${bookingContactSql.email}, '') <> ''
         ORDER BY "groupKey", b.order_room_number NULLS FIRST, b.id
       `;
       if (!rows.length) return null;
@@ -253,6 +308,11 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
         work.template,
         stayTemplateValues({
           guestName: stay.guestName,
+          roomNightlyRates: stay.roomNightlyRates,
+          language: work.template?.language,
+          checkInTime: work.brand.checkInTime ?? undefined,
+          hotelContact: work.brand.supportEmail ?? work.brand.phone ?? undefined,
+          directions: work.brand.address ?? undefined,
           hotelName: work.brand.name || 'the hotel',
           reference: stay.reference,
           startsOn: stay.startsOn,
@@ -274,7 +334,9 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
 
   async sendOwnerSummary(context: Context, timeZone: string, today: string): Promise<void> {
     const work = await this.database.withTenantTransaction(context, async (tx) => {
-      const recipients = await staffRecipients(tx, context, 'owner_daily_summary');
+      const recipients = staffDeliveryGroups(
+        await staffRecipients(tx, context, 'owner_daily_summary'),
+      );
       if (!recipients.length) return null;
       const pending = [];
       for (const recipient of recipients) {
@@ -286,16 +348,30 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
         pending,
         brand: await this.brand(tx, context),
         summary: await this.ownerSummary(tx, context, timeZone, today),
+        template: await savedTemplate(tx, context, 'owner_daily_summary'),
       };
     });
     if (!work) return;
     const dashboardUrl = this.dashboardUrl();
     for (const recipient of work.pending) {
-      const email = ownerDailySummaryEmail(work.summary, recipient.email, work.brand, dashboardUrl);
+      const message = renderTemplate('owner_daily_summary', work.template, {
+        hotel_name: work.brand.name,
+        hotel_contact: work.brand.supportEmail ?? work.brand.phone ?? 'Contact the hotel',
+        summary_date: today,
+        summary: `${work.summary.arrivals.length} scheduled arrivals; ${work.summary.departures.length} scheduled departures; ${work.summary.inHouse} in-house bookings.`,
+      });
+      const email = ownerDailySummaryEmail(
+        work.summary,
+        recipient.email,
+        work.brand,
+        dashboardUrl,
+        message,
+      );
       await this.delivery.dispatch(
         'rendered',
         { ...email, idempotencyKey: recipient.key },
         context,
+        { recipientEnvelope: recipient.envelope },
       );
     }
   }
@@ -312,7 +388,7 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
     >`
       SELECT CASE WHEN b.starts_on = ${today}::date THEN 'arrival'
           WHEN b.ends_on = ${today}::date THEN 'departure' ELSE 'in_house' END AS kind,
-        COALESCE(NULLIF(TRIM(CONCAT_WS(' ', g.first_name, g.last_name)), ''), g.email, b.external_reference) AS "guestName",
+        COALESCE(NULLIF(TRIM(CONCAT_WS(' ', ${bookingContactSql.firstName}, ${bookingContactSql.lastName})), ''), ${bookingContactSql.email}, b.external_reference) AS "guestName",
         COALESCE(r.name, rt.name) AS "roomName", (b.ends_on - b.starts_on) AS nights
       FROM bookings b
       LEFT JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
@@ -376,6 +452,11 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
         startsOn: first.startsOn,
         endsOn: first.endsOn,
         rooms: group.map((row) => ({ roomName: row.roomName, guestCount: Number(row.guestCount) })),
+        roomNightlyRates: group.map((row) => ({
+          roomName: row.roomName,
+          currency: row.currency,
+          nightlyRates: row.nightlyRates,
+        })),
         dueAtHotel: payAtHotel
           ? { amount: (total / 100).toFixed(2), currency: first.currency }
           : null,
@@ -388,7 +469,7 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
     context: Context,
   ): Promise<MailBrand & { checkInTime: string | null }> {
     const rows = await tx.$queryRaw<PropertyRow[]>`
-      SELECT name, logo_url AS "logoUrl", support_email AS "supportEmail", phone,
+      SELECT name, brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",logo_url AS "logoUrl", support_email AS "supportEmail", phone,
         public_website_origin AS "websiteUrl", address, check_in_time AS "checkInTime"
       FROM properties WHERE tenant_id = ${context.tenantId}::uuid AND id = ${context.propertyId}::uuid
     `;

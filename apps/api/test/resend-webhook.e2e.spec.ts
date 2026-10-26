@@ -1,3 +1,4 @@
+import { cleanupTenant } from './helpers/cleanup-tenant';
 import { createHmac, randomUUID } from 'node:crypto';
 
 import { PrismaClient } from '@prisma/client';
@@ -90,11 +91,45 @@ describe('Resend delivery webhook (real Postgres)', () => {
 
   afterAll(async () => {
     await migrationPrisma.$executeRaw`DELETE FROM "email_messages" WHERE "tenant_id" = ${tenantId}::uuid`;
-    await migrationPrisma.$executeRaw`DELETE FROM "properties" WHERE "tenant_id" = ${tenantId}::uuid`;
-    await migrationPrisma.$executeRaw`DELETE FROM "organizations" WHERE "id" = ${tenantId}::uuid`;
+    await cleanupTenant(migrationPrisma, tenantId);
     process.env.RESEND_WEBHOOK_SECRET = previousSecret;
     await migrationPrisma.$disconnect();
     await database.$disconnect();
+  });
+
+  it('serializes concurrent recipient outcomes and suppresses only the proven bounced BCC address', async () => {
+    const id = await seed('SENT');
+    const envelope = {
+      to: ['to@example.test'],
+      cc: ['copy@example.test'],
+      bcc: ['private@example.test'],
+    };
+    await migrationPrisma.$executeRaw`UPDATE email_messages SET recipient_email='to@example.test',recipient_envelope=${JSON.stringify(envelope)}::jsonb WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND provider_message_id=${id}`;
+    await Promise.all([
+      signedCall(event('email.delivered', id, { to: ['to@example.test'] })),
+      signedCall(event('email.delivered', id, { to: ['copy@example.test'] })),
+    ]);
+    expect((await row(id)).status).toBe('SENT');
+    await signedCall(
+      event('email.bounced', id, { to: ['private@example.test'], bounce: { type: 'Permanent' } }),
+    );
+    expect((await row(id)).status).toBe('BOUNCED');
+    const [result] = await migrationPrisma.$queryRaw<
+      { outcomes: Record<string, string> }[]
+    >`SELECT recipient_outcomes AS outcomes FROM email_messages WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND provider_message_id=${id}`;
+    expect(result.outcomes).toEqual({
+      'to@example.test': 'DELIVERED',
+      'copy@example.test': 'DELIVERED',
+      'private@example.test': 'BOUNCED',
+    });
+    const suppressed = await migrationPrisma.$queryRaw<
+      { recipient: string }[]
+    >`SELECT recipient FROM email_suppressions WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND active`;
+    expect(suppressed).toContainEqual({ recipient: 'private@example.test' });
+    expect(suppressed).not.toContainEqual({ recipient: 'to@example.test' });
+    await signedCall(event('email.delivered', id, { to: ['outsider@example.test'] }));
+    await signedCall(event('email.delivered', id, {}));
+    expect((await row(id)).status).toBe('BOUNCED');
   });
 
   it('rejects a bad signature and changes nothing', async () => {

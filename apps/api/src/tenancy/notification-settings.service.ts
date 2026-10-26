@@ -1,3 +1,4 @@
+import { recipientEnvelope } from '../mail/recipient-envelope';
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type {
   NotificationRecipientRule,
@@ -23,6 +24,7 @@ const EMAIL = /^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[^\s@<>(),;:"]+$/;
 
 type RuleRow = {
   topic: string;
+  channel?: 'TO' | 'CC' | 'BCC';
   target: NotificationRecipientRule['target'];
   membershipRole: 'OWNER' | 'ADMIN' | null;
   roleTemplateId: string | null;
@@ -32,6 +34,7 @@ type RuleRow = {
 
 /** Whether this person skips the non-urgent staff emails, and which ones those are. */
 export type EmailPreferences = {
+  version: number;
   muteOptionalEmails: boolean;
   optionalEmails: Array<{ topic: string; label: string }>;
 };
@@ -58,7 +61,7 @@ export class NotificationSettingsService {
     const mute = value.muteOptionalEmails;
     return this.database.withTenantTransaction({ tenantId }, async (tx) => {
       await tx.$executeRaw`
-        UPDATE tenant_memberships SET mute_optional_emails = ${mute}, updated_at = now()
+        UPDATE tenant_memberships SET mute_optional_emails = ${mute}, email_preferences_version=email_preferences_version+1, updated_at = now()
         WHERE tenant_id = ${tenantId}::uuid AND user_id = ${userId}::uuid
       `;
       return this.preferences(tx, tenantId, userId);
@@ -70,14 +73,15 @@ export class NotificationSettingsService {
     tenantId: string,
     userId: string,
   ): Promise<EmailPreferences> {
-    const rows = await tx.$queryRaw<Array<{ mute: boolean }>>`
-      SELECT mute_optional_emails AS mute FROM tenant_memberships
+    const rows = await tx.$queryRaw<Array<{ mute: boolean; version: number }>>`
+      SELECT mute_optional_emails AS mute,email_preferences_version AS version FROM tenant_memberships
       WHERE tenant_id = ${tenantId}::uuid AND user_id = ${userId}::uuid
     `;
     if (!rows[0]) throw new NotFoundException('Membership was not found.');
     const topics = Object.keys(NOTIFICATION_TOPICS) as NotificationTopic[];
     return {
       muteOptionalEmails: rows[0].mute,
+      version: rows[0].version,
       optionalEmails: topics
         .filter(isOptionalStaffTopic)
         .map((topic) => ({ topic, label: NOTIFICATION_TOPICS[topic].label })),
@@ -95,18 +99,46 @@ export class NotificationSettingsService {
         ORDER BY kind, name
       `;
       const staff = await tx.$queryRaw<NotificationSettingsResponse['options']['staff']>`
-        SELECT tm.user_id::text AS "userId", u.email, tm.role::text AS role
+        SELECT tm.user_id::text AS "userId", u.email, tm.role::text AS role,
+          COALESCE(NULLIF(trim(concat_ws(' ', u.first_name, u.last_name)), ''), u.email) AS name
         FROM tenant_memberships tm
         JOIN users u ON u.id = tm.user_id
         WHERE tm.tenant_id = ${tenantId}::uuid
           AND (tm.role IN ('OWNER', 'ADMIN') OR EXISTS (
             SELECT 1 FROM property_staff_assignments psa
             WHERE psa.tenant_id = tm.tenant_id AND psa.property_id = ${propertyId}::uuid
-              AND psa.user_id = tm.user_id
+              AND psa.user_id = tm.user_id AND psa.suspended_at IS NULL
           ))
         ORDER BY tm.role, u.email
       `;
       return { topics, options: { roleTemplates, staff } };
+    });
+  }
+
+  /** Read-only resolution of an unsaved draft, using the production sending resolver. */
+  preview(tenantId: string, propertyId: string, topicParam: string, body: unknown) {
+    if (!isNotificationTopic(topicParam)) throw new NotFoundException('Unknown notification.');
+    const input = this.input(topicParam, body);
+    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      await this.requireTargetsBelongHere(tx, tenantId, propertyId, input.rules);
+      const recipients = NOTIFICATION_TOPICS[topicParam].staff
+        ? await staffRecipients(tx, { tenantId, propertyId }, topicParam, input)
+        : [];
+      const suppressions = recipients.length
+        ? await tx.$queryRaw<Array<{ email: string; reason: string }>>`
+        SELECT recipient AS email, reason FROM email_suppressions
+        WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND active
+          AND recipient = ANY(${recipients.map(({ email }) => email.toLowerCase())}::text[])
+      `
+        : [];
+      const blocked = new Set(suppressions.map((row) => row.email.toLowerCase()));
+      return {
+        guest: NOTIFICATION_TOPICS[topicParam].guest && input.guestEnabled,
+        staff: recipients
+          .filter(({ email }) => !blocked.has(email.toLowerCase()))
+          .map(({ email, channel }) => ({ email, ...(channel ? { channel } : {}) })),
+        suppressed: suppressions,
+      };
     });
   }
 
@@ -118,11 +150,57 @@ export class NotificationSettingsService {
     body: unknown,
   ): Promise<NotificationTopicSettings> {
     if (!isNotificationTopic(topicParam)) throw new NotFoundException('Unknown notification.');
+    if (
+      body &&
+      typeof body === 'object' &&
+      'rules' in body &&
+      Array.isArray(body.rules) &&
+      body.rules.some((rule) => rule && typeof rule === 'object' && 'channel' in rule)
+    )
+      throw new BadRequestException(
+        'Use the versioned email-configuration/topics route with an Idempotency-Key to save To/CC/BCC.',
+      );
+    const topic = topicParam;
+    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      await tx.$queryRaw`SELECT id FROM properties WHERE tenant_id=${tenantId}::uuid AND id=${propertyId}::uuid FOR UPDATE`;
+      const result = await this.updateInTransaction(
+        tx,
+        tenantId,
+        propertyId,
+        actorUserId,
+        topic,
+        body,
+      );
+      await tx.$executeRaw`UPDATE properties SET email_configuration_version=email_configuration_version+1 WHERE tenant_id=${tenantId}::uuid AND id=${propertyId}::uuid`;
+      return result;
+    });
+  }
+
+  async updateInTransaction(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+    actorUserId: string,
+    topicParam: string,
+    body: unknown,
+  ): Promise<NotificationTopicSettings> {
+    if (!isNotificationTopic(topicParam)) throw new NotFoundException('Unknown notification.');
     const topic = topicParam;
     const input = this.input(topic, body);
-    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      await this.requireTargetsBelongHere(tx, tenantId, propertyId, input.rules);
-      await tx.$executeRaw`
+    await this.requireTargetsBelongHere(tx, tenantId, propertyId, input.rules);
+    if (input.customStaffRecipients && input.staffEnabled && input.rules.length) {
+      const resolved = await staffRecipients(tx, { tenantId, propertyId }, topic, input);
+      if (resolved.length) {
+        try {
+          recipientEnvelope(resolved);
+        } catch (error) {
+          throw new BadRequestException(
+            error instanceof Error ? error.message : 'Invalid staff routing.',
+          );
+        }
+      }
+    }
+    await tx.$executeRaw`
         INSERT INTO notification_topic_settings
           (tenant_id, property_id, topic, guest_enabled, staff_enabled, custom_staff_recipients, days_offset)
         VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${topic}, ${input.guestEnabled},
@@ -134,32 +212,31 @@ export class NotificationSettingsService {
           days_offset = EXCLUDED.days_offset,
           updated_at = CURRENT_TIMESTAMP
       `;
-      await tx.$executeRaw`
+    await tx.$executeRaw`
         DELETE FROM notification_recipient_rules
         WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND topic = ${topic}
       `;
-      for (const rule of input.rules) {
-        await tx.$executeRaw`
+    for (const rule of input.rules) {
+      await tx.$executeRaw`
           INSERT INTO notification_recipient_rules
-            (tenant_id, property_id, topic, target, membership_role, role_template_id, user_id, email)
+            (tenant_id, property_id, topic, target, membership_role, role_template_id, user_id, email, channel)
           VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${topic}, ${rule.target}::"NotificationRecipientTarget",
             ${rule.target === 'MEMBERSHIP_ROLE' ? rule.membershipRole : null}::"TenantMembershipRole",
             ${rule.target === 'ROLE_TEMPLATE' ? rule.roleTemplateId : null}::uuid,
             ${rule.target === 'STAFF_USER' ? rule.userId : null}::uuid,
-            ${rule.target === 'EMAIL' ? rule.email : null})
+            ${rule.target === 'EMAIL' ? rule.email : null}, ${rule.channel ?? null})
         `;
-      }
-      await this.audit.recordInTransaction(tx, {
-        tenantId,
-        propertyId,
-        actorUserId,
-        action: 'notification_settings.updated',
-        targetType: 'notification_topic',
-        targetId: topic,
-        details: { ...input },
-      });
-      return this.topicSettings(tx, tenantId, propertyId, topic);
+    }
+    await this.audit.recordInTransaction(tx, {
+      tenantId,
+      propertyId,
+      actorUserId,
+      action: 'notification_settings.updated',
+      targetType: 'notification_topic',
+      targetId: topic,
+      details: { ...input },
     });
+    return this.topicSettings(tx, tenantId, propertyId, topic);
   }
 
   private async topicSettings(
@@ -185,7 +262,7 @@ export class NotificationSettingsService {
     `;
     const rows = await tx.$queryRaw<RuleRow[]>`
       SELECT topic, target::text AS target, membership_role::text AS "membershipRole",
-        role_template_id::text AS "roleTemplateId", user_id::text AS "userId", email
+        role_template_id::text AS "roleTemplateId", user_id::text AS "userId", email, channel
       FROM notification_recipient_rules
       WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND topic = ${topic}
       ORDER BY created_at, id
@@ -198,6 +275,8 @@ export class NotificationSettingsService {
       guestEnabled: definition.guest && (settings[0]?.guestEnabled ?? true),
       staffEnabled: definition.staff && (settings[0]?.staffEnabled ?? true),
       customStaffRecipients: settings[0]?.custom ?? false,
+      staffDeliveryMode:
+        settings[0]?.custom && rows.some((row) => row.channel) ? 'HEADERS' : 'PRIVATE',
       daysOffset: days
         ? {
             value: settings[0]?.daysOffset ?? days.default,
@@ -206,11 +285,11 @@ export class NotificationSettingsService {
             label: days.label,
           }
         : null,
-      rules: rows.map((row) => this.rule(row)),
+      rules: rows.map((row) => ({ ...this.rule(row), channel: row.channel ?? 'TO' })),
       staffRecipients: definition.staff
-        ? (await staffRecipients(tx, { tenantId, propertyId }, topic)).map(({ email }) => ({
-            email,
-          }))
+        ? (await staffRecipients(tx, { tenantId, propertyId }, topic)).map(
+            ({ email, channel }) => ({ email, ...(channel ? { channel } : {}) }),
+          )
         : [],
     };
   }
@@ -265,7 +344,16 @@ export class NotificationSettingsService {
     const seen = new Set<string>();
     const rules: NotificationRecipientRule[] = [];
     for (const raw of value.rules) {
-      const rule = this.parseRule(raw);
+      const channel = raw && typeof raw === 'object' && 'channel' in raw ? raw.channel : undefined;
+      if (
+        channel !== undefined &&
+        (typeof channel !== 'string' || !['TO', 'CC', 'BCC'].includes(channel))
+      )
+        throw new BadRequestException('Recipient channel must be TO, CC or BCC.');
+      const rule = {
+        ...this.parseRule(raw),
+        ...(channel ? { channel: channel as 'TO' | 'CC' | 'BCC' } : {}),
+      };
       const key = JSON.stringify(rule);
       if (seen.has(key)) continue;
       seen.add(key);
@@ -326,8 +414,8 @@ export class NotificationSettingsService {
       }
       if (rule.target === 'STAFF_USER') {
         const found = await tx.$queryRaw<unknown[]>`
-          SELECT 1 FROM tenant_memberships
-          WHERE tenant_id = ${tenantId}::uuid AND user_id = ${rule.userId}::uuid
+          SELECT 1 FROM tenant_memberships tm
+          WHERE tm.tenant_id = ${tenantId}::uuid AND tm.user_id = ${rule.userId}::uuid AND (tm.role IN ('OWNER','ADMIN') OR EXISTS(SELECT 1 FROM property_staff_assignments psa WHERE psa.tenant_id=${tenantId}::uuid AND psa.property_id=${propertyId}::uuid AND psa.user_id=tm.user_id AND psa.suspended_at IS NULL))
         `;
         if (!found.length)
           throw new BadRequestException('That person is not on this hotel account.');

@@ -1,20 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
 
+import { BUILT_IN_ROLES, CAPABILITY_CATALOG } from './capability-catalog';
 import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
 
-const builtInCapabilities = [
-  ['staff.invite', 'Invite property staff'],
-  ['staff.manage_permissions', 'Manage property-staff permissions'],
-  ['settings.manage', 'Manage property settings'],
-  ['reports.view', 'View property reports'],
-  ['guests.manage', 'Manage guests'],
-  ['bookings.manage', 'Manage bookings'],
-  ['calendar.view', 'View property calendar'],
-  ['accommodations.manage', 'Manage accommodations'],
-  ['photos.manage', 'Manage room and property photos'],
-  ['rates.manage', 'Manage rates and pricing'],
-  ['payments.refund', 'Refund payments'],
-] as const;
+const builtInCapabilities = CAPABILITY_CATALOG.map((entry) => [entry.key, entry.label] as const);
 
 @Injectable()
 export class PropertyRoleTemplatesService {
@@ -103,9 +92,9 @@ export class PropertyRoleTemplatesService {
           ON CONFLICT ("tenant_id", "key") DO NOTHING
         `;
     }
-    for (const name of ['Property Manager', 'Front Desk', 'Finance']) {
+    for (const role of BUILT_IN_ROLES) {
       await tx.$executeRaw`
-          INSERT INTO "property_role_templates" ("tenant_id", "property_id", "name", "kind") VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${name}, 'BUILT_IN')
+          INSERT INTO "property_role_templates" ("tenant_id", "property_id", "name", "kind", "description") VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${role.name}, 'BUILT_IN', ${role.description})
           ON CONFLICT ("tenant_id", "property_id", "name") DO NOTHING
         `;
     }
@@ -116,16 +105,8 @@ export class PropertyRoleTemplatesService {
         SELECT "id", "key" FROM "capabilities" WHERE "tenant_id" = ${tenantId}::uuid
       `;
     for (const template of templates) {
-      const allowed =
-        template.name === 'Property Manager'
-          ? capabilities
-          : template.name === 'Finance'
-            ? capabilities.filter((capability) =>
-                ['reports.view', 'payments.refund'].includes(capability.key),
-              )
-            : capabilities.filter((capability) =>
-                ['bookings.manage', 'calendar.view', 'guests.manage'].includes(capability.key),
-              );
+      const wanted = BUILT_IN_ROLES.find((role) => role.name === template.name)?.capabilities ?? [];
+      const allowed = capabilities.filter((capability) => wanted.includes(capability.key));
       for (const capability of allowed) {
         await tx.$executeRaw`
             INSERT INTO "property_role_template_capabilities" ("tenant_id", "property_id", "role_template_id", "capability_id") VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${template.id}::uuid, ${capability.id}::uuid)

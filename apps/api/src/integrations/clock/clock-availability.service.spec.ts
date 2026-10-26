@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 
-import { ClockAvailabilityService } from './clock-availability.service';
+import { ClockAvailabilityService, rateOfferLabel } from './clock-availability.service';
 
 const credentials = { host: 'h', accountId: '1', subscriptionId: '2', apiUser: 'u', apiKey: 'k' };
 const query = { roomTypeId: 'local-rt-1', startsOn: '2026-08-10', endsOn: '2026-08-12' };
@@ -56,7 +56,7 @@ function makeService(
     rateRankings as never,
     bookingConsistency as never,
   );
-  return { service, client, connections, rateRankings, bookingConsistency };
+  return { service, client, connections, rateRankings, bookingConsistency, rateLimiter };
 }
 
 describe('ClockAvailabilityService.isAvailableForBooking', () => {
@@ -605,7 +605,9 @@ describe('ClockAvailabilityService.getAvailabilityCalendar', () => {
 
     expect(result).toEqual({
       ok: true,
-      value: expect.arrayContaining([{ date: '2026-08-10', isAvailable: false, status: 'closed' }]),
+      value: expect.arrayContaining([
+        { date: '2026-08-10', isAvailable: false, status: 'closed', availableUnits: 1 },
+      ]),
     });
   });
 
@@ -1105,8 +1107,8 @@ describe('ClockAvailabilityService.getQuote', () => {
     expect(result).toEqual({
       ok: false,
       error: {
-        category: 'configuration',
-        code: 'clock_configuration',
+        category: 'validation',
+        code: 'clock_rate_unavailable',
         message: 'Clock has no available price for the requested stay.',
         retryable: false,
       },
@@ -1425,7 +1427,8 @@ describe('ClockAvailabilityService.getQuotesForStay', () => {
           },
         ],
       });
-    const { service } = makeService({ client: { request } });
+    const { service, rateLimiter } = makeService({ client: { request } });
+    rateLimiter.consume.mockResolvedValueOnce({ allowed: false, retryAfterSeconds: 1 });
 
     const stay = [
       {
@@ -1447,7 +1450,11 @@ describe('ClockAvailabilityService.getQuotesForStay', () => {
         currency: 'EUR',
       },
     ];
-    const result = await service.getQuotesForStay('t1', 'p1', stay);
+    const [result, simultaneous] = await Promise.all([
+      service.getQuotesForStay('t1', 'p1', stay),
+      service.getQuotesForStay('t1', 'p1', [...stay].reverse()),
+    ]);
+    expect(simultaneous).toEqual(result);
 
     expect(result).toEqual({
       'local-rt-1': { ok: true, value: { amount: '110.00', currency: 'EUR' } },
@@ -1465,6 +1472,73 @@ describe('ClockAvailabilityService.getQuotesForStay', () => {
     const cached = await service.getQuotesForStay('t1', 'p1', stay);
     expect(cached).toEqual(result);
     expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a display price for hours and shows the last known one when a refresh fails', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-08-01T08:00:00Z'));
+      const rates = {
+        status: 200,
+        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true }],
+      };
+      const request = vi
+        .fn()
+        .mockResolvedValueOnce(rates)
+        .mockResolvedValueOnce({
+          status: 200,
+          body: [
+            {
+              id: 42023,
+              rates: {
+                '69242': [
+                  {
+                    available: true,
+                    room_type_free_rooms: 2,
+                    price: { cents: 11000, currency: 'EUR' },
+                    errors: {},
+                  },
+                ],
+              },
+            },
+          ],
+        });
+      const { service } = makeService({ client: { request } });
+      const stay = [
+        {
+          roomTypeId: 'local-rt-1',
+          externalRoomTypeId: '42023',
+          startsOn: '2026-08-10',
+          endsOn: '2026-08-12',
+          adultCount: 2,
+          childrenCount: 0,
+          currency: 'EUR',
+        },
+      ];
+      const first = await service.getQuotesForStay('t1', 'p1', stay);
+      expect(first['local-rt-1']).toEqual({
+        ok: true,
+        value: { amount: '110.00', currency: 'EUR' },
+      });
+
+      // Two hours later the price is still served from memory: only the room's rate list is read
+      // again, Clock is not asked for prices.
+      vi.setSystemTime(new Date('2026-08-01T10:00:00Z'));
+      request.mockResolvedValueOnce(rates);
+      await service.getQuotesForStay('t1', 'p1', stay);
+      expect(request).toHaveBeenCalledTimes(3);
+
+      // Five hours later the price is refreshed; Clock is down, so the last known price stays.
+      vi.setSystemTime(new Date('2026-08-01T13:00:00Z'));
+      request.mockResolvedValueOnce(rates).mockResolvedValue({ status: 503, body: {} });
+      const refreshed = await service.getQuotesForStay('t1', 'p1', stay);
+      expect(refreshed['local-rt-1']).toEqual({
+        ok: true,
+        value: { amount: '110.00', currency: 'EUR' },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does not share display prices across tenants', async () => {
@@ -1618,8 +1692,9 @@ describe('ClockAvailabilityService.selectRateForStay', () => {
       client: { request: responses() },
       rankOrder: ['803405'],
     }).service;
+    const bookingRequest = responses();
     const bookingService = makeService({
-      client: { request: responses() },
+      client: { request: bookingRequest },
       rankOrder: ['803405'],
     }).service;
     const stay = {
@@ -1629,6 +1704,7 @@ describe('ClockAvailabilityService.selectRateForStay', () => {
       endsOn: '2026-08-12',
       adultCount: 2,
       childrenCount: 1,
+      childrenAges: [2],
     };
 
     const quote = await quoteService.getQuote('t1', 'p1', {
@@ -1637,6 +1713,7 @@ describe('ClockAvailabilityService.selectRateForStay', () => {
       endsOn: stay.endsOn,
       adultCount: stay.adultCount,
       childrenCount: stay.childrenCount,
+      childrenAges: stay.childrenAges,
     });
     const selected = await bookingService.selectRateForStay(credentials, {
       tenantId: 't1',
@@ -1647,12 +1724,289 @@ describe('ClockAvailabilityService.selectRateForStay', () => {
       endsOn: stay.endsOn,
       adultCount: stay.adultCount,
       childrenCount: stay.childrenCount,
+      childrenAges: stay.childrenAges,
     });
 
+    expect(bookingRequest).toHaveBeenLastCalledWith(
+      credentials,
+      expect.objectContaining({
+        query: expect.objectContaining({ 'product_search[children_ages]': ['2'] }),
+      }),
+    );
     expect(quote).toEqual({ ok: true, value: { amount: '325.00', currency: 'EUR' } });
     expect(selected).toEqual({
       ok: true,
       value: { rateId: '803405', total: { amount: '325.00', currency: 'EUR' } },
+    });
+  });
+});
+
+const bedAndBreakfast = { id: 546549, name: 'BB', meals: [{ name: 'Breakfast' }] };
+const fullBoard = {
+  id: 615688,
+  name: 'FB',
+  meals: [{ name: 'Breakfast' }, { name: 'Lunch' }, { name: 'Dinner' }],
+};
+const ratesBody = [
+  {
+    ...bedAndBreakfast,
+    bookable_id: 42023,
+    bookable_type: 'Pms::RoomType',
+    wbe: true,
+    currency: 'EUR',
+  },
+  { ...fullBoard, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true, currency: 'EUR' },
+  { id: 111, name: 'Reception', bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: false },
+];
+const offer = (cents: number, extra: Record<string, unknown> = {}) => ({
+  available: true,
+  room_type_free_rooms: 3,
+  price: { cents, currency: 'EUR' },
+  errors: {},
+  ...extra,
+});
+
+describe('rateOfferLabel', () => {
+  it.each([
+    [[], 'Room only'],
+    [['Breakfast'], 'Bed & breakfast'],
+    [['Breakfast', 'Dinner'], 'Half board'],
+    [['Breakfast', 'Lunch'], 'Half board'],
+    [['Breakfast', 'Lunch', 'Dinner'], 'Full board'],
+    [['dinner', 'breakfast', 'lunch'], 'Full board'],
+  ])('labels meals %j as %s', (meals, label) => {
+    expect(rateOfferLabel(meals, 'X')).toBe(label);
+  });
+
+  it('falls back to the Clock rate name for an unrecognised combination', () => {
+    expect(rateOfferLabel(['Dinner'], 'Dinner only')).toBe('Dinner only');
+  });
+});
+
+describe('ClockAvailabilityService.listOffersForStay', () => {
+  it('returns every bookable published rate with a plain label, the cheapest first', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 200, body: ratesBody })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [{ id: 42023, rates: { '615688': [offer(31000)], '546549': [offer(21000)] } }],
+      });
+    const { service } = makeService({ client: { request } });
+
+    const result = await service.listOffersForStay('t1', 'p1', { ...query, adultCount: 2 });
+
+    expect(result).toEqual({
+      ok: true,
+      value: [
+        {
+          rateId: '546549',
+          name: 'BB',
+          label: 'Bed & breakfast',
+          mealNames: ['Breakfast'],
+          total: { amount: '210.00', currency: 'EUR' },
+        },
+        {
+          rateId: '615688',
+          name: 'FB',
+          label: 'Full board',
+          mealNames: ['Breakfast', 'Lunch', 'Dinner'],
+          total: { amount: '310.00', currency: 'EUR' },
+        },
+      ],
+    });
+    // Only published rates are searched; the unpublished Reception rate (111) never is.
+    expect(request).toHaveBeenLastCalledWith(
+      credentials,
+      expect.objectContaining({
+        query: expect.objectContaining({ rates: ['546549', '615688'] }),
+      }),
+    );
+  });
+
+  it('puts a staff-ranked rate first even when it costs more', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 200, body: ratesBody })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [{ id: 42023, rates: { '615688': [offer(31000)], '546549': [offer(21000)] } }],
+      });
+    const { service } = makeService({ client: { request }, rankOrder: ['615688'] });
+
+    const result = await service.listOffersForStay('t1', 'p1', query);
+
+    expect(result.ok && result.value.map((entry) => entry.rateId)).toEqual(['615688', '546549']);
+  });
+
+  it('leaves out an offer Clock marks unavailable or restricted, such as a party too large', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 200, body: ratesBody })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [
+          {
+            id: 42023,
+            rates: {
+              '546549': [offer(21000)],
+              '615688': [
+                offer(31000, {
+                  available: false,
+                  errors: { base: ['Maximum adults allowed - 1'] },
+                }),
+              ],
+            },
+          },
+        ],
+      });
+    const { service } = makeService({ client: { request } });
+
+    const result = await service.listOffersForStay('t1', 'p1', query);
+
+    expect(result.ok && result.value.map((entry) => entry.rateId)).toEqual(['546549']);
+  });
+
+  it('returns an empty list, not an error, when nothing is bookable for the dates', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 200, body: ratesBody })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [{ id: 42023, rates: { '546549': [offer(21000, { available: false })] } }],
+      });
+    const { service } = makeService({ client: { request } });
+
+    await expect(service.listOffersForStay('t1', 'p1', query)).resolves.toEqual({
+      ok: true,
+      value: [],
+    });
+  });
+});
+
+describe('ClockAvailabilityService rate catalogue', () => {
+  it('reads the whole rate catalogue once for many room types, even at the same moment', async () => {
+    const request = vi.fn().mockImplementation((_credentials, options: { path: string }) =>
+      Promise.resolve(
+        options.path === '/rates/'
+          ? {
+              status: 200,
+              body: [
+                { id: 1, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true },
+                { id: 2, bookable_id: 42024, bookable_type: 'Pms::RoomType', wbe: true },
+              ],
+            }
+          : { status: 200, body: [] },
+      ),
+    );
+    const { service } = makeService({ client: { request } });
+    const read = (externalRoomTypeId: string) =>
+      (
+        service as unknown as {
+          ratesForRoomType: (
+            credentials: unknown,
+            externalRoomTypeId: string,
+          ) => Promise<{ ok: boolean; value?: { ids: string[] } }>;
+        }
+      ).ratesForRoomType(credentials, externalRoomTypeId);
+
+    const [first, second] = await Promise.all([read('42023'), read('42024')]);
+
+    expect(first.value?.ids).toEqual(['1']);
+    expect(second.value?.ids).toEqual(['2']);
+    expect(request.mock.calls.filter(([, options]) => options.path === '/rates/')).toHaveLength(1);
+  });
+});
+
+describe('ClockAvailabilityService.publishedRateCurrency', () => {
+  it('returns the most common currency of the rates published for online booking', async () => {
+    const request = vi.fn().mockResolvedValue({
+      status: 200,
+      body: [
+        { id: 1, bookable_id: 1, bookable_type: 'Pms::RoomType', wbe: true, currency: 'EUR' },
+        { id: 2, bookable_id: 1, bookable_type: 'Pms::RoomType', wbe: true, currency: 'EUR' },
+        { id: 3, bookable_id: 1, bookable_type: 'Pms::RoomType', wbe: true, currency: 'ALL' },
+        // Not published online, so it does not count.
+        { id: 4, bookable_id: 1, bookable_type: 'Pms::RoomType', wbe: false, currency: 'ALL' },
+        { id: 5, bookable_id: 1, bookable_type: 'Pms::RoomType', wbe: false, currency: 'ALL' },
+      ],
+    });
+    const { service } = makeService({ client: { request } });
+
+    await expect(service.publishedRateCurrency('t1', 'p1')).resolves.toBe('EUR');
+  });
+
+  it('is null when Clock cannot be read', async () => {
+    const request = vi.fn().mockResolvedValue({ status: 503, body: 'down' });
+    const { service } = makeService({ client: { request } });
+
+    await expect(service.publishedRateCurrency('t1', 'p1')).resolves.toBeNull();
+  });
+});
+
+describe('ClockAvailabilityService chosen rate', () => {
+  const stay = {
+    tenantId: 't1',
+    propertyId: 'p1',
+    roomTypeId: 'local-rt-1',
+    externalRoomTypeId: '42023',
+    startsOn: '2026-08-10',
+    endsOn: '2026-08-12',
+  };
+
+  it('prices and selects only the rate the guest chose, even when another is cheaper', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 200, body: ratesBody })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [{ id: 42023, rates: { '615688': [offer(31000)] } }],
+      });
+    const { service } = makeService({ client: { request } });
+
+    const selected = await service.selectRateForStay(credentials, {
+      ...stay,
+      chosenRateId: '615688',
+    });
+
+    expect(selected).toEqual({
+      ok: true,
+      value: { rateId: '615688', total: { amount: '310.00', currency: 'EUR' } },
+    });
+    expect(request).toHaveBeenLastCalledWith(
+      credentials,
+      expect.objectContaining({ query: expect.objectContaining({ rates: ['615688'] }) }),
+    );
+  });
+
+  it('refuses a rate that is not published for the room type, without asking Clock for prices', async () => {
+    const request = vi.fn().mockResolvedValueOnce({ status: 200, body: ratesBody });
+    const { service } = makeService({ client: { request } });
+
+    const selected = await service.selectRateForStay(credentials, {
+      ...stay,
+      chosenRateId: '111',
+    });
+
+    expect(selected).toMatchObject({ ok: false, error: { code: 'clock_rate_unavailable' } });
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it('quotes the chosen rate through getQuote', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 200, body: ratesBody })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [{ id: 42023, rates: { '615688': [offer(31000)] } }],
+      });
+    const { service } = makeService({ client: { request } });
+
+    await expect(
+      service.getQuote('t1', 'p1', { ...query, clockRateId: '615688' }),
+    ).resolves.toEqual({
+      ok: true,
+      value: { amount: '310.00', currency: 'EUR' },
     });
   });
 });

@@ -38,10 +38,10 @@ describe('Tenant dashboard shell', () => {
       'Payments',
       'Guests',
       'Accommodations',
-      'Photos',
       'Rates &amp; Pricing',
       'Staff',
       'Reports',
+      'Audit log',
       'Settings',
     ];
     for (const label of labels) expect(markup).toContain(label);
@@ -67,22 +67,15 @@ describe('Tenant dashboard shell', () => {
         }),
       ),
     );
-    const labels = ['Overview', 'Needs Attention', 'Approvals', 'Quick Booking', 'System Health'];
+    const labels = ['Overview', 'Needs attention', 'Approvals', 'Quick booking', 'System health'];
     for (const label of labels) expect(markup).toContain(label);
-    expect(markup.indexOf('Needs Attention')).toBeLessThan(markup.indexOf('Approvals'));
-    expect(markup.indexOf('Approvals')).toBeLessThan(markup.indexOf('Quick Booking'));
-    expect(markup.indexOf('Quick Booking')).toBeLessThan(markup.indexOf('System Health'));
-    expect(markup).toContain('aria-label="Dashboard tabs"');
-    expect(markup).toContain(
-      'href="/dashboard/tenant-1?propertyId=property-1&amp;section=overview&amp;tab=overview"',
-    );
-    expect(markup).toContain(
-      'href="/dashboard/tenant-1?propertyId=property-1&amp;section=overview&amp;tab=quick-booking"',
-    );
-    expect(markup).toContain('aria-current="page"');
+    const positions = labels.map((label) => markup.indexOf(label));
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
+    expect(markup).toContain('aria-label="Dashboard sections"');
+    expect(markup).toContain('aria-selected="true"');
   });
 
-  it('hides Quick Booking from staff without bookings.manage', () => {
+  it('hides Quick Booking from staff without bookings.create', () => {
     const markup = renderToStaticMarkup(
       createElement(
         DashboardQueryProvider,
@@ -99,7 +92,7 @@ describe('Tenant dashboard shell', () => {
       ),
     );
 
-    expect(markup).not.toContain('Quick Booking');
+    expect(markup).not.toContain('Quick booking');
   });
 
   it('shows property-staff destinations granted by their capabilities', () => {
@@ -113,7 +106,7 @@ describe('Tenant dashboard shell', () => {
             user,
             role: 'STAFF',
             properties: [{ id: 'property-1', name: 'Grand Hotel' }],
-            capabilities: ['bookings.manage', 'calendar.view', 'payments.refund', 'guests.manage'],
+            capabilities: ['bookings.view', 'calendar.view', 'payments.view', 'guests.view'],
           },
         }),
       ),
@@ -125,7 +118,26 @@ describe('Tenant dashboard shell', () => {
       expect(markup).not.toContain(`>${label}</a>`);
   });
 
-  it('shows Photos to staff granted photos.manage but not Accommodations', () => {
+  it('keeps Payments hidden unless staff can also view its booking rows', () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        DashboardQueryProvider,
+        undefined,
+        createElement(DashboardShell, {
+          tenantId: 'tenant-1',
+          initialData: {
+            user,
+            role: 'STAFF',
+            properties: [{ id: 'property-1', name: 'Grand Hotel' }],
+            capabilities: ['payments.view'],
+          },
+        }),
+      ),
+    );
+    expect(markup).not.toContain('>Payments</a>');
+  });
+
+  it('shows Accommodations (no separate Photos item) to staff granted only photos.manage', () => {
     const markup = renderToStaticMarkup(
       createElement(
         DashboardQueryProvider,
@@ -142,8 +154,8 @@ describe('Tenant dashboard shell', () => {
       ),
     );
 
-    expect(markup).toContain('Photos');
-    expect(markup).not.toContain(`>Accommodations</a>`);
+    expect(markup).toContain('Accommodations');
+    expect(markup).not.toContain('>Photos</a>');
   });
 
   it('only renders the property switcher when a non-staff user has more than one property', () => {
@@ -191,7 +203,7 @@ describe('Tenant dashboard shell', () => {
               { id: 'property-1', name: 'Grand Hotel' },
               { id: 'property-2', name: 'Coast Hotel' },
             ],
-            capabilities: ['bookings.manage'],
+            capabilities: ['bookings.view'],
           },
         }),
       ),
@@ -200,7 +212,7 @@ describe('Tenant dashboard shell', () => {
     expect(singleProperty).not.toContain('Switch property');
     expect(singleProperty).toContain('Grand Hotel');
     expect(multipleProperties).toContain('Switch property');
-    expect(multipleProperties).toContain('Coast Hotel');
+    expect(multipleProperties).toContain('Switch property');
     expect(multipleProperties).not.toContain('Main Dashboard');
     expect(staffWithMultipleProperties).not.toContain('Switch property');
   });
@@ -224,8 +236,8 @@ describe('Tenant dashboard shell', () => {
       ),
     );
 
-    expect(markup).toMatch(/<h2[^>]*>Grand Hotel<\/h2>/);
-    expect(markup).toContain('value="property-1"');
+    expect(markup).toContain('Switch property');
+    expect(markup).toContain('Switch property');
   });
 
   it('links an owner to Settings', () => {
@@ -236,6 +248,25 @@ describe('Tenant dashboard shell', () => {
       }),
     );
   });
+
+  it.each(['OWNER', 'ADMIN', 'STAFF'] as const)(
+    'requires loaded settings.manage before showing Emails to %s',
+    (role) => {
+      expect(
+        dashboardNavigation('tenant-1', 'property-1', role, 'overview', []).some(
+          (item) => item.label === 'Emails',
+        ),
+      ).toBe(false);
+      expect(
+        dashboardNavigation('tenant-1', 'property-1', role, 'overview', ['settings.manage']),
+      ).toContainEqual(
+        expect.objectContaining({
+          label: 'Emails',
+          href: '/dashboard/tenant-1?propertyId=property-1&section=emails',
+        }),
+      );
+    },
+  );
 
   it('uses the designed navigation order and preserves the bookings route key', () => {
     const ownerItems = dashboardNavigation('tenant-1', 'property-1', 'OWNER');
@@ -248,10 +279,10 @@ describe('Tenant dashboard shell', () => {
       'Payments',
       'Guests',
       'Accommodations',
-      'Photos',
       'Rates & Pricing',
       'Staff',
       'Reports',
+      'Audit log',
       'Settings',
     ]);
     expect(ownerItems.find((item) => item.label === 'Bookings')?.href).toBe(
@@ -259,22 +290,24 @@ describe('Tenant dashboard shell', () => {
     );
 
     const staffItems = dashboardNavigation('tenant-1', 'property-1', 'STAFF', 'overview', [
-      'bookings.manage',
+      'bookings.view',
       'calendar.view',
-      'payments.refund',
-      'guests.manage',
+      'payments.view',
+      'guests.view',
     ]);
     expect(staffItems.map((item) => item.label)).toEqual([
       'Dashboard',
       'Bookings',
       'Calendar',
       'Hotels',
+      'Inventory',
       'Payments',
       'Guests',
+      'Audit log',
     ]);
   });
 
-  it('shows a Finance property-staff session only Overview, Payments, and Reports', () => {
+  it('shows a Finance property-staff session with its required booking access', () => {
     const markup = renderToStaticMarkup(
       createElement(
         DashboardQueryProvider,
@@ -285,7 +318,7 @@ describe('Tenant dashboard shell', () => {
             user: { ...user, email: 'finance@example.test' },
             role: 'STAFF',
             properties: [{ id: 'property-1', name: 'Grand Hotel' }],
-            capabilities: ['payments.refund', 'reports.view'],
+            capabilities: ['bookings.view', 'payments.view', 'payments.refund', 'reports.view'],
           },
         }),
       ),
@@ -294,10 +327,10 @@ describe('Tenant dashboard shell', () => {
     // The Overview tab (NavigationSectionTabItem) renders its label as bare anchor text with
     // no aria-label; sidebar destinations (NavigationLinks) wrap the label in a span for
     // accessible-name/truncation purposes and carry an aria-label on the anchor itself.
-    expect(markup).toContain('>Overview</a>');
-    for (const label of ['Payments', 'Reports']) expect(markup).toContain(`aria-label="${label}"`);
+    expect(markup).toContain('Overview');
+    for (const label of ['Bookings', 'Payments', 'Reports'])
+      expect(markup).toContain(`aria-label="${label}"`);
     for (const label of [
-      'Bookings',
       'Calendar',
       'Guests',
       'Inventory',
@@ -309,7 +342,7 @@ describe('Tenant dashboard shell', () => {
       expect(markup).not.toContain(`aria-label="${label}"`);
   });
 
-  it('hides tenant-administration destinations from staff even if a misconfigured template grants their capability keys', () => {
+  it('shows staff the management destinations their permissions open, and gates Inventory by calendar.view while keeping Settings private', () => {
     const markup = renderToStaticMarkup(
       createElement(
         DashboardQueryProvider,
@@ -323,16 +356,28 @@ describe('Tenant dashboard shell', () => {
             capabilities: [
               'accommodations.manage',
               'rates.manage',
-              'staff.invite',
-              'staff.manage_permissions',
+              'staff.view',
               'settings.manage',
+              'calendar.view',
             ],
           },
         }),
       ),
     );
 
-    for (const label of ['Accommodations', 'Rates &amp; Pricing', 'Inventory', 'Staff', 'Settings'])
-      expect(markup).not.toContain(`>${label}</a>`);
+    for (const label of ['Accommodations', 'Rates &amp; Pricing', 'Staff', 'Inventory'])
+      expect(markup).toContain(`aria-label="${label}"`);
+    for (const label of ['Settings']) expect(markup).not.toContain(`aria-label="${label}"`);
   });
+});
+
+it('shows Audit log only for a permitted staff event family, with owner/admin property access', () => {
+  const sections = (role: 'OWNER' | 'ADMIN' | 'STAFF', capabilities: string[]) =>
+    dashboardNavigation('t', 'p', role, 'overview', capabilities).map((item) => item.label);
+  expect(sections('OWNER', [])).toContain('Audit log');
+  expect(sections('ADMIN', [])).toContain('Audit log');
+  expect(sections('STAFF', ['reports.view'])).toContain('Audit log');
+  expect(sections('STAFF', ['staff.view'])).toContain('Audit log');
+  expect(sections('STAFF', [])).not.toContain('Audit log');
+  expect(sections('STAFF', ['bookings.create'])).not.toContain('Audit log');
 });

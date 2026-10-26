@@ -8,10 +8,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
 import { ClockBookingService } from '../src/integrations/clock/clock-booking.service';
 import { cleanupTenant } from './helpers/cleanup-tenant';
+import { STAY_STARTS_ON, STAY_ENDS_ON } from './helpers/future-stay';
 import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
 import { paceClockRequests } from './helpers/clock-pacing';
 import { retryOnClockRateLimit } from './helpers/clock-retry';
-import { sandboxStay } from './helpers/sandbox-stay';
 
 // Milestone 11 Task 10's real-sandbox gate. Booking CRUD isn't reachable
 // through an HTTP endpoint yet (same reason as Task 8's getAvailability —
@@ -184,8 +184,8 @@ describe.skipIf(!hasSandboxCredentials)('Clock booking CRUD (real sandbox)', () 
       externalReference: `must-e2e-${randomUUID()}`,
       roomTypeId: localRoomType[0]!.id,
       ratePlanId,
-      startsOn: sandboxStay.startsOn,
-      endsOn: sandboxStay.endsOn,
+      startsOn: STAY_STARTS_ON,
+      endsOn: STAY_ENDS_ON,
       guest: { email: 'guest@example.test', firstName: 'E2E', lastName: 'Guest', phone: null },
       total: { amount: '100.00', currency: 'EUR' },
     };

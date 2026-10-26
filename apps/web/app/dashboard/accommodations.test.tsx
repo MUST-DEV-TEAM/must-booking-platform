@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+﻿// @vitest-environment jsdom
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -52,11 +52,17 @@ describe('Accommodations dashboard route', () => {
     });
 
     await vi.waitFor(() => {
-      if (!container.textContent?.includes('Rooms and room types'))
+      if (
+        !container
+          .querySelector('[role=tab][aria-selected=true]')
+          ?.textContent?.includes('Room types')
+      )
         throw new Error('Room management has not finished loading yet.');
     });
 
-    expect(container.textContent).toContain('Rooms and room types');
+    expect(container.querySelector('[role=tab][aria-selected=true]')?.textContent).toContain(
+      'Room types',
+    );
     expect(
       container.querySelector('a[href="/dashboard/t?propertyId=p&section=accommodations"]'),
     ).not.toBeNull();

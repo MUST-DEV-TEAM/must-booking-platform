@@ -5,7 +5,11 @@ export type BillingProviderContext = TenantContext;
 export type PaymentProviderContext = PropertyContext;
 
 /** Returned by transports that can report the provider-side message id (used by the email log). */
-export type MailSendReceipt = { providerMessageId?: string };
+export type MailSendReceipt = {
+  providerMessageId?: string;
+  provider?: 'resend' | 'smtp';
+  usedFallback?: boolean;
+};
 
 export interface MailProvider {
   sendVerificationEmail(command: {
@@ -26,6 +30,8 @@ export interface MailProvider {
   }): Promise<MailSendReceipt | void>;
   sendStaffInvitationEmail(command: {
     to: string;
+    template?: MailTemplateOverride;
+    brand?: MailBrand;
     organizationName: string;
     invitedByEmail: string;
     assignments: Array<{ propertyName: string; roleTemplateName: string }>;
@@ -57,6 +63,7 @@ export interface MailProvider {
     paymentId: string;
     staffUserId: string;
     to: string;
+    template?: MailTemplateOverride;
     guest: { name: string; email: string; phone: string | null };
     stay: { startsOn: string; endsOn: string };
     roomName: string;
@@ -101,6 +108,7 @@ export interface MailProvider {
     bookingReference: string;
     staffUserId: string;
     to: string;
+    template?: MailTemplateOverride;
     brand: MailBrand;
     guest: { name: string; email: string; phone: string | null };
     stay: { startsOn: string; endsOn: string };
@@ -131,7 +139,13 @@ export type RenderedEmailCommand = {
 };
 
 /** A property's own wording for a guest email, already filled in and escaped. */
-export type MailTemplateOverride = { subject: string; html: string; text: string };
+export type MailTemplateOverride = {
+  hasStayBlock?: boolean;
+  subject: string;
+  html: string;
+  text: string;
+  previewText?: string;
+};
 
 export type MailOrderRoom = {
   roomName: string;
@@ -140,6 +154,9 @@ export type MailOrderRoom = {
 };
 
 export type MailBrand = {
+  /** Approved hotel email identity; does not change the property name in content. */
+  senderName?: string | null;
+  replyTo?: string | null;
   name: string;
   logoUrl?: string | null;
   supportEmail?: string | null;
@@ -223,6 +240,7 @@ export interface GuestDetails {
   city?: string | null;
   county?: string | null;
   postcode?: string | null;
+  countryCode?: string | null;
   specialRequests?: string | null;
 }
 
@@ -324,9 +342,96 @@ export interface CancelBookingCommand {
   reason: string | null;
   /** Present only for an authenticated staff cancellation. */
   staffActorId?: string;
+  /** Staff chose the refund themselves, so the cancellation policy must not refund automatically. */
+  skipAutomaticRefund?: boolean;
 }
 
+export interface MoveBookingRoomCommand {
+  bookingId: string;
+  roomId: string;
+  expectedVersion: number;
+  idempotencyKey: string;
+  staffActorId: string;
+  reason: string;
+}
+
+export interface StayAmendmentQuery {
+  roomTypeId?: string;
+  bookingId: string;
+  startsOn: string;
+  endsOn: string;
+}
+export interface StayAmendmentCommand extends StayAmendmentQuery {
+  notifyGuest?: boolean;
+  termsReviewed?: boolean;
+  expectedVersion: number;
+  previewHash: string;
+  reason: string;
+  idempotencyKey: string;
+  staffActorId: string;
+  outcome?: string;
+  outcomeReason?: string;
+}
+export interface StayAmendmentPreview {
+  roomTypeId?: string;
+  roomTypeName?: string;
+  rateId?: string;
+  confirmationAvailable?: boolean;
+  bookingId: string;
+  startsOn: string;
+  endsOn: string;
+  nights: number;
+  available: boolean;
+  oldTotal: string;
+  newTotal: string;
+  recordedTotal: string;
+  difference: string;
+  currency: string;
+  paid: string;
+  refunded: string;
+  balance: string;
+  balanceState: string;
+  policyNotes: string[];
+  version: number;
+  previewHash: string;
+  outcome: string;
+  outcomeReason: string;
+  availableOutcomes: string[];
+  canRefund: boolean;
+  refundToIssue: string;
+}
+export interface RoomMoveAvailabilityQuery {
+  roomIds: string[];
+  startsOn: string;
+  endsOn: string;
+  excludeBookingId: string;
+  excludeExternalBookingId?: string;
+}
+export interface RoomMoveAvailabilitySnapshot {
+  unavailableRoomIds: string[];
+  source: 'LOCAL' | 'CLOCK_SNAPSHOT';
+  lastSyncedAt: string | null;
+  complete: boolean;
+  stale: boolean;
+}
 export interface PmsProvider {
+  unavailableRoomsForMove?(
+    context: PmsProviderContext,
+    query: RoomMoveAvailabilityQuery,
+  ): Promise<Result<RoomMoveAvailabilitySnapshot>>;
+
+  previewStayAmendment?(
+    context: PmsProviderContext,
+    query: StayAmendmentQuery,
+  ): Promise<Result<StayAmendmentPreview>>;
+  amendBookingStay?(
+    context: PmsProviderContext,
+    command: StayAmendmentCommand,
+  ): Promise<Result<Booking>>;
+  moveBookingRoom?(
+    context: PmsProviderContext,
+    command: MoveBookingRoomCommand,
+  ): Promise<Result<Booking>>;
   testConnection(context: PmsProviderContext): Promise<Result<void>>;
   syncCatalog(context: PmsProviderContext, cursor?: string): Promise<Page<CatalogItem>>;
   getAvailability(
@@ -418,11 +523,13 @@ export interface PaymentProvider {
 }
 
 /** Email plan Step 1: who receives each notification at a property. */
-export type NotificationRecipientRule =
+export type NotificationRecipientChannel = 'TO' | 'CC' | 'BCC';
+export type NotificationRecipientRule = { channel?: NotificationRecipientChannel } & (
   | { target: 'MEMBERSHIP_ROLE'; membershipRole: 'OWNER' | 'ADMIN' }
   | { target: 'ROLE_TEMPLATE'; roleTemplateId: string }
   | { target: 'STAFF_USER'; userId: string }
-  | { target: 'EMAIL'; email: string };
+  | { target: 'EMAIL'; email: string }
+);
 
 export interface NotificationTopicSettings {
   topic: string;
@@ -435,18 +542,25 @@ export interface NotificationTopicSettings {
   staffEnabled: boolean;
   /** False: staff recipients follow the topic's default (e.g. assigned staff, else owners/admins). */
   customStaffRecipients: boolean;
+  /** Existing lists stay private until explicit header choices are saved. */
+  staffDeliveryMode?: 'PRIVATE' | 'HEADERS';
   /** For scheduled emails: days before arrival / after departure, with its allowed range. */
   daysOffset: { value: number; min: number; max: number; label: string } | null;
   rules: NotificationRecipientRule[];
   /** Who gets the staff email today, after applying the rules. */
-  staffRecipients: Array<{ email: string }>;
+  staffRecipients: Array<{ email: string; channel?: NotificationRecipientChannel }>;
 }
 
 export interface NotificationSettingsResponse {
   topics: NotificationTopicSettings[];
   options: {
     roleTemplates: Array<{ id: string; name: string }>;
-    staff: Array<{ userId: string; email: string; role: 'OWNER' | 'ADMIN' | 'STAFF' }>;
+    staff: Array<{
+      userId: string;
+      email: string;
+      name?: string;
+      role: 'OWNER' | 'ADMIN' | 'STAFF';
+    }>;
   };
 }
 
@@ -459,3 +573,5 @@ export interface UpdateNotificationTopicCommand {
   /** Only for scheduled topics; omitted keeps the default. */
   daysOffset?: number | null;
 }
+
+export * from './capture';

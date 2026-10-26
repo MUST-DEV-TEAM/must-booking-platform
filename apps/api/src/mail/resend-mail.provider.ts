@@ -1,4 +1,7 @@
-import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { currentMailAttempt } from './mail-attempt-context';
+import { EmailMessageArchiveService } from './email-message-archive.service';
+import { PropertyMailDispatcher, type RenderedTransportInput } from './property-mail-dispatcher';
+import { Inject, Optional, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 
 import type {
   MailBrand,
@@ -31,6 +34,14 @@ const RESEND_REQUEST_TIMEOUT_MS = 10_000;
 @Injectable()
 export class ResendMailProvider implements MailProvider, OnModuleInit {
   private readonly logger = new Logger(ResendMailProvider.name);
+  constructor(
+    @Optional()
+    @Inject(EmailMessageArchiveService)
+    private readonly archive?: EmailMessageArchiveService,
+    @Optional()
+    @Inject(PropertyMailDispatcher)
+    private readonly transports?: PropertyMailDispatcher,
+  ) {}
 
   onModuleInit(): void {
     if (process.env.NODE_ENV === 'test') return;
@@ -151,11 +162,13 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
       subject,
       html: renderBrandedEmail({
         subject,
-        brand: MUST_BOOKING_BRAND,
-        preheader: `${command.invitedByEmail} invited you to join the team.`,
+        brand: command.brand ?? MUST_BOOKING_BRAND,
+        preheader:
+          command.template?.previewText ||
+          `${command.invitedByEmail} invited you to join the team.`,
         eyebrow: 'Team invitation',
         heading: "You've been invited to join the team",
-        content: `<p style="margin:0 0 4px 0;"><strong>${invitedByEmail}</strong> invited you to join <strong>${organizationName}</strong> on MUST Booking — the platform they use to manage bookings, rooms, and rates.</p><p style="margin:16px 0 0 0;color:#58544a;font-size:14px;">Accepting will create your staff account with the access shown below. This invitation expires in 7 days.</p>`,
+        content: `${command.template?.html ?? ''}<p style="margin:0 0 4px 0;"><strong>${invitedByEmail}</strong> invited you to join <strong>${organizationName}</strong> on MUST Booking — the platform they use to manage bookings, rooms, and rates.</p><p style="margin:16px 0 0 0;color:#58544a;font-size:14px;">Accepting will create your staff account with the access shown below. This invitation expires in 7 days.</p>`,
         summaryHeading: 'Invitation details',
         summaryRows: [
           { label: 'Invited by', value: command.invitedByEmail },
@@ -170,7 +183,7 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
         footerNote: `You&#39;re receiving this email because ${organizationName} invited this address to join their MUST Booking team.`,
         platformFooter: 'MUST Booking Platform',
       }),
-      text: `${command.invitedByEmail} invited you to join ${command.organizationName} on MUST Booking. Access: ${command.assignments.map((assignment) => `${assignment.propertyName} (${assignment.roleTemplateName})`).join(', ')}. Accept invitation: ${command.invitationUrl}`,
+      text: `${command.template?.text ? command.template.text + '\n\n' : ''}${command.invitedByEmail} invited you to join ${command.organizationName} on MUST Booking. Access: ${command.assignments.map((assignment) => `${assignment.propertyName} (${assignment.roleTemplateName})`).join(', ')}. Accept invitation: ${command.invitationUrl}`,
       idempotencyKey,
     });
   }
@@ -187,9 +200,10 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
       html: renderBrandedEmail({
         subject,
         brand: command.brand,
-        preheader: paid
-          ? 'Your payment was received and your stay is confirmed.'
-          : 'Your stay is confirmed. Payment is collected at the hotel.',
+        preheader:
+          command.template?.previewText || paid
+            ? 'Your payment was received and your stay is confirmed.'
+            : 'Your stay is confirmed. Payment is collected at the hotel.',
         heading: 'Your stay is confirmed',
         content: `${command.template?.html ?? `<p style="margin:0 0 18px 0;">Hello <strong>${escapeHtml(command.guest.name)}</strong>, ${paid ? `thank you for choosing ${escapeHtml(hotelName)}. We've received your payment and your reservation is confirmed.` : `your reservation at ${escapeHtml(hotelName)} is confirmed. Payment will be collected at the hotel on arrival.`}</p>`}${this.specialRequests(command.specialRequests)}`,
         summaryRows: this.bookingSummaryRows(command, {
@@ -198,7 +212,7 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
           dateFormat: paid ? 'gb' : 'us',
         }),
         cta: command.cancellationUrl
-          ? { url: command.cancellationUrl, label: 'Review or cancel booking' }
+          ? { url: command.cancellationUrl, label: 'Manage booking' }
           : null,
         footerNote: `You&#39;re receiving this email because you made a reservation at ${escapeHtml(hotelName)}.`,
       }),
@@ -219,9 +233,11 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
       html: renderBrandedEmail({
         subject,
         brand: command.brand,
-        preheader: `A new ${command.paymentMethod === 'pay_at_hotel' ? '' : 'paid '}booking just came in for ${command.roomName}.`,
+        preheader:
+          command.template?.previewText ||
+          `A new ${command.paymentMethod === 'pay_at_hotel' ? '' : 'paid '}booking just came in for ${command.roomName}.`,
         heading: 'New booking received',
-        content: `<p style="margin:0 0 4px 0;"><strong>Guest</strong><br>${guestName}<br>${escapeHtml(command.guest.email)}${command.guest.phone ? `<br>${escapeHtml(command.guest.phone)}` : ''}</p>${this.specialRequests(command.specialRequests, true)}`,
+        content: `${command.template?.html ?? ''}<p style="margin:0 0 4px 0;"><strong>Guest</strong><br>${guestName}<br>${escapeHtml(command.guest.email)}${command.guest.phone ? `<br>${escapeHtml(command.guest.phone)}` : ''}</p>${this.specialRequests(command.specialRequests, true)}`,
         summaryRows: this.bookingSummaryRows(command, {
           paymentMethod: command.paymentMethod,
           amountLabel: 'Total',
@@ -239,7 +255,7 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
         footerNote: this.staffFooterNote(command.brand.name),
         platformFooter: 'MUST Booking Platform',
       }),
-      text: `New booking received\nBooking reference: ${command.bookingReference}\nGuest: ${command.guest.name}\nEmail: ${command.guest.email}${command.guest.phone ? `\nPhone: ${command.guest.phone}` : ''}\n${command.rooms && command.rooms.length > 1 ? `Rooms:\n${this.roomLines(command.rooms)}` : `Room: ${command.roomName}`}\nDates: ${command.stay.startsOn} to ${command.stay.endsOn}\nTotal: ${this.money(command.amount)}${command.specialRequests?.trim() ? `\nSpecial requests: ${command.specialRequests.trim()}` : ''}`,
+      text: `${command.template?.text ? command.template.text + '\n\n' : ''}New booking received\nBooking reference: ${command.bookingReference}\nGuest: ${command.guest.name}\nEmail: ${command.guest.email}${command.guest.phone ? `\nPhone: ${command.guest.phone}` : ''}\n${command.rooms && command.rooms.length > 1 ? `Rooms:\n${this.roomLines(command.rooms)}` : `Room: ${command.roomName}`}\nDates: ${command.stay.startsOn} to ${command.stay.endsOn}\nTotal: ${this.money(command.amount)}${command.specialRequests?.trim() ? `\nSpecial requests: ${command.specialRequests.trim()}` : ''}`,
       idempotencyKey,
     });
   }
@@ -255,7 +271,8 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
       html: renderBrandedEmail({
         subject,
         brand: command.brand,
-        preheader: 'Your refund has been processed and is on its way.',
+        preheader:
+          command.template?.previewText || 'Your refund has been processed and is on its way.',
         heading: 'Refund processed',
         content:
           command.template?.html ??
@@ -283,7 +300,8 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
       html: renderBrandedEmail({
         subject,
         brand: command.brand,
-        preheader: `Your reservation at ${hotelName} has been cancelled.`,
+        preheader:
+          command.template?.previewText || `Your reservation at ${hotelName} has been cancelled.`,
         heading: 'Your booking was cancelled',
         content:
           command.template?.html ??
@@ -324,9 +342,11 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
       html: renderBrandedEmail({
         subject,
         brand: command.brand,
-        preheader: `A reservation for ${command.roomName} was just cancelled.`,
+        preheader:
+          command.template?.previewText ||
+          `A reservation for ${command.roomName} was just cancelled.`,
         heading: 'Booking cancelled',
-        content: `<p style="margin:0 0 4px 0;"><strong>Guest</strong><br>${escapeHtml(command.guest.name)}<br>${escapeHtml(command.guest.email)}${command.guest.phone ? `<br>${escapeHtml(command.guest.phone)}` : ''}</p>${refundContent}`,
+        content: `${command.template?.html ?? ''}<p style="margin:0 0 4px 0;"><strong>Guest</strong><br>${escapeHtml(command.guest.name)}<br>${escapeHtml(command.guest.email)}${command.guest.phone ? `<br>${escapeHtml(command.guest.phone)}` : ''}</p>${refundContent}`,
         summaryRows: [
           ...this.bookingSummaryRows(command, { includeGuests: false, dateFormat: 'us' }),
           ...(refundLabel && refund
@@ -345,7 +365,7 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
         footerNote: this.staffFooterNote(command.brand.name),
         platformFooter: 'MUST Booking Platform',
       }),
-      text: `${command.guest.name}'s booking ${command.bookingReference} has been cancelled.${refund ? (refund.status === 'processed' ? ` Automatic refund processed: ${this.money(refund.amount)}${refund.paymentMethod ? ` via ${refund.paymentMethod}` : ''}.` : ` Manual refund required: the automatic refund of ${this.money(refund.amount)}${refund.paymentMethod ? ` via ${refund.paymentMethod}` : ''} failed.`) : ''}`,
+      text: `${command.template?.text ? command.template.text + '\n\n' : ''}${command.guest.name}'s booking ${command.bookingReference} has been cancelled.${refund ? (refund.status === 'processed' ? ` Automatic refund processed: ${this.money(refund.amount)}${refund.paymentMethod ? ` via ${refund.paymentMethod}` : ''}.` : ` Manual refund required: the automatic refund of ${this.money(refund.amount)}${refund.paymentMethod ? ` via ${refund.paymentMethod}` : ''} failed.`) : ''}`,
       idempotencyKey,
     });
   }
@@ -353,10 +373,12 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
   private bookingSummaryRows(
     command: {
       bookingReference: string;
+      guest?: { email?: string; name?: string };
       roomName: string;
       stay: { startsOn: string; endsOn: string };
       guestCount: number;
       nightlyRates?: NightlyRate[];
+      template?: { hasStayBlock?: boolean };
       amount?: { amount: string; currency: string };
       rooms?: MailOrderRoom[];
     },
@@ -378,10 +400,34 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
       : `${this.formatDate(command.stay.startsOn, options.dateFormat)} – ${this.formatDate(command.stay.endsOn, options.dateFormat)}`;
     const rows = [
       { label: 'Booking reference', value: command.bookingReference },
+      ...(command.guest?.email ? [{ label: 'Guest email', value: command.guest.email }] : []),
+      ...(!command.template?.hasStayBlock
+        ? [
+            {
+              label: 'Check-in date',
+              value: this.formatDate(command.stay.startsOn, options.dateFormat),
+            },
+            {
+              label: 'Check-out date',
+              value: this.formatDate(command.stay.endsOn, options.dateFormat),
+            },
+          ]
+        : []),
+      {
+        label: 'Nights',
+        value: String(
+          Math.max(
+            0,
+            Math.round(
+              (Date.parse(command.stay.endsOn) - Date.parse(command.stay.startsOn)) / 86400000,
+            ),
+          ),
+        ),
+      },
       command.rooms && command.rooms.length > 1
         ? { label: 'Rooms', value: this.roomLines(command.rooms) }
         : { label: 'Room', value: command.roomName },
-      { label: 'Dates', value: dates },
+      ...(!command.template?.hasStayBlock ? [{ label: 'Dates', value: dates }] : []),
     ];
     if (options.includeGuests ?? true)
       rows.push({ label: 'Guests', value: String(command.guestCount) });
@@ -485,8 +531,16 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
   }
 
   /** Guest emails come from the hotel's name, and replies go to the hotel. */
-  private guestSender(brand: { name?: string | null; supportEmail?: string | null }) {
-    return { fromName: brand.name ?? null, replyTo: brand.supportEmail ?? null };
+  private guestSender(brand: {
+    name?: string | null;
+    supportEmail?: string | null;
+    senderName?: string | null;
+    replyTo?: string | null;
+  }) {
+    return {
+      fromName: brand.senderName ?? brand.name ?? null,
+      replyTo: brand.replyTo ?? brand.supportEmail ?? null,
+    };
   }
 
   /** "Hotel name" <our address>: the name is the hotel's, the sending address stays ours. */
@@ -510,6 +564,22 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
     replyTo?: string | null;
     fromName?: string | null;
   }): Promise<MailSendReceipt> {
+    await this.archive?.capture(message);
+    if (this.transports) return this.transports.send(message, () => this.sendDefault(message));
+    if (currentMailAttempt()?.recipientEnvelope)
+      throw new MailDeliveryError(
+        'Grouped staff delivery requires the durable transport dispatcher.',
+        false,
+      );
+    if (currentMailAttempt()?.senderTestVersion !== undefined)
+      throw new MailDeliveryError(
+        'Custom sender tests are unavailable. No default-sender test was sent.',
+        false,
+      );
+    return this.sendDefault(message);
+  }
+
+  private async sendDefault(message: RenderedTransportInput): Promise<MailSendReceipt> {
     // Never spend real quota on addresses that cannot receive mail (e.g. the @must.test
     // staff of the test hotel). Kept out of tests, which use such addresses on purpose.
     if (process.env.NODE_ENV === 'production' && isReservedTestAddress(message.to))
@@ -525,7 +595,7 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
         headers: {
           Authorization: `Bearer ${this.requiredEnvironment('RESEND_API_KEY')}`,
           'Content-Type': 'application/json',
-          'Idempotency-Key': message.idempotencyKey,
+          'Idempotency-Key': currentMailAttempt()?.idempotencyKeyOverride ?? message.idempotencyKey,
           'User-Agent': 'must-booking-platform/0.0.0',
         },
         body: JSON.stringify({

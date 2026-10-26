@@ -1,7 +1,15 @@
 # Milestone 23: Room photo library and Empire photo import
 
-Status: **Planned — scoped 2026-09-30. Code for Tasks 2-3 exists in the working tree but is uncommitted, undeployed and its migrations have not been run against a database.**
+Status: **Closed 2026-10-25 (outcome delivered; follow-ups deferred, see "Close-out").** Originally scoped 2026-09-30.
 Runs as an authorized ad hoc track alongside Milestone 22 (email). It does not renumber the main sequence, and the email track is deliberately out of scope here.
+
+## Close-out (2026-10-25)
+
+Verified read-only on the live database (Empire Beach Resort property `3d680e29-…`): the property photo library holds **327 photos (324 confirmed)** and `room_type_images` holds **135 images across all 13 current room types, each with exactly one primary image**; no room type lacks a main image. The goal (gallery, one selectable main image, property library, Empire photos imported) is met on the live system.
+
+How the original plan changed: Tasks 1-2 (Cloudflare R2 bucket and host variables) were **superseded by the interim local-disk storage** that went live as PR #355 (R2 stays the default driver, still unconfigured on the host). Tasks 3-9 are accounted for by the live data above. The task rows below keep their original text as history and were not individually re-stamped.
+
+Deferred, not done (carried forward, owner to schedule): image resizing/WebP variants, alt text and captions, retiring the legacy `main_image_url`/`gallery_image_urls` mirror columns, the Cloudflare cache rule and two-phase upload hardening of Task 5, and moving photos to R2 when it is configured. Not verified in this close-out: that the WordPress booking widget renders the images (Task 9). Host hardening is tracked in Milestone 14.
 
 ## Goal
 

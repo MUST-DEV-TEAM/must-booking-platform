@@ -42,7 +42,6 @@ describe('room types', () => {
     async sendRenderedEmail() {},
   };
   const storage: StorageProvider = {
-    async deleteObject() {},
     async createPresignedUpload(command) {
       return {
         uploadUrl: `https://storage.example.test/upload?key=${encodeURIComponent(command.key)}`,
@@ -51,6 +50,7 @@ describe('room types', () => {
     publicUrl(key: string) {
       return `https://media.example.test/${key}`;
     },
+    async deleteObject() {},
   };
 
   beforeAll(async () => {

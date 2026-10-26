@@ -1,4 +1,5 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import { isClockBackgroundWork } from './clock-request-context';
 import { createHash } from 'node:crypto';
 import { createClient, type RedisClientType } from 'redis';
 
@@ -26,18 +27,35 @@ export class ClockRateLimiterService implements OnModuleDestroy {
 
   async consume(apiUser: string): Promise<ClockRateLimitResult> {
     const response = (await this.client()).eval(
-      `local count = redis.call('INCR', KEYS[1])
+      `local count = tonumber(redis.call('GET', KEYS[1]) or '0')
+       local background = tonumber(redis.call('GET', KEYS[2]) or '0')
+       if count >= tonumber(ARGV[2]) or (ARGV[3] == '1' and background >= tonumber(ARGV[4])) then
+         return { 0, math.max(1, redis.call('TTL', KEYS[1])) }
+       end
+       count = redis.call('INCR', KEYS[1])
        if count == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
-       return { count, redis.call('TTL', KEYS[1]) }`,
+       if ARGV[3] == '1' then
+         background = redis.call('INCR', KEYS[2])
+         redis.call('EXPIRE', KEYS[2], math.max(1, redis.call('TTL', KEYS[1])))
+       end
+       return { 1, redis.call('TTL', KEYS[1]) }`,
       {
-        keys: [`rate-limit:clock:${this.hash(apiUser)}`],
-        arguments: [String(WINDOW_SECONDS)],
+        keys: [
+          `rate-limit:clock:${this.hash(apiUser)}`,
+          `rate-limit:clock:${this.hash(apiUser)}:background`,
+        ],
+        arguments: [
+          String(WINDOW_SECONDS),
+          String(CLOCK_RATE_LIMIT_PER_SECOND),
+          isClockBackgroundWork() ? '1' : '0',
+          '2',
+        ],
       },
     ) as Promise<[number, number]>;
-    const [count, ttl] = await response;
+    const [allowed, ttl] = await response;
 
     return {
-      allowed: count <= CLOCK_RATE_LIMIT_PER_SECOND,
+      allowed: allowed === 1,
       retryAfterSeconds: Math.max(1, ttl),
     };
   }

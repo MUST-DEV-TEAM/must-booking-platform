@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -108,6 +109,7 @@ describe('guest journey', () => {
       .expect(201);
     const ratePlan = await request(app!.getHttpServer())
       .post(`${propertyUrl}/rate-plans`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', ownerCookie)
       .send({ name: 'Flexible', currency: 'EUR', freeCancellationUntilHours: 48 })
       .expect(201);
@@ -116,11 +118,13 @@ describe('guest journey', () => {
     const endsOn = isoDateFromToday(32);
     await request(app!.getHttpServer())
       .put(`${propertyUrl}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', ownerCookie)
       .send({ roomTypeId: roomType.body.id, startsOn, endsOn, availableUnits: 1 })
       .expect(204);
     await request(app!.getHttpServer())
       .post(`${propertyUrl}/rate-plans/${ratePlan.body.id}/rules`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', ownerCookie)
       .send({ roomTypeId: roomType.body.id, startsOn: null, endsOn: null, amount: '95.00' })
       .expect(201);

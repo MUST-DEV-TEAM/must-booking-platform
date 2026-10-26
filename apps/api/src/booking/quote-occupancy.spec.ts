@@ -8,10 +8,12 @@ type QuotePayloadForTest = {
   propertyId: string;
   roomTypeId: string;
   ratePlanId: string;
+  clockRateId?: string;
   startsOn: string;
   endsOn: string;
   adults: number;
   children: number;
+  childrenAges?: number[];
   guestCount: number;
   total: { amount: string; currency: string };
   expiresAt: string;
@@ -38,12 +40,19 @@ const expectedBooking = {
   total: { amount: '190.00', currency: 'EUR' },
 };
 
-function tokenFor(adults: number, children: number): string {
+function tokenFor(
+  adults: number,
+  children: number,
+  childrenAges?: number[],
+  clockRateId?: string,
+): string {
   return signer.sign({
     version: 1,
     ...expectedBooking,
+    clockRateId,
     adults,
     children,
+    childrenAges,
     guestCount: adults + children,
     expiresAt: '2999-01-01T00:00:00.000Z',
     sessionBinding: signer.sessionBinding(sessionId),
@@ -55,6 +64,25 @@ function tokenFor(adults: number, children: number): string {
 }
 
 describe('QuoteService occupancy binding', () => {
+  it('binds individual ages to the signed price', () => {
+    const token = tokenFor(1, 1, [2]);
+    expect(
+      service.validate(token, sessionId, {
+        ...expectedBooking,
+        adults: 1,
+        children: 1,
+        childrenAges: [2],
+      }),
+    ).toBeNull();
+    expect(
+      service.validate(token, sessionId, {
+        ...expectedBooking,
+        adults: 1,
+        children: 1,
+        childrenAges: [12],
+      })?.code,
+    ).toBe('QUOTE_MISMATCH');
+  });
   it('rejects omitted create occupancy when the quote used a different breakdown', () => {
     expect(service.validate(tokenFor(2, 1), sessionId, expectedBooking)).toEqual({
       code: 'QUOTE_MISMATCH',
@@ -64,5 +92,36 @@ describe('QuoteService occupancy binding', () => {
 
   it('accepts omitted create occupancy when the quote uses the legacy default', () => {
     expect(service.validate(tokenFor(1, 0), sessionId, expectedBooking)).toBeNull();
+  });
+});
+
+describe('QuoteService chosen Clock rate binding', () => {
+  const booking = { ...expectedBooking, adults: 1, children: 0 };
+
+  it('accepts a booking for the rate that was quoted', () => {
+    expect(
+      service.validate(tokenFor(1, 0, undefined, '615688'), sessionId, {
+        ...booking,
+        clockRateId: '615688',
+      }),
+    ).toBeNull();
+  });
+
+  it('refuses a booking that asks for a different rate than the one priced', () => {
+    expect(
+      service.validate(tokenFor(1, 0, undefined, '546549'), sessionId, {
+        ...booking,
+        clockRateId: '615688',
+      })?.code,
+    ).toBe('QUOTE_MISMATCH');
+  });
+
+  it('refuses a booking that adds a rate to a quote priced without one, and the reverse', () => {
+    expect(
+      service.validate(tokenFor(1, 0), sessionId, { ...booking, clockRateId: '615688' })?.code,
+    ).toBe('QUOTE_MISMATCH');
+    expect(service.validate(tokenFor(1, 0, undefined, '615688'), sessionId, booking)?.code).toBe(
+      'QUOTE_MISMATCH',
+    );
   });
 });

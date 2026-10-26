@@ -1,0 +1,40 @@
+/*
+ * Tailwind entry for the dashboard: the shared redesign theme and utilities, but NOT Tailwind's
+ * global reset (preflight). Screens not yet migrated are CSS-module based and rely on browser
+ * defaults, so a global reset would restyle them. Instead a minimal reset applies inside .ui-root
+ * at zero specificity (:where), which any existing CSS-module rule overrides.
+ * Delete the reset block and switch to `@import 'tailwindcss'` once every dashboard screen is migrated.
+ */
+@layer theme, base, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities) source(none);
+@source './';
+@source '../../components';
+@import 'tw-animate-css';
+@import '../ui-theme.css';
+
+@layer base {
+  /* Popovers, menus, tooltips, selects and dialogs render in a portal outside .ui-root, so the
+     reset also covers the wrappers Radix puts them in. */
+  :where(.ui-root, [data-radix-popper-content-wrapper], [role='dialog'], [role='alertdialog']) *,
+  :where(.ui-root, [data-radix-popper-content-wrapper], [role='dialog'], [role='alertdialog'])
+    ::before,
+  :where(.ui-root, [data-radix-popper-content-wrapper], [role='dialog'], [role='alertdialog'])
+    ::after {
+    box-sizing: border-box;
+    border: 0 solid;
+  }
+
+  :where(.ui-root, [data-radix-popper-content-wrapper], [role='dialog'], [role='alertdialog'])
+    :is(button, input, select, textarea) {
+    font: inherit;
+    letter-spacing: inherit;
+    color: inherit;
+  }
+
+  /* Native buttons keep the browser's grey fill otherwise. Legacy CSS-module buttons set their
+     own background (it wins over this layered rule), so only unstyled buttons are affected. */
+  :where([data-radix-popper-content-wrapper], [role='dialog'], [role='alertdialog']) button {
+    background-color: transparent;
+  }
+}

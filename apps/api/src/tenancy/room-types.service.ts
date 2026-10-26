@@ -1,3 +1,5 @@
+import { pricingContext, pricingFacts } from './pricing.repository';
+import { pricingHealth } from './pricing-health';
 import {
   BadRequestException,
   ConflictException,
@@ -9,18 +11,55 @@ import { randomUUID } from 'node:crypto';
 
 import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
 import { AuditLogService } from './audit-log.service';
+import {
+  roomTypeImagePresentation,
+  type RoomTypeImageProjectionRow,
+} from './room-type-image-projection';
 import { STORAGE_PROVIDER, type StorageProvider } from '../storage/storage.provider';
+import { resolveEffectiveHouseRules } from './effective-house-rules';
 
 type RoomType = {
   id: string;
   name: string;
   description: string | null;
   amenitiesIntro: string | null;
+  rules: string | null;
+  effectiveRules?: string | null;
+  rulesSource?: 'room-type' | null;
   mainImageUrl: string | null;
   galleryImageUrls: string[];
   maxOccupancy: number;
   roomCount: number;
+  status: 'DRAFT' | 'PUBLISHED' | 'HIDDEN';
+  categoryId: string | null;
+  categoryName: string | null;
+  readiness?: RoomTypeReadiness;
 };
+type ReadinessKey =
+  | 'basicInfo'
+  | 'occupancy'
+  | 'rateRule'
+  | 'rooms'
+  | 'availabilitySource'
+  | 'photos'
+  | 'inventoryConflict';
+type RoomTypeReadiness = {
+  checks: Array<{ key: ReadinessKey; label: string; complete: boolean; fixLabel: string }>;
+  completeCount: number;
+  missingCount: number;
+  isComplete: boolean;
+  firstFix: { key: ReadinessKey; label: string } | null;
+};
+type RoomTypeReadinessRow = {
+  hasBasicInfo: boolean;
+  hasOccupancy: boolean;
+  hasRateRule: boolean;
+  hasRooms: boolean;
+  hasAvailabilitySource: boolean;
+  hasPhotos: boolean;
+  hasInventoryConflict: boolean;
+};
+type RoomTypeListRow = RoomType & RoomTypeReadinessRow;
 type RoomTypeImage = {
   id: string;
   url: string;
@@ -52,19 +91,96 @@ export class RoomTypesService {
   ) {}
 
   list(tenantId: string, propertyId: string): Promise<RoomType[]> {
-    return this.database.withTenantTransaction(
-      { tenantId, propertyId },
-      (tx) => tx.$queryRaw<RoomType[]>`
-        SELECT rt.id, rt.name, rt.description, rt.amenities_intro AS "amenitiesIntro", rt.main_image_url AS "mainImageUrl",
-          rt.gallery_image_urls AS "galleryImageUrls", rt.max_occupancy AS "maxOccupancy",
-          count(r.id)::int AS "roomCount"
+    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      const roomTypes = await tx.$queryRaw<RoomTypeListRow[]>`
+        SELECT rt.id, rt.name, rt.description, rt.amenities_intro AS "amenitiesIntro", rt.rules,
+          rt.max_occupancy AS "maxOccupancy", rt.status::text AS status,
+          rt.category_id AS "categoryId", category.name AS "categoryName", count(r.id)::int AS "roomCount",
+          (NULLIF(BTRIM(rt.name), '') IS NOT NULL AND NULLIF(BTRIM(rt.description), '') IS NOT NULL) AS "hasBasicInfo",
+          (rt.max_occupancy > 0) AS "hasOccupancy",
+          EXISTS (SELECT 1 FROM rate_rules rr WHERE rr.tenant_id = rt.tenant_id
+            AND rr.property_id = rt.property_id AND rr.room_type_id = rt.id) AS "hasRateRule",
+          EXISTS (SELECT 1 FROM rooms rr WHERE rr.tenant_id = rt.tenant_id
+            AND rr.property_id = rt.property_id AND rr.room_type_id = rt.id) AS "hasRooms",
+          (NOT EXISTS (
+            SELECT 1 FROM property_integration_connections pic
+            JOIN integration_connections c ON c.tenant_id = pic.tenant_id AND c.id = pic.connection_id
+            WHERE pic.tenant_id = rt.tenant_id AND pic.property_id = rt.property_id
+              AND pic.enabled = true AND c.kind = 'PMS' AND c.status = 'CONNECTED'
+          ) OR EXISTS (
+            SELECT 1 FROM clock_catalog_mappings cm
+            JOIN property_integration_connections pic ON pic.tenant_id = cm.tenant_id
+              AND pic.property_id = cm.property_id AND pic.connection_id = cm.connection_id AND pic.enabled = true
+            JOIN integration_connections c ON c.tenant_id = cm.tenant_id AND c.id = cm.connection_id
+            WHERE cm.tenant_id = rt.tenant_id AND cm.property_id = rt.property_id
+              AND cm.entity_type = 'ROOM_TYPE' AND cm.local_entity_id = rt.id
+              AND cm.sync_status = 'CONFIRMED' AND c.kind = 'PMS' AND c.provider = 'CLOCK_PMS' AND c.status = 'CONNECTED'
+          )) AS "hasAvailabilitySource",
+          EXISTS (SELECT 1 FROM room_type_images image WHERE image.tenant_id = rt.tenant_id
+            AND image.property_id = rt.property_id AND image.room_type_id = rt.id) AS "hasPhotos",
+          (EXISTS (
+            SELECT 1 FROM clock_catalog_mappings cm
+            JOIN property_integration_connections pic ON pic.tenant_id = cm.tenant_id
+              AND pic.property_id = cm.property_id AND pic.connection_id = cm.connection_id AND pic.enabled = true
+            JOIN integration_connections c ON c.tenant_id = cm.tenant_id AND c.id = cm.connection_id
+            WHERE cm.tenant_id = rt.tenant_id AND cm.property_id = rt.property_id
+              AND cm.entity_type = 'ROOM_TYPE' AND cm.local_entity_id = rt.id
+              AND cm.sync_status = 'CONFIRMED' AND c.kind = 'PMS' AND c.provider = 'CLOCK_PMS' AND c.status = 'CONNECTED'
+            GROUP BY cm.local_entity_id HAVING COUNT(*) > 1
+          ) OR EXISTS (
+            SELECT 1 FROM clock_catalog_mappings cm
+            JOIN rooms mapped_room ON mapped_room.tenant_id = cm.tenant_id
+              AND mapped_room.property_id = cm.property_id AND mapped_room.id = cm.local_entity_id
+            JOIN property_integration_connections pic ON pic.tenant_id = cm.tenant_id
+              AND pic.property_id = cm.property_id AND pic.connection_id = cm.connection_id AND pic.enabled = true
+            JOIN integration_connections c ON c.tenant_id = cm.tenant_id AND c.id = cm.connection_id
+            WHERE cm.tenant_id = rt.tenant_id AND cm.property_id = rt.property_id
+              AND cm.entity_type = 'ROOM' AND mapped_room.room_type_id = rt.id
+              AND cm.sync_status = 'CONFIRMED' AND c.kind = 'PMS' AND c.provider = 'CLOCK_PMS' AND c.status = 'CONNECTED'
+            GROUP BY cm.local_entity_id HAVING COUNT(*) > 1
+          )) AS "hasInventoryConflict"
         FROM room_types rt
         LEFT JOIN rooms r ON r.tenant_id = rt.tenant_id AND r.room_type_id = rt.id
+        LEFT JOIN room_categories category ON category.tenant_id = rt.tenant_id
+          AND category.property_id = rt.property_id AND category.id = rt.category_id
         WHERE rt.tenant_id = ${tenantId}::uuid AND rt.property_id = ${propertyId}::uuid
-        GROUP BY rt.id
+        GROUP BY rt.id, category.name
         ORDER BY rt.created_at
-      `,
-    );
+      `;
+      const images = await this.roomTypeImageRows(tx, tenantId, propertyId);
+      const imagesByRoomType = new Map<string, RoomTypeImageProjectionRow[]>();
+      for (const image of images) {
+        const roomTypeImages = imagesByRoomType.get(image.roomTypeId) ?? [];
+        roomTypeImages.push(image);
+        imagesByRoomType.set(image.roomTypeId, roomTypeImages);
+      }
+      const pricing = await pricingContext(tx, tenantId, propertyId);
+      const priceReadiness = pricing.readOnly
+        ? null
+        : pricingHealth(
+            await pricingFacts(tx, tenantId, propertyId),
+            roomTypes,
+            pricing.today,
+            pricing.advanceBookingDays,
+          ).readiness;
+      return roomTypes.map((roomType) => {
+        const readiness = this.readiness({
+          ...roomType,
+          hasRateRule: priceReadiness ? priceReadiness[roomType.id] === true : roomType.hasRateRule,
+        });
+        const houseRules = resolveEffectiveHouseRules(null, roomType.rules);
+        return {
+          ...roomType,
+          rules: houseRules.effectiveRules,
+          effectiveRules: houseRules.effectiveRules,
+          rulesSource: houseRules.effectiveRules ? 'room-type' : null,
+          readiness,
+          ...roomTypeImagePresentation(imagesByRoomType.get(roomType.id) ?? [], (key) =>
+            this.storage.publicUrl(key),
+          ),
+        };
+      });
+    });
   }
 
   async create(
@@ -73,13 +189,15 @@ export class RoomTypesService {
     actorUserId: string,
     body: unknown,
   ): Promise<RoomType> {
-    const input = this.input(body, true);
+    const input = this.input(body);
     const id = randomUUID();
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       try {
+        if (input.categoryId)
+          await this.requireCategory(tx, tenantId, propertyId, input.categoryId);
         const rows = await tx.$queryRaw<RoomType[]>`
           INSERT INTO room_types (
-            id, tenant_id, property_id, name, description, amenities_intro, main_image_url, gallery_image_urls, max_occupancy
+            id, tenant_id, property_id, name, description, amenities_intro, rules, main_image_url, gallery_image_urls, max_occupancy, category_id
           )
           VALUES (
             ${id}::uuid,
@@ -88,12 +206,15 @@ export class RoomTypesService {
             ${input.name},
             ${input.description},
             ${input.amenitiesIntro},
-            ${input.mainImageUrl ?? null},
-            ${input.galleryImageUrls ?? []}::varchar(2000)[],
-            ${input.maxOccupancy}
+            ${input.rules},
+            NULL,
+            ARRAY[]::varchar(2000)[],
+            ${input.maxOccupancy},
+            ${input.categoryId ?? null}::uuid
           )
-          RETURNING id, name, description, amenities_intro AS "amenitiesIntro", main_image_url AS "mainImageUrl",
-            gallery_image_urls AS "galleryImageUrls", max_occupancy AS "maxOccupancy"
+          RETURNING id, name, description, amenities_intro AS "amenitiesIntro", rules, main_image_url AS "mainImageUrl",
+            gallery_image_urls AS "galleryImageUrls", max_occupancy AS "maxOccupancy", status::text AS status,
+            category_id AS "categoryId", NULL::text AS "categoryName"
         `;
         await this.audit.recordInTransaction(tx, {
           tenantId,
@@ -103,7 +224,15 @@ export class RoomTypesService {
           targetType: 'room_type',
           targetId: id,
         });
-        return rows[0];
+        const images = await this.roomTypeImageRows(tx, tenantId, propertyId, id);
+        const houseRules = resolveEffectiveHouseRules(null, rows[0].rules);
+        return {
+          ...rows[0],
+          rules: houseRules.effectiveRules,
+          effectiveRules: houseRules.effectiveRules,
+          rulesSource: houseRules.effectiveRules ? 'room-type' : null,
+          ...roomTypeImagePresentation(images, (key) => this.storage.publicUrl(key)),
+        };
       } catch (error: unknown) {
         if (this.isUniqueViolation(error))
           throw new ConflictException(
@@ -121,22 +250,31 @@ export class RoomTypesService {
     actorUserId: string,
     body: unknown,
   ): Promise<RoomType> {
-    const input = this.input(body, false);
+    const input = this.input(body);
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       try {
+        if (input.categoryId)
+          await this.requireCategory(tx, tenantId, propertyId, input.categoryId);
+        const currentRows = await tx.$queryRaw<Array<{ status: string }>>`
+          SELECT status::text AS status FROM room_types
+          WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND id = ${roomTypeId}::uuid
+        `;
+        if (!currentRows[0]) throw new NotFoundException('Room type not found.');
         const rows = await tx.$queryRaw<RoomType[]>`
           UPDATE room_types
           SET
             name = ${input.name},
             description = ${input.description},
             amenities_intro = ${input.amenitiesIntro},
-            main_image_url = CASE WHEN ${input.mainImageUrlProvided} THEN ${input.mainImageUrl ?? null} ELSE main_image_url END,
-            gallery_image_urls = CASE WHEN ${input.galleryImageUrlsProvided} THEN ${input.galleryImageUrls ?? []}::varchar(2000)[] ELSE gallery_image_urls END,
+            rules = CASE WHEN ${input.hasRules} THEN ${input.rules} ELSE rules END,
             max_occupancy = ${input.maxOccupancy},
+            category_id = CASE WHEN ${input.categoryId !== undefined} THEN ${input.categoryId ?? null}::uuid ELSE category_id END,
+            status = COALESCE(${input.status ?? null}::"RoomTypeStatus", status),
             updated_at = CURRENT_TIMESTAMP
           WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND id = ${roomTypeId}::uuid
-          RETURNING id, name, description, amenities_intro AS "amenitiesIntro", main_image_url AS "mainImageUrl",
-            gallery_image_urls AS "galleryImageUrls", max_occupancy AS "maxOccupancy"
+          RETURNING id, name, description, amenities_intro AS "amenitiesIntro", rules, main_image_url AS "mainImageUrl",
+            gallery_image_urls AS "galleryImageUrls", max_occupancy AS "maxOccupancy", status::text AS status,
+            category_id AS "categoryId", NULL::text AS "categoryName"
         `;
         if (!rows[0]) throw new NotFoundException('Room type not found.');
         await this.audit.recordInTransaction(tx, {
@@ -147,7 +285,26 @@ export class RoomTypesService {
           targetType: 'room_type',
           targetId: roomTypeId,
         });
-        return rows[0];
+        if (input.status && input.status !== currentRows[0].status) {
+          await this.audit.recordInTransaction(tx, {
+            tenantId,
+            propertyId,
+            actorUserId,
+            action: 'room_type.status_changed',
+            targetType: 'room_type',
+            targetId: roomTypeId,
+            details: { from: currentRows[0].status, to: input.status },
+          });
+        }
+        const images = await this.roomTypeImageRows(tx, tenantId, propertyId, roomTypeId);
+        const houseRules = resolveEffectiveHouseRules(null, rows[0].rules);
+        return {
+          ...rows[0],
+          rules: houseRules.effectiveRules,
+          effectiveRules: houseRules.effectiveRules,
+          rulesSource: houseRules.effectiveRules ? 'room-type' : null,
+          ...roomTypeImagePresentation(images, (key) => this.storage.publicUrl(key)),
+        };
       } catch (error: unknown) {
         if (this.isUniqueViolation(error))
           throw new ConflictException(
@@ -166,10 +323,10 @@ export class RoomTypesService {
   ): Promise<void> {
     await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       try {
-        const rows = await tx.$queryRaw<Array<{ id: string }>>`
+        const rows = await tx.$queryRaw<Array<{ id: string; name: string }>>`
           DELETE FROM room_types
           WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND id = ${roomTypeId}::uuid
-          RETURNING id
+          RETURNING id, name
         `;
         if (!rows[0]) throw new NotFoundException('Room type not found.');
         await this.audit.recordInTransaction(tx, {
@@ -179,6 +336,7 @@ export class RoomTypesService {
           action: 'room_type.deleted',
           targetType: 'room_type',
           targetId: roomTypeId,
+          details: { targetName: rows[0].name },
         });
       } catch (error: unknown) {
         if (this.isForeignKeyViolation(error))
@@ -248,6 +406,7 @@ export class RoomTypesService {
         action: 'room_type_image.created',
         targetType: 'room_type_image',
         targetId: id,
+        details: { roomTypeId },
       });
 
       return { id, uploadUrl, publicUrl: this.storage.publicUrl(objectKey) };
@@ -333,6 +492,7 @@ export class RoomTypesService {
         action: 'room_type_image.created_from_url',
         targetType: 'room_type_image',
         targetId: id,
+        details: { roomTypeId },
       });
       return {
         id,
@@ -435,6 +595,7 @@ export class RoomTypesService {
         action: 'room_type_image.primary_changed',
         targetType: 'room_type_image',
         targetId: imageId,
+        details: { roomTypeId },
       });
     });
   }
@@ -523,6 +684,7 @@ export class RoomTypesService {
         action: 'room_type_image.deleted',
         targetType: 'room_type_image',
         targetId: imageId,
+        details: { roomTypeId },
       });
     });
   }
@@ -550,6 +712,9 @@ export class RoomTypesService {
         SELECT l.id, l.object_key AS "objectKey", l.original_name AS "originalName",
           l.created_at AS "createdAt",
           (SELECT COUNT(*)::int FROM room_type_images i
+            WHERE i.tenant_id = l.tenant_id AND i.property_id = l.property_id
+              AND i.object_key = l.object_key)
+          + (SELECT COUNT(*)::int FROM room_images i
             WHERE i.tenant_id = l.tenant_id AND i.property_id = l.property_id
               AND i.object_key = l.object_key) AS "usageCount"
         FROM property_library_images l
@@ -661,13 +826,18 @@ export class RoomTypesService {
         `;
         if (!rows[0]) throw new NotFoundException('Library photo not found.');
         const usage = await tx.$queryRaw<Array<{ count: number }>>`
-          SELECT COUNT(*)::int AS count FROM room_type_images
-          WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
-            AND object_key = ${rows[0].objectKey}
+          SELECT (
+            (SELECT COUNT(*)::int FROM room_type_images
+              WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+                AND object_key = ${rows[0].objectKey})
+            + (SELECT COUNT(*)::int FROM room_images
+              WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+                AND object_key = ${rows[0].objectKey})
+          ) AS count
         `;
         if (usage[0].count > 0)
           throw new ConflictException(
-            'This photo is used by a room type. Remove it from the room type first.',
+            'This photo is used by a room or room type. Remove it from every gallery first.',
           );
         await tx.$executeRaw`
           DELETE FROM property_library_images
@@ -777,21 +947,10 @@ export class RoomTypesService {
     propertyId: string,
     roomTypeId: string,
   ): Promise<void> {
-    const rows = await tx.$queryRaw<
-      Array<{ objectKey: string | null; sourceUrl: string | null; isPrimary: boolean }>
-    >`
-      SELECT object_key AS "objectKey", source_url AS "sourceUrl", is_primary AS "isPrimary"
-      FROM room_type_images
-      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND room_type_id = ${roomTypeId}::uuid
-      ORDER BY is_primary DESC, sort_order, created_at, id
-    `;
-    const primary = rows.find((row) => row.isPrimary) ?? rows[0];
-    const mainImageUrl = primary
-      ? (primary.sourceUrl ?? this.storage.publicUrl(primary.objectKey!))
-      : null;
-    const galleryImageUrls = rows
-      .filter((row) => row !== primary)
-      .map((row) => row.sourceUrl ?? this.storage.publicUrl(row.objectKey!));
+    const rows = await this.roomTypeImageRows(tx, tenantId, propertyId, roomTypeId);
+    const { mainImageUrl, galleryImageUrls } = roomTypeImagePresentation(rows, (key) =>
+      this.storage.publicUrl(key),
+    );
     await tx.$executeRaw`
       UPDATE room_types
       SET main_image_url = ${mainImageUrl},
@@ -801,20 +960,48 @@ export class RoomTypesService {
     `;
   }
 
-  private input(
-    body: unknown,
-    creating: boolean,
-  ): {
+  private roomTypeImageRows(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+    roomTypeId?: string,
+  ): Promise<Array<RoomTypeImageProjectionRow & { roomTypeId: string }>> {
+    if (roomTypeId)
+      return tx.$queryRaw<Array<RoomTypeImageProjectionRow & { roomTypeId: string }>>`
+        SELECT room_type_id AS "roomTypeId", source_url AS "sourceUrl", object_key AS "objectKey",
+          sort_order AS "sortOrder", is_primary AS "isPrimary", created_at AS "createdAt", id
+        FROM room_type_images
+        WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+          AND room_type_id = ${roomTypeId}::uuid
+        ORDER BY sort_order, created_at, id
+      `;
+    return tx.$queryRaw<Array<RoomTypeImageProjectionRow & { roomTypeId: string }>>`
+      SELECT room_type_id AS "roomTypeId", source_url AS "sourceUrl", object_key AS "objectKey",
+        sort_order AS "sortOrder", is_primary AS "isPrimary", created_at AS "createdAt", id
+      FROM room_type_images
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+      ORDER BY room_type_id, sort_order, created_at, id
+    `;
+  }
+
+  private input(body: unknown): {
     name: string;
     description: string | null;
     amenitiesIntro: string | null;
-    mainImageUrl: string | null | undefined;
-    galleryImageUrls: string[] | undefined;
-    mainImageUrlProvided: boolean;
-    galleryImageUrlsProvided: boolean;
+    rules: string | null;
+    hasRules: boolean;
     maxOccupancy: number;
+    categoryId?: string | null;
+    status?: 'DRAFT' | 'PUBLISHED' | 'HIDDEN';
   } {
     const v = (body ?? {}) as Record<string, unknown>;
+    if (
+      Object.prototype.hasOwnProperty.call(v, 'mainImageUrl') ||
+      Object.prototype.hasOwnProperty.call(v, 'galleryImageUrls')
+    )
+      throw new BadRequestException(
+        'Manage room type photos through the photos.manage image routes.',
+      );
     const name = typeof v.name === 'string' ? v.name.trim() : '';
     const description =
       typeof v.description === 'string' && v.description.trim() ? v.description.trim() : null;
@@ -822,17 +1009,23 @@ export class RoomTypesService {
       typeof v.amenitiesIntro === 'string' && v.amenitiesIntro.trim()
         ? v.amenitiesIntro.trim()
         : null;
-    const mainImageUrlProvided =
-      creating || Object.prototype.hasOwnProperty.call(v, 'mainImageUrl');
-    const galleryImageUrlsProvided =
-      creating || Object.prototype.hasOwnProperty.call(v, 'galleryImageUrls');
-    const mainImageUrl = mainImageUrlProvided
-      ? this.imageUrl(v.mainImageUrl, 'mainImageUrl')
-      : undefined;
-    const galleryImageUrls = galleryImageUrlsProvided
-      ? this.galleryImageUrls(v.galleryImageUrls)
-      : undefined;
+    const hasRules = Object.prototype.hasOwnProperty.call(v, 'rules');
+    if (hasRules && v.rules !== null && typeof v.rules !== 'string')
+      throw new BadRequestException('rules must be a string or null.');
+    const rules = typeof v.rules === 'string' && v.rules.trim() ? v.rules.trim() : null;
     const maxOccupancy = typeof v.maxOccupancy === 'number' ? v.maxOccupancy : NaN;
+    const categoryId = Object.prototype.hasOwnProperty.call(v, 'categoryId')
+      ? v.categoryId === null
+        ? null
+        : typeof v.categoryId === 'string' && /^[0-9a-f-]{36}$/i.test(v.categoryId)
+          ? v.categoryId
+          : undefined
+      : undefined;
+    if (Object.prototype.hasOwnProperty.call(v, 'categoryId') && categoryId === undefined)
+      throw new BadRequestException('categoryId must be a category ID or null.');
+    const status = v.status;
+    if (status !== undefined && status !== 'DRAFT' && status !== 'PUBLISHED' && status !== 'HIDDEN')
+      throw new BadRequestException('status must be DRAFT, PUBLISHED, or HIDDEN.');
     if (!name) throw new BadRequestException('name is required.');
     if (name.length > 200) throw new BadRequestException('name must be at most 200 characters.');
     if (!Number.isInteger(maxOccupancy) || maxOccupancy <= 0)
@@ -841,26 +1034,70 @@ export class RoomTypesService {
       name,
       description,
       amenitiesIntro,
-      mainImageUrl,
-      galleryImageUrls,
-      mainImageUrlProvided,
-      galleryImageUrlsProvided,
+      rules,
+      hasRules,
       maxOccupancy,
+      ...(categoryId !== undefined ? { categoryId } : {}),
+      ...(status ? { status } : {}),
     };
   }
 
-  private galleryImageUrls(value: unknown): string[] {
-    if (value === undefined || value === null) return [];
-    if (!Array.isArray(value))
-      throw new BadRequestException('galleryImageUrls must be an array of image URLs.');
-    if (value.length > 12)
-      throw new BadRequestException('galleryImageUrls must contain at most 12 URLs.');
-    const urls = value.map((url) => this.imageUrl(url, 'galleryImageUrls'));
-    if (urls.some((url) => url === null))
-      throw new BadRequestException('galleryImageUrls must contain image URLs.');
-    if (new Set(urls).size !== urls.length)
-      throw new BadRequestException('galleryImageUrls must not contain duplicates.');
-    return urls as string[];
+  private readiness(row: RoomTypeReadinessRow): RoomTypeReadiness {
+    const checks: RoomTypeReadiness['checks'] = [
+      {
+        key: 'basicInfo',
+        label: 'Basic information',
+        complete: row.hasBasicInfo,
+        fixLabel: 'Add details',
+      },
+      {
+        key: 'occupancy',
+        label: 'Occupancy set',
+        complete: row.hasOccupancy,
+        fixLabel: 'Set occupancy',
+      },
+      {
+        key: 'rateRule',
+        label: 'Rate rule',
+        complete: row.hasRateRule,
+        fixLabel: 'Add a rate rule',
+      },
+      { key: 'rooms', label: 'Rooms exist', complete: row.hasRooms, fixLabel: 'Add a room' },
+      {
+        key: 'availabilitySource',
+        label: 'Availability source selected',
+        complete: row.hasAvailabilitySource,
+        fixLabel: 'Connect or map inventory',
+      },
+      { key: 'photos', label: 'Photos added', complete: row.hasPhotos, fixLabel: 'Add photos' },
+      {
+        key: 'inventoryConflict',
+        label: 'Inventory source conflict',
+        complete: !row.hasInventoryConflict,
+        fixLabel: 'Review Clock mappings',
+      },
+    ];
+    const incomplete = checks.filter((check) => !check.complete);
+    return {
+      checks,
+      completeCount: checks.length - incomplete.length,
+      missingCount: incomplete.length,
+      isComplete: incomplete.length === 0,
+      firstFix: incomplete[0] ? { key: incomplete[0].key, label: incomplete[0].fixLabel } : null,
+    };
+  }
+
+  private async requireCategory(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+    categoryId: string,
+  ): Promise<void> {
+    const rows = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM room_categories WHERE tenant_id = ${tenantId}::uuid
+        AND property_id = ${propertyId}::uuid AND id = ${categoryId}::uuid
+    `;
+    if (!rows[0]) throw new NotFoundException('Room category not found.');
   }
 
   private imageUrl(value: unknown, field: string): string | null {

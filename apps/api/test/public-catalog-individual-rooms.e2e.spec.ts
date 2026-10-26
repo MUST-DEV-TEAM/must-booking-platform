@@ -109,16 +109,49 @@ describe('public catalog individual rooms', () => {
     const pooledRoomType = await request(app.getHttpServer())
       .post(`${pooledUrl}/room-types`)
       .set('Cookie', cookie)
-      .send({
-        name: 'Pooled Classic',
-        maxOccupancy: 2,
-        mainImageUrl: 'https://images.example.test/pooled-classic.jpg',
-        galleryImageUrls: [
-          'https://images.example.test/pooled-classic-1.jpg',
-          'https://images.example.test/pooled-classic-2.jpg',
-        ],
-      })
+      .send({ name: 'Pooled Classic', maxOccupancy: 2 })
       .expect(201);
+    const draftRoomType = await request(app.getHttpServer())
+      .post(`${pooledUrl}/room-types`)
+      .set('Cookie', cookie)
+      .send({ name: 'Draft Classic', maxOccupancy: 2 })
+      .expect(201);
+    await request(app.getHttpServer())
+      .patch(`${pooledUrl}/room-types/${draftRoomType.body.id}`)
+      .set('Cookie', cookie)
+      .send({ name: 'Draft Classic', maxOccupancy: 2, status: 'DRAFT' })
+      .expect(200)
+      .expect((response) => expect(response.body.status).toBe('DRAFT'));
+    const hiddenRoomType = await request(app.getHttpServer())
+      .post(`${pooledUrl}/room-types`)
+      .set('Cookie', cookie)
+      .send({ name: 'Hidden Classic', maxOccupancy: 2 })
+      .expect(201);
+    await request(app.getHttpServer())
+      .patch(`${pooledUrl}/room-types/${hiddenRoomType.body.id}`)
+      .set('Cookie', cookie)
+      .send({ name: 'Hidden Classic', maxOccupancy: 2, status: 'HIDDEN' })
+      .expect(200);
+    const dashboardTypes = await request(app.getHttpServer())
+      .get(`${pooledUrl}/room-types`)
+      .set('Cookie', cookie)
+      .expect(200);
+    expect(dashboardTypes.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: draftRoomType.body.id, status: 'DRAFT' }),
+        expect.objectContaining({ id: hiddenRoomType.body.id, status: 'HIDDEN' }),
+      ]),
+    );
+    for (const url of [
+      'https://images.example.test/pooled-classic.jpg',
+      'https://images.example.test/pooled-classic-1.jpg',
+      'https://images.example.test/pooled-classic-2.jpg',
+    ])
+      await request(app.getHttpServer())
+        .post(`${pooledUrl}/room-types/${pooledRoomType.body.id}/images/from-url`)
+        .set('Cookie', cookie)
+        .send({ url })
+        .expect(201);
     const beachAmenity = await request(app.getHttpServer())
       .post(`${pooledUrl}/amenities`)
       .set('Cookie', cookie)
@@ -154,7 +187,10 @@ describe('public catalog individual rooms', () => {
           id: pooledRoomType.body.id,
           name: 'Pooled Classic',
           description: null,
+          category: null,
           amenitiesIntro: null,
+          rules: null,
+          rulesSource: null,
           mainImageUrl: 'https://images.example.test/pooled-classic.jpg',
           galleryImageUrls: [
             'https://images.example.test/pooled-classic-1.jpg',
@@ -167,6 +203,10 @@ describe('public catalog individual rooms', () => {
         },
       ],
     });
+    await request(app.getHttpServer())
+      .get(`${pooledUrl}/public/availability`)
+      .query({ roomTypeId: draftRoomType.body.id, startsOn: '2035-09-10', endsOn: '2035-09-11' })
+      .expect(404);
 
     individualPropertyId = await createProperty('Individual Hotel');
     const individualUrl = `/tenants/${tenantId}/properties/${individualPropertyId}`;
@@ -190,11 +230,33 @@ describe('public catalog individual rooms', () => {
       .set('Cookie', cookie)
       .send({ name: 'Classic Room B', floor: 2, viewType: 'Sea view' })
       .expect(201);
+    const inactiveRoom = await request(app.getHttpServer())
+      .post(`${individualUrl}/room-types/${individualRoomType.body.id}/rooms`)
+      .set('Cookie', cookie)
+      .send({ name: 'Classic Room C' })
+      .expect(201);
+    await request(app.getHttpServer())
+      .patch(
+        `${individualUrl}/room-types/${individualRoomType.body.id}/rooms/${inactiveRoom.body.id}`,
+      )
+      .set('Cookie', cookie)
+      .send({ name: 'Classic Room C', isActive: false })
+      .expect(200);
     await request(app.getHttpServer())
       .put(`${individualUrl}/rooms/${unavailableRoom.body.id}/availability`)
       .set('Cookie', cookie)
       .send({ startsOn: '2035-09-10', endsOn: '2035-09-12', isAvailable: false })
       .expect(204);
+    // A dated catalog only lists room types a guest can price, so the type needs a rate plan.
+    const individualRatePlanId = randomUUID();
+    await admin.$executeRaw`
+      INSERT INTO rate_plans (id, tenant_id, property_id, name, currency, is_active)
+      VALUES (${individualRatePlanId}::uuid, ${tenantId}::uuid, ${individualPropertyId}::uuid, 'Standard Rate', 'EUR', true)
+    `;
+    await admin.$executeRaw`
+      INSERT INTO rate_rules (tenant_id, property_id, room_type_id, rate_plan_id, amount)
+      VALUES (${tenantId}::uuid, ${individualPropertyId}::uuid, ${individualRoomType.body.id}::uuid, ${individualRatePlanId}::uuid, 100)
+    `;
     await request(app.getHttpServer()).get(`${individualUrl}/public/catalog`).expect(400);
     const individualCatalog = await request(app.getHttpServer())
       .get(`${individualUrl}/public/catalog`)
@@ -224,6 +286,18 @@ describe('public catalog individual rooms', () => {
         },
       ],
     });
+    expect(
+      individualCatalog.body.roomTypes[0].rooms.map((room: { id: string }) => room.id),
+    ).not.toContain(inactiveRoom.body.id);
+    await request(app.getHttpServer())
+      .get(`${individualUrl}/public/availability-check`)
+      .query({
+        roomTypeId: individualRoomType.body.id,
+        roomId: inactiveRoom.body.id,
+        startsOn: '2035-09-10',
+        endsOn: '2035-09-11',
+      })
+      .expect(404);
 
     mixedPropertyId = await createProperty('Mixed Hotel');
     const mixedUrl = `/tenants/${tenantId}/properties/${mixedPropertyId}`;
@@ -242,6 +316,15 @@ describe('public catalog individual rooms', () => {
       .set('Cookie', cookie)
       .send({ name: 'Mixed Room' })
       .expect(201);
+    const mixedRatePlanId = randomUUID();
+    await admin.$executeRaw`
+      INSERT INTO rate_plans (id, tenant_id, property_id, name, currency, is_active)
+      VALUES (${mixedRatePlanId}::uuid, ${tenantId}::uuid, ${mixedPropertyId}::uuid, 'Standard Rate', 'EUR', true)
+    `;
+    await admin.$executeRaw`
+      INSERT INTO rate_rules (tenant_id, property_id, room_type_id, rate_plan_id, amount)
+      VALUES (${tenantId}::uuid, ${mixedPropertyId}::uuid, ${mixedRoomType.body.id}::uuid, ${mixedRatePlanId}::uuid, 100)
+    `;
     await request(app.getHttpServer())
       .get(`${mixedUrl}/public/catalog`)
       .query({ startsOn: '2035-09-10', endsOn: '2035-09-12' })

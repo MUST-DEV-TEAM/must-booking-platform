@@ -42,15 +42,24 @@ test('changing booking mode in Settings changes real booking enforcement', async
     await page.goto(
       `/dashboard/${tenant.tenantId}?propertyId=${tenant.propertyId}&section=settings`,
     );
-    await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+    await expect(
+      page.locator('#app-main-content').getByRole('heading', { name: 'Settings' }),
+    ).toBeVisible();
     await page.getByRole('link', { name: 'Open Booking rules' }).click();
-    await page.getByRole('combobox', { name: 'Booking mode' }).selectOption('INDIVIDUAL_ROOM_ONLY');
+    // The booking mode is now the "Inventory mode" on the Booking rules screen, saved from the
+    // sticky save bar after a confirmation.
+    await page.getByRole('combobox', { name: 'Inventory mode' }).click();
+    await page.getByRole('option', { name: 'Individual rooms' }).click();
     const saveResponse = page.waitForResponse(
       (response) =>
         response.request().method() === 'PATCH' &&
         response.url().endsWith(`/api/tenants/${tenant.tenantId}/properties/${tenant.propertyId}`),
     );
-    await page.getByRole('button', { name: 'Save booking mode' }).click();
+    await page
+      .getByRole('region', { name: 'Unsaved changes' })
+      .getByRole('button', { name: 'Save changes' })
+      .click();
+    await page.getByRole('button', { name: 'Change mode' }).click();
     expect((await saveResponse).status()).toBe(200);
     await expect(page.getByText('Settings saved.')).toBeVisible();
 
@@ -74,7 +83,11 @@ async function createCatalog(
       const response = await fetch(`${propertyBase}${path}`, {
         ...init,
         credentials: 'include',
-        headers: { 'content-type': 'application/json', ...init?.headers },
+        headers: {
+          'content-type': 'application/json',
+          'idempotency-key': crypto.randomUUID(),
+          ...init?.headers,
+        },
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) throw new Error(`Request to ${path} failed with ${response.status}.`);

@@ -60,8 +60,55 @@ export class IntegrationConnectionsService {
     );
   }
 
+  async credentialDetails(tenantId: string, connectionId: string) {
+    return this.database.withTenantTransaction({ tenantId }, async (tx) => {
+      const rows = await tx.$queryRaw<
+        Array<{ provider: ConnectionProvider; encrypted: string }>
+      >`SELECT provider, encrypted_credentials AS encrypted FROM integration_connections WHERE tenant_id=${tenantId}::uuid AND id=${connectionId}::uuid`;
+      if (!rows[0]) throw new BadRequestException('Connection not found.');
+      const data = this.cipher.decrypt(rows[0].encrypted);
+      const fields =
+        rows[0].provider === 'CLOCK_PMS'
+          ? ['host', 'accountId', 'subscriptionId', 'apiUser', 'apiKey']
+          : rows[0].provider === 'POKPAY'
+            ? ['keyId', 'keySecret', 'merchantId', 'webhookUrl', 'baseUrl']
+            : ['secretKey', 'webhookSecret'];
+      const secretKeys = new Set(['apiKey', 'keySecret', 'secretKey', 'webhookSecret']);
+      return {
+        provider: rows[0].provider,
+        fields: Object.fromEntries(
+          fields.map((key) => [
+            key,
+            secretKeys.has(key)
+              ? data[key]?.length > 4
+                ? '***' + data[key].slice(-4)
+                : '****'
+              : data[key] || (key === 'baseUrl' ? 'https://api-staging.pokpay.io' : ''),
+          ]),
+        ),
+      };
+    });
+  }
+
+  setup() {
+    const explicit = process.env.POKPAY_WEBHOOK_URL?.trim();
+    const origin = process.env.WEB_APP_URL?.trim();
+    return {
+      pokpayWebhookUrl:
+        explicit || (origin ? new URL('/api/webhooks/pokpay', origin).toString() : ''),
+    };
+  }
+
   async create(tenantId: string, actorUserId: string, body: unknown): Promise<ConnectionSummary> {
     const input = this.createInput(body);
+    if (input.provider === 'POKPAY' && !input.credentials.webhookUrl) {
+      const callback = this.setup().pokpayWebhookUrl;
+      if (!callback)
+        throw new BadRequestException(
+          'MUST needs its public payment notification address configured before activation.',
+        );
+      input.credentials = { ...input.credentials, webhookUrl: callback };
+    }
     const id = randomUUID();
     return this.database.withTenantTransaction({ tenantId }, async (tx) => {
       if (input.kind === 'PMS') {
@@ -99,8 +146,87 @@ export class IntegrationConnectionsService {
     });
   }
 
+  async replaceCredentials(
+    tenantId: string,
+    actorUserId: string,
+    connectionId: string,
+    body: unknown,
+  ): Promise<ConnectionSummary> {
+    const value = (body ?? {}) as Record<string, unknown>;
+    const supplied = value.credentials;
+    if (
+      !supplied ||
+      typeof supplied !== 'object' ||
+      Array.isArray(supplied) ||
+      !Object.keys(supplied).length ||
+      Object.values(supplied).some((v) => typeof v !== 'string' || v.length > 5000)
+    )
+      throw new BadRequestException('Enter replacement credentials.');
+    const before = await this.database.withTenantTransaction(
+      { tenantId },
+      (tx) =>
+        tx.$queryRaw<
+          Array<{ provider: ConnectionProvider; encrypted: string }>
+        >`SELECT provider,encrypted_credentials AS encrypted FROM integration_connections WHERE tenant_id=${tenantId}::uuid AND id=${connectionId}::uuid`,
+    );
+    if (!before[0]) throw new BadRequestException('Connection not found.');
+    const previous = this.cipher.decrypt(before[0].encrypted);
+    const allowed =
+      before[0].provider === 'CLOCK_PMS'
+        ? ['apiUser', 'apiKey']
+        : before[0].provider === 'POKPAY'
+          ? ['keyId', 'keySecret']
+          : [];
+    if (Object.keys(supplied).some((k) => !allowed.includes(k)))
+      throw new BadRequestException(
+        'Use a new connection to change the provider account. Only authentication credentials can be replaced here.',
+      );
+    const credentials = { ...previous, ...(supplied as Record<string, string>) };
+    const result = await this.testers.test(before[0].provider, credentials);
+    if (!result.ok)
+      throw new BadRequestException(
+        'Replacement credentials failed verification. The existing connection has been kept.',
+      );
+    const encrypted = this.cipher.encrypt(credentials);
+    return this.database.withTenantTransaction({ tenantId }, async (tx) => {
+      const rows = await tx.$queryRawUnsafe<ConnectionSummary[]>(
+        `UPDATE integration_connections SET encrypted_credentials=$3,status='CONNECTED',last_tested_at=now(),last_test_result='Replacement credentials verified' WHERE tenant_id=$1::uuid AND id=$2::uuid AND encrypted_credentials=$4 RETURNING ${SUMMARY_COLUMNS}`,
+        tenantId,
+        connectionId,
+        encrypted,
+        before[0].encrypted,
+      );
+      if (!rows[0])
+        throw new ConflictException(
+          'The connection changed during verification. Reload and retry.',
+        );
+      await this.audit.recordInTransaction(tx, {
+        tenantId,
+        actorUserId,
+        action: 'integration_connection.credentials_replaced',
+        targetType: 'integration_connection',
+        targetId: connectionId,
+        details: { provider: before[0].provider, verified: true },
+      });
+      return rows[0];
+    });
+  }
+
   async delete(tenantId: string, actorUserId: string, connectionId: string): Promise<void> {
     await this.database.withTenantTransaction({ tenantId }, async (tx) => {
+      const history = await tx.$queryRaw<Array<{ used: boolean }>>`
+        SELECT EXISTS(SELECT 1 FROM property_integration_connections pc
+          JOIN integration_connections ic ON ic.tenant_id=pc.tenant_id AND ic.id=pc.connection_id
+          WHERE pc.tenant_id=${tenantId}::uuid AND pc.connection_id=${connectionId}::uuid
+          AND ((ic.provider='CLOCK_PMS' AND EXISTS(SELECT 1 FROM bookings b WHERE b.tenant_id=pc.tenant_id AND b.property_id=pc.property_id AND b.external_booking_id IS NOT NULL))
+            OR (ic.provider='POKPAY' AND EXISTS(SELECT 1 FROM payments p WHERE p.tenant_id=pc.tenant_id AND p.property_id=pc.property_id AND p.provider='pokpay')))) AS used`;
+      if (history[0]?.used)
+        throw new ConflictException(
+          'Keep this connection for existing bookings and payments. Disable it or replace its credentials instead of deleting its history.',
+        );
+      const affected = await tx.$queryRaw<
+        Array<{ id: string }>
+      >`SELECT property_id AS id FROM property_integration_connections WHERE tenant_id=${tenantId}::uuid AND connection_id=${connectionId}::uuid`;
       const deleted = await tx.$queryRawUnsafe<Array<{ id: string }>>(
         `DELETE FROM integration_connections WHERE tenant_id = $1::uuid AND id = $2::uuid RETURNING id`,
         tenantId,
@@ -111,6 +237,7 @@ export class IntegrationConnectionsService {
         tenantId,
         actorUserId,
         action: 'integration_connection.deleted',
+        affectedPropertyIds: affected.map((row) => row.id),
         targetType: 'integration_connection',
         targetId: connectionId,
       });
@@ -147,6 +274,7 @@ export class IntegrationConnectionsService {
         tenantId,
         actorUserId,
         action: 'integration_connection.tested',
+        result: result.ok ? 'completed' : 'failed',
         targetType: 'integration_connection',
         targetId: connectionId,
         details: { ok: result.ok, message: result.message },
@@ -282,12 +410,42 @@ export class IntegrationConnectionsService {
     enabled: boolean,
   ): Promise<void> {
     await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      const connection = await tx.$queryRawUnsafe<Array<{ kind: ConnectionKind }>>(
-        `SELECT kind FROM integration_connections WHERE tenant_id = $1::uuid AND id = $2::uuid`,
+      await tx.$queryRaw`SELECT id FROM properties WHERE tenant_id=${tenantId}::uuid AND id=${propertyId}::uuid FOR UPDATE`;
+
+      const connection = await tx.$queryRawUnsafe<
+        Array<{ kind: ConnectionKind; provider: ConnectionProvider }>
+      >(
+        `SELECT kind,provider FROM integration_connections WHERE tenant_id = $1::uuid AND id = $2::uuid`,
         tenantId,
         connectionId,
       );
       if (!connection[0]) throw new BadRequestException('Connection not found.');
+      if (!enabled && connection[0].provider === 'CLOCK_PMS') {
+        const active = await tx.$queryRaw<Array<{ unsafe: boolean }>>`
+          SELECT EXISTS(SELECT 1 FROM property_integration_connections pc
+          WHERE pc.tenant_id=${tenantId}::uuid AND pc.property_id=${propertyId}::uuid
+          AND pc.connection_id=${connectionId}::uuid AND pc.enabled)
+          AND EXISTS(SELECT 1 FROM bookings WHERE tenant_id=${tenantId}::uuid
+          AND property_id=${propertyId}::uuid AND ends_on>=CURRENT_DATE
+          AND status IN ('CONFIRMED','PAYMENT_PENDING','PMS_CONFIRMATION_PENDING','PMS_UNKNOWN_RESULT')) AS unsafe`;
+        if (active[0]?.unsafe)
+          throw new ConflictException(
+            'This hotel has active bookings. Replace credentials to repair the connection; disabling Clock requires a reviewed migration to standalone inventory.',
+          );
+      }
+      if (enabled && ['CLOCK_PMS', 'POKPAY'].includes(connection[0].provider)) {
+        const history = await tx.$queryRaw<
+          Array<{ unsafe: boolean }>
+        >`SELECT EXISTS(SELECT 1 FROM property_integration_connections pc JOIN integration_connections ic ON ic.tenant_id=pc.tenant_id AND ic.id=pc.connection_id WHERE pc.tenant_id=${tenantId}::uuid AND pc.property_id=${propertyId}::uuid AND pc.connection_id<>${connectionId}::uuid AND ic.provider=${connection[0].provider}::"IntegrationProvider") AND (CASE WHEN ${connection[0].provider}='CLOCK_PMS' THEN EXISTS(SELECT 1 FROM bookings WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND external_booking_id IS NOT NULL) ELSE EXISTS(SELECT 1 FROM payments WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND provider='pokpay') END) AS unsafe`;
+        if (history[0]?.unsafe)
+          throw new ConflictException(
+            'This hotel already has history with another connection. Replace credentials on that connection; moving to another provider account requires a reviewed migration.',
+          );
+      }
+      if (enabled && connection[0].provider === 'POKPAY') {
+        await tx.$executeRaw`UPDATE property_integration_connections pc SET enabled=false,updated_at=now() FROM integration_connections c
+        WHERE pc.tenant_id=${tenantId}::uuid AND pc.property_id=${propertyId}::uuid AND pc.connection_id=c.id AND c.tenant_id=pc.tenant_id AND c.provider='POKPAY' AND c.id<>${connectionId}::uuid AND pc.enabled`;
+      }
       try {
         await tx.$executeRawUnsafe(
           `INSERT INTO property_integration_connections (tenant_id, property_id, connection_id, kind, enabled)

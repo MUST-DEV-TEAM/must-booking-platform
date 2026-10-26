@@ -39,7 +39,7 @@ describe('paymentStatus reads the booking status together with the money', () =>
     [{ status: 'CANCELLED', paymentMethod: 'PAY_AT_HOTEL' }, 'Nothing paid'],
     [{ status: 'CANCELLED', paidAmount: '250.00', refundedAmount: '100.00' }, 'Partially refunded'],
     [{ status: 'CANCELLED', paidAmount: '250.00', refundedAmount: '250.00' }, 'Refunded'],
-    [{ status: 'PAYMENT_FAILED' }, 'Nothing paid'],
+    [{ status: 'PAYMENT_FAILED' }, 'No balance - booking was not created'],
   ])('dead booking %j reads %s, never Paid or Due at hotel', (overrides, label) => {
     const status = paymentStatus(booking(overrides));
     expect(status.label).toBe(label);

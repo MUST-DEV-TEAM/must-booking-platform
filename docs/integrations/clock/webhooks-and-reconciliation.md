@@ -55,3 +55,14 @@ The separate six-hour health job detects webhook silence, queue backlog and stuc
 ## Event and evidence limits
 
 Real signed SNS notifications were recorded in September history. An earlier "workers log only" description is superseded. The archived integration summary reports Clock said there is no price-change webhook, while the earlier test log merely observed none. No current code relies on such an event; verify that vendor capability before planning it, rather than upgrading an old observation into a tested guarantee.
+
+
+## Automatic local read projections (owner-approved 2026-10-22)
+
+`ClockBackgroundSyncService` runs only when `CLOCK_BACKGROUND_SYNC_ENABLED=true`. `CLOCK_SYNC_ALLOWED_PROPERTY_IDS` optionally restricts execution; the local verification runtime pins only Demo Beach and independently refuses other Clock credentials. Production activation is a separate deployment action.
+
+The worker seeds connection-scoped jobs for catalog/mappings, configured rooms, published rates, current month plus twelve availability months, all available guest profiles and booking history. Initial booking reads use the documented updated-at filter from 1970; this includes past and future stays. Batches persist progress and use expiring leases with save fencing. Booking/guest deltas run after two/three minutes; catalog/rate/availability refreshes after fifteen minutes. Missing requested months enqueue automatically. Verified new webhooks wake projections; an event received during a batch remains pending until that cycle finishes. Scheduled catch-up remains necessary for missed events and resources without a certified webhook.
+
+Daily screens read `/clock-sync` snapshots from PostgreSQL, with update/error status; those GETs do not call Clock. Settings exposes progress and recovery. A reconnect uses a new snapshot identity. Source timestamps and transaction locks protect newer cancellations/updates from stale imports. Imported chronology and contact snapshots are retained without synthetic email. Historical hydration does not send mail or recreate payments.
+
+Availability and daily reference prices describe one adult and the lowest open published nightly rate, with closed/sold-out distinction. They are informational; actual-stay quotes and final booking guards still read Clock. Complete occupancy, block-document history and tax definitions are not fabricated. Imported `CLOCK-` bookings have Clock-managed balances because older payment history was not imported; local totals must not be treated as unpaid debt or charged again. MUST-created bookings keep their existing collection behavior.

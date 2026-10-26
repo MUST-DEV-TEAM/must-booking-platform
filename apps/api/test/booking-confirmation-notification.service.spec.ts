@@ -1,3 +1,4 @@
+import type { StaffRecipient } from '../src/mail/notification-recipients';
 import { describe, expect, it, vi } from 'vitest';
 
 import { BookingConfirmationNotificationService } from '../src/mail/booking-confirmation-notification.service';
@@ -33,7 +34,7 @@ const bookingRow = {
 };
 
 function createService(
-  staff: Array<{ staffUserId: string; email: string }>,
+  staff: StaffRecipient[],
   order?: { orderReference: string; rooms: unknown[] },
 ) {
   const queryRaw = vi
@@ -64,6 +65,41 @@ function createService(
 }
 
 describe('BookingConfirmationNotificationService', () => {
+  it('sends one staff envelope while keeping the private guest cancellation link only in the guest command', async () => {
+    const { service, notifications } = createService([
+      { staffUserId: 'owner', email: 'to@example.test', channel: 'TO' },
+      { staffUserId: 'copy', email: 'copy@example.test', channel: 'CC' },
+      { staffUserId: 'private', email: 'private@example.test', channel: 'BCC' },
+    ]);
+    await service.sendAfterConfirmation(context, bookingId, 'payment-group');
+    expect(notifications.sendNewBookingStaffNotificationSafely).toHaveBeenCalledOnce();
+    const staff = notifications.sendNewBookingStaffNotificationSafely.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+    expect(staff.recipientEnvelope).toEqual({
+      to: ['to@example.test'],
+      cc: ['copy@example.test'],
+      bcc: ['private@example.test'],
+    });
+    expect(JSON.stringify(staff)).not.toContain('cancellation-token');
+    const guest = notifications.sendPaymentConfirmationEmailSafely.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+    expect(guest.cancellationUrl).toContain('token=cancellation-token');
+    expect(guest.recipientEnvelope).toBeUndefined();
+  });
+  it('continues guest confirmation if current staff recipients leave no valid To recipient', async () => {
+    const { service, notifications } = createService([
+      { staffUserId: 'copy', email: 'copy@example.test', channel: 'CC' },
+    ]);
+    await expect(
+      service.sendAfterConfirmation(context, bookingId, 'no-staff-to'),
+    ).resolves.toBeUndefined();
+    expect(notifications.sendPaymentConfirmationEmailSafely).toHaveBeenCalledOnce();
+    expect(notifications.sendNewBookingStaffNotificationSafely).not.toHaveBeenCalled();
+  });
   it('sends the staff-specific booking details to every assigned property staff member', async () => {
     const { service, notifications } = createService([
       { staffUserId: 'staff-1', email: 'front-desk@example.test' },
@@ -85,7 +121,7 @@ describe('BookingConfirmationNotificationService', () => {
           address: '1 Ocean Road',
         },
         guestCount: 2,
-        cancellationUrl: expect.stringContaining('cancellationToken=cancellation-token'),
+        cancellationUrl: expect.stringContaining('token=cancellation-token'),
       }),
       context,
     );

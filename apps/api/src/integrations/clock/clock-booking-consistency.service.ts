@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 
 import { reportOperationalFailure } from '../../observability/error-tracking';
 import { AuditLogService } from '../../tenancy/audit-log.service';
@@ -148,13 +148,17 @@ export class ClockBookingConsistencyService {
     credentials: ClockConnectionCredentials,
     range: { startsOn: string; endsOn: string },
     externalRoomIds: string[],
+    excludeExternalBookingId?: string,
   ): Promise<Set<string>> {
     const wanted = new Set(externalRoomIds);
     const bookings = await this.fetchBookings(credentials, range);
     return new Set(
       bookings
         .filter(
-          (booking) => booking.status !== 'canceled' && wanted.has(String(booking.arrival_room_id)),
+          (booking) =>
+            String(booking.id) !== excludeExternalBookingId &&
+            booking.status !== 'canceled' &&
+            wanted.has(String(booking.arrival_room_id)),
         )
         .map((booking) => String(booking.arrival_room_id)),
     );
@@ -363,10 +367,87 @@ export class ClockBookingConsistencyService {
    * waits and retries safely; it never retries a write because this checker
    * has no write path.
    */
+  /** CONFIRMED_BY_DOCS: Clock public Guests VIEW/index + first-level filter contract. */
+  /** CONFIRMED_BY_DOCS: first-level updated_at comparison filters on Bookings VIEW. */
+  async updatedBookingIds(
+    credentials: ClockConnectionCredentials,
+    from: string,
+    until: string,
+  ): Promise<string[]> {
+    const ids = await this.fetchClock<unknown>(credentials, '/bookings/', {
+      'updated_at.gteq': from,
+      'updated_at.lt': until,
+    });
+    if (!Array.isArray(ids) || ids.length > 100000 || !ids.every(isClockBookingId))
+      throw new ClockBookingReadError({
+        category: 'schema_mismatch',
+        code: 'clock_schema_mismatch',
+        message: 'Clock returned an unreadable or excessive booking index.',
+        retryable: false,
+      });
+    return [...new Set(ids.map(String))].sort((a, b) =>
+      BigInt(a) < BigInt(b) ? -1 : BigInt(a) > BigInt(b) ? 1 : 0,
+    );
+  }
+  async guestIds(
+    credentials: ClockConnectionCredentials,
+    updatedFrom: string,
+    updatedUntil: string,
+  ): Promise<string[]> {
+    const ids = await this.fetchClock<unknown>(credentials, '/guests', {
+      'updated_at.gteq': updatedFrom,
+      'updated_at.lt': updatedUntil,
+    });
+    if (!Array.isArray(ids) || !ids.every(isClockBookingId))
+      throw new Error('Clock returned an unreadable guest index.');
+    return [...new Set(ids.map(String))];
+  }
+  async guestDetail(
+    credentials: ClockConnectionCredentials,
+    id: string,
+  ): Promise<Record<string, unknown>> {
+    if (!/^\d+$/.test(id)) throw new Error('Invalid Clock guest ID.');
+    return this.fetchClock(credentials, `/guests/${id}`);
+  }
+
+  async financialData(credentials: ClockConnectionCredentials, bookingId: string) {
+    if (!/^\d+$/.test(bookingId)) throw new BadRequestException('Invalid Clock booking.');
+    const booking = await this.fetchClock<Record<string, unknown>>(
+      credentials,
+      `/bookings/${bookingId}`,
+    );
+    if (String(booking.id) !== bookingId) throw new Error('Clock booking identity does not match.');
+    const ids = await this.fetchClock<unknown>(credentials, `/bookings/${bookingId}/folios/`);
+    if (!Array.isArray(ids) || ids.length > 100 || !ids.every(isClockBookingId))
+      throw new Error('Clock financial index is incomplete.');
+    const folios = [];
+    for (const id of [...new Set(ids.map(String))]) {
+      const detail = await this.fetchClock<Record<string, unknown>>(
+        credentials,
+        `/folios/${id}`,
+        undefined,
+        'base_api',
+      );
+      if (detail.payer_type !== 'Booking' || String(detail.payer_id) !== bookingId)
+        throw new Error('Clock folio identity does not match.');
+      if (detail.voided_at) continue;
+      const credits = await this.fetchClock<unknown>(
+        credentials,
+        `/folios/${id}/credit_items`,
+        undefined,
+        'base_api',
+      );
+      if (!Array.isArray(credits)) throw new Error('Clock payment list is incomplete.');
+      folios.push({ detail, credits });
+    }
+    return { booking, folios };
+  }
+
   private async fetchClock<T>(
     credentials: ClockConnectionCredentials,
     path: string,
     query?: Record<string, string>,
+    api: 'pms_api' | 'base_api' = 'pms_api',
   ): Promise<T> {
     const breakerKey = credentials.apiUser;
     try {
@@ -381,35 +462,44 @@ export class ClockBookingConsistencyService {
         });
       throw error;
     }
-    for (;;) {
-      const rateLimit = await this.rateLimiter.consume(breakerKey);
-      if (rateLimit.allowed) break;
-      await wait(rateLimit.retryAfterSeconds * 1_000);
-    }
+    // Retry only safe GETs; never replay a booking or payment write.
+    for (let retry = 0; ; retry += 1) {
+      for (;;) {
+        const rateLimit = await this.rateLimiter.consume(breakerKey);
+        if (rateLimit.allowed) break;
+        await wait(rateLimit.retryAfterSeconds * 1_000);
+      }
 
-    try {
-      const response = await this.client.request<T>(credentials, {
-        api: 'pms_api',
-        method: 'GET',
-        path,
-        query,
-        timeoutMs: 15_000,
-      });
-      if (response.status < 200 || response.status >= 300) {
-        this.circuitBreaker.recordFailure(breakerKey);
-        throw new ClockBookingReadError(classifyClockHttpResponse(response.status, response.body));
+      try {
+        const response = await this.client.request<T>(credentials, {
+          api,
+          method: 'GET',
+          path,
+          query,
+          timeoutMs: 15_000,
+        });
+        if (response.status === 429 && retry < 3) {
+          await wait(500 * 2 ** retry);
+          continue;
+        }
+        if (response.status < 200 || response.status >= 300) {
+          this.circuitBreaker.recordFailure(breakerKey);
+          throw new ClockBookingReadError(
+            classifyClockHttpResponse(response.status, response.body),
+          );
+        }
+        this.circuitBreaker.recordSuccess(breakerKey);
+        return response.body;
+      } catch (error) {
+        if (error instanceof ClockBookingReadError) throw error;
+        if (error instanceof ClockHttpError) {
+          this.circuitBreaker.recordFailure(breakerKey);
+          throw new ClockBookingReadError(
+            classifyClockClientFailure(error.isTimeout ? 'timeout' : 'network', error.message),
+          );
+        }
+        throw error;
       }
-      this.circuitBreaker.recordSuccess(breakerKey);
-      return response.body;
-    } catch (error) {
-      if (error instanceof ClockBookingReadError) throw error;
-      if (error instanceof ClockHttpError) {
-        this.circuitBreaker.recordFailure(breakerKey);
-        throw new ClockBookingReadError(
-          classifyClockClientFailure(error.isTimeout ? 'timeout' : 'network', error.message),
-        );
-      }
-      throw error;
     }
   }
 

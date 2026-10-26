@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 
 import { INestApplication } from '@nestjs/common';
@@ -107,18 +108,21 @@ describe('front-desk overview fields', () => {
     const roomTypeId = roomType.body.id;
     const ratePlan = await request(app.getHttpServer())
       .post(`${propertyUrl}/rate-plans`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', ownerCookie)
       .send({ name: 'Overview Flexible', currency: 'EUR', freeCancellationUntilHours: 24 })
       .expect(201);
     const ratePlanId = ratePlan.body.id;
     await request(app.getHttpServer())
       .post(`${propertyUrl}/rate-plans/${ratePlanId}/rules`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', ownerCookie)
       .send({ roomTypeId, startsOn: null, endsOn: null, amount: '100.00' })
       .expect(201);
     for (const [startsOn, endsOn] of [[today, inElevenDays]] as const) {
       await request(app.getHttpServer())
         .put(`${propertyUrl}/inventory-units`)
+        .set('Idempotency-Key', crypto.randomUUID())
         .set('Cookie', ownerCookie)
         .send({ roomTypeId, startsOn, endsOn, availableUnits: 5 })
         .expect(204);
@@ -211,11 +215,20 @@ describe('front-desk overview fields', () => {
       })
       .expect(201);
     const cancelBookingId = toCancel.body.value.id as string;
+    // Staff cancellation now shows the policy and refund first, then confirms against that preview.
+    const cancelPreview = await request(app.getHttpServer())
+      .get(`${propertyUrl}/bookings/${cancelBookingId}/cancellation-preview`)
+      .set('Cookie', ownerCookie)
+      .expect(200);
     const cancelResult = await request(app.getHttpServer())
       .delete(`${propertyUrl}/staff-bookings/${cancelBookingId}`)
       .set('Cookie', ownerCookie)
-      .set('Idempotency-Key', randomUUID())
-      .send({ expectedVersion: toCancel.body.value.version })
+      .send({
+        expectedVersion: cancelPreview.body.version,
+        previewHash: cancelPreview.body.previewHash,
+        reasonCategory: 'guest_request',
+        details: 'Guest asked to cancel.',
+      })
       .expect(200);
     expect(cancelResult.body).toMatchObject({ ok: true });
 
@@ -250,10 +263,9 @@ describe('front-desk overview fields', () => {
     // Balance due at the desk: sum of today's pay-at-hotel arrivals (2 x 100.00).
     expect(overview.body.balanceDueAtDesk).toMatchObject({ amount: '200.00', currency: 'EUR' });
 
-    // Today's revenue: every non-cancelled booking created today, regardless
-    // of arrival date (4 of the 5 bookings created today — the 5th was
-    // cancelled and must not count toward revenue).
-    expect(overview.body.revenue.today).toMatchObject({ amount: '400.00', currency: 'EUR' });
+    // "Collected today" is cash: successful charge postings today (shared metrics layer, same
+    // figure as Payments and Reports). These fixture bookings carry no payments yet.
+    expect(overview.body.revenue.today).toMatchObject({ amount: '0.00', currency: 'EUR' });
 
     // 4, not 5 — same as revenue, the cancelled booking is excluded.
     expect(overview.body.newBookingsSinceYesterday).toBeGreaterThanOrEqual(4);

@@ -25,14 +25,17 @@ describe('staff invitations', () => {
   const tenantId = randomUUID();
   const propertyId = randomUUID();
   const ownerId = randomUUID();
+  const adminId = randomUUID();
   const existingUserId = randomUUID();
   const ownerEmail = `invite-owner-${randomUUID()}@example.test`;
+  const adminEmail = `invite-admin-${randomUUID()}@example.test`;
   const existingEmail = `invite-existing-${randomUUID()}@example.test`;
   const newEmail = `invite-new-${randomUUID()}@example.test`;
   const overLimitEmail = `invite-over-limit-${randomUUID()}@example.test`;
   const failedActivationEmail = `invite-failed-${randomUUID()}@example.test`;
   const password = 'correct-horse-battery-staple';
   let ownerCookie: string;
+  let adminCookie: string;
   let existingUserCookie: string;
   let frontDeskTemplateId: string;
   const invitationEmails: Parameters<MailProvider['sendStaffInvitationEmail']>[0][] = [];
@@ -58,6 +61,7 @@ describe('staff invitations', () => {
     await migrationPrisma.$executeRaw`
       INSERT INTO "users" ("id", "email", "password_hash") VALUES
         (${ownerId}::uuid, ${ownerEmail}, ${passwordHash}),
+        (${adminId}::uuid, ${adminEmail}, ${passwordHash}),
         (${existingUserId}::uuid, ${existingEmail}, ${passwordHash})
     `;
     await migrationPrisma.$executeRaw`
@@ -91,6 +95,12 @@ describe('staff invitations', () => {
         .send({ email: ownerEmail, password })
         .expect(201)
     ).headers['set-cookie'][0] as string;
+    adminCookie = (
+      await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email: adminEmail, password })
+        .expect(201)
+    ).headers['set-cookie'][0] as string;
     existingUserCookie = (
       await request(app.getHttpServer())
         .post('/auth/login')
@@ -108,7 +118,7 @@ describe('staff invitations', () => {
     await migrationPrisma.$executeRaw`DELETE FROM "tenant_memberships" WHERE "tenant_id" = ${tenantId}::uuid`;
     await migrationPrisma.$executeRaw`DELETE FROM "notifications" WHERE "tenant_id" = ${tenantId}::uuid`;
     await migrationPrisma.$executeRaw`DELETE FROM "properties" WHERE "id" = ${propertyId}::uuid`;
-    await migrationPrisma.$executeRaw`DELETE FROM "users" WHERE "email" IN (${ownerEmail}, ${existingEmail}, ${newEmail}, ${overLimitEmail}, ${failedActivationEmail})`;
+    await migrationPrisma.$executeRaw`DELETE FROM "users" WHERE "email" IN (${ownerEmail}, ${adminEmail}, ${existingEmail}, ${newEmail}, ${overLimitEmail}, ${failedActivationEmail})`;
     await migrationPrisma.$executeRaw`DELETE FROM "organizations" WHERE "id" = ${tenantId}::uuid`;
     await app.close();
     await migrationPrisma.$disconnect();
@@ -280,5 +290,61 @@ describe('staff invitations', () => {
     await expect(
       service.activate('unused-token', existingEmail, password),
     ).rejects.not.toBeInstanceOf(BadRequestException);
+  });
+
+  it('keeps the legacy invitation route working for a verified Owner and Admin', async () => {
+    await migrationPrisma.$executeRaw`
+      DELETE FROM "property_staff_capability_overrides"
+      WHERE "tenant_id" = ${tenantId}::uuid AND "user_id" IN (
+        SELECT "id" FROM "users" WHERE "email" IN (${newEmail}, ${existingEmail})
+      )
+    `;
+    await migrationPrisma.$executeRaw`
+      DELETE FROM "property_staff_assignments"
+      WHERE "tenant_id" = ${tenantId}::uuid AND "user_id" IN (
+        SELECT "id" FROM "users" WHERE "email" IN (${newEmail}, ${existingEmail})
+      )
+    `;
+    await migrationPrisma.$executeRaw`
+      DELETE FROM "tenant_memberships" WHERE "tenant_id" = ${tenantId}::uuid
+        AND "user_id" IN (${existingUserId}::uuid, (SELECT "id" FROM "users" WHERE "email" = ${newEmail}))
+    `;
+    await migrationPrisma.$executeRaw`
+      UPDATE "users" SET "email_verified_at" = CURRENT_TIMESTAMP
+      WHERE "id" IN (${ownerId}::uuid, ${adminId}::uuid)
+    `;
+    try {
+      const ownerResponse = await request(app.getHttpServer())
+        .post(`/tenants/${tenantId}/staff-invitations`)
+        .set('Cookie', ownerCookie)
+        .send({
+          email: `legacy-owner-${randomUUID()}@example.test`,
+          assignments: [{ propertyId, roleTemplateId: frontDeskTemplateId }],
+        })
+        .expect(201);
+      expect(ownerResponse.body.token).toEqual(expect.any(String));
+
+      await migrationPrisma.$executeRaw`
+        DELETE FROM "tenant_memberships" WHERE "tenant_id" = ${tenantId}::uuid AND "user_id" = ${ownerId}::uuid
+      `;
+      await migrationPrisma.$executeRaw`
+        INSERT INTO "tenant_memberships" ("tenant_id", "user_id", "role")
+        VALUES (${tenantId}::uuid, ${adminId}::uuid, 'ADMIN')
+      `;
+      const adminResponse = await request(app.getHttpServer())
+        .post(`/tenants/${tenantId}/staff-invitations`)
+        .set('Cookie', adminCookie)
+        .send({
+          email: `legacy-admin-${randomUUID()}@example.test`,
+          assignments: [{ propertyId, roleTemplateId: frontDeskTemplateId }],
+        })
+        .expect(201);
+      expect(adminResponse.body.token).toEqual(expect.any(String));
+    } finally {
+      await migrationPrisma.$executeRaw`
+        DELETE FROM "tenant_memberships" WHERE "tenant_id" = ${tenantId}::uuid
+          AND "user_id" IN (${adminId}::uuid, ${ownerId}::uuid)
+      `;
+    }
   });
 });

@@ -1,4 +1,5 @@
 import { Body, Controller, Inject, Post, Req, UseGuards } from '@nestjs/common';
+import { normalizePromoCode } from './promo-code.service';
 
 import { PublicTenantScoped } from '../tenancy/tenant-context.decorator';
 import { PublicRateLimitGuard } from '../tenancy/public-rate-limit.guard';
@@ -67,6 +68,7 @@ export class QuoteController {
           endsOn: typeof value.endsOn === 'string' ? value.endsOn : '',
           adults: typeof value.adults === 'number' ? value.adults : undefined,
           children: typeof value.children === 'number' ? value.children : undefined,
+          childrenAges: value.childrenAges as number[] | undefined,
           guestCount: typeof value.guestCount === 'number' ? value.guestCount : undefined,
           roomCount: typeof value.roomCount === 'number' ? value.roomCount : undefined,
         },
@@ -81,10 +83,14 @@ export class QuoteController {
       roomTypeId: typeof value.roomTypeId === 'string' ? value.roomTypeId : '',
       roomId: typeof value.roomId === 'string' ? value.roomId : undefined,
       ratePlanId: typeof value.ratePlanId === 'string' ? value.ratePlanId : '',
+      clockRateId:
+        typeof value.clockRateId === 'string' && value.clockRateId ? value.clockRateId : undefined,
+      promoCode: normalizePromoCode(value.promoCode) ?? undefined,
       startsOn: typeof value.startsOn === 'string' ? value.startsOn : '',
       endsOn: typeof value.endsOn === 'string' ? value.endsOn : '',
       adults: typeof value.adults === 'number' ? value.adults : undefined,
       children: typeof value.children === 'number' ? value.children : undefined,
+      childrenAges: value.childrenAges as number[] | undefined,
       guestCount: typeof value.guestCount === 'number' ? value.guestCount : undefined,
     };
   }

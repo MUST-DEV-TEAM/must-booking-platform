@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -122,20 +123,23 @@ describe('LocalPmsProvider concurrent booking creation', () => {
       .expect(201);
     const ratePlan = await request(app!.getHttpServer())
       .post(`${propertyUrl}/rate-plans`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ name: 'Last Unit Flexible', currency: 'EUR' })
       .expect(201);
     const roomTypeId = roomType.body.id as string;
     const ratePlanId = ratePlan.body.id as string;
-    const startsOn = '2026-10-01';
-    const endsOn = '2026-10-03';
+    const startsOn = '2036-10-01';
+    const endsOn = '2036-10-03';
     await request(app!.getHttpServer())
       .put(`${propertyUrl}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ roomTypeId, startsOn, endsOn, availableUnits: 1 })
       .expect(204);
     await request(app!.getHttpServer())
       .post(`${propertyUrl}/rate-plans/${ratePlanId}/rules`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ roomTypeId, startsOn: null, endsOn: null, amount: '90.00' })
       .expect(201);

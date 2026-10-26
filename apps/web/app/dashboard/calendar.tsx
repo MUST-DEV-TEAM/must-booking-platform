@@ -7,6 +7,8 @@ import { Fragment, type CSSProperties, type FormEvent, useMemo, useState } from 
 import { DayPicker, type DateRange } from 'react-day-picker';
 import { toast } from 'sonner';
 
+import { type ClockMonth, type Snapshot } from './clock-sync';
+import { usePmsSource } from './use-pms-source';
 import { fetchPropertyBookings, type Reservation } from './reservations';
 import styles from './calendar.module.css';
 
@@ -27,6 +29,13 @@ export type AvailabilityBlock = {
   all: boolean;
   roomTypeIds: string[];
   roomIds: string[];
+  reason?: string | null;
+  note?: string | null;
+  reference?: string | null;
+  createdByEmail?: string | null;
+  inventoryReference?: string | null;
+  version?: number;
+  lifecycle?: string;
 };
 // A single grid row: one physical room when the property tracks individual
 // rooms (INDIVIDUAL_ROOM_ONLY/MIXED), or one room type when it doesn't
@@ -85,6 +94,8 @@ export function DashboardCalendar({
 }) {
   const [month, setMonth] = useState(initialMonth ?? monthStart(new Date()));
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const source = usePmsSource(tenantId, propertyId);
+  const localStock = source.data === 'LOCAL';
   const [blockDialogOpen, setBlockDialogOpen] = useState(false);
   const [blockStep, setBlockStep] = useState<'room-type' | 'room' | 'dates'>('room-type');
   const [blockRange, setBlockRange] = useState<DateRange | undefined>();
@@ -134,20 +145,30 @@ export function DashboardCalendar({
     : undefined;
   const availabilityQuery = useQuery({
     queryKey: availabilityQueryKey,
-    queryFn: () => fetchCalendarAvailability(tenantId, propertyId, month, includeRooms),
+    queryFn: () =>
+      fetchCalendarAvailability(
+        tenantId,
+        propertyId,
+        month,
+        includeRooms,
+        source.data === 'CLOCK_PMS',
+      ),
+    enabled: source.data !== undefined,
+    refetchInterval: source.data === 'CLOCK_PMS' ? 10000 : false,
     initialData: initialCalendarData,
     staleTime: initialCalendarData ? Infinity : 0,
   });
   const bookingsQuery = useQuery({
     queryKey: ['dashboard', 'calendar-bookings', tenantId, propertyId],
     queryFn: () => fetchPropertyBookings(tenantId, propertyId),
+    refetchInterval: source.data === 'CLOCK_PMS' ? 10000 : false,
     initialData: initialBookings,
     staleTime: initialBookings ? Infinity : 0,
   });
   const blocksQuery = useQuery({
     queryKey: ['dashboard', 'availability-blocks', tenantId, propertyId],
     queryFn: () => fetchAvailabilityBlocks(tenantId, propertyId),
-    enabled: canManageAvailability,
+    enabled: canManageAvailability && localStock,
     initialData: initialBlocks,
     staleTime: initialBlocks ? Infinity : 0,
   });
@@ -228,6 +249,10 @@ export function DashboardCalendar({
   }
 
   function openBlockDialog() {
+    if (!localStock) {
+      toast.info('Managed in Clock. Availability blocks are read-only here.');
+      return;
+    }
     setBlockStep('room-type');
     setBlockRange(undefined);
     setBlockAll(false);
@@ -243,7 +268,7 @@ export function DashboardCalendar({
   if (
     availabilityQuery.isPending ||
     bookingsQuery.isPending ||
-    (canManageAvailability && blocksQuery.isPending)
+    (canManageAvailability && localStock && blocksQuery.isPending)
   )
     return (
       <StatePanel
@@ -256,7 +281,7 @@ export function DashboardCalendar({
   const error =
     availabilityQuery.error ??
     bookingsQuery.error ??
-    (canManageAvailability ? blocksQuery.error : null);
+    (canManageAvailability && localStock ? blocksQuery.error : null);
   if (error || !calendarData || !bookings)
     return <Text className={styles.error}>{error?.message}</Text>;
 
@@ -272,8 +297,16 @@ export function DashboardCalendar({
             {includeRooms ? 'Nightly availability by room.' : 'Nightly availability by room type.'}
           </Text>
         </div>
+        {!localStock ? (
+          <p role="note">
+            {source.data === 'CLOCK_PMS'
+              ? 'Unknown - managed in Clock.'
+              : 'Inventory source is unknown.'}{' '}
+            Availability blocks are read-only here.
+          </p>
+        ) : null}
         <div className={styles.headingActions}>
-          {canManageAvailability ? (
+          {canManageAvailability && localStock ? (
             <button
               className="must-button must-button--secondary"
               onClick={openBlockDialog}
@@ -344,19 +377,23 @@ export function DashboardCalendar({
                   const remaining = isClosed ? 0 : (row.availableByDate[day] ?? 0);
                   const stateLabel = isClosed
                     ? 'Closed'
-                    : remaining > 0
-                      ? `${remaining} available`
-                      : 'Sold out';
+                    : !localStock
+                      ? source.data === 'CLOCK_PMS'
+                        ? 'Unknown - managed in Clock'
+                        : 'Unknown'
+                      : remaining > 0
+                        ? `${remaining} available`
+                        : 'Sold out';
                   return (
                     <button
                       key={`${row.id}-${day}`}
                       type="button"
-                      className={`${styles.tapeChartCell} ${isClosed ? styles.closed : availabilityClass(remaining, row.totalUnits)}`}
+                      className={`${styles.tapeChartCell} ${isClosed ? styles.closed : !localStock ? '' : availabilityClass(remaining, row.totalUnits)}`}
                       aria-label={`${row.label}, ${formatDay(day)}: ${stateLabel.toLowerCase()}`}
                       title={`${row.label}: ${stateLabel}`}
                       onClick={() => setSelectedDay(day)}
                     >
-                      {remaining > 1 ? remaining : ''}
+                      {localStock && remaining > 1 ? remaining : ''}
                     </button>
                   );
                 })}
@@ -370,7 +407,7 @@ export function DashboardCalendar({
         <DayBookings day={selectedDay} bookings={selectedBookings} />
       ) : null}
 
-      {blockDialogOpen ? (
+      {blockDialogOpen && localStock ? (
         <BlockAvailabilityDialog
           blockAll={blockAll}
           blockRange={blockRange}
@@ -700,6 +737,7 @@ export async function fetchCalendarAvailability(
   propertyId: string,
   month: string,
   includeRooms = false,
+  clock = false,
 ): Promise<CalendarData> {
   const roomTypesResponse = await fetch(
     `/api/tenants/${tenantId}/properties/${propertyId}/room-types`,
@@ -708,6 +746,41 @@ export async function fetchCalendarAvailability(
   if (!roomTypesResponse.ok) throw new Error('Unable to load room types.');
   const roomTypes = (await roomTypesResponse.json()) as RoomType[];
   const days = calendarDays(month).filter((day): day is string => day !== null);
+  if (clock) {
+    const response = await fetch(
+      `/api/tenants/${tenantId}/properties/${propertyId}/clock-sync/availability?month=${encodeURIComponent(month)}`,
+      { credentials: 'include' },
+    );
+    if (!response.ok) throw new Error('Unable to read synchronized availability.');
+    const snapshot = (await response.json()) as Snapshot<ClockMonth>;
+    const availability: CalendarAvailability[] = [];
+    const rows = roomTypes.map((type) => {
+      const entries = snapshot.data?.roomTypes.find((t) => t.id === type.id)?.days ?? [];
+      const known = entries.filter(
+        (d) => d.availableUnits !== undefined && d.status !== 'unavailable',
+      );
+      for (const d of known)
+        availability.push({
+          roomTypeId: type.id,
+          startsOn: d.date,
+          endsOn: addDays(d.date, 1),
+          isAvailable: d.status === 'available',
+          availableUnits: d.status === 'available' ? d.availableUnits! : 0,
+        });
+      return {
+        id: type.id,
+        label: type.name,
+        totalUnits: 0,
+        availableByDate: Object.fromEntries(
+          known.map((d) => [d.date, d.status === 'available' ? d.availableUnits! : 0]),
+        ),
+        closedByDate: Object.fromEntries(
+          entries.filter((d) => d.status === 'closed').map((d) => [d.date, true]),
+        ),
+      };
+    });
+    return { roomTypes, rooms: [], availability, rows };
+  }
   const [availability, rooms] = await Promise.all([
     Promise.all(
       roomTypes.flatMap((roomType) =>

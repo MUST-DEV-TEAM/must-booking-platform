@@ -16,6 +16,7 @@ export interface QueuedMailCommands {
   passwordReset: CommandOf<'sendPasswordResetEmail'>;
   staffInvitation: CommandOf<'sendStaffInvitationEmail'>;
   rendered: CommandOf<'sendRenderedEmail'>;
+  senderVerification: { verificationId: string; to: string };
 }
 export type QueuedMailKind = keyof QueuedMailCommands;
 
@@ -79,7 +80,7 @@ export function describeMail<K extends QueuedMailKind>(
       return {
         eventType: 'booking.staff_new',
         recipient: c.to,
-        subject: `${c.guest.name} — new booking ${c.bookingReference}`,
+        subject: c.template?.subject ?? `${c.guest.name} — new booking ${c.bookingReference}`,
         idempotencyKey: `new-booking-staff/${c.paymentId}/${c.staffUserId}`,
         bookingId: c.bookingId,
         sensitive: false,
@@ -106,7 +107,7 @@ export function describeMail<K extends QueuedMailKind>(
       return {
         eventType: 'booking.staff_cancelled',
         recipient: c.to,
-        subject: `${c.guest.name} — booking cancelled ${c.bookingReference}`,
+        subject: c.template?.subject ?? `${c.guest.name} — booking cancelled ${c.bookingReference}`,
         idempotencyKey: `booking-cancelled/staff/${c.bookingId}/${c.staffUserId}`,
         bookingId: c.bookingId,
         sensitive: false,
@@ -145,13 +146,25 @@ export function describeMail<K extends QueuedMailKind>(
         subject: c.subject,
         idempotencyKey: c.idempotencyKey,
         bookingId: c.bookingId,
-        sensitive: false,
+        sensitive: c.eventType === 'payment.link',
       };
+    case 'senderVerification': {
+      const proof = command as QueuedMailCommands['senderVerification'];
+      return {
+        eventType: 'email.sender_verification',
+        recipient: proof.to,
+        subject: 'Verify your hotel email sender',
+        idempotencyKey: `sender-verification/${proof.verificationId}`,
+        bookingId: null,
+        sensitive: true,
+      };
+    }
     case 'staffInvitation':
       return {
         eventType: 'staff.invitation',
         recipient: c.to,
-        subject: `You're invited to join ${c.organizationName} on MUST Booking`,
+        subject:
+          c.template?.subject ?? `You're invited to join ${c.organizationName} on MUST Booking`,
         idempotencyKey: `staff-invitation/${tokenFingerprint(c.invitationUrl)}`,
         bookingId: null,
         sensitive: true,

@@ -1,6 +1,9 @@
+import { bookingContactSql } from '../booking/booking-contact';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import {
+  type RefundReason,
+  REFUND_REASONS,
   type MailBrand,
   type Money,
   type Payment,
@@ -23,6 +26,7 @@ type Charge = {
   amount: string;
   currency: string;
   status: string;
+  chargeCount?: number;
 };
 
 type ManualRefundCommand = {
@@ -30,6 +34,7 @@ type ManualRefundCommand = {
   idempotencyKey: string;
   amount?: Money;
   percentage?: number;
+  reasonCode?: RefundReason;
   note?: string;
   actorUserId: string;
 };
@@ -42,7 +47,11 @@ export type RefundConfirmation = {
   refundId: string;
   to: string;
   amount: Money;
-  brand: MailBrand;
+  brand: MailBrand & {
+    brandColour?: string | null;
+    emailFooterText?: string | null;
+    termsUrl?: string | null;
+  };
   guest: { name: string };
   stay: { startsOn: string; endsOn: string };
   roomName: string;
@@ -70,6 +79,9 @@ type RefundEmailRow = {
   nightlyRates: Array<{ date: string; amount: string }> | null;
   roomName: string;
   propertyName: string;
+  brandColour: string | null;
+  emailFooterText: string | null;
+  termsUrl: string | null;
   logoUrl: string | null;
   supportEmail: string | null;
   phone: string | null;
@@ -90,6 +102,9 @@ export function percentageRefundMinorUnits(amount: string, percentage: number): 
   const denominator = 100n * scale;
   return (originalMinorUnits * numerator + denominator / 2n) / denominator;
 }
+
+/** How long after a cancellation a refund can still be made from Payments. */
+const REFUND_WINDOW_HOURS = 24;
 
 @Injectable()
 export class PaymentRefundService {
@@ -129,6 +144,7 @@ export class PaymentRefundService {
     bookingId: string,
     amount: Money,
     idempotencyKey: string,
+    metadata?: { actorUserId: string; note: string },
   ): Promise<{ result: Result<Payment | null>; confirmation: RefundConfirmation | null }> {
     const charge = await this.chargeForBooking(tx, context, bookingId, ['PAID']);
     if (!charge) return { result: { ok: true, value: null }, confirmation: null };
@@ -149,6 +165,7 @@ export class PaymentRefundService {
     const outcome = await this.refundCharge(tx, context, bookingId, charge, {
       amount,
       idempotencyKey,
+      ...metadata,
     });
     return { result: outcome.result, confirmation: outcome.confirmation };
   }
@@ -157,9 +174,24 @@ export class PaymentRefundService {
     tx: TenantTransaction,
     context: PaymentProviderContext,
     bookingId: string,
-    charge: Pick<Charge, 'provider' | 'externalPaymentId' | 'amount' | 'currency'>,
-    command: { amount: Money; idempotencyKey: string; actorUserId?: string; note?: string },
+    charge: Pick<Charge, 'provider' | 'externalPaymentId' | 'amount' | 'currency' | 'chargeCount'>,
+    command: {
+      amount: Money;
+      idempotencyKey: string;
+      actorUserId?: string;
+      note?: string;
+      reasonCode?: RefundReason;
+    },
   ): Promise<RefundChargeOutcome> {
+    if ((charge.chargeCount ?? 1) > 1)
+      return {
+        result: this.failure(
+          'REFUND_ALLOCATION_REVIEW_REQUIRED',
+          'This booking has several payments. Review the original payments before refunding; no money has been returned.',
+        ),
+        confirmation: null,
+        clockRefund: null,
+      };
     if (charge.provider === 'manual')
       return this.recordManualRefund(tx, context, bookingId, charge, command);
     const provider = this.paymentProviders.forProvider(charge.provider);
@@ -172,41 +204,114 @@ export class PaymentRefundService {
         confirmation: null,
         clockRefund: null,
       };
-    const refunded = await provider.refund(context, {
-      idempotencyKey: command.idempotencyKey,
-      paymentId: charge.externalPaymentId,
-      amount: command.amount,
-      alreadyRefunded: {
-        amount: this.money(await this.refundedAmount(tx, context, bookingId)),
-        currency: charge.currency,
+    const refunded = await this.gatewayRefund(
+      context,
+      bookingId,
+      charge,
+      {
+        amount: command.amount,
+        idempotencyKey: command.idempotencyKey,
+        alreadyRefunded: {
+          amount: this.money(await this.refundedAmount(tx, context, bookingId)),
+          currency: charge.currency,
+        },
       },
-    });
-    if (!refunded.ok) return { result: refunded, confirmation: null, clockRefund: null };
+      provider,
+    );
+    if (!refunded.ok) {
+      await this.manualReview.recordInTransaction(tx, {
+        ...context,
+        category: 'PAYMENT_BOOKING_MISMATCH',
+        referenceType: 'booking',
+        referenceId: bookingId,
+        message:
+          'A refund could not be confirmed. The saved gateway attempt blocks automatic retries; verify the original payment before resolving it.',
+        context: {
+          chargeExternalPaymentId: charge.externalPaymentId,
+          amount: command.amount,
+          error: refunded.error.code,
+        },
+      });
+      await this.audit.recordInTransaction(tx, {
+        ...context,
+        actorUserId: command.actorUserId ?? null,
+        action: 'payment.refund_unknown',
+        targetType: 'booking',
+        targetId: bookingId,
+        operationId: command.idempotencyKey,
+        source: charge.provider === 'pokpay' ? 'POKPAY' : 'STRIPE',
+        details: {
+          amount: command.amount,
+          errorCode: refunded.error.code,
+          reason: 'Refund result requires verification; retry is blocked by the saved attempt.',
+        },
+      });
+      return { result: refunded, confirmation: null, clockRefund: null };
+    }
 
+    const completed = ['REFUNDED', 'succeeded'].includes(refunded.value.status);
+    const savedStatus = completed ? 'REFUNDED' : 'REFUND_PENDING';
     const inserted = await tx.$queryRaw<Array<{ id: string }>>`
       INSERT INTO payments (
-        tenant_id, property_id, booking_id, kind, provider, external_payment_id, status, amount, currency, note
+        tenant_id, property_id, booking_id, kind, provider, external_payment_id, status, amount, currency, note, reason_code
       ) VALUES (
         ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${bookingId}::uuid,
-        'REFUND'::"PaymentKind", ${charge.provider}, ${refunded.value.id}, 'REFUNDED',
-        ${command.amount.amount}::numeric, ${command.amount.currency}, ${command.note ?? null}
+        'REFUND'::"PaymentKind", ${charge.provider}, ${refunded.value.id}, ${savedStatus},
+        ${command.amount.amount}::numeric, ${command.amount.currency}, ${command.note ?? null}, ${command.reasonCode ?? null}
       )
       ON CONFLICT (tenant_id, external_payment_id) DO NOTHING
       RETURNING id
     `;
     let confirmation: RefundConfirmation | null = null;
-    if (inserted[0]) {
+    if (inserted[0] && !completed) {
+      await this.manualReview.recordInTransaction(tx, {
+        ...context,
+        category: 'PAYMENT_BOOKING_MISMATCH',
+        referenceType: 'booking',
+        referenceId: bookingId,
+        message:
+          'A refund was submitted but the provider has not confirmed completion. Verify the original payment before retrying or recording it in Clock.',
+        context: {
+          refundId: refunded.value.id,
+          chargeExternalPaymentId: charge.externalPaymentId,
+          amount: command.amount,
+          providerStatus: refunded.value.status,
+        },
+      });
       await this.audit.recordInTransaction(tx, {
-        tenantId: context.tenantId,
-        propertyId: context.propertyId,
+        ...context,
         actorUserId: command.actorUserId ?? null,
-        action: 'payment.refunded',
+        action: 'payment.refund_pending',
+        operationId: command.idempotencyKey,
+        source:
+          charge.provider === 'pokpay'
+            ? 'POKPAY'
+            : charge.provider === 'stripe'
+              ? 'STRIPE'
+              : 'MUST_STAFF',
         targetType: 'booking',
         targetId: bookingId,
         details: {
           chargeExternalPaymentId: charge.externalPaymentId,
           refundExternalPaymentId: refunded.value.id,
           amount: command.amount,
+        },
+      });
+    }
+    if (inserted[0] && completed) {
+      await this.audit.recordInTransaction(tx, {
+        tenantId: context.tenantId,
+        propertyId: context.propertyId,
+        actorUserId: command.actorUserId ?? null,
+        action: 'payment.refunded',
+        operationId: command.idempotencyKey,
+        targetType: 'booking',
+        targetId: bookingId,
+        details: {
+          chargeExternalPaymentId: charge.externalPaymentId,
+          refundExternalPaymentId: refunded.value.id,
+          amount: command.amount,
+          ...(command.reasonCode ? { reasonCode: command.reasonCode } : {}),
           ...(command.note ? { note: command.note } : {}),
         },
       });
@@ -217,12 +322,12 @@ export class PaymentRefundService {
         payload: { bookingId, refundId: refunded.value.id, amount: command.amount },
       });
       const guest = await tx.$queryRaw<Array<RefundEmailRow>>`
-        SELECT g.email, g.first_name AS "firstName", g.last_name AS "lastName",
+        SELECT ${bookingContactSql.email} AS email, ${bookingContactSql.firstName} AS "firstName", ${bookingContactSql.lastName} AS "lastName",
           b.external_reference AS "externalReference", b.starts_on::text AS "startsOn",
           b.ends_on::text AS "endsOn", (b.adults + b.children) AS "guestCount",
           b.nightly_rates AS "nightlyRates",
           COALESCE(r.name, rt.name) AS "roomName", p.name AS "propertyName",
-          p.logo_url AS "logoUrl", p.support_email AS "supportEmail", p.phone,
+          p.brand_colour AS "brandColour",p.email_footer_text AS "emailFooterText",p.terms_url AS "termsUrl",p.logo_url AS "logoUrl", p.support_email AS "supportEmail", p.phone,
           p.public_website_origin AS "websiteUrl", p.address
         FROM bookings b
         JOIN properties p ON p.tenant_id = b.tenant_id AND p.id = b.property_id
@@ -247,80 +352,203 @@ export class PaymentRefundService {
     return {
       result: { ok: true, value: { ...refunded.value, bookingId } },
       confirmation,
-      clockRefund: inserted[0] ? { amount: command.amount, refundId: refunded.value.id } : null,
+      clockRefund:
+        inserted[0] && completed ? { amount: command.amount, refundId: refunded.value.id } : null,
     };
+  }
+
+  /** Persist before the provider call. A lost response or rolled-back booking transaction
+   * must never turn the next click into a second refund. Replays restore the saved
+   * provider result; unresolved outcomes block new keys for the same booking. */
+  private async gatewayRefund(
+    context: PaymentProviderContext,
+    bookingId: string,
+    charge: Pick<Charge, 'provider' | 'externalPaymentId'>,
+    command: { amount: Money; idempotencyKey: string; alreadyRefunded: Money },
+    provider: NonNullable<ReturnType<PaymentProviderRegistry['forProvider']>>,
+  ): Promise<Result<Payment>> {
+    const key = `gateway-refund:${command.idempotencyKey}`;
+    const hash = createHash('sha256')
+      .update(
+        JSON.stringify({
+          bookingId,
+          provider: charge.provider,
+          paymentId: charge.externalPaymentId,
+          amount: command.amount,
+        }),
+      )
+      .digest('hex');
+    const prepared = await this.database.withTenantTransaction(context, async (durable) => {
+      await durable.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${context.tenantId + ':' + context.propertyId + ':' + bookingId + ':refund'},0))`;
+      const existing = await durable.$queryRaw<
+        Array<{ hash: string; result: { providerResult?: Result<Payment> } }>
+      >`
+        SELECT request_hash AS hash,result FROM integration_operations WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND idempotency_key=${key}`;
+      if (existing[0]) {
+        if (existing[0].hash !== hash)
+          return {
+            replay: this.failure(
+              'IDEMPOTENCY_KEY_CONFLICT',
+              'This refund attempt belongs to another request.',
+            ),
+          };
+        return {
+          replay:
+            existing[0].result?.providerResult ??
+            this.failure(
+              'REFUND_REQUIRES_REVIEW',
+              'This refund attempt has an uncertain result. Verify the original payment before retrying.',
+            ),
+        };
+      }
+      const unresolved = await durable.$queryRaw<Array<{ id: string }>>`
+        SELECT op.id FROM integration_operations op WHERE op.tenant_id=${context.tenantId}::uuid AND op.property_id=${context.propertyId}::uuid AND op.aggregate_id=${bookingId}::uuid AND op.result->>'kind'='gateway_refund'
+        AND (op.result->>'stage' IS DISTINCT FROM 'RETURNED' OR NOT EXISTS (
+          SELECT 1 FROM payments p WHERE p.tenant_id=op.tenant_id AND p.property_id=op.property_id AND p.booking_id=op.aggregate_id AND p.kind='REFUND' AND p.status='REFUNDED' AND p.external_payment_id=op.result#>>'{providerResult,value,id}'
+        )) LIMIT 1`;
+      if (unresolved[0])
+        return {
+          replay: this.failure(
+            'REFUND_REQUIRES_REVIEW',
+            'An earlier refund is pending or uncertain. Review it before requesting another refund.',
+          ),
+        };
+      await durable.$executeRaw`INSERT INTO integration_operations(tenant_id,property_id,idempotency_key,aggregate_id,request_hash,status,result) VALUES(${context.tenantId}::uuid,${context.propertyId}::uuid,${key},${bookingId}::uuid,${hash},'PENDING',${JSON.stringify({ kind: 'gateway_refund', stage: 'PREPARING', provider: charge.provider, chargeExternalPaymentId: charge.externalPaymentId, amount: command.amount })}::jsonb)`;
+      return { replay: null };
+    });
+    if (prepared.replay) return prepared.replay;
+    let result: Result<Payment>;
+    try {
+      result = await provider.refund(context, { ...command, paymentId: charge.externalPaymentId });
+    } catch {
+      result = this.failure(
+        'REFUND_REQUIRES_REVIEW',
+        'The provider did not give a definite refund result. Verify the original payment before retrying.',
+      );
+    }
+    // Even an error may follow a provider write. Preserve it and require review;
+    // a new browser idempotency key cannot bypass the saved uncertain attempt.
+    await this.database.withTenantTransaction(
+      context,
+      (durable) => durable.$executeRaw`
+      UPDATE integration_operations SET status=${result.ok ? 'SUCCEEDED' : 'FAILED'}, result=result || ${JSON.stringify({ stage: result.ok ? 'RETURNED' : 'UNCERTAIN', providerResult: result })}::jsonb,updated_at=now()
+      WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND idempotency_key=${key} AND request_hash=${hash}`,
+    );
+    return result;
+  }
+
+  /**
+   * A cancelled reservation can still be refunded from Payments, but only for a day after it was
+   * cancelled. True when the booking is cancelled and the cancellation is older than that.
+   */
+  async refundWindowClosed(context: PaymentProviderContext, bookingId: string): Promise<boolean> {
+    const rows = await this.database.withTenantTransaction(
+      context,
+      (tx) =>
+        tx.$queryRaw<Array<{ closed: boolean }>>`
+      SELECT (
+        b.status = 'CANCELLED' AND COALESCE(
+          (SELECT MAX(a.created_at) FROM audit_logs a
+            WHERE a.tenant_id = b.tenant_id AND a.target_type = 'booking'
+              AND a.target_id = b.id::text AND a.action = 'booking.cancelled'),
+          b.updated_at
+        ) < now() - make_interval(hours => ${REFUND_WINDOW_HOURS}::integer)
+      ) AS closed
+      FROM bookings b
+      WHERE b.id = ${bookingId}::uuid AND b.tenant_id = ${context.tenantId}::uuid
+    `,
+    );
+    return rows[0]?.closed === true;
   }
 
   async manualRefund(
     context: PaymentProviderContext,
     command: ManualRefundCommand,
   ): Promise<Result<Payment>> {
+    if (command.reasonCode !== undefined && !REFUND_REASONS.includes(command.reasonCode))
+      return this.failure('INVALID_REFUND_REASON', 'Choose a valid refund reason.');
     if (command.note !== undefined && command.note.length > 500)
       return this.failure('INVALID_REFUND_NOTE', 'Refund note must be 500 characters or fewer.');
     let confirmation: RefundConfirmation | null = null;
-    const result = await this.database.withTenantTransaction(context, (tx) =>
-      this.withIdempotency(tx, context, command, async () => {
-        await this.lockBooking(tx, context, command.bookingId);
-        if (command.amount && command.percentage !== undefined)
-          return this.failure(
-            'INVALID_REFUND_REQUEST',
-            'Provide a fixed amount or a percentage, not both.',
-          );
-        if (command.percentage !== undefined && !this.validPercentage(command.percentage))
-          return this.failure(
-            'INVALID_REFUND_PERCENTAGE',
-            'Refund percentage must be between 1 and 100.',
-          );
-        const charge = await this.chargeForBooking(tx, context, command.bookingId, [
-          'PAID',
-          'LATE_AFTER_EXPIRY',
-          'succeeded',
-        ]);
-        if (!charge) return this.failure('CHARGE_NOT_FOUND', 'No refundable charge was found.');
-        const alreadyRefunded = await this.refundedAmount(tx, context, command.bookingId);
-        const remaining = this.minorUnits(charge.amount) - alreadyRefunded;
-        if (remaining <= 0n)
-          return this.failure(
-            'REFUND_NOT_AVAILABLE',
-            'The charge has already been fully refunded.',
-          );
-        if (
-          command.amount &&
-          (command.amount.currency !== charge.currency || !this.validMoney(command.amount.amount))
-        )
-          return this.failure(
-            'INVALID_REFUND_AMOUNT',
-            'Refund amount must be positive and use the charge currency.',
-          );
-        const requestedAmount = command.amount
-          ? this.minorUnits(command.amount.amount)
-          : command.percentage !== undefined
-            ? // A staff percentage means a share of what can still be refunded, not of the
-              // original charge: 50% after a 50 refund of 250 is 100, not 125.
-              this.percentageAmount(this.money(remaining), command.percentage)
-            : remaining;
-        if (requestedAmount === null || requestedAmount <= 0n) {
-          return this.failure(
-            'INVALID_REFUND_AMOUNT',
-            'Refund amount must be positive and use the charge currency.',
-          );
-        }
-        const amount = {
-          amount: this.money(requestedAmount > remaining ? remaining : requestedAmount),
-          currency: charge.currency,
-        };
-        const outcome = await this.refundCharge(tx, context, command.bookingId, charge, {
-          amount,
-          idempotencyKey: `manual-refund:${command.idempotencyKey}`,
-          actorUserId: command.actorUserId,
-          note: command.note,
-        });
-        confirmation = outcome.confirmation;
-        if (outcome.result.ok && outcome.clockRefund) {
-          await this.syncManualRefundToClock(tx, context, command.bookingId, outcome.clockRefund);
-        }
-        return outcome.result;
-      }),
+    const result = await this.database.withTenantTransaction(
+      context,
+      (tx) =>
+        this.withIdempotency(tx, context, command, async () => {
+          await this.lockBooking(tx, context, command.bookingId);
+          if (command.amount && command.percentage !== undefined)
+            return this.failure(
+              'INVALID_REFUND_REQUEST',
+              'Provide a fixed amount or a percentage, not both.',
+            );
+          if (command.percentage !== undefined && !this.validPercentage(command.percentage))
+            return this.failure(
+              'INVALID_REFUND_PERCENTAGE',
+              'Refund percentage must be between 1 and 100.',
+            );
+          const charge = await this.chargeForBooking(tx, context, command.bookingId, [
+            'PAID',
+            'LATE_AFTER_EXPIRY',
+            'succeeded',
+          ]);
+          if (!charge) return this.failure('CHARGE_NOT_FOUND', 'No refundable charge was found.');
+          if ((charge.chargeCount ?? 1) > 1)
+            return this.failure(
+              'REFUND_ALLOCATION_REVIEW_REQUIRED',
+              'This booking has several payments. Review the original payments before refunding; no money has been returned.',
+            );
+          const alreadyRefunded = await this.refundedAmount(tx, context, command.bookingId);
+          const remaining = this.minorUnits(charge.amount) - alreadyRefunded;
+          if (remaining <= 0n)
+            return this.failure(
+              'REFUND_NOT_AVAILABLE',
+              'The charge has already been fully refunded.',
+            );
+          if (
+            command.amount &&
+            (command.amount.currency !== charge.currency || !this.validMoney(command.amount.amount))
+          )
+            return this.failure(
+              'INVALID_REFUND_AMOUNT',
+              'Refund amount must be positive and use the charge currency.',
+            );
+          const requestedAmount = command.amount
+            ? this.minorUnits(command.amount.amount)
+            : command.percentage !== undefined
+              ? // A staff percentage means a share of what can still be refunded, not of the
+                // original charge: 50% after a 50 refund of 250 is 100, not 125.
+                this.percentageAmount(this.money(remaining), command.percentage)
+              : remaining;
+          if (requestedAmount === null || requestedAmount <= 0n) {
+            return this.failure(
+              'INVALID_REFUND_AMOUNT',
+              'Refund amount must be positive and use the charge currency.',
+            );
+          }
+          if (requestedAmount > remaining)
+            return this.failure(
+              'INVALID_REFUND_AMOUNT',
+              'The requested refund exceeds what remains refundable. Refresh and review the amount.',
+            );
+          const amount = {
+            amount: this.money(requestedAmount),
+            currency: charge.currency,
+          };
+          const outcome = await this.refundCharge(tx, context, command.bookingId, charge, {
+            amount,
+            idempotencyKey: `manual-refund:${command.idempotencyKey}`,
+            actorUserId: command.actorUserId,
+            note: command.note,
+            ...(command.reasonCode ? { reasonCode: command.reasonCode } : {}),
+          });
+          confirmation = outcome.confirmation;
+          if (outcome.result.ok && outcome.clockRefund) {
+            await this.syncManualRefundToClock(tx, context, command.bookingId, outcome.clockRefund);
+          }
+          return outcome.result;
+        }),
+      // Gateway refund plus Clock reads/posting can legitimately exceed Prisma
+      // default 5s. Do not roll back its ledger after money has been returned.
+      { timeoutMs: 90_000 },
     );
     if (confirmation)
       await this.notifications.sendRefundConfirmationEmailSafely(confirmation, context);
@@ -332,16 +560,22 @@ export class PaymentRefundService {
     context: PaymentProviderContext,
     bookingId: string,
     charge: Pick<Charge, 'externalPaymentId' | 'amount' | 'currency'>,
-    command: { amount: Money; actorUserId?: string; note?: string },
+    command: {
+      amount: Money;
+      actorUserId?: string;
+      note?: string;
+      reasonCode?: RefundReason;
+      idempotencyKey?: string;
+    },
   ): Promise<RefundChargeOutcome> {
     const externalPaymentId = `manual:refund:${randomUUID()}`;
     const inserted = await tx.$queryRaw<Array<{ id: string }>>`
       INSERT INTO payments (
-        tenant_id, property_id, booking_id, kind, provider, external_payment_id, status, amount, currency, note
+        tenant_id, property_id, booking_id, kind, provider, external_payment_id, status, amount, currency, note, reason_code
       ) VALUES (
         ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${bookingId}::uuid,
         'REFUND'::"PaymentKind", 'manual', ${externalPaymentId}, 'REFUNDED',
-        ${command.amount.amount}::numeric, ${command.amount.currency}, ${command.note ?? null}
+        ${command.amount.amount}::numeric, ${command.amount.currency}, ${command.note ?? null}, ${command.reasonCode ?? null}
       )
       ON CONFLICT (tenant_id, external_payment_id) DO NOTHING
       RETURNING id
@@ -353,12 +587,14 @@ export class PaymentRefundService {
         propertyId: context.propertyId,
         actorUserId: command.actorUserId ?? null,
         action: 'payment.refunded',
+        operationId: command.idempotencyKey,
         targetType: 'booking',
         targetId: bookingId,
         details: {
           chargeExternalPaymentId: charge.externalPaymentId,
           refundExternalPaymentId: externalPaymentId,
           amount: command.amount,
+          ...(command.reasonCode ? { reasonCode: command.reasonCode } : {}),
           ...(command.note ? { note: command.note } : {}),
         },
       });
@@ -369,12 +605,12 @@ export class PaymentRefundService {
         payload: { bookingId, refundId: externalPaymentId, amount: command.amount },
       });
       const guest = await tx.$queryRaw<Array<RefundEmailRow>>`
-        SELECT g.email, g.first_name AS "firstName", g.last_name AS "lastName",
+        SELECT ${bookingContactSql.email} AS email, ${bookingContactSql.firstName} AS "firstName", ${bookingContactSql.lastName} AS "lastName",
           b.external_reference AS "externalReference", b.starts_on::text AS "startsOn",
           b.ends_on::text AS "endsOn", (b.adults + b.children) AS "guestCount",
           b.nightly_rates AS "nightlyRates",
           COALESCE(r.name, rt.name) AS "roomName", p.name AS "propertyName",
-          p.logo_url AS "logoUrl", p.support_email AS "supportEmail", p.phone,
+          p.brand_colour AS "brandColour",p.email_footer_text AS "emailFooterText",p.terms_url AS "termsUrl",p.logo_url AS "logoUrl", p.support_email AS "supportEmail", p.phone,
           p.public_website_origin AS "websiteUrl", p.address
         FROM bookings b
         JOIN properties p ON p.tenant_id = b.tenant_id AND p.id = b.property_id
@@ -471,7 +707,8 @@ export class PaymentRefundService {
         AND booking_id = ${bookingId}::uuid AND kind = 'CHARGE'::"PaymentKind"
       ORDER BY created_at DESC
     `;
-    return rows.find((row) => statuses.includes(row.status)) ?? null;
+    const eligible = rows.filter((row) => statuses.includes(row.status));
+    return eligible[0] ? { ...eligible[0], chargeCount: eligible.length } : null;
   }
 
   private async refundedAmount(
@@ -598,6 +835,9 @@ export class PaymentRefundService {
       amount,
       brand: {
         name: row.propertyName,
+        brandColour: row.brandColour,
+        emailFooterText: row.emailFooterText,
+        termsUrl: row.termsUrl,
         logoUrl: row.logoUrl,
         supportEmail: row.supportEmail,
         phone: row.phone,

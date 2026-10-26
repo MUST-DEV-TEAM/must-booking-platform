@@ -26,6 +26,20 @@ Tenants can be on a real subscription: start an optional paid-plan trial or upgr
 9. Cancellation flow + the 30-day grace/hard-delete job from ADR-0009 (tenant-data-only scope; invoices/tax/security-log records excluded from deletion).
 10. E2E test: signup (Free) → start paid-plan trial → upgrade → simulated failed payment → dunning → cancellation → 30-day deletion job (time-travel/fast-forward in test, not a real 30-day wait) → verify invoices survive deletion.
 
+## Owner direction (2026-10-14) — inputs for the kickoff decision, not final design
+
+Recorded from the owner during plan-catalog discussion. These are intent, not shipped behavior; the real tier table is still decided in task 1.
+
+- **Free tier gets a 2-week time limit.** This replaces the current "permanent Free, no expiry clock" behavior (see [platform billing](../../architecture/platform-billing.md)). ADR-0007, ADR-0008 and ADR-0009 describe Free as permanent / trial-then-revert-to-Free, so they need an amendment when this milestone starts.
+  - **Decided (owner, 2026-10-14):** when the 2 weeks end the account is **locked** (not deleted, not downgraded). Exact lock semantics (read-only vs. fully blocked, what the owner can still do such as export data or upgrade, interaction with the ADR-0009 cancellation grace period) are still to be specified at kickoff.
+  - **Still open, owner must decide:** whether the clock starts at signup or first property; whether any warning emails precede expiry; and what this does to the existing "optional paid-plan trial" in task 8 (it may become redundant).
+- **Tier shape under discussion** (numbers illustrative, not a commercial catalog): Free (1 property, small seat cap, no PMS), Standard (1 property, ~10 seats, 1 PMS connection), Pro (~5 properties, ~30 seats, 1 PMS connection per property), Enterprise (custom, sales-assigned, not self-serve), plus the hidden Internal Testing tier below.
+- **Seat counting:** `max_staff_seats` counts **all** non-auto-provisioned tenant memberships **including the owner** (`PlanUsageService`). Today's Free value of 3 therefore means owner + 2 staff. **Decided (owner, 2026-10-14):** Free should allow owner + 3 staff, i.e. `max_staff_seats = 4`. Not applied yet; change it together with the Free time-limit rework in this milestone, since Free is live and the number is part of the same catalog decision.
+- **Rules to apply when enforcing limits:** enforce on the server, not only in the UI; going over a limit blocks the new action and never deletes existing data; a downgrade is allowed only once usage fits the new limits; PMS access is the main paid differentiator.
+- **Hidden tiers:** plans carry `is_public`. Only public plans may be offered at signup or on any upgrade screen; non-public plans (Internal Testing, Enterprise) are assigned by a platform admin only. Task 4's upgrade flow and any plan-change endpoint must filter on `is_public` and reject non-public plan IDs from tenant callers (**owner confirmed: enforcement belongs in this milestone**).
+
+- **Paid-plan entitlement for the public API (owner, 2026-10-16):** per-hotel API keys, webhooks and a sandbox are a paid-plan feature; which tiers include them and the rate and webhook limits are decided at kickoff. See [Milestone 26](26-public-api.md).
+
 ## Explicitly not included
 
 - Guest payments (Milestone 5) — no code/table sharing with this milestone.

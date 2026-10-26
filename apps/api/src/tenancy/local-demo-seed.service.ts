@@ -10,6 +10,7 @@ import { PropertiesService } from './properties.service';
 import { RatePlansService } from './rate-plans.service';
 import { RoomTypesService } from './room-types.service';
 import { RoomsService } from './rooms.service';
+import { TenantDatabaseService } from './tenant-database.service';
 
 const demoPropertyName = 'MUST Local Demo Hotel';
 const demoStartOffset = -62;
@@ -34,7 +35,30 @@ export class LocalDemoSeedService {
     @Inject(LocalPmsProvider) private readonly bookings: LocalPmsProvider,
     @Inject(ManualPaymentService) private readonly payments: ManualPaymentService,
     @Inject(PaymentRefundService) private readonly refunds: PaymentRefundService,
+    @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
   ) {}
+
+  /**
+   * The stock service refuses to edit past dates, but the demo needs the last two months of
+   * stock so its history (bookings, reports) has something to sit on. Written directly: this
+   * seed only runs in local development.
+   */
+  private seedHistoricalInventory(
+    tenantId: string,
+    propertyId: string,
+    roomTypes: Array<[roomTypeId: string, units: number]>,
+  ): Promise<void> {
+    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      for (const [roomTypeId, units] of roomTypes)
+        await tx.$executeRaw`
+          INSERT INTO inventory_units (tenant_id, property_id, room_type_id, stays_on, available_units)
+          SELECT ${tenantId}::uuid, ${propertyId}::uuid, ${roomTypeId}::uuid, day::date, ${units}::int
+          FROM generate_series(${dateFromToday(demoStartOffset)}::date, ${dateFromToday(0)}::date, interval '1 day') AS day
+          ON CONFLICT (tenant_id, property_id, room_type_id, stays_on)
+          DO UPDATE SET available_units = EXCLUDED.available_units, updated_at = CURRENT_TIMESTAMP
+        `;
+    });
+  }
 
   async seed(tenantId: string, actorUserId: string): Promise<LocalDemoSeedResult> {
     this.requireLocalDevelopment();
@@ -77,15 +101,19 @@ export class LocalDemoSeedService {
     await Promise.all([
       this.baseRate(tenantId, propertyId, ratePlan.id, standard.id, actorUserId, '110.00'),
       this.baseRate(tenantId, propertyId, ratePlan.id, family.id, actorUserId, '175.00'),
+      this.seedHistoricalInventory(tenantId, propertyId, [
+        [standard.id, 6],
+        [family.id, 4],
+      ]),
       this.availability.setInventory(tenantId, propertyId, actorUserId, {
         roomTypeId: standard.id,
-        startsOn: dateFromToday(demoStartOffset),
+        startsOn: dateFromToday(1),
         endsOn: dateFromToday(demoEndOffset),
         availableUnits: 6,
       }),
       this.availability.setInventory(tenantId, propertyId, actorUserId, {
         roomTypeId: family.id,
-        startsOn: dateFromToday(demoStartOffset),
+        startsOn: dateFromToday(1),
         endsOn: dateFromToday(demoEndOffset),
         availableUnits: 4,
       }),
@@ -99,12 +127,18 @@ export class LocalDemoSeedService {
       let booking = await this.bookings.findBookingByExternalReference(context, reference);
       if (!booking) {
         const roomType = spec.family ? family : standard;
-        const total = await this.quotes.price(tenantId, propertyId, {
-          roomTypeId: roomType.id,
-          ratePlanId: ratePlan.id,
-          startsOn: dateFromToday(spec.startOffset),
-          endsOn: dateFromToday(spec.endOffset),
-        });
+        const total = await this.quotes.price(
+          tenantId,
+          propertyId,
+          {
+            roomTypeId: roomType.id,
+            ratePlanId: ratePlan.id,
+            startsOn: dateFromToday(spec.startOffset),
+            endsOn: dateFromToday(spec.endOffset),
+          },
+          // The demo includes past stays so reports have history; the booking rules refuse those.
+          { skipRules: true },
+        );
         const result = await this.bookings.createBooking(context, {
           roomTypeId: roomType.id,
           ratePlanId: ratePlan.id,
@@ -123,6 +157,7 @@ export class LocalDemoSeedService {
           payAtHotel: true,
           staffActorId: actorUserId,
           skipQuoteValidation: true,
+          allowPastStay: true,
         });
         if (!result.ok) throw new BadRequestException(result.error.message);
         booking = result.value;

@@ -30,6 +30,8 @@ export type Reservation = {
   guestCity: string | null;
   guestCounty: string | null;
   guestPostcode: string | null;
+  guestCountryCode?: string | null;
+  guestCaptureVersion?: number;
   specialRequests?: string | null;
   roomTypeId: string;
   roomTypeName: string;
@@ -42,6 +44,8 @@ export type Reservation = {
   pmsStayStatus?: string | null;
   paymentMethod: string;
   total: { amount: string; currency: string };
+  balanceBasis?: 'CLOCK' | 'MUST';
+  clockBalance?: { amount: string; currency: string } | null;
   paidAmount: string;
   refundedAmount: string;
   externalReference: string;
@@ -359,7 +363,7 @@ function ReservationDetails({
   propertyId: string;
 }) {
   const [error, setError] = useState<string | null>(null);
-  const [cancelling, setCancelling] = useState(false);
+  const cancelling = false;
   const [settling, setSettling] = useState<'manual' | 'pokpay' | null>(null);
   const [manualMethod, setManualMethod] = useState<'cash' | 'card_in_person' | 'bank_transfer'>(
     'cash',
@@ -371,32 +375,7 @@ function ReservationDetails({
   const canSettlePendingPayment = booking.status === 'PAYMENT_PENDING';
 
   async function cancel() {
-    if (!window.confirm(`Cancel reservation ${booking.externalReference}?`)) return;
-    setCancelling(true);
-    setError(null);
-    try {
-      const response = await fetch(
-        `/api/tenants/${tenantId}/properties/${propertyId}/staff-bookings/${booking.id}`,
-        {
-          method: 'DELETE',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
-          body: JSON.stringify({
-            expectedVersion: booking.version,
-            reason: 'Cancelled by property staff.',
-          }),
-        },
-      );
-      if (!response.ok) throw new Error('Unable to cancel reservation.');
-      const result = (await response.json()) as { ok: boolean; error?: { message: string } };
-      if (!result.ok) throw new Error(result.error?.message ?? 'Unable to cancel reservation.');
-      onChanged();
-      onClose();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Unable to cancel reservation.');
-    } finally {
-      setCancelling(false);
-    }
+    window.location.href = `/dashboard/${tenantId}?propertyId=${propertyId}&section=reservations&reservation=${booking.id}`;
   }
 
   async function settlePendingPayment(kind: 'manual' | 'pokpay') {

@@ -1,196 +1,135 @@
 'use client';
-import { Heading, Text } from '@must/ui';
-import { useMutation } from '@tanstack/react-query';
-import { Loader2 } from 'lucide-react';
-import { useState } from 'react';
-import { toast } from 'sonner';
-import { refundPreview, remainingRefundable } from './payment-status';
-import { guestName, type Reservation } from './reservations';
-import styles from './data-table.module.css';
 
-const id = () => crypto.randomUUID();
+import { useQueryClient } from '@tanstack/react-query';
+import { useRef, useState } from 'react';
+import { toast } from 'sonner';
+
+import { REFUND_REASONS, type RefundReason } from '@must/domain-contracts';
+import { FormField } from '../../components/ui/form-field';
+import { Combobox } from '../../components/ui/combobox';
+import { ConfirmDialog } from '../../components/ui/confirm-dialog';
+import {
+  noRefund,
+  RefundChoice,
+  refundChoiceError,
+  refundRequestBody,
+  type RefundChoiceValue,
+} from './refund-choice';
+import { CancellationDialog } from './cancellation-dialog';
+import { SettingToggle } from '../../components/ui/setting-toggle';
+import { guestName, type Reservation } from './reservations';
 
 /**
- * The refund form, shared by the payments list and the single-payment page. It
- * names the booking being refunded so staff can be sure it is the right one.
+ * The refund form, shared by the payments list and the single-payment page. It names the booking
+ * being refunded so staff can be sure it is the right one, and previews the exact amount.
  */
 export function RefundDialog({
   booking,
   base,
   onClose,
   onRefunded,
+  canCancel = false,
 }: {
   booking: Reservation;
+  canCancel?: boolean;
   /** `/api/tenants/<tenant>/properties/<property>` */
   base: string;
   onClose: () => void;
   onRefunded: () => void;
 }) {
-  const [mode, setMode] = useState<'fixed' | 'percentage'>('fixed');
-  const [amount, setAmount] = useState('');
-  const [percentage, setPercentage] = useState('');
-  const [note, setNote] = useState('');
-  const [formError, setFormError] = useState<string | null>(null);
-  const maximum = remainingRefundable(booking);
-  const preview = refundPreview(booking, mode, amount, percentage);
+  const queryClient = useQueryClient();
+  const attempt = useRef<{ body: string; key: string } | null>(null);
+  const [cancelAlso, setCancelAlso] = useState(false);
+  const scope = base.match(/\/tenants\/([^/]+)\/properties\/([^/]+)/);
+  const [choice, setChoice] = useState<RefundChoiceValue>({ ...noRefund, mode: 'full' });
 
-  const refund = useMutation({
-    mutationFn: async (body: unknown) => {
-      const response = await fetch(`${base}/payments/refunds`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': id() },
-        body: JSON.stringify(body),
-      });
-      const value = (await response.json()) as { ok: boolean; error?: { message?: string } };
-      if (!value.ok) throw new Error(value.error?.message ?? 'Payment action failed.');
-    },
-    onSuccess: () => {
-      onRefunded();
-      onClose();
-      toast.success('Refund recorded.');
-    },
-    onError: (error) => toast.error(error.message),
-  });
-
-  function submit() {
-    const trimmedAmount = amount.trim();
-    const trimmedPercentage = percentage.trim();
-    if (mode === 'fixed' && trimmedAmount && !/^\d+(?:\.\d{1,2})?$/.test(trimmedAmount)) {
-      setFormError('Enter a valid amount with no more than two decimal places.');
-      return;
-    }
-    if (mode === 'percentage') {
-      const numeric = Number(trimmedPercentage);
-      if (!trimmedPercentage || !Number.isFinite(numeric) || numeric < 1 || numeric > 100) {
-        setFormError('Enter a percentage between 1 and 100.');
-        return;
-      }
-    }
-    if (note.length > 500) {
-      setFormError('The staff note must be 500 characters or fewer.');
-      return;
-    }
-    refund.mutate({
+  const [reasonCode, setReasonCode] = useState<RefundReason | ''>('');
+  const refund = async (note: string) => {
+    const body = refundRequestBody(choice, booking);
+    if (!reasonCode) throw new Error('Choose a refund reason.');
+    if (!body) throw new Error('Choose how much to refund.');
+    const payload = JSON.stringify({
       bookingId: booking.id,
-      ...(mode === 'fixed' && trimmedAmount
-        ? { amount: { amount: trimmedAmount, currency: booking.total.currency } }
-        : {}),
-      ...(mode === 'percentage' ? { percentage: Number(trimmedPercentage) } : {}),
-      ...(note.trim() ? { note: note.trim() } : {}),
+      ...body,
+      reasonCode,
+      ...(note.trim() ? { note: note.trim().slice(0, 500) } : {}),
     });
-  }
+    if (attempt.current?.body !== payload)
+      attempt.current = { body: payload, key: crypto.randomUUID() };
+    const response = await fetch(`${base}/payments/refunds`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': attempt.current.key },
+      body: payload,
+    });
+    const result = (await response.json().catch(() => null)) as {
+      ok?: boolean;
+      value?: { status?: string };
+      error?: { message?: string };
+      message?: string;
+    } | null;
+    if (!response.ok || result?.ok === false)
+      throw new Error(result?.error?.message ?? result?.message ?? 'The refund could not be made.');
+    await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    onRefunded();
+    if (result?.value?.status === 'REFUND_PENDING')
+      toast.info('Refund submitted. Provider confirmation is pending; review it before retrying.');
+    else toast.success('Refund recorded.');
+    onClose();
+  };
 
-  return (
-    <div className={styles.dialogBackdrop} role="presentation">
-      <section
-        aria-labelledby="refund-dialog-title"
-        aria-modal="true"
-        className={styles.dialog}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') onClose();
+  if (cancelAlso && scope)
+    return (
+      <CancellationDialog
+        tenantId={scope[1]}
+        propertyId={scope[2]}
+        bookingId={booking.id}
+        open
+        canCancel={canCancel}
+        canRefund
+        initialRefundChoice={choice}
+        onOpenChange={(open) => {
+          if (!open) {
+            onRefunded();
+            onClose();
+          }
         }}
-        role="dialog"
-        tabIndex={-1}
-      >
-        <header className={styles.dialogHeader}>
-          <Heading id="refund-dialog-title">Refund payment</Heading>
-          <Text>{[booking.externalReference, guestName(booking)].filter(Boolean).join(' · ')}</Text>
-          <Text tone="secondary">
-            Remaining refundable balance: {maximum.amount} {booking.total.currency}
-          </Text>
-        </header>
-        <div className={styles.dialogFields}>
-          <label htmlFor="refund-type">Refund type</label>
-          <select
-            id="refund-type"
-            value={mode}
-            onChange={(event) => {
-              setMode(event.target.value as 'fixed' | 'percentage');
-              setFormError(null);
-            }}
-          >
-            <option value="fixed">Fixed amount (€)</option>
-            <option value="percentage">Percentage (%)</option>
-          </select>
-          {mode === 'fixed' ? (
-            <label htmlFor="refund-amount">
-              Amount ({booking.total.currency})
-              <input
-                id="refund-amount"
-                inputMode="decimal"
-                onChange={(event) => setAmount(event.target.value)}
-                placeholder="Leave blank for the remaining balance"
-                value={amount}
-              />
-            </label>
-          ) : (
-            <label htmlFor="refund-percentage">
-              Percentage of the remaining {maximum.amount} {booking.total.currency}
-              <input
-                id="refund-percentage"
-                inputMode="decimal"
-                max="100"
-                min="1"
-                onChange={(event) => setPercentage(event.target.value)}
-                step="0.01"
-                type="number"
-                value={percentage}
-              />
-            </label>
-          )}
-          <Text>
-            {preview
-              ? `This will refund ${preview} ${booking.total.currency}`
-              : 'Enter an amount or percentage to see what will be refunded'}
-          </Text>
-          <button
-            className="must-button must-button--secondary"
-            onClick={() => {
-              setMode('fixed');
-              setAmount(maximum.amount);
-              setPercentage('');
-              setFormError(null);
-            }}
-            type="button"
-          >
-            Use maximum ({maximum.amount} {booking.total.currency})
-          </button>
-          <label htmlFor="refund-note">
-            Staff note (optional)
-            <textarea
-              id="refund-note"
-              maxLength={500}
-              onChange={(event) => setNote(event.target.value)}
-              rows={3}
-              value={note}
-            />
-          </label>
-          {formError ? (
-            <div className={styles.dialogError} role="alert">
-              {formError}
-            </div>
-          ) : null}
-        </div>
-        <footer className={styles.dialogActions}>
-          <button
-            className="must-button must-button--secondary"
-            disabled={refund.isPending}
-            onClick={onClose}
-            type="button"
-          >
-            Cancel
-          </button>
-          <button
-            className="must-button must-button--danger"
-            disabled={refund.isPending}
-            onClick={submit}
-            type="button"
-          >
-            {refund.isPending ? <Loader2 aria-hidden="true" size={16} /> : 'Record refund'}
-          </button>
-        </footer>
-      </section>
-    </div>
+      />
+    );
+  return (
+    <ConfirmDialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+      title="Refund payment"
+      description={[booking.externalReference, guestName(booking)].filter(Boolean).join(' · ')}
+      confirmLabel="Record refund"
+      reasonLabel="Staff note (optional)"
+      confirmDisabled={!reasonCode || !!refundChoiceError(choice, booking)}
+      onConfirm={refund}
+    >
+      {canCancel && booking.status === 'CONFIRMED' && scope ? (
+        <SettingToggle label="Also cancel booking" checked={cancelAlso} onChange={setCancelAlso} />
+      ) : null}
+      <FormField label="Refund reason">
+        <Combobox
+          label="Refund reason"
+          value={reasonCode}
+          onChange={(v) => setReasonCode(v as RefundReason)}
+          options={[
+            { value: '', label: 'Choose a reason' },
+            ...REFUND_REASONS.map((value) => ({ value, label: value.replaceAll('_', ' ') })),
+          ]}
+        />
+      </FormField>
+      <RefundChoice
+        booking={booking}
+        heading="How much"
+        allowNone={false}
+        value={choice}
+        onChange={setChoice}
+      />
+    </ConfirmDialog>
   );
 }

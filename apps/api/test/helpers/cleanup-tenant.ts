@@ -14,6 +14,37 @@ export async function cleanupTenant(
   admin: PrismaClient | Prisma.TransactionClient,
   tenantId: string,
 ): Promise<void> {
+  await admin.$executeRaw`DELETE FROM server_media_uploads WHERE tenant_id=${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM clock_sync_jobs WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM clock_guest_profiles WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM email_transport_failure_outbox WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM email_transport_failures WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM email_transport_attempts WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM email_message_previews WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM email_sender_proofs WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM email_sending_profiles WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM email_delivery_events WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM email_delivery_exports WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM audit_export_operations WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM email_suppression_events WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM email_delivery_slots WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM email_suppressions WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM email_workspace_operations WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM email_template_heads WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM guest_capture_operations WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM report_otb_snapshots WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM report_view_operations WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM report_views WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM pricing_operations WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM pricing_daily_prices WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM pricing_adjustments WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM pricing_charges WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM inventory_stock_operations WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM inventory_block_operations WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM inventory_block_sequences WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM inventory_restriction_operations WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM inventory_restriction_sequences WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM inventory_restrictions WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM email_templates WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM notification_recipient_rules WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM notification_topic_settings WHERE tenant_id = ${tenantId}::uuid`;
@@ -34,6 +65,10 @@ export async function cleanupTenant(
   await admin.$executeRaw`DELETE FROM availability_block_room_types WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM availability_block_rooms WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM inventory_units WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM notification_resolutions WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM notification_operations WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM notification_reads WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM notification_inbox_states WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM notifications WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM integration_operations WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM audit_logs WHERE tenant_id = ${tenantId}::uuid`;
@@ -41,14 +76,18 @@ export async function cleanupTenant(
   await admin.$executeRaw`DELETE FROM bookings WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM availability_blocks WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM property_staff_assignments WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM rate_plans WHERE tenant_id = ${tenantId}::uuid AND pricing_basis='derived'`;
   await admin.$executeRaw`DELETE FROM rate_plans WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM cancellation_policies WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM rooms WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM guests WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM room_types WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM room_categories WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM capabilities WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM property_role_templates WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM amenities WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM pricing_operations WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM inventory_stock_operations WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM tenant_memberships WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM properties WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM organizations WHERE id = ${tenantId}::uuid`;

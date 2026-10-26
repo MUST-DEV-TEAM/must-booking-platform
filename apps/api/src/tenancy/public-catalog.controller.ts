@@ -9,6 +9,17 @@ import { PUBLIC_READ_RATE_LIMIT, PublicRateLimit } from './public-rate-limit.dec
 export class PublicCatalogController {
   constructor(@Inject(PublicCatalogService) private readonly catalog: PublicCatalogService) {}
 
+  @Get('branding')
+  @PublicTenantScoped({ propertyParam: 'propertyId' })
+  @UseGuards(PublicRateLimitGuard)
+  @PublicRateLimit(PUBLIC_READ_RATE_LIMIT)
+  getBranding(@Req() request: { tenantContext: { tenantId: string; propertyId: string } }) {
+    return this.catalog.getBranding(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+    );
+  }
+
   @Get('catalog')
   @PublicTenantScoped({ propertyParam: 'propertyId' })
   @UseGuards(PublicRateLimitGuard)

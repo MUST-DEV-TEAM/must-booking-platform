@@ -158,6 +158,21 @@ export async function promoteToPlatformAdmin(tenantId: string, email: string): P
   if (updated !== 1) throw new Error('Could not promote the E2E account to platform admin.');
 }
 
+/**
+ * Platform staff sign in to a separate console with their own account. The migration that moves
+ * flagged users over (apps/api migrate:platform-admins) does exactly this insert, so the E2E
+ * account keeps the same email and password.
+ */
+export async function createPlatformAccount(email: string): Promise<void> {
+  const created = await database.$executeRaw`
+    INSERT INTO "platform_accounts" ("email", "first_name", "last_name", "password_hash", "role_id", "status", "migrated_from_user_id")
+    SELECT lower(u."email"), u."first_name", u."last_name", u."password_hash", r."id", 'ACTIVE', u."id"
+    FROM "users" u, "platform_roles" r
+    WHERE u."email" = ${email} AND r."key" = 'super_admin'
+  `;
+  if (created !== 1) throw new Error('Could not create the E2E platform account.');
+}
+
 export async function membershipCount(page: Page): Promise<number> {
   return page.evaluate(async () => {
     const response = await fetch('/api/auth/memberships', { credentials: 'include' });
@@ -180,6 +195,19 @@ export async function cleanupE2EData(): Promise<void> {
   for (const tenantId of createdTenantIds) await deleteTenant(tenantId);
 
   if (emails.length > 0) {
+    // A platform console account may exist for the same email (see createPlatformAccount); its
+    // sessions and audit references go with it, the same way the API migration test removes it.
+    const lowered = emails.map((email) => email.toLowerCase());
+    await database.$transaction(async (tx) => {
+      await tx.$executeRaw`SET LOCAL session_replication_role = replica`;
+      await tx.$executeRaw`
+        DELETE FROM "platform_sessions"
+        WHERE "account_id" IN (SELECT "id" FROM "platform_accounts" WHERE lower("email") IN (${Prisma.join(lowered)}))
+      `;
+      await tx.$executeRaw`
+        DELETE FROM "platform_accounts" WHERE lower("email") IN (${Prisma.join(lowered)})
+      `;
+    });
     await database.$executeRaw`
       DELETE FROM "audit_logs"
       WHERE "actor_user_id" IN (SELECT "id" FROM "users" WHERE "email" IN (${Prisma.join(emails)}))
@@ -320,6 +348,8 @@ async function deleteTenant(tenantId: string): Promise<void> {
     await transaction.$executeRaw`
       DELETE FROM "tenant_memberships" WHERE "tenant_id" = ${tenantId}::uuid
     `;
+    await transaction.$executeRaw`DELETE FROM "pricing_operations" WHERE "tenant_id" = ${tenantId}::uuid`;
+    await transaction.$executeRaw`DELETE FROM "inventory_stock_operations" WHERE "tenant_id" = ${tenantId}::uuid`;
     await transaction.$executeRaw`DELETE FROM "properties" WHERE "tenant_id" = ${tenantId}::uuid`;
     await transaction.$executeRaw`DELETE FROM "audit_logs" WHERE "tenant_id" = ${tenantId}::uuid`;
     await transaction.$executeRaw`DELETE FROM "organizations" WHERE "id" = ${tenantId}::uuid`;

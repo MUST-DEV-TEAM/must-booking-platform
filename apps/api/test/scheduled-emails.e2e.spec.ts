@@ -6,8 +6,11 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { RenderedEmailCommand } from '@must/domain-contracts';
 
+import { MailDeliveryService } from '../src/mail/mail-delivery.service';
+import { isolatedMailDelivery } from './helpers/isolated-mail-delivery';
 import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
 import { ScheduledEmailService } from '../src/mail/scheduled-email.service';
+import { withoutExternalWorkers } from './helpers/without-external-workers';
 import { cleanupTenant } from './helpers/cleanup-tenant';
 import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
 
@@ -56,10 +59,12 @@ describe('scheduled emails (pre-arrival reminder, owner daily summary)', () => {
     process.env.WEB_APP_URL = 'http://localhost:3001';
     await clearSignupRateLimits();
     const { AppModule } = await import('../src/app.module');
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+    const moduleBuilder = Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(MAIL_PROVIDER)
       .useValue(mail)
-      .compile();
+      .overrideProvider(MailDeliveryService)
+      .useFactory(isolatedMailDelivery);
+    const moduleRef = await withoutExternalWorkers(moduleBuilder).compile();
     app = moduleRef.createNestApplication();
     await app.init();
 
@@ -250,7 +255,7 @@ describe('scheduled emails (pre-arrival reminder, owner daily summary)', () => {
     expect(summaries).toHaveLength(1);
     const summary = summaries[0]!;
     expect(summary.to).toBe(ownerEmail);
-    expect(summary.subject).toBe('Seaside <Hotel> today: 1 arrival, 1 departure');
+    expect(summary.subject).toBe('Daily summary - Seaside <Hotel> - 2030-05-10');
     expect(summary.text).toContain('Arrivals (1): Bob Guest · Sea View · 2 nights');
     expect(summary.text).toContain('Departures (1): Ada Guest · Sea View');
     expect(summary.text).toContain('In-house tonight: 2 bookings');

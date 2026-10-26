@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { countryCode } from '@must/domain-contracts';
 import {
   BadRequestException,
   ConflictException,
@@ -10,11 +12,19 @@ import { AuditLogService } from './audit-log.service';
 import { TenantDatabaseService } from './tenant-database.service';
 
 export type GuestDirectoryEntry = {
+  source?: 'CLOCK' | 'MUST';
   id: string;
   email: string;
   firstName: string | null;
   lastName: string | null;
   phone: string | null;
+  streetAddress: string | null;
+  addressLine2: string | null;
+  city: string | null;
+  county: string | null;
+  postcode: string | null;
+  countryCode: string | null;
+  captureVersion: number;
   bookingCount: number;
   mostRecentStartsOn: string;
   mostRecentEndsOn: string;
@@ -54,11 +64,11 @@ export class GuestsService {
     search: string | undefined,
   ): Promise<GuestDirectoryEntry[]> {
     const normalizedSearch = search?.trim() ?? '';
-    return this.database.withTenantTransaction(
-      { tenantId, propertyId },
-      (tx) =>
-        tx.$queryRaw<GuestDirectoryEntry[]>`
+    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      const local = await tx.$queryRaw<GuestDirectoryEntry[]>`
         SELECT g.id, g.email, g.first_name AS "firstName", g.last_name AS "lastName", g.phone,
+          g.street_address AS "streetAddress", g.address_line_2 AS "addressLine2", g.city, g.county,
+          g.postcode,g.country_code AS "countryCode",g.capture_version AS "captureVersion",
           COUNT(b.id)::int AS "bookingCount",
           recent.starts_on::text AS "mostRecentStartsOn",
           recent.ends_on::text AS "mostRecentEndsOn"
@@ -80,10 +90,76 @@ export class GuestsService {
             OR CONCAT_WS(' ', g.first_name, g.last_name) ILIKE ${`%${normalizedSearch}%`}
             OR g.email ILIKE ${`%${normalizedSearch}%`}
             OR COALESCE(g.phone, '') ILIKE ${`%${normalizedSearch}%`})
-        GROUP BY g.id, g.email, g.first_name, g.last_name, g.phone, recent.starts_on, recent.ends_on
+        GROUP BY g.id, g.email, g.first_name, g.last_name, g.phone, g.street_address, g.address_line_2,
+          g.city, g.county, g.postcode, recent.starts_on, recent.ends_on
         ORDER BY recent.starts_on DESC, g.email ASC
-      `,
-    );
+      `;
+      const profiles = await tx.$queryRaw<GuestDirectoryEntry[]>`
+        SELECT p.id, COALESCE(p.email,'') AS email,p.first_name AS "firstName",p.last_name AS "lastName",p.phone,
+          NULL AS "streetAddress",NULL AS "addressLine2",NULL AS city,NULL AS county,NULL AS postcode,NULL AS "countryCode",0 AS "captureVersion",0 AS "bookingCount",NULL AS "mostRecentStartsOn",NULL AS "mostRecentEndsOn",'CLOCK' AS source
+        FROM clock_guest_profiles p JOIN property_integration_connections pc ON pc.tenant_id=p.tenant_id AND pc.property_id=p.property_id AND pc.connection_id=p.connection_id AND pc.enabled
+        WHERE p.tenant_id=${tenantId}::uuid AND p.property_id=${propertyId}::uuid
+          AND NOT EXISTS(SELECT 1 FROM clock_guest_mappings m WHERE m.tenant_id=p.tenant_id AND m.property_id=p.property_id AND m.external_guest_id=p.external_guest_id AND m.guest_id=ANY(${local.map((g) => g.id)}::uuid[]))
+          AND (${normalizedSearch}='' OR CONCAT_WS(' ',p.first_name,p.last_name,p.email,p.phone) ILIKE ${`%${normalizedSearch}%`})
+        ORDER BY p.last_name,p.first_name,p.id`;
+      return [...local.map((g) => ({ ...g, source: 'MUST' as const })), ...profiles];
+    });
+  }
+
+  async updateCountry(
+    c: { tenantId: string; propertyId: string; userId: string },
+    id: string,
+    body: unknown,
+    key: string | undefined,
+  ) {
+    if (!uuidPattern.test(id) || !key || !/^[!-~]{1,128}$/.test(key))
+      throw new BadRequestException('A guest and Idempotency-Key are required.');
+    const v = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
+    if (
+      !Number.isInteger(v.version) ||
+      Number(v.version) < 1 ||
+      !('countryCode' in v) ||
+      Object.keys(v).some((k) => !['version', 'countryCode'].includes(k))
+    )
+      throw new BadRequestException('Country and expected version are required.');
+    let country: string | null;
+    try {
+      country = countryCode(v.countryCode) ?? null;
+    } catch {
+      throw new BadRequestException('Choose an assigned ISO country code.');
+    }
+    const hash = createHash('sha256')
+      .update(JSON.stringify({ actor: c.userId, id, version: v.version, country }))
+      .digest('hex');
+    return this.database.withTenantTransaction(c, async (tx) => {
+      await tx.$queryRaw`SELECT id FROM properties WHERE tenant_id=${c.tenantId}::uuid AND id=${c.propertyId}::uuid FOR UPDATE`;
+      const receipt = await tx.$queryRaw<
+        Array<{ hash: string; response: unknown }>
+      >`SELECT request_hash AS hash,response FROM guest_capture_operations WHERE tenant_id=${c.tenantId}::uuid AND property_id=${c.propertyId}::uuid AND idempotency_key=${key}`;
+      if (receipt[0]) {
+        if (receipt[0].hash !== hash)
+          throw new ConflictException('Idempotency key was used for another change.');
+        return receipt[0].response;
+      }
+      const guests = await tx.$queryRaw<
+        Array<{ version: number; country: string | null }>
+      >`SELECT capture_version AS version,country_code AS country FROM guests WHERE tenant_id=${c.tenantId}::uuid AND id=${id}::uuid AND merged_into_guest_id IS NULL AND EXISTS(SELECT 1 FROM bookings b WHERE b.tenant_id=${c.tenantId}::uuid AND b.property_id=${c.propertyId}::uuid AND b.guest_id=guests.id) FOR UPDATE`;
+      if (!guests[0]) throw new NotFoundException('Guest not found in this property.');
+      if (guests[0].version !== v.version)
+        throw new ConflictException('Guest was changed. Reload before saving.');
+      const response = { id, countryCode: country, captureVersion: Number(v.version) + 1 };
+      await tx.$executeRaw`UPDATE guests SET country_code=${country},capture_version=capture_version+1,updated_at=CURRENT_TIMESTAMP WHERE tenant_id=${c.tenantId}::uuid AND id=${id}::uuid`;
+      await this.audit.recordInTransaction(tx, {
+        ...c,
+        actorUserId: c.userId,
+        action: 'guest.country.updated',
+        targetType: 'guest',
+        targetId: id,
+        details: { before: { countryCode: guests[0].country }, after: response },
+      });
+      await tx.$executeRaw`INSERT INTO guest_capture_operations(tenant_id,property_id,idempotency_key,request_hash,response)VALUES(${c.tenantId}::uuid,${c.propertyId}::uuid,${key},${hash},${JSON.stringify(response)}::jsonb)`;
+      return response;
+    });
   }
 
   listSuspectedDuplicates(tenantId: string, propertyId: string): Promise<SuspectedDuplicatePair[]> {

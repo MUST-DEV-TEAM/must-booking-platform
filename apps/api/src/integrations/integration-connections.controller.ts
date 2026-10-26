@@ -4,6 +4,7 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   Inject,
   Param,
   Patch,
@@ -26,12 +27,30 @@ export class IntegrationConnectionsController {
     private readonly connections: IntegrationConnectionsService,
   ) {}
 
+  @Get('integration-setup')
+  @TenantScoped()
+  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresCapability('settings.manage')
+  setup() {
+    return this.connections.setup();
+  }
+
   @Get('integration-connections')
   @TenantScoped()
   @Roles(Role.TenantOwner, Role.TenantAdmin)
   @RequiresCapability('settings.manage')
   list(@Req() request: TenantRequest) {
     return this.connections.list(request.tenantContext.tenantId);
+  }
+
+  @Get('integration-connections/:connectionId/credentials')
+  @Header('Cache-Control', 'private, no-store')
+  @TenantScoped()
+  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresCapability('settings.manage')
+  @RequiresVerifiedEmail()
+  credentialDetails(@Param('connectionId') id: string, @Req() request: TenantRequest) {
+    return this.connections.credentialDetails(request.tenantContext.tenantId, id);
   }
 
   @Post('integration-connections')
@@ -43,6 +62,24 @@ export class IntegrationConnectionsController {
     return this.connections.create(
       request.tenantContext.tenantId,
       request.tenantContext.userId,
+      body,
+    );
+  }
+
+  @Patch('integration-connections/:connectionId/credentials')
+  @TenantScoped()
+  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresCapability('settings.manage')
+  @RequiresVerifiedEmail()
+  replaceCredentials(
+    @Param('connectionId') id: string,
+    @Body() body: unknown,
+    @Req() request: TenantRequest,
+  ) {
+    return this.connections.replaceCredentials(
+      request.tenantContext.tenantId,
+      request.tenantContext.userId,
+      id,
       body,
     );
   }

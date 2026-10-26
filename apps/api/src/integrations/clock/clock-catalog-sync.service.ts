@@ -1,3 +1,4 @@
+import { setTimeout as wait } from 'node:timers/promises';
 import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 
@@ -15,6 +16,11 @@ import {
   type ClockConnectionCredentials,
 } from './clock-http-client';
 import { ClockRateLimiterService } from './clock-rate-limiter';
+import { ClockBookingReadError } from './clock-booking-consistency.service';
+import {
+  classifyClockClientFailure,
+  classifyClockHttpResponse,
+} from './clock-error-classification';
 
 type ClockRoomType = { id: number | string; name: string; operational_until?: string | null };
 type ClockRoom = { id: number | string; name: string; room_type_id: number | string };
@@ -42,6 +48,52 @@ export class ClockCatalogSyncService {
     @Inject(ClockRateLimiterService) private readonly rateLimiter: ClockRateLimiterService,
     @Inject(ClockCircuitBreakerService) private readonly circuitBreaker: ClockCircuitBreakerService,
   ) {}
+
+  /** Read-only current configured room counts; this is capacity, never an occupancy claim. */
+  async roomCounts(tenantId: string, propertyId: string, fresh = false) {
+    const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
+    if (!connection || connection.provider !== 'CLOCK_PMS')
+      throw new BadRequestException('This hotel is not connected to Clock.');
+    const parsed = parseClockCredentials(connection.credentials);
+    if (!parsed.ok) throw new BadRequestException('Clock connection needs attention.');
+    const key = [tenantId, propertyId, connection.connectionId].join(':');
+    const cached = this.roomCountCache.get(key);
+    if (!fresh && cached && cached.expires > Date.now()) return cached.value;
+    const rooms = await this.fetch<ClockRoom[]>(parsed.value, '/rooms');
+    if (
+      !Array.isArray(rooms) ||
+      rooms.some((r) => !r || !/^\d+$/.test(String(r.id)) || !/^\d+$/.test(String(r.room_type_id)))
+    )
+      throw new BadRequestException('Clock room counts could not be verified.');
+    const mappings = await this.database.withTenantTransaction(
+      { tenantId, propertyId },
+      (tx) =>
+        tx.$queryRaw<
+          Array<{ localId: string; externalId: string }>
+        >`SELECT local_entity_id::text AS "localId",external_entity_id AS "externalId" FROM clock_catalog_mappings WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND connection_id=${connection.connectionId}::uuid AND entity_type='ROOM_TYPE' AND sync_status='CONFIRMED' AND local_entity_id IS NOT NULL`,
+    );
+    const byRoomType = Object.fromEntries(
+      mappings.map((m) => [
+        m.localId,
+        rooms.filter((r) => String(r.room_type_id) === m.externalId).length,
+      ]),
+    );
+    const value = {
+      configuredRooms: new Set(rooms.map((r) => String(r.id))).size,
+      byRoomType,
+      readAt: new Date().toISOString(),
+    };
+    if (this.roomCountCache.size >= 100) this.roomCountCache.clear();
+    this.roomCountCache.set(key, { value, expires: Date.now() + 1200000 });
+    return value;
+  }
+  private readonly roomCountCache = new Map<
+    string,
+    {
+      expires: number;
+      value: { configuredRooms: number; byRoomType: Record<string, number>; readAt: string };
+    }
+  >();
 
   async sync(
     tenantId: string,
@@ -133,7 +185,7 @@ export class ClockCatalogSyncService {
   async confirm(
     tenantId: string,
     propertyId: string,
-    actorUserId: string,
+    actorUserId: string | null,
     mappingId: string,
   ): Promise<void> {
     await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
@@ -164,7 +216,7 @@ export class ClockCatalogSyncService {
   async confirmAll(
     tenantId: string,
     propertyId: string,
-    actorUserId: string,
+    actorUserId: string | null,
   ): Promise<{
     confirmed: number;
     skipped: Array<{
@@ -219,7 +271,7 @@ export class ClockCatalogSyncService {
     tx: TenantTransaction,
     tenantId: string,
     propertyId: string,
-    actorUserId: string,
+    actorUserId: string | null,
     mapping: ClockCatalogMappingRow,
   ): Promise<void> {
     const localId = randomUUID();
@@ -245,16 +297,23 @@ export class ClockCatalogSyncService {
       // carrier) even though staff never picks one — auto-create a
       // shadow rate plan for this room type, never surfaced in the
       // Rate Plan UI (filtered out by clockShadowRoomTypeId elsewhere).
-      // Currency defaults to EUR — a real gap for non-EUR properties,
-      // revisit if/when this needs to be configurable.
+      // The plan takes the hotel's own currency setting; euro only when none is set. Prices of a Clock
+      // hotel always come from Clock in the currency of the rate that is booked.
+      const currencyRows = await tx.$queryRawUnsafe<Array<{ currency: string | null }>>(
+        `SELECT default_currency AS currency FROM properties WHERE tenant_id = $1::uuid AND id = $2::uuid`,
+        tenantId,
+        propertyId,
+      );
+      const planCurrency = currencyRows[0]?.currency?.toUpperCase() || 'EUR';
       try {
         await tx.$executeRawUnsafe(
           `INSERT INTO rate_plans (id, tenant_id, property_id, name, currency, is_active, clock_shadow_room_type_id)
-           VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'EUR', true, $5::uuid)`,
+           VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, true, $6::uuid)`,
           randomUUID(),
           tenantId,
           propertyId,
           `Clock: ${mapping.externalName}`,
+          planCurrency,
           localId,
         );
       } catch (error: unknown) {
@@ -315,7 +374,7 @@ export class ClockCatalogSyncService {
   async reject(
     tenantId: string,
     propertyId: string,
-    actorUserId: string,
+    actorUserId: string | null,
     mappingId: string,
   ): Promise<void> {
     await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
@@ -343,14 +402,20 @@ export class ClockCatalogSyncService {
     try {
       this.circuitBreaker.assertClosed(breakerKey);
     } catch (error) {
-      if (error instanceof CircuitOpenError) throw new BadRequestException(error.message);
+      if (error instanceof CircuitOpenError)
+        throw new ClockBookingReadError(classifyClockHttpResponse(503, null));
       throw error;
     }
-    const rateLimit = await this.rateLimiter.consume(credentials.apiUser);
-    if (!rateLimit.allowed)
-      throw new BadRequestException(
-        `Too many Clock requests right now — try again in ${rateLimit.retryAfterSeconds}s.`,
-      );
+    let permitted = false;
+    for (let attempt = 0; attempt < 15; attempt++) {
+      const limit = await this.rateLimiter.consume(credentials.apiUser);
+      if (limit.allowed) {
+        permitted = true;
+        break;
+      }
+      if (attempt < 14) await wait(Math.min(1000, Math.max(100, limit.retryAfterSeconds * 1000)));
+    }
+    if (!permitted) throw new Error('Clock read did not finish: request allowance is busy.');
     try {
       const response = await this.client.request<T>(credentials, {
         api: 'pms_api',
@@ -359,14 +424,21 @@ export class ClockCatalogSyncService {
         timeoutMs: 15_000,
       });
       if (response.status < 200 || response.status >= 300) {
-        this.circuitBreaker.recordFailure(breakerKey);
-        throw new BadRequestException(`Clock returned status ${response.status} for ${path}.`);
+        if (response.status !== 429) this.circuitBreaker.recordFailure(breakerKey);
+        throw new ClockBookingReadError(classifyClockHttpResponse(response.status, null));
       }
       this.circuitBreaker.recordSuccess(breakerKey);
       return response.body;
     } catch (error) {
+      if (error instanceof ClockBookingReadError) throw error;
       this.circuitBreaker.recordFailure(breakerKey);
-      if (error instanceof ClockHttpError) throw new BadRequestException(error.message);
+      if (error instanceof ClockHttpError)
+        throw new ClockBookingReadError(
+          classifyClockClientFailure(
+            error.isTimeout ? 'timeout' : 'network',
+            'Clock catalogue read did not finish.',
+          ),
+        );
       throw error;
     }
   }

@@ -1,3 +1,10 @@
+import { CredentialCipherService } from '../src/integrations/credential-cipher';
+import { AuditLogService } from '../src/tenancy/audit-log.service';
+import { EmailTransportJournal } from '../src/mail/email-transport-journal';
+import { EmailTransportCredentialService } from '../src/mail/email-transport-credentials';
+import { PropertyMailDispatcher } from '../src/mail/property-mail-dispatcher';
+import { SmtpTransport } from '../src/mail/smtp-transport';
+import { ResendMailProvider } from '../src/mail/resend-mail.provider';
 import { randomUUID } from 'node:crypto';
 
 import { PrismaClient } from '@prisma/client';
@@ -100,6 +107,7 @@ describe('MailDeliveryService (real Postgres + Redis/BullMQ)', () => {
       INSERT INTO "properties" ("id", "tenant_id", "name", "slug")
       VALUES (${propertyId}::uuid, ${tenantId}::uuid, 'Mail delivery property', ${`mail-delivery-${propertyId}`})
     `;
+    service.queueName = `mail-delivery-test-${randomUUID()}`;
     service.retryPolicy = { attempts: 3, backoffMs: 50 };
     service.onModuleInit();
   });
@@ -112,6 +120,76 @@ describe('MailDeliveryService (real Postgres + Redis/BullMQ)', () => {
     process.env.REDIS_URL = previousRedisUrl;
     await migrationPrisma.$disconnect();
     await database.$disconnect();
+  });
+
+  it('queues one approved grouped envelope on concurrent retries and sends real headers once (mocked provider)', async () => {
+    vi.stubEnv('INTEGRATION_CREDENTIALS_KEY', Buffer.alloc(32, 62).toString('base64'));
+    vi.stubEnv('RESEND_API_KEY', 're_fake_recipient_fixture');
+    vi.stubEnv('MAIL_FROM_EMAIL', 'noreply@example.test');
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(Response.json({ id: 'group-' + randomUUID() }));
+    vi.stubGlobal('fetch', request);
+    const cipher = new CredentialCipherService(),
+      audit = new AuditLogService(database);
+    const dispatcher = new PropertyMailDispatcher(
+      new EmailTransportJournal(database, cipher, audit),
+      new EmailTransportCredentialService(cipher),
+      new SmtpTransport(),
+      audit,
+    );
+    const grouped = new MailDeliveryService(
+      database,
+      new ResendMailProvider(undefined, dispatcher),
+    );
+    grouped.queueName = 'grouped-mail-' + randomUUID();
+    grouped.onModuleInit();
+    try {
+      const key = 'group-' + randomUUID(),
+        envelope = {
+          to: ['to@example.test'],
+          cc: ['copy@example.test'],
+          bcc: ['private@example.test'],
+        };
+      const command = {
+        eventType: 'staff.routing_fixture',
+        to: 'to@example.test',
+        subject: 'Staff details',
+        html: '<p>Staff dashboard version</p>',
+        text: 'Staff dashboard version',
+        bookingId: null,
+        idempotencyKey: key,
+      };
+      await Promise.all(
+        Array.from({ length: 8 }, () =>
+          grouped.dispatch('rendered', command, context, { recipientEnvelope: envelope }),
+        ),
+      );
+      const deadline = Date.now() + 15000;
+      for (;;) {
+        const [row] = await migrationPrisma.$queryRaw<
+          { status: string; envelope: unknown }[]
+        >`SELECT status::text AS status,recipient_envelope AS envelope FROM email_messages WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND idempotency_key=${key}`;
+        if (row?.status === 'SENT') {
+          expect(row.envelope).toEqual(envelope);
+          break;
+        }
+        if (Date.now() > deadline) throw Error('Grouped delivery did not complete');
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      expect(request).toHaveBeenCalledOnce();
+      expect(JSON.parse(String(request.mock.calls[0][1]?.body))).toMatchObject(envelope);
+      const [slot] = await migrationPrisma.$queryRaw<
+        { count: number }[]
+      >`SELECT recipient_count AS count FROM email_delivery_slots s JOIN email_messages m ON m.tenant_id=s.tenant_id AND m.property_id=s.property_id AND m.id=s.message_id WHERE s.tenant_id=${tenantId}::uuid AND s.property_id=${propertyId}::uuid AND m.idempotency_key=${key}`;
+      expect(slot.count).toBe(3);
+      await grouped.dispatch('rendered', command, context, { recipientEnvelope: envelope });
+      expect(request).toHaveBeenCalledOnce();
+    } finally {
+      await grouped.onModuleDestroy();
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
   });
 
   it('logs the email, sends it through the queue and records the provider message id', async () => {

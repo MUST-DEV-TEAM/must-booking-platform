@@ -44,8 +44,8 @@ export class ClockRateRankingController {
 
   @Get()
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
-  @RequiresCapability('settings.manage')
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('rates.manage')
   async get(
     @Param('propertyId') propertyId: string,
     @Param('roomTypeId') roomTypeId: string,
@@ -140,8 +140,8 @@ export class ClockRateRankingBatchController {
 
   @Get()
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
-  @RequiresCapability('settings.manage')
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('rates.manage')
   async get(
     @Param('propertyId') propertyId: string,
     @Req() request: TenantPropertyRequest,

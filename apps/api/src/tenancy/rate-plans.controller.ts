@@ -1,9 +1,11 @@
+import { pricingKey, pricingVersion, pricingReason } from './pricing-writes.service';
 import {
   Body,
   Controller,
   Delete,
   Get,
   HttpCode,
+  Headers,
   Inject,
   Param,
   Patch,
@@ -13,6 +15,7 @@ import {
 
 import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator';
 import { TenantScoped } from './tenant-context.decorator';
+import { RequiresCapability } from './capabilities.decorator';
 import { Role, Roles } from './roles.decorator';
 import { RatePlansService } from './rate-plans.service';
 
@@ -23,6 +26,7 @@ export class RatePlansController {
   constructor(@Inject(RatePlansService) private readonly ratePlans: RatePlansService) {}
 
   @Get()
+  @RequiresCapability('calendar.view')
   @TenantScoped({ propertyParam: 'propertyId' })
   list(@Req() request: TenantPropertyRequest) {
     return this.ratePlans.list(request.tenantContext.tenantId, request.tenantContext.propertyId);
@@ -30,10 +34,12 @@ export class RatePlansController {
 
   @Post()
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('rates.manage')
   @RequiresVerifiedEmail()
   create(
     @Body() body: unknown,
+    @Headers('idempotency-key') key: string | undefined,
     @Req() request: TenantPropertyRequest & { tenantContext: { userId: string } },
   ) {
     return this.ratePlans.create(
@@ -41,16 +47,19 @@ export class RatePlansController {
       request.tenantContext.propertyId,
       request.tenantContext.userId,
       body,
+      { key: pricingKey(key), version: pricingVersion(body, false) },
     );
   }
 
   @Patch(':ratePlanId')
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('rates.manage')
   @RequiresVerifiedEmail()
   update(
     @Param('ratePlanId') ratePlanId: string,
     @Body() body: unknown,
+    @Headers('idempotency-key') key: string | undefined,
     @Req() request: TenantPropertyRequest & { tenantContext: { userId: string } },
   ) {
     return this.ratePlans.update(
@@ -59,16 +68,20 @@ export class RatePlansController {
       ratePlanId,
       request.tenantContext.userId,
       body,
+      { key: pricingKey(key), version: pricingVersion(body, true) },
     );
   }
 
   @Delete(':ratePlanId')
   @HttpCode(204)
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('rates.manage')
   @RequiresVerifiedEmail()
   remove(
     @Param('ratePlanId') ratePlanId: string,
+    @Body() body: unknown,
+    @Headers('idempotency-key') key: string | undefined,
     @Req() request: TenantPropertyRequest & { tenantContext: { userId: string } },
   ) {
     return this.ratePlans.remove(
@@ -76,10 +89,12 @@ export class RatePlansController {
       request.tenantContext.propertyId,
       ratePlanId,
       request.tenantContext.userId,
+      { key: pricingKey(key), version: pricingVersion(body, true) },
     );
   }
 
   @Get(':ratePlanId/room-price-overrides')
+  @RequiresCapability('calendar.view')
   @TenantScoped({ propertyParam: 'propertyId' })
   listRoomPriceOverrides(
     @Param('ratePlanId') ratePlanId: string,
@@ -94,12 +109,14 @@ export class RatePlansController {
 
   @Patch(':ratePlanId/rooms/:roomId/price-override')
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('rates.manage')
   @RequiresVerifiedEmail()
   setRoomPriceOverride(
     @Param('ratePlanId') ratePlanId: string,
     @Param('roomId') roomId: string,
     @Body() body: unknown,
+    @Headers('idempotency-key') key: string | undefined,
     @Req() request: TenantPropertyRequest & { tenantContext: { userId: string } },
   ) {
     return this.ratePlans.setRoomPriceOverride(
@@ -109,17 +126,21 @@ export class RatePlansController {
       roomId,
       request.tenantContext.userId,
       body,
+      { key: pricingKey(key), version: pricingVersion(body, true), reason: pricingReason(body) },
     );
   }
 
   @Delete(':ratePlanId/rooms/:roomId/price-override')
   @HttpCode(204)
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('rates.manage')
   @RequiresVerifiedEmail()
   removeRoomPriceOverride(
     @Param('ratePlanId') ratePlanId: string,
     @Param('roomId') roomId: string,
+    @Body() body: unknown,
+    @Headers('idempotency-key') key: string | undefined,
     @Req() request: TenantPropertyRequest & { tenantContext: { userId: string } },
   ) {
     return this.ratePlans.removeRoomPriceOverride(
@@ -128,10 +149,12 @@ export class RatePlansController {
       ratePlanId,
       roomId,
       request.tenantContext.userId,
+      { key: pricingKey(key), version: pricingVersion(body, true), reason: pricingReason(body) },
     );
   }
 
   @Get(':ratePlanId/rules')
+  @RequiresCapability('calendar.view')
   @TenantScoped({ propertyParam: 'propertyId' })
   listRules(@Param('ratePlanId') ratePlanId: string, @Req() request: TenantPropertyRequest) {
     return this.ratePlans.listRules(
@@ -143,11 +166,13 @@ export class RatePlansController {
 
   @Post(':ratePlanId/rules')
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('rates.manage')
   @RequiresVerifiedEmail()
   createRule(
     @Param('ratePlanId') ratePlanId: string,
     @Body() body: unknown,
+    @Headers('idempotency-key') key: string | undefined,
     @Req() request: TenantPropertyRequest & { tenantContext: { userId: string } },
   ) {
     return this.ratePlans.createRule(
@@ -156,17 +181,20 @@ export class RatePlansController {
       ratePlanId,
       request.tenantContext.userId,
       body,
+      { key: pricingKey(key), version: pricingVersion(body, false) },
     );
   }
 
   @Patch(':ratePlanId/rules/:rateRuleId')
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('rates.manage')
   @RequiresVerifiedEmail()
   updateRule(
     @Param('ratePlanId') ratePlanId: string,
     @Param('rateRuleId') rateRuleId: string,
     @Body() body: unknown,
+    @Headers('idempotency-key') key: string | undefined,
     @Req() request: TenantPropertyRequest & { tenantContext: { userId: string } },
   ) {
     return this.ratePlans.updateRule(
@@ -176,17 +204,21 @@ export class RatePlansController {
       rateRuleId,
       request.tenantContext.userId,
       body,
+      { key: pricingKey(key), version: pricingVersion(body, true) },
     );
   }
 
   @Delete(':ratePlanId/rules/:rateRuleId')
   @HttpCode(204)
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('rates.manage')
   @RequiresVerifiedEmail()
   removeRule(
     @Param('ratePlanId') ratePlanId: string,
     @Param('rateRuleId') rateRuleId: string,
+    @Body() body: unknown,
+    @Headers('idempotency-key') key: string | undefined,
     @Req() request: TenantPropertyRequest & { tenantContext: { userId: string } },
   ) {
     return this.ratePlans.removeRule(
@@ -195,6 +227,7 @@ export class RatePlansController {
       ratePlanId,
       rateRuleId,
       request.tenantContext.userId,
+      { key: pricingKey(key), version: pricingVersion(body, true) },
     );
   }
 }

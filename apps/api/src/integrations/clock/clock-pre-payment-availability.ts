@@ -48,7 +48,7 @@ export class ClockPrePaymentAvailability implements PrePaymentAvailabilityCheck 
     const checked = new Set<string>();
     for (const room of stay.rooms) {
       if (room.roomId) continue;
-      const key = `${room.roomTypeId}:${room.adults}:${room.children}`;
+      const key = `${room.roomTypeId}:${room.adults}:${room.children}:${JSON.stringify(room.childrenAges ?? [])}`;
       if (checked.has(key)) continue;
       checked.add(key);
       const result = await this.availability.getAvailability(
@@ -60,6 +60,7 @@ export class ClockPrePaymentAvailability implements PrePaymentAvailabilityCheck 
           endsOn: stay.endsOn,
           adultCount: room.adults,
           childrenCount: room.children,
+          childrenAges: room.childrenAges,
         },
         { skipCache: true },
       );

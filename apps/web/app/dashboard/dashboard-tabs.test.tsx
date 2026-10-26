@@ -41,7 +41,22 @@ describe('Dashboard section tabs', () => {
       if (url === '/api/tenants/t/properties')
         return Promise.resolve(new Response(JSON.stringify([{ id: 'p', name: 'Grand Hotel' }])));
       if (url === '/api/tenants/t/properties/p/notifications?page=1&pageSize=20')
-        return Promise.resolve(new Response(JSON.stringify({ items: [] })));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              items: [],
+              total: 0,
+              page: 1,
+              pageSize: 20,
+              unreadTotal: 0,
+              version: 0,
+              through: '2026-10-19T10:00:00Z',
+              canMarkRead: true,
+              counts: { critical: 0, today: 0, needsAction: 0 },
+              registry: [],
+            }),
+          ),
+        );
       return Promise.resolve(
         new Response(
           JSON.stringify({
@@ -81,12 +96,9 @@ describe('Dashboard section tabs', () => {
       });
     });
 
-    const tabs = container.querySelector('nav[aria-label="Dashboard tabs"]');
+    const tabs = container.querySelector('[role="tablist"]');
     expect(tabs).not.toBeNull();
-    expect(tabs?.querySelector('a[aria-current="page"]')?.textContent).toBe('Needs Attention');
-    expect(tabs?.querySelector('a[aria-current="page"]')?.getAttribute('href')).toBe(
-      '/dashboard/t?propertyId=p&section=overview&tab=needs-attention',
-    );
+    expect(tabs?.querySelector('[aria-selected="true"]')?.textContent).toContain('Needs attention');
     expect(container.textContent).toContain('No bookings need attention');
     expect(container.textContent).not.toContain('Recent activity');
 
@@ -116,7 +128,22 @@ describe('Dashboard section tabs', () => {
       if (url === '/api/tenants/t/properties')
         return Promise.resolve(new Response(JSON.stringify([{ id: 'p', name: 'Grand Hotel' }])));
       if (url === '/api/tenants/t/properties/p/notifications?page=1&pageSize=20')
-        return Promise.resolve(new Response(JSON.stringify({ items: [] })));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              items: [],
+              total: 0,
+              page: 1,
+              pageSize: 20,
+              unreadTotal: 0,
+              version: 0,
+              through: '2026-10-19T10:00:00Z',
+              canMarkRead: true,
+              counts: { critical: 0, today: 0, needsAction: 0 },
+              registry: [],
+            }),
+          ),
+        );
       return Promise.resolve(
         new Response(
           JSON.stringify({
@@ -157,12 +184,12 @@ describe('Dashboard section tabs', () => {
     });
 
     expect(container.textContent).not.toContain('New walk-in booking');
-    expect(container.querySelector('nav[aria-label="Dashboard tabs"]')).toBeNull();
+    expect(container.querySelector('[role="tablist"]')).toBeNull();
 
     await act(async () => root.unmount());
   });
 
-  it('renders Inventory as an unavailable owner section from its direct URL', async () => {
+  it('renders the Inventory workspace from its direct URL', async () => {
     window.history.pushState({}, '', '/dashboard/t?propertyId=p&section=inventory');
     const fetch = vi.fn((url: string) => {
       if (url === '/api/auth/session')
@@ -185,7 +212,57 @@ describe('Dashboard section tabs', () => {
       if (url === '/api/tenants/t/properties')
         return Promise.resolve(new Response(JSON.stringify([{ id: 'p', name: 'Grand Hotel' }])));
       if (url === '/api/tenants/t/properties/p/notifications?page=1&pageSize=20')
-        return Promise.resolve(new Response(JSON.stringify({ items: [] })));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              items: [],
+              total: 0,
+              page: 1,
+              pageSize: 20,
+              unreadTotal: 0,
+              version: 0,
+              through: '2026-10-19T10:00:00Z',
+              canMarkRead: true,
+              counts: { critical: 0, today: 0, needsAction: 0 },
+              registry: [],
+            }),
+          ),
+        );
+      if (url.endsWith('/capabilities/mine'))
+        return Promise.resolve(new Response(JSON.stringify(['calendar.view', 'calendar.block'])));
+      if (url.endsWith('/inventory/restrictions') || url.endsWith('/inventory/blocks'))
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              source: 'LOCAL',
+              readOnly: false,
+              today: '2026-10-18',
+              timezone: 'UTC',
+              items: [],
+              baseRestrictions: [],
+            }),
+          ),
+        );
+      if (url.endsWith('/inventory/overview'))
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              source: 'LOCAL',
+              today: '2026-10-18',
+              timezone: 'UTC',
+              activeRestrictions: 0,
+              activeBlocks: 0,
+              countsByType: {},
+              needsAttention: [],
+              totalNights: 0,
+              sellableNights: 0,
+              sellablePercentage: null,
+              coverage: [],
+            }),
+          ),
+        );
+      if (url.endsWith('/room-types') || url.endsWith('/rooms') || url.endsWith('/room-categories'))
+        return Promise.resolve(new Response(JSON.stringify([])));
       return Promise.resolve(new Response(JSON.stringify({})));
     });
     vi.stubGlobal('fetch', fetch);
@@ -204,7 +281,7 @@ describe('Dashboard section tabs', () => {
 
     await act(async () => {
       await vi.waitFor(() => {
-        if (!container.textContent?.includes('Inventory unavailable'))
+        if (!container.textContent?.includes('Available room nights'))
           throw new Error('Inventory section has not finished loading yet.');
       });
     });
@@ -214,10 +291,8 @@ describe('Dashboard section tabs', () => {
       (link) => link.textContent === 'Inventory',
     );
     expect(inventoryLink?.getAttribute('href')).toBe('/dashboard/t?propertyId=p&section=inventory');
-    expect(container.querySelector('.must-state-panel--not-available')).not.toBeNull();
-    expect(container.textContent).toContain(
-      'availability restrictions and manual blocks are planned for a future dashboard update',
-    );
+    expect(container.textContent).toContain('Booking effect preview');
+    expect(container.textContent).not.toContain('Inventory unavailable');
 
     await act(async () => root.unmount());
   });
@@ -252,7 +327,15 @@ describe('Dashboard section tabs', () => {
                 {
                   id: 'booking',
                   type: 'BOOKING_CREATED',
-                  payload: {},
+                  title: 'Booking created',
+                  description: 'A new reservation was made.',
+                  category: 'Reservations',
+                  priority: 'Low',
+                  capability: 'bookings.view',
+                  needsAction: false,
+                  href: null,
+                  booking: null,
+                  limitedContext: 'Related reservation is unavailable',
                   readAt: null,
                   createdAt: '2026-08-03T10:00:00.000Z',
                 },
@@ -260,6 +343,12 @@ describe('Dashboard section tabs', () => {
               page: 1,
               pageSize: 20,
               total: 1,
+              unreadTotal: 1,
+              version: 0,
+              through: '2026-10-19T10:00:00Z',
+              canMarkRead: true,
+              counts: { critical: 0, today: 0, needsAction: 0 },
+              registry: [],
             }),
           ),
         );
@@ -302,7 +391,7 @@ describe('Dashboard section tabs', () => {
   it.each([
     ['general', 'Hotel identity', 'Booking rules'],
     ['booking-rules', 'Booking rules', 'Hotel identity'],
-    ['managed-pages', 'Connect WordPress site', 'Hotel identity'],
+    ['managed-pages', 'Generate connection code', 'Hotel identity'],
     ['billing', 'Billing account', 'Hotel identity'],
   ] as const)(
     'restores the %s Settings sub-view from the direct URL and supports back navigation',
@@ -360,7 +449,22 @@ describe('Dashboard section tabs', () => {
         )
           return Promise.resolve(new Response(JSON.stringify([])));
         if (url === '/api/tenants/t/properties/p/notifications?page=1&pageSize=20')
-          return Promise.resolve(new Response(JSON.stringify({ items: [] })));
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                items: [],
+                total: 0,
+                page: 1,
+                pageSize: 20,
+                unreadTotal: 0,
+                version: 0,
+                through: '2026-10-19T10:00:00Z',
+                canMarkRead: true,
+                counts: { critical: 0, today: 0, needsAction: 0 },
+                registry: [],
+              }),
+            ),
+          );
         return Promise.resolve(new Response(JSON.stringify({})));
       });
       vi.stubGlobal('fetch', fetch);
@@ -392,7 +496,8 @@ describe('Dashboard section tabs', () => {
       expect(container.textContent).not.toContain(hiddenPanel);
       expect(container.textContent).not.toContain('Email branding');
       expect(container.textContent).not.toContain('Payment methods');
-      if (settingsArea === 'booking-rules') expect(container.textContent).toContain('Booking mode');
+      if (settingsArea === 'booking-rules')
+        expect(container.textContent).toContain('Inventory mode');
       if (settingsArea === 'managed-pages')
         expect(container.textContent).toContain('Generate connection code');
       if (settingsArea === 'billing') {
@@ -403,96 +508,6 @@ describe('Dashboard section tabs', () => {
       await act(async () => root.unmount());
     },
   );
-
-  it.each([
-    [
-      'approvals',
-      'Approvals unavailable',
-      'Approvals will coordinate review and sign-off for bookings and other workflows',
-    ],
-    [
-      'system-health',
-      'System Health unavailable',
-      'System Health will summarize operational checks across booking, payments, PMS, notifications, processing, and security',
-    ],
-  ] as const)('renders the %s placeholder from its direct URL', async (tab, title, body) => {
-    window.history.pushState({}, '', `/dashboard/t?propertyId=p&section=overview&tab=${tab}`);
-    const fetch = vi.fn((url: string) => {
-      if (url === '/api/auth/session')
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              user: {
-                id: 'u',
-                email: 'owner@example.test',
-                emailVerified: true,
-                isPlatformAdmin: false,
-              },
-            }),
-          ),
-        );
-      if (url === '/api/auth/memberships')
-        return Promise.resolve(
-          new Response(JSON.stringify({ memberships: [{ tenantId: 't', role: 'OWNER' }] })),
-        );
-      if (url === '/api/tenants/t/properties')
-        return Promise.resolve(new Response(JSON.stringify([{ id: 'p', name: 'Grand Hotel' }])));
-      if (url === '/api/tenants/t/properties/p/notifications?page=1&pageSize=20')
-        return Promise.resolve(new Response(JSON.stringify({ items: [] })));
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({
-            kpis: {
-              date: '2026-08-24',
-              arrivals: 0,
-              departures: 0,
-              inHouse: 0,
-              bookedRoomNights: 0,
-              availableRoomNights: 0,
-              occupancyRate: null,
-            },
-            needsAttention: [],
-            recentActivity: [],
-          }),
-        ),
-      );
-    });
-    vi.stubGlobal('fetch', fetch);
-
-    const container = document.createElement('div');
-    const root = createRoot(container);
-    await act(async () => {
-      root.render(
-        createElement(
-          DashboardQueryProvider,
-          undefined,
-          createElement(DashboardShell, { tenantId: 't' }),
-        ),
-      );
-    });
-
-    await act(async () => {
-      await vi.waitFor(() => {
-        if (!container.textContent?.includes(title))
-          throw new Error(`${tab} placeholder has not finished loading yet.`);
-      });
-    });
-
-    const tabs = container.querySelector('nav[aria-label="Dashboard tabs"]');
-    const activeTab = tabs?.querySelector('a[aria-current="page"]');
-    expect(activeTab?.textContent).toBe(title.replace(' unavailable', ''));
-    expect(activeTab?.getAttribute('href')).toBe(
-      `/dashboard/t?propertyId=p&section=overview&tab=${tab}`,
-    );
-    expect(activeTab?.tagName).toBe('A');
-    expect(
-      Array.from(tabs?.querySelectorAll('a') ?? []).every((link) => link.hasAttribute('href')),
-    ).toBe(true);
-    expect(container.querySelector('.must-state-panel--not-available')).not.toBeNull();
-    expect(container.textContent).toContain(body);
-
-    await act(async () => root.unmount());
-  });
 });
 
 describe('Dashboard tabs switch in place', () => {
@@ -554,7 +569,7 @@ describe('Dashboard tabs switch in place', () => {
     });
     await act(async () => {
       await vi.waitFor(() => {
-        if (!container.querySelector('nav[aria-label="Dashboard tabs"]'))
+        if (!container.querySelector('[role="tablist"]'))
           throw new Error('Dashboard has not finished loading yet.');
       });
     });
@@ -562,20 +577,21 @@ describe('Dashboard tabs switch in place', () => {
   }
 
   const tab = (container: HTMLElement, label: string) =>
-    Array.from(
-      container.querySelectorAll<HTMLAnchorElement>('nav[aria-label="Dashboard tabs"] a'),
-    ).find((link) => link.textContent === label)!;
+    Array.from(container.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find((item) =>
+      item.textContent?.startsWith(label),
+    )!;
 
   it('shows another tab and updates the address without loading a new page', async () => {
     window.history.pushState({}, '', '/dashboard/t?propertyId=p&section=overview&tab=overview');
     stubDashboardApi();
     const { container, unmount } = await mountShell();
-    const tabBar = container.querySelector('nav[aria-label="Dashboard tabs"]');
+    const tabBar = container.querySelector('[role="tablist"]');
     const pushes = vi.spyOn(window.history, 'pushState');
 
-    const click = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
     await act(async () => {
-      tab(container, 'Needs Attention').dispatchEvent(click);
+      tab(container, 'Needs attention').dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }),
+      );
     });
     await act(async () => {
       await vi.waitFor(() => {
@@ -584,7 +600,6 @@ describe('Dashboard tabs switch in place', () => {
       });
     });
 
-    expect(click.defaultPrevented).toBe(true);
     expect(pushes).toHaveBeenCalledWith(
       null,
       '',
@@ -592,8 +607,8 @@ describe('Dashboard tabs switch in place', () => {
     );
     expect(window.location.search).toContain('tab=needs-attention');
     // The same tab bar element is still there: the page was not replaced.
-    expect(container.querySelector('nav[aria-label="Dashboard tabs"]')).toBe(tabBar);
-    expect(tab(container, 'Needs Attention').getAttribute('aria-current')).toBe('page');
+    expect(container.querySelector('[role="tablist"]')).toBe(tabBar);
+    expect(tab(container, 'Needs attention').getAttribute('aria-selected')).toBe('true');
     pushes.mockRestore();
     await unmount();
   });
@@ -603,11 +618,11 @@ describe('Dashboard tabs switch in place', () => {
     stubDashboardApi();
     const { container, unmount } = await mountShell();
     await act(async () => {
-      tab(container, 'Approvals').dispatchEvent(
+      tab(container, 'Quick booking').dispatchEvent(
         new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }),
       );
     });
-    expect(tab(container, 'Approvals').getAttribute('aria-current')).toBe('page');
+    expect(tab(container, 'Quick booking').getAttribute('aria-selected')).toBe('true');
 
     await act(async () => {
       window.history.replaceState(
@@ -618,7 +633,7 @@ describe('Dashboard tabs switch in place', () => {
       window.dispatchEvent(new PopStateEvent('popstate'));
     });
 
-    expect(tab(container, 'Overview').getAttribute('aria-current')).toBe('page');
+    expect(tab(container, 'Overview').getAttribute('aria-selected')).toBe('true');
     await unmount();
   });
 });

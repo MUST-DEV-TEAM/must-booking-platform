@@ -1,17 +1,11 @@
 'use client';
+import { HotelDateFormatProvider } from '../../lib/hotel-date-format';
+import { SectionAccess } from '../../components/ui/state-panel';
+import { ApprovalsQueue, useApprovals } from './approvals';
 
-import {
-  AppShell,
-  Card,
-  Heading,
-  NavigationSectionTabBar,
-  NavigationSectionTabItem,
-  Stack,
-  StatePanel,
-  StatusBadge,
-  Text,
-  type NavigationItem,
-} from '@must/ui';
+import { InventorySection } from './inventory';
+
+import { Stack, StatePanel, type NavigationItem } from '@must/ui';
 import {
   CalendarDays,
   ClipboardList,
@@ -19,64 +13,69 @@ import {
   CreditCard,
   FileChartColumn,
   Hotel as IconHotel,
-  Images,
   Layers,
   LayoutDashboard,
-  LoaderCircle,
+  Mail,
   Package as IconInventory,
   Settings,
   Tags,
   UserRound,
   Users,
 } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 
+import { Chip } from '../../components/ui/chip';
+import { TabBar } from '../../components/ui/tab-bar';
+import { AppShell, type AppNavigationItem } from '../../components/app-shell';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../components/ui/select';
 import { fetchSessionUser, type SessionUser } from '../auth-routing';
-import styles from './dashboard-shell.module.css';
-import { DashboardOverview, NeedsAttentionTab } from './overview';
-import { DashboardCalendar } from './calendar';
-import { WalkInBooking } from './walk-in-booking';
+import { NeedsAttentionTab } from './needs-attention';
+import { SystemHealthTab } from './system-health';
+import { GlobalSearch } from './global-search';
+import { useUnseenBookings } from './unseen-bookings';
+import { DashboardOverview, useOverviewQuery } from './overview';
+import { CalendarPage } from './calendar-page';
+import { AddReservation } from './add-reservation';
 import { DashboardPayments } from './payments';
 import { PaymentDetail } from './payment-detail';
 import { DashboardGuests } from './guests';
 import { GuestDetail } from './guest-detail';
 import { DashboardStaff } from './staff';
-import { DashboardReservations } from './reservations';
+import { MyAccount } from './my-account';
+import { ReservationDetail } from './reservation-detail';
+import { ReservationsPage } from './reservations-page';
 import { EmailSettings, isEmailTab, type EmailTab } from './email-settings';
 import { DashboardSettings, isSettingsArea, SettingsHub, type SettingsArea } from './settings';
 import { DashboardNotifications, NotificationsInbox } from './notifications';
+import { EmailsWorkspace } from './emails';
 import { DashboardReports } from './reports';
+import { ActivityAudit } from './activity-audit';
 import { RoomManagement } from './[tenantId]/room-management';
-import { PhotosManagement } from './[tenantId]/photos-management';
 import { RateManagement } from './[tenantId]/rate-management';
-import { IntegrationsManagement } from './[tenantId]/integrations-management';
-import { PropertyManagement } from './[tenantId]/property-management';
+import { HotelsSection } from './hotels';
+export { HotelsSection } from './hotels';
 
 type TenantRole = 'OWNER' | 'ADMIN' | 'STAFF';
 type Membership = { tenantId: string; role: TenantRole };
 type BookingMode = 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
 type PaymentGateways = { stripe: boolean; pokpay: boolean; payAtHotel: boolean };
 type Property = {
+  timezone?: string;
+  dateFormat?: string;
   id: string;
   name: string;
+  logoUrl?: string | null;
   bookingMode?: BookingMode;
   paymentGateways?: PaymentGateways;
+  checkInTime?: string | null;
+  checkOutTime?: string | null;
 };
-
-type PropertyOverview = {
-  kpis: {
-    arrivals: number;
-    departures: number;
-    inHouse: number;
-    bookedRoomNights: number;
-    availableRoomNights: number;
-    occupancyRate: number | null;
-  };
-  needsAttention: unknown[];
-};
-
-type PropertySummary = { property: Property; overview: PropertyOverview | null };
 
 const roleLabels: Record<TenantRole, string> = {
   OWNER: 'Owner',
@@ -96,6 +95,8 @@ type DashboardNavigationDefinition = {
   label: string;
   icon: NavigationItem['icon'];
   capabilities?: readonly string[];
+  /** Visible when the user holds at least one of these (in addition to `capabilities`). */
+  anyCapabilities?: readonly string[];
 };
 
 const operationalNavigation = [
@@ -104,28 +105,64 @@ const operationalNavigation = [
     section: 'reservations',
     label: 'Bookings',
     icon: ClipboardList,
-    capabilities: ['bookings.manage'],
+    capabilities: ['bookings.view'],
   },
   { section: 'calendar', label: 'Calendar', icon: CalendarDays, capabilities: ['calendar.view'] },
-  { section: 'payments', label: 'Payments', icon: CreditCard, capabilities: ['payments.refund'] },
-  { section: 'guests', label: 'Guests', icon: UserRound, capabilities: ['guests.manage'] },
+  {
+    section: 'payments',
+    label: 'Payments',
+    icon: CreditCard,
+    capabilities: ['payments.view', 'bookings.view'],
+  },
+  { section: 'guests', label: 'Guests', icon: UserRound, capabilities: ['guests.view'] },
 ] as const;
 
 const managementNavigation = [
-  // Accommodations/Rates & Pricing/Staff/Settings are owner/admin-only regardless of
-  // capability -- see ownerAdminOnlySections below -- so they intentionally carry no
-  // `capabilities` entry here.
-  { section: 'accommodations', label: 'Accommodations', icon: IconHotel },
-  { section: 'photos', label: 'Photos', icon: Images, capabilities: ['photos.manage'] },
-  { section: 'rates-pricing', label: 'Rates & Pricing', icon: Tags },
-  { section: 'staff', label: 'Staff', icon: Users },
+  // Inventory uses calendar permissions; Settings remains owner/admin-only.
+  {
+    section: 'accommodations',
+    label: 'Accommodations',
+    icon: IconHotel,
+    // Photos live in the listing editor; photos-only staff reach them through this entry.
+    anyCapabilities: ['accommodations.manage', 'photos.manage'],
+  },
+  {
+    section: 'rates-pricing',
+    label: 'Rates & Pricing',
+    icon: Tags,
+    capabilities: ['rates.manage'],
+  },
+  { section: 'staff', label: 'Staff', icon: Users, capabilities: ['staff.view'] },
+  { section: 'emails', label: 'Emails', icon: Mail, capabilities: ['settings.manage'] },
   { section: 'reports', label: 'Reports', icon: FileChartColumn, capabilities: ['reports.view'] },
+  {
+    section: 'audit',
+    label: 'Audit log',
+    icon: ClipboardList,
+    anyCapabilities: [
+      'bookings.view',
+      'payments.view',
+      'calendar.view',
+      'rates.manage',
+      'accommodations.manage',
+      'photos.manage',
+      'guests.view',
+      'reports.view',
+      'settings.manage',
+      'staff.view',
+    ],
+  },
   { section: 'settings', label: 'Settings', icon: Settings },
 ] as const;
 
 const hotelNavigation = [
   { section: 'hotels', label: 'Hotels', icon: IconHotel },
-  { section: 'inventory', label: 'Inventory', icon: IconInventory },
+  {
+    section: 'inventory',
+    label: 'Inventory',
+    icon: IconInventory,
+    capabilities: ['calendar.view'],
+  },
 ] as const;
 
 const dashboardSections: readonly DashboardNavigationDefinition[] = [
@@ -137,50 +174,62 @@ const dashboardSections: readonly DashboardNavigationDefinition[] = [
 
 const dashboardTabs = [
   { key: 'overview', label: 'Overview' },
-  { key: 'needs-attention', label: 'Needs Attention' },
+  { key: 'needs-attention', label: 'Needs attention' },
   { key: 'approvals', label: 'Approvals' },
-  { key: 'quick-booking', label: 'Quick Booking' },
-  { key: 'system-health', label: 'System Health' },
+  { key: 'quick-booking', label: 'Quick booking' },
+  { key: 'system-health', label: 'System health' },
 ] as const;
 
 type DashboardTab = (typeof dashboardTabs)[number]['key'];
-type UnavailableDashboardTab = Exclude<DashboardTab, 'overview' | 'quick-booking'>;
+type UnavailableDashboardTab = Exclude<
+  DashboardTab,
+  'overview' | 'quick-booking' | 'system-health'
+>;
 
 const unavailableDashboardTabCopy: Record<UnavailableDashboardTab, string> = {
   'needs-attention': 'Needs Attention will be available in a future dashboard update.',
   approvals:
     'Approvals will coordinate review and sign-off for bookings and other workflows; no approval workflow is configured yet.',
-  'system-health':
-    'System Health will summarize operational checks across booking, payments, PMS, notifications, processing, and security; those checks are not available yet.',
 };
 
 // Tenant-administration sections: never delegable to a STAFF-role user via a capability
 // grant, regardless of what a custom template happens to include. Matches this milestone's
 // established scoping (tasks 16/18/20/21) and the backend's unconditional @Roles(Owner, Admin)
 // on every one of these sections' endpoints.
-const ownerAdminOnlySections = new Set([
-  'accommodations',
-  'rates-pricing',
-  'inventory',
-  'staff',
-  'settings',
-]);
+const ownerAdminOnlySections = new Set(['settings']);
 
-function canAccessSection(role: TenantRole, capabilities: readonly string[], section: string) {
+export function canAccessSection(
+  role: TenantRole,
+  capabilities: readonly string[],
+  section: string,
+) {
+  if (section === 'emails') return capabilities.includes('settings.manage');
   if (
     role !== 'STAFF' ||
     section === 'overview' ||
     section === 'hotels' ||
+    section === 'account' ||
     section === 'notifications'
   )
     return true;
   if (ownerAdminOnlySections.has(section)) return false;
   const item = dashboardSections.find((candidate) => candidate.section === section);
-  return !!item?.capabilities?.some((capability) => capabilities.includes(capability));
+  if (item?.anyCapabilities)
+    return item.anyCapabilities.some((capability) => capabilities.includes(capability));
+  return !!item?.capabilities?.every((capability) => capabilities.includes(capability));
 }
 
+// Only implemented tabs resolve from the URL.
+const LIVE_TABS: readonly string[] = [
+  'overview',
+  'needs-attention',
+  'quick-booking',
+  'approvals',
+  'system-health',
+];
+
 function isDashboardTab(value: string | null): value is DashboardTab {
-  return dashboardTabs.some((tab) => tab.key === value);
+  return dashboardTabs.some((tab) => tab.key === value) && LIVE_TABS.includes(value ?? '');
 }
 
 function dashboardTabHref(tenantId: string, propertyId: string, tab: DashboardTab) {
@@ -192,28 +241,46 @@ function DashboardSectionTabs({
   propertyId,
   currentTab,
   canAccessQuickBooking,
+  canAccessSystemHealth,
+  canReviewRequests,
   onSelectTab,
 }: {
   tenantId: string;
   propertyId: string;
   currentTab: DashboardTab;
   canAccessQuickBooking: boolean;
+  canAccessSystemHealth: boolean;
+  canReviewRequests: boolean;
   onSelectTab: (tab: DashboardTab) => void;
 }) {
+  // Review data is fetched only for people allowed to review requests.
+  const approvals = useApprovals(tenantId, propertyId, canReviewRequests).data?.count;
+  const attention = useOverviewQuery(tenantId, propertyId).data?.needsAttentionCount;
+  const tabs = dashboardTabs
+    .filter(
+      (tab) =>
+        tab.key === 'overview' ||
+        tab.key === 'needs-attention' ||
+        tab.key === 'quick-booking' ||
+        tab.key === 'system-health' ||
+        tab.key === 'approvals',
+    )
+    .filter((tab) => tab.key !== 'approvals' || canReviewRequests)
+    .filter((tab) => tab.key !== 'system-health' || canAccessSystemHealth)
+    .filter((tab) => tab.key !== 'quick-booking' || canAccessQuickBooking)
+    .map((tab) => ({
+      id: tab.key,
+      label: tab.label,
+      count:
+        tab.key === 'needs-attention' ? attention : tab.key === 'approvals' ? approvals : undefined,
+    }));
   return (
-    <NavigationSectionTabBar>
-      {dashboardTabs
-        .filter((tab) => tab.key !== 'quick-booking' || canAccessQuickBooking)
-        .map((tab) => (
-          <NavigationSectionTabItem
-            current={tab.key === currentTab}
-            href={dashboardTabHref(tenantId, propertyId, tab.key)}
-            key={tab.key}
-            label={tab.label}
-            onSelect={() => onSelectTab(tab.key)}
-          />
-        ))}
-    </NavigationSectionTabBar>
+    <TabBar
+      label="Dashboard sections"
+      tabs={tabs}
+      current={currentTab}
+      onSelect={(id) => onSelectTab(id as DashboardTab)}
+    />
   );
 }
 
@@ -237,22 +304,14 @@ function DashboardTabPlaceholder({ tab }: { tab: UnavailableDashboardTab }) {
   );
 }
 
-function InventorySection() {
-  return (
-    <UnavailableDashboardPanel
-      body="Inventory is not available yet; availability restrictions and manual blocks are planned for a future dashboard update."
-      title="Inventory"
-    />
-  );
-}
-
 export function dashboardNavigation(
   tenantId: string,
   propertyId: string,
   role: TenantRole,
   currentSection = 'overview',
   capabilities: readonly string[] = [],
-): NavigationItem[] {
+  badges: Readonly<Record<string, number>> = {},
+): AppNavigationItem[] {
   const items = dashboardSections.filter((item) =>
     canAccessSection(role, capabilities, item.section),
   );
@@ -261,6 +320,7 @@ export function dashboardNavigation(
     label: item.label,
     current: item.section === currentSection,
     icon: item.icon,
+    badge: badges[item.section],
   }));
 }
 
@@ -280,6 +340,7 @@ export function DashboardShell({
   // A single payment or guest opened by link (?payment=<bookingId> / ?guest=<guestId>).
   const [paymentId, setPaymentId] = useState<string | null>(null);
   const [guestId, setGuestId] = useState<string | null>(null);
+  const [reservationId, setReservationId] = useState<string | null>(null);
   const [tab, setTab] = useState<DashboardTab>('overview');
   const [settingsArea, setSettingsArea] = useState<SettingsArea | null>(null);
   const [emailTab, setEmailTab] = useState<EmailTab | undefined>(undefined);
@@ -300,6 +361,7 @@ export function DashboardShell({
     const params = new URLSearchParams(window.location.search);
     setPaymentId(params.get('payment'));
     setGuestId(params.get('guest'));
+    setReservationId(params.get('reservation'));
   }, []);
 
   useEffect(() => {
@@ -349,13 +411,20 @@ export function DashboardShell({
   }, [initialData, tenantId]);
 
   useEffect(() => {
-    if (role !== 'STAFF' || !selectedProperty) return;
+    if (!role || !selectedProperty) return;
     let active = true;
     setCapabilities(undefined);
     void fetch(`/api/tenants/${tenantId}/properties/${selectedProperty.id}/capabilities/mine`, {
       credentials: 'include',
     })
-      .then(async (response) => (response.ok ? ((await response.json()) as string[]) : []))
+      .then(async (response) => {
+        if (!response.ok) return [];
+        const value: unknown = await response.json();
+        return Array.isArray(value) &&
+          value.every((item): item is string => typeof item === 'string')
+          ? value
+          : [];
+      })
       .then((value) => {
         if (active) setCapabilities(value);
       })
@@ -367,292 +436,333 @@ export function DashboardShell({
     };
   }, [role, selectedProperty?.id, tenantId]);
 
+  const canSeeBookings =
+    !!role && (role !== 'STAFF' || capabilities?.includes('bookings.view') === true);
+  // New reservations this person has not opened yet show as a count on the Bookings item.
+  const unseen = useUnseenBookings(
+    tenantId,
+    selectedProperty?.id,
+    !!selectedProperty && canSeeBookings,
+  );
   const navigation =
     selectedProperty && role
-      ? dashboardNavigation(tenantId, selectedProperty.id, role, section, capabilities ?? [])
+      ? dashboardNavigation(tenantId, selectedProperty.id, role, section, capabilities ?? [], {
+          reservations: unseen.count,
+        })
       : [];
+  const sectionLabel =
+    section === 'account'
+      ? 'My account'
+      : section === 'notifications'
+        ? 'Notifications'
+        : (dashboardSections.find((candidate) => candidate.section === section)?.label ??
+          'Dashboard');
   const canViewSection = role ? canAccessSection(role, capabilities ?? [], section) : false;
-  const canAccessQuickBooking =
-    role !== 'STAFF' || capabilities?.includes('bookings.manage') === true;
-  const visibleDashboardTab = tab === 'quick-booking' && !canAccessQuickBooking ? 'overview' : tab;
+  const hasCapability = (capability: string) =>
+    role !== 'STAFF' || capabilities?.includes(capability) === true;
+  const canAccessQuickBooking = hasCapability('bookings.create');
+  const canAccessSystemHealth = hasCapability('bookings.view');
+  const visibleDashboardTab =
+    (tab === 'quick-booking' && !canAccessQuickBooking) ||
+    (tab === 'system-health' && !canAccessSystemHealth) ||
+    (tab === 'approvals' && !hasCapability('requests.review'))
+      ? 'overview'
+      : tab;
 
   return (
-    <AppShell
-      homeHref="/dashboard"
-      navigation={navigation}
-      title={selectedProperty?.name ?? 'Hotel operations'}
-      userEmail={user?.email}
-      userRole={role ? roleLabels[role] : undefined}
-      headerActions={
-        <>
-          {properties && properties.length > 1 && role !== 'STAFF' ? (
-            <label className={styles.propertySwitcher}>
-              <Layers aria-hidden="true" size={16} />
-              <select
-                aria-label="Switch property"
+    <HotelDateFormatProvider value={selectedProperty?.dateFormat}>
+      <AppShell
+        hotelBrand={
+          selectedProperty
+            ? { name: selectedProperty.name, logoUrl: selectedProperty.logoUrl }
+            : undefined
+        }
+        homeHref="/dashboard"
+        navigation={navigation}
+        title={sectionLabel}
+        accountLinks={
+          selectedProperty
+            ? [
+                {
+                  label: 'Profile',
+                  href: `/dashboard/${tenantId}?propertyId=${encodeURIComponent(selectedProperty.id)}&section=account`,
+                },
+                {
+                  label: 'Settings',
+                  href: `/dashboard/${tenantId}?propertyId=${encodeURIComponent(selectedProperty.id)}&section=settings`,
+                },
+              ]
+            : undefined
+        }
+        userEmail={user?.email}
+        userRole={role ? roleLabels[role] : undefined}
+        headerActions={
+          <>
+            {properties && properties.length > 1 && role !== 'STAFF' ? (
+              <Select
                 value={selectedProperty?.id ?? ''}
-                onChange={(event) => {
-                  if (!event.target.value) return;
-                  setSelectedPropertyId(event.target.value);
+                onValueChange={(value) => {
+                  if (!value) return;
+                  setSelectedPropertyId(value);
                   setSection('overview');
                   setTab('overview');
                   setSettingsArea(null);
-                  window.location.href = `/dashboard/${tenantId}?propertyId=${encodeURIComponent(event.target.value)}&section=overview`;
+                  window.location.href = `/dashboard/${tenantId}?propertyId=${encodeURIComponent(value)}&section=overview`;
                 }}
               >
-                {properties.map((property) => (
-                  <option key={property.id} value={property.id}>
-                    {property.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          {selectedProperty && role ? (
-            <DashboardNotifications tenantId={tenantId} propertyId={selectedProperty.id} />
-          ) : null}
-        </>
-      }
-    >
-      {selectedProperty && role && canViewSection && section === 'overview' ? (
-        <Stack gap="lg">
-          <DashboardSectionTabs
-            currentTab={visibleDashboardTab}
-            canAccessQuickBooking={canAccessQuickBooking}
-            onSelectTab={(next) => {
-              setTab(next);
-              window.history.pushState(
-                null,
-                '',
-                dashboardTabHref(tenantId, selectedProperty.id, next),
-              );
-            }}
-            propertyId={selectedProperty.id}
-            tenantId={tenantId}
+                <SelectTrigger aria-label="Switch property" className="h-10 w-auto min-w-44 gap-2">
+                  <Layers aria-hidden="true" className="size-4 text-muted-foreground" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="end">
+                  {properties.map((property) => (
+                    <SelectItem key={property.id} value={property.id}>
+                      {property.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : selectedProperty ? (
+              <Chip icon={Layers}>{selectedProperty.name}</Chip>
+            ) : null}
+            {selectedProperty && role ? (
+              <GlobalSearch
+                tenantId={tenantId}
+                propertyId={selectedProperty.id}
+                canOpen={(target) => canAccessSection(role, capabilities ?? [], target)}
+                userId={user?.id}
+                can={(capability) =>
+                  capability === 'tenant.admin' ? role !== 'STAFF' : hasCapability(capability)
+                }
+              />
+            ) : null}
+            {selectedProperty && role ? (
+              <DashboardNotifications tenantId={tenantId} propertyId={selectedProperty.id} />
+            ) : null}
+          </>
+        }
+      >
+        {selectedProperty && role && capabilities !== undefined && !canViewSection ? (
+          <SectionAccess
+            allowed={false}
+            backHref={dashboardTabHref(tenantId, selectedProperty.id, 'overview')}
           />
-          {visibleDashboardTab === 'overview' ? (
-            <DashboardOverview
-              canManageQuickBooking={canAccessQuickBooking}
-              tenantId={tenantId}
+        ) : null}
+        {selectedProperty && role && canViewSection && section === 'overview' ? (
+          <Stack gap="lg">
+            <DashboardSectionTabs
+              currentTab={visibleDashboardTab}
+              canAccessQuickBooking={canAccessQuickBooking}
+              canAccessSystemHealth={canAccessSystemHealth}
+              canReviewRequests={hasCapability('requests.review')}
+              onSelectTab={(next) => {
+                setTab(next);
+                window.history.pushState(
+                  null,
+                  '',
+                  dashboardTabHref(tenantId, selectedProperty.id, next),
+                );
+              }}
               propertyId={selectedProperty.id}
-              role={role}
+              tenantId={tenantId}
             />
-          ) : visibleDashboardTab === 'needs-attention' ? (
-            <NeedsAttentionTab tenantId={tenantId} propertyId={selectedProperty.id} />
-          ) : visibleDashboardTab === 'quick-booking' ? (
-            <WalkInBooking
+            {visibleDashboardTab === 'overview' ? (
+              <DashboardOverview
+                canManageQuickBooking={canAccessQuickBooking}
+                canOpen={(target) => canAccessSection(role, capabilities ?? [], target)}
+                tenantId={tenantId}
+                propertyId={selectedProperty.id}
+                role={role}
+              />
+            ) : visibleDashboardTab === 'approvals' ? (
+              <ApprovalsQueue tenantId={tenantId} propertyId={selectedProperty.id} />
+            ) : visibleDashboardTab === 'needs-attention' ? (
+              <NeedsAttentionTab
+                tenantId={tenantId}
+                propertyId={selectedProperty.id}
+                canEdit={hasCapability('bookings.edit')}
+              />
+            ) : visibleDashboardTab === 'system-health' ? (
+              <SystemHealthTab
+                tenantId={tenantId}
+                propertyId={selectedProperty.id}
+                canOpen={(target) => canAccessSection(role, capabilities ?? [], target)}
+              />
+            ) : visibleDashboardTab === 'quick-booking' ? (
+              <AddReservation
+                tenantId={tenantId}
+                propertyId={selectedProperty.id}
+                bookingMode={selectedProperty.bookingMode}
+                paymentGateways={selectedProperty.paymentGateways}
+                checkInTime={selectedProperty.checkInTime}
+                canRecordPayment={hasCapability('payments.record')}
+                canCheckPayment={hasCapability('bookings.edit')}
+                canViewBooking={hasCapability('bookings.view')}
+              />
+            ) : (
+              <DashboardTabPlaceholder tab={visibleDashboardTab} />
+            )}
+          </Stack>
+        ) : null}
+        {properties && role && canViewSection && section === 'hotels' ? (
+          <HotelsSection
+            tenantId={tenantId}
+            role={role}
+            emailVerified={user?.emailVerified === true}
+          />
+        ) : null}
+        {selectedProperty && role && canViewSection && section === 'inventory' ? (
+          <InventorySection
+            key={selectedProperty.id}
+            tenantId={tenantId}
+            propertyId={selectedProperty.id}
+            emailVerified={user?.emailVerified === true}
+            currentUser={user ?? undefined}
+            bookingMode={selectedProperty.bookingMode}
+          />
+        ) : null}
+        {selectedProperty && role && canViewSection && section === 'reservations' ? (
+          reservationId ? (
+            <ReservationDetail
               tenantId={tenantId}
               propertyId={selectedProperty.id}
+              bookingId={reservationId}
+              propertyName={selectedProperty.name}
+              checkInTime={selectedProperty.checkInTime}
+              checkOutTime={selectedProperty.checkOutTime}
               bookingMode={selectedProperty.bookingMode}
-              paymentGateways={selectedProperty.paymentGateways}
+              canCancelBooking={hasCapability('bookings.cancel')}
+              canRefundPayment={hasCapability('payments.refund')}
+              canEditBooking={hasCapability('bookings.edit')}
             />
           ) : (
-            <DashboardTabPlaceholder tab={visibleDashboardTab} />
-          )}
-        </Stack>
-      ) : null}
-      {properties && properties.length > 0 && role && canViewSection && section === 'hotels' ? (
-        <HotelsSection tenantId={tenantId} properties={properties} />
-      ) : null}
-      {selectedProperty && role && canViewSection && section === 'inventory' ? (
-        <InventorySection />
-      ) : null}
-      {selectedProperty && role && canViewSection && section === 'reservations' ? (
-        <DashboardReservations tenantId={tenantId} propertyId={selectedProperty.id} />
-      ) : null}
-      {selectedProperty && role && canViewSection && section === 'calendar' ? (
-        <DashboardCalendar
-          tenantId={tenantId}
-          propertyId={selectedProperty.id}
-          bookingMode={selectedProperty.bookingMode}
-          canManageAvailability={role === 'OWNER' || role === 'ADMIN'}
-        />
-      ) : null}
-      {selectedProperty && role && canViewSection && section === 'payments' ? (
-        paymentId ? (
-          <PaymentDetail
+            <ReservationsPage
+              tenantId={tenantId}
+              propertyId={selectedProperty.id}
+              canCreateBooking={hasCapability('bookings.create')}
+            />
+          )
+        ) : null}
+        {selectedProperty && role && canViewSection && section === 'calendar' ? (
+          <CalendarPage
             tenantId={tenantId}
             propertyId={selectedProperty.id}
-            bookingId={paymentId}
+            bookingMode={selectedProperty.bookingMode}
+            canManageAvailability={hasCapability('calendar.block')}
+            canCreateBooking={hasCapability('bookings.create')}
           />
-        ) : (
-          <DashboardPayments tenantId={tenantId} propertyId={selectedProperty.id} />
-        )
-      ) : null}
-      {selectedProperty && role && canViewSection && section === 'guests' ? (
-        guestId ? (
-          <GuestDetail tenantId={tenantId} propertyId={selectedProperty.id} guestId={guestId} />
-        ) : (
-          <DashboardGuests tenantId={tenantId} propertyId={selectedProperty.id} />
-        )
-      ) : null}
-      {selectedProperty && role && canViewSection && section === 'notifications' ? (
-        <NotificationsInbox tenantId={tenantId} propertyId={selectedProperty.id} />
-      ) : null}
-      {selectedProperty && role && canViewSection && section === 'accommodations' ? (
-        <RoomManagement propertyId={selectedProperty.id} tenantId={tenantId} />
-      ) : null}
-      {selectedProperty && role && canViewSection && section === 'photos' ? (
-        <PhotosManagement propertyId={selectedProperty.id} tenantId={tenantId} />
-      ) : null}
-      {selectedProperty && role && canViewSection && section === 'rates-pricing' ? (
-        <RateManagement propertyId={selectedProperty.id} tenantId={tenantId} />
-      ) : null}
-      {selectedProperty && role && canViewSection && section === 'staff' ? (
-        <DashboardStaff tenantId={tenantId} propertyId={selectedProperty.id} />
-      ) : null}
-      {selectedProperty && role && canViewSection && section === 'reports' ? (
-        <DashboardReports tenantId={tenantId} propertyId={selectedProperty.id} />
-      ) : null}
-      {selectedProperty && role && canViewSection && section === 'settings' ? (
-        settingsArea === 'email' ? (
-          <EmailSettings
+        ) : null}
+        {selectedProperty && role && canViewSection && section === 'payments' ? (
+          paymentId ? (
+            <PaymentDetail
+              tenantId={tenantId}
+              propertyId={selectedProperty.id}
+              bookingId={paymentId}
+            />
+          ) : (
+            <DashboardPayments tenantId={tenantId} propertyId={selectedProperty.id} />
+          )
+        ) : null}
+        {selectedProperty && role && canViewSection && section === 'guests' ? (
+          guestId ? (
+            <GuestDetail
+              tenantId={tenantId}
+              propertyId={selectedProperty.id}
+              guestId={guestId}
+              canEditCountry={
+                hasCapability('bookings.edit') &&
+                hasCapability('guests.view') &&
+                user?.emailVerified === true
+              }
+            />
+          ) : (
+            <DashboardGuests
+              tenantId={tenantId}
+              propertyId={selectedProperty.id}
+              canMergeGuests={hasCapability('guests.merge')}
+            />
+          )
+        ) : null}
+        {selectedProperty && role && canViewSection && section === 'account' ? (
+          <MyAccount
+            tenantId={tenantId}
+            email={user?.email}
+            role={role ? roleLabels[role] : undefined}
+            hotelName={selectedProperty.name}
+            hotelTimezone={selectedProperty.timezone}
+            hotelDateFormat={selectedProperty.dateFormat}
+          />
+        ) : null}
+        {selectedProperty && role && canViewSection && section === 'audit' ? (
+          <ActivityAudit tenantId={tenantId} propertyId={selectedProperty.id} userId={user?.id} />
+        ) : null}
+        {selectedProperty && role && canViewSection && section === 'notifications' ? (
+          <NotificationsInbox tenantId={tenantId} propertyId={selectedProperty.id} />
+        ) : null}
+        {selectedProperty && role && canViewSection && section === 'accommodations' ? (
+          <RoomManagement
+            propertyId={selectedProperty.id}
+            tenantId={tenantId}
+            canManageAccommodations={hasCapability('accommodations.manage')}
+            canManagePhotos={hasCapability('photos.manage')}
+            canViewCalendar={hasCapability('calendar.view')}
+            canBlockCalendar={hasCapability('calendar.block')}
+            canCreateBooking={hasCapability('bookings.create')}
+            canManageRates={hasCapability('rates.manage')}
+            canManageInventorySource={role === 'OWNER' || role === 'ADMIN'}
+            onNavigateSection={setSection}
+          />
+        ) : null}
+        {selectedProperty && role && canViewSection && section === 'rates-pricing' ? (
+          <RateManagement
+            propertyId={selectedProperty.id}
+            tenantId={tenantId}
+            emailVerified={user?.emailVerified === true}
+          />
+        ) : null}
+        {selectedProperty && role && canViewSection && section === 'staff' ? (
+          <DashboardStaff tenantId={tenantId} propertyId={selectedProperty.id} />
+        ) : null}
+        {selectedProperty && role && canViewSection && section === 'emails' ? (
+          <EmailsWorkspace
+            viewerId={user?.id}
+            key={selectedProperty.id}
             tenantId={tenantId}
             propertyId={selectedProperty.id}
-            initialTab={emailTab}
+            canWrite={user?.emailVerified === true && hasCapability('settings.manage')}
           />
-        ) : settingsArea ? (
-          <DashboardSettings
-            tenantId={tenantId}
-            propertyId={selectedProperty.id}
-            settingsArea={settingsArea}
-          />
-        ) : (
-          <SettingsHub tenantId={tenantId} propertyId={selectedProperty.id} />
-        )
-      ) : null}
-    </AppShell>
+        ) : null}
+        {selectedProperty && role && canViewSection && section === 'reports' ? (
+          <DashboardReports tenantId={tenantId} propertyId={selectedProperty.id} />
+        ) : null}
+        {selectedProperty && role && canViewSection && section === 'settings' ? (
+          settingsArea === 'email' ? (
+            <EmailSettings
+              viewerId={user?.id}
+              tenantId={tenantId}
+              propertyId={selectedProperty.id}
+              initialTab={emailTab}
+              canWrite={user?.emailVerified === true && hasCapability('settings.manage')}
+            />
+          ) : settingsArea ? (
+            <DashboardSettings
+              key={selectedProperty.id}
+              tenantId={tenantId}
+              propertyId={selectedProperty.id}
+              settingsArea={settingsArea}
+              canWrite={user?.emailVerified === true && hasCapability('settings.manage')}
+              canManagePhotos={hasCapability('photos.manage')}
+              onPropertySaved={(updated) =>
+                setProperties((current) =>
+                  current?.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)),
+                )
+              }
+            />
+          ) : (
+            <SettingsHub tenantId={tenantId} propertyId={selectedProperty.id} />
+          )
+        ) : null}
+      </AppShell>
+    </HotelDateFormatProvider>
   );
-}
-
-export function HotelsSection({
-  tenantId,
-  properties,
-}: {
-  tenantId: string;
-  properties: Property[];
-}) {
-  const summariesQuery = useQuery({
-    queryKey: [
-      'dashboard',
-      'hotels',
-      tenantId,
-      properties.map((property) => property.id).join(','),
-    ],
-    queryFn: async (): Promise<PropertySummary[]> =>
-      Promise.all(
-        properties.map(async (property) => {
-          const response = await fetch(
-            `/api/tenants/${tenantId}/properties/${property.id}/overview`,
-            { credentials: 'include' },
-          );
-          const overview = response.ok ? ((await response.json()) as PropertyOverview) : null;
-          return { property, overview };
-        }),
-      ),
-    enabled: properties.length > 0,
-  });
-
-  if (summariesQuery.isPending)
-    return (
-      <StatePanel
-        body={null}
-        icon={<LoaderCircle aria-hidden="true" />}
-        title="Loading hotels…"
-        variant="loading"
-      />
-    );
-  if (summariesQuery.isError)
-    return (
-      <StatePanel
-        body="Unable to load the hotel summaries."
-        icon={<LoaderCircle aria-hidden="true" />}
-        title="Hotels unavailable"
-        variant="error"
-      />
-    );
-
-  const summaries = summariesQuery.data ?? [];
-  return (
-    <Stack className={styles.hotelsSection} gap="lg">
-      <HotelAggregateKpis results={summaries} />
-      <div className={styles.hotelCards}>
-        {summaries.map(({ property, overview }) => (
-          <Card className={styles.hotelCard} key={property.id}>
-            <a
-              aria-label={`Open ${property.name} overview`}
-              className={styles.hotelCardLink}
-              href={`/dashboard/${tenantId}?propertyId=${encodeURIComponent(property.id)}&section=overview`}
-            >
-              <div className={styles.hotelCardHeader}>
-                <Heading level={3}>{property.name}</Heading>
-                {overview ? (
-                  <StatusBadge
-                    domain="booking"
-                    label={`${overview.needsAttention.length} need attention`}
-                    state={overview.needsAttention.length ? 'pending' : 'confirmed'}
-                  />
-                ) : (
-                  // The designed "Unavailable" status has no hotel-status data source yet.
-                  <Text tone="secondary">Attention unavailable</Text>
-                )}
-              </div>
-              <Text tone="secondary">
-                {overview
-                  ? `${overview.kpis.inHouse} in-house · ${overview.kpis.arrivals} arrivals · ${overview.kpis.departures} departures · ${formatOccupancy(overview.kpis.occupancyRate)}`
-                  : "Unable to load this property's summary."}
-              </Text>
-            </a>
-          </Card>
-        ))}
-      </div>
-      <Card>
-        <Stack gap="md">
-          <Heading level={2}>Manage properties</Heading>
-          <PropertyManagement tenantId={tenantId} />
-        </Stack>
-      </Card>
-      <section aria-labelledby="hotels-integrations-heading" className={styles.integrationsPanel}>
-        <Heading id="hotels-integrations-heading" level={2}>
-          Integrations
-        </Heading>
-        <IntegrationsManagement tenantId={tenantId} properties={properties} />
-      </section>
-    </Stack>
-  );
-}
-
-function HotelAggregateKpis({ results }: { results: PropertySummary[] }) {
-  const totals = results.reduce(
-    (acc, { overview }) => {
-      if (!overview) return acc;
-      acc.arrivals += overview.kpis.arrivals;
-      acc.departures += overview.kpis.departures;
-      acc.inHouse += overview.kpis.inHouse;
-      acc.bookedRoomNights += overview.kpis.bookedRoomNights;
-      acc.availableRoomNights += overview.kpis.availableRoomNights;
-      return acc;
-    },
-    { arrivals: 0, departures: 0, inHouse: 0, bookedRoomNights: 0, availableRoomNights: 0 },
-  );
-  const occupancyRate =
-    totals.availableRoomNights > 0
-      ? Math.round((totals.bookedRoomNights / totals.availableRoomNights) * 100)
-      : null;
-
-  return (
-    <Card>
-      <Stack gap="sm">
-        <Heading level={2}>All properties</Heading>
-        <Text tone="secondary">
-          {totals.inHouse} guests in-house · {totals.arrivals} arrivals today · {totals.departures}{' '}
-          departures today · {formatOccupancy(occupancyRate)}
-        </Text>
-      </Stack>
-    </Card>
-  );
-}
-
-function formatOccupancy(rate: number | null) {
-  return rate === null ? 'occupancy n/a' : `${Math.round(rate)}% occupancy`;
 }

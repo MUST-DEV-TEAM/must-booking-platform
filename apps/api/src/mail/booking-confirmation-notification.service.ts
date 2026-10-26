@@ -1,10 +1,11 @@
+import { bookingContactSql } from '../booking/booking-contact';
 import { Inject, Injectable } from '@nestjs/common';
 import type { MailOrderRoom, PaymentProviderContext } from '@must/domain-contracts';
 
 import { CancellationLinkService } from '../booking/cancellation-link.service';
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
 import { PaymentNotificationService } from './payment-notification.service';
-import { staffRecipients } from './notification-recipients';
+import { staffDeliveryGroups, staffRecipients } from './notification-recipients';
 
 type BookingEmailRow = {
   email: string;
@@ -24,6 +25,9 @@ type BookingEmailRow = {
   guestCount: number;
   nightlyRates: Array<{ date: string; amount: string }> | null;
   propertyName: string;
+  brandColour: string | null;
+  emailFooterText: string | null;
+  termsUrl: string | null;
   logoUrl: string | null;
   supportEmail: string | null;
   propertyPhone: string | null;
@@ -49,14 +53,14 @@ export class BookingConfirmationNotificationService {
   ): Promise<void> {
     const notification = await this.database.withTenantTransaction(context, async (tx) => {
       const rows = await tx.$queryRaw<BookingEmailRow[]>`
-        SELECT g.email, g.first_name AS "firstName", g.last_name AS "lastName", g.phone,
+        SELECT ${bookingContactSql.email} AS email, ${bookingContactSql.firstName} AS "firstName", ${bookingContactSql.lastName} AS "lastName", ${bookingContactSql.phone} AS phone,
           b.guest_session_id AS "guestSessionId", b.guest_return_url AS "guestReturnUrl",
           b.total_amount::text AS amount, rp.currency, b.external_reference AS "externalReference",
           b.special_requests AS "specialRequests", b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn",
           COALESCE(r.name, rt.name) AS "roomName", b.payment_method AS "paymentMethod",
           (b.adults + b.children) AS "guestCount",
           b.nightly_rates AS "nightlyRates",
-          p.name AS "propertyName", p.logo_url AS "logoUrl", p.support_email AS "supportEmail",
+          p.name AS "propertyName", p.brand_colour AS "brandColour",p.email_footer_text AS "emailFooterText",p.terms_url AS "termsUrl",p.logo_url AS "logoUrl", p.support_email AS "supportEmail",
           p.phone AS "propertyPhone", p.public_website_origin AS "publicWebsiteOrigin",
           p.address AS "propertyAddress", b.order_reference AS "orderReference"
         FROM bookings b
@@ -70,6 +74,13 @@ export class BookingConfirmationNotificationService {
       `;
       const row = rows[0] ?? null;
       if (!row) return null;
+      if (!row.guestSessionId) {
+        const access = await tx.$queryRaw<
+          Array<{ session: string }>
+        >`UPDATE bookings SET guest_session_id=COALESCE(guest_session_id,gen_random_uuid()) WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND id=${bookingId}::uuid RETURNING guest_session_id AS session`;
+        row.guestSessionId = access[0].session;
+      }
+
       // A multi-room order is paid and confirmed as one, so it gets one email that
       // lists every room, not one email per room (or only the first room).
       const orderRooms = row.orderReference
@@ -101,6 +112,9 @@ export class BookingConfirmationNotificationService {
         : undefined;
     const brand = {
       name: row.propertyName,
+      brandColour: row.brandColour,
+      emailFooterText: row.emailFooterText,
+      termsUrl: row.termsUrl,
       logoUrl: row.logoUrl,
       supportEmail: row.supportEmail,
       phone: row.propertyPhone,
@@ -124,27 +138,20 @@ export class BookingConfirmationNotificationService {
         nightlyRates: row.nightlyRates ?? undefined,
         rooms,
         specialRequests: row.specialRequests,
-        cancellationUrl: row.guestReturnUrl
-          ? this.cancellationUrl(
-              row.guestReturnUrl,
-              bookingId,
-              this.cancellations.create({
-                ...context,
-                bookingId,
-                guestSessionId: row.guestSessionId,
-              }),
-            )
+        cancellationUrl: row.guestSessionId
+          ? this.manageUrl(context, bookingId, row.guestSessionId, row.endsOn)
           : undefined,
       },
       context,
     );
-    for (const recipient of staff) {
+    for (const recipient of staffDeliveryGroups(staff)) {
       await this.notifications.sendNewBookingStaffNotificationSafely(
         {
           bookingId,
           bookingReference: row.externalReference,
           paymentId,
           staffUserId: recipient.staffUserId,
+          ...(recipient.envelope ? { recipientEnvelope: recipient.envelope } : {}),
           to: recipient.email,
           guest: { name: guestName, email: row.email, phone: row.phone },
           stay: { startsOn: row.startsOn, endsOn: row.endsOn },
@@ -175,11 +182,24 @@ export class BookingConfirmationNotificationService {
     };
   }
 
-  private cancellationUrl(base: string, bookingId: string, cancellationToken: string): string {
-    const url = new URL(base);
-    url.searchParams.set('booking_id', bookingId);
-    url.searchParams.set('cancellationToken', cancellationToken);
-    url.searchParams.set('must_action', 'cancel');
+  private manageUrl(
+    context: { tenantId: string; propertyId: string },
+    bookingId: string,
+    guestSessionId: string,
+    endsOn: string,
+  ) {
+    const url = new URL('/booking/manage', process.env.WEB_APP_URL || 'http://localhost:3001');
+    url.searchParams.set('tenant', context.tenantId);
+    url.searchParams.set('property', context.propertyId);
+    url.searchParams.set('booking', bookingId);
+    url.searchParams.set(
+      'token',
+      this.cancellations.create(
+        { ...context, bookingId, guestSessionId },
+        undefined,
+        new Date(Date.parse(endsOn + 'T23:59:59Z') + 86400000).toISOString(),
+      ),
+    );
     return url.toString();
   }
 

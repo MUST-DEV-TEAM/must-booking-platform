@@ -42,6 +42,7 @@ function individualCatalogFor(rooms: unknown[]) {
         pokpayEnabled: false,
         payAtHotelEnabled: true,
         bookingMode: 'INDIVIDUAL_ROOM_ONLY',
+        pricingSource: 'CLOCK_PMS',
       },
     ])
     .mockResolvedValueOnce([])
@@ -50,6 +51,7 @@ function individualCatalogFor(rooms: unknown[]) {
         id: 'room-type-id',
         name: 'Deluxe',
         description: null,
+        rules: 'Type default rules.',
         mainImageUrl: null,
         galleryImageUrls: [],
         maxOccupancy: 2,
@@ -58,6 +60,7 @@ function individualCatalogFor(rooms: unknown[]) {
         requiresRatePlanSelection: true,
       },
     ])
+    .mockResolvedValueOnce([]) // No local inventory restrictions for this fixture.
     .mockResolvedValueOnce(rooms);
   const database = {
     withTenantTransaction: async (
@@ -97,12 +100,29 @@ describe('PublicCatalogService payment methods', () => {
             name: 'Deluxe',
             description: 'Sea-facing suite',
             amenitiesIntro: 'Everything needed for a comfortable stay.',
-            mainImageUrl: 'https://images.example.test/deluxe.jpg',
-            galleryImageUrls: ['https://images.example.test/deluxe-1.jpg'],
+            rules: 'No smoking.',
+            imageRecords: [
+              {
+                sourceUrl: 'https://images.example.test/deluxe.jpg',
+                objectKey: null,
+                isPrimary: true,
+              },
+              {
+                sourceUrl: 'https://images.example.test/deluxe-1.jpg',
+                objectKey: null,
+                isPrimary: false,
+              },
+            ],
             maxOccupancy: 2,
             amenities: [{ id: 'amenity-id', name: 'Beach access', icon: 'BEACH' }],
             ratePlans: [],
             requiresRatePlanSelection: true,
+            category: {
+              id: 'category-id',
+              name: 'Suites',
+              description: 'Large rooms',
+              sortOrder: 0,
+            },
           },
         ],
       ),
@@ -111,10 +131,38 @@ describe('PublicCatalogService payment methods', () => {
         {
           mainImageUrl: 'https://images.example.test/deluxe.jpg',
           amenitiesIntro: 'Everything needed for a comfortable stay.',
+          rules: 'No smoking.',
+          rulesSource: 'room-type',
           galleryImageUrls: ['https://images.example.test/deluxe-1.jpg'],
           amenities: [{ icon: 'BEACH' }],
+          category: { id: 'category-id', name: 'Suites', description: 'Large rooms', sortOrder: 0 },
         },
       ],
+    });
+  });
+
+  it('uses only the managed image collection when legacy URL columns disagree', async () => {
+    await expect(
+      catalogFor(
+        [],
+        [
+          {
+            id: 'room-type-id',
+            name: 'Deluxe',
+            description: null,
+            amenitiesIntro: null,
+            mainImageUrl: 'https://images.example.test/stale-main.jpg',
+            galleryImageUrls: ['https://images.example.test/stale-gallery.jpg'],
+            imageRecords: [],
+            maxOccupancy: 2,
+            amenities: [],
+            ratePlans: [],
+            requiresRatePlanSelection: true,
+          },
+        ],
+      ),
+    ).resolves.toMatchObject({
+      roomTypes: [{ mainImageUrl: null, galleryImageUrls: [] }],
     });
   });
 
@@ -127,6 +175,7 @@ describe('PublicCatalogService payment methods', () => {
           title: 'Panoramic Sea Suite',
           roomSize: '70m²',
           rules: 'No smoking. Adults only.',
+          roomTypeRules: 'Type default rules.',
           description: 'A private sea-facing suite.',
           amenities: [{ id: 'balcony', name: 'Private balcony', icon: 'BEACH' }],
           floor: 1,
@@ -143,8 +192,96 @@ describe('PublicCatalogService payment methods', () => {
               title: 'Panoramic Sea Suite',
               roomSize: '70m²',
               rules: 'No smoking. Adults only.',
+              rulesSource: 'room',
               description: 'A private sea-facing suite.',
               amenities: [{ name: 'Private balcony', icon: 'BEACH' }],
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  it('returns inherited room type rules for a public room with no override', async () => {
+    await expect(
+      individualCatalogFor([
+        {
+          id: 'room-inherited',
+          name: '102',
+          rules: null,
+          roomTypeRules: 'Type default rules.',
+          roomTypeId: 'room-type-id',
+          isAvailable: true,
+        },
+      ]),
+    ).resolves.toMatchObject({
+      roomTypes: [
+        {
+          rules: 'Type default rules.',
+          rulesSource: 'room-type',
+          rooms: [{ rules: 'Type default rules.', rulesSource: 'room-type' }],
+        },
+      ],
+    });
+  });
+
+  it('returns room-owned images or the room type fallback in public physical-room responses', async () => {
+    await expect(
+      individualCatalogFor([
+        {
+          id: 'room-own',
+          name: '101',
+          roomTypeId: 'room-type-id',
+          isAvailable: true,
+          roomImageRecords: [
+            {
+              id: 'own-image',
+              sourceUrl: 'https://images.example.test/own.jpg',
+              objectKey: null,
+              sortOrder: 0,
+              isPrimary: true,
+            },
+          ],
+          roomTypeImageRecords: [
+            {
+              id: 'type-image',
+              sourceUrl: 'https://images.example.test/type.jpg',
+              objectKey: null,
+              sortOrder: 0,
+              isPrimary: true,
+            },
+          ],
+        },
+        {
+          id: 'room-inherited',
+          name: '102',
+          roomTypeId: 'room-type-id',
+          isAvailable: true,
+          roomImageRecords: [],
+          roomTypeImageRecords: [
+            {
+              id: 'type-image',
+              sourceUrl: 'https://images.example.test/type.jpg',
+              objectKey: null,
+              sortOrder: 0,
+              isPrimary: true,
+            },
+          ],
+        },
+      ]),
+    ).resolves.toMatchObject({
+      roomTypes: [
+        {
+          rooms: [
+            {
+              id: 'room-own',
+              photoSource: 'room',
+              images: [{ id: 'own-image', url: 'https://images.example.test/own.jpg' }],
+            },
+            {
+              id: 'room-inherited',
+              photoSource: 'room_type',
+              images: [{ id: 'type-image', url: 'https://images.example.test/type.jpg' }],
             },
           ],
         },

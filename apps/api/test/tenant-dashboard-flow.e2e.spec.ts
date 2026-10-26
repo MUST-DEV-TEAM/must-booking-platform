@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 
 import { INestApplication } from '@nestjs/common';
@@ -7,6 +8,9 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
+import { withoutExternalWorkers } from './helpers/without-external-workers';
+import { MailDeliveryService } from '../src/mail/mail-delivery.service';
+import { isolatedMailDelivery } from './helpers/isolated-mail-delivery';
 import { cleanupTenant } from './helpers/cleanup-tenant';
 
 const database = new PrismaClient({
@@ -55,10 +59,12 @@ describe('tenant dashboard end-to-end flow', () => {
     process.env.STRIPE_SECRET_KEY = 'sk_test_tenant_dashboard_e2e';
     process.env.STRIPE_WEBHOOK_SECRET = 'whsec_tenant_dashboard_e2e';
     const { AppModule } = await import('../src/app.module');
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+    const moduleBuilder = Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(MAIL_PROVIDER)
       .useValue(mail)
-      .compile();
+      .overrideProvider(MailDeliveryService)
+      .useFactory(isolatedMailDelivery);
+    const moduleRef = await withoutExternalWorkers(moduleBuilder).compile();
     app = moduleRef.createNestApplication({ rawBody: true });
     await app.init();
   });
@@ -116,27 +122,32 @@ describe('tenant dashboard end-to-end flow', () => {
     roomTypeId = roomType.body.id;
     const ratePlan = await request(app.getHttpServer())
       .post(`${propertyUrl}/rate-plans`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', ownerCookie)
       .send({ name: 'Dashboard Flexible', currency: 'EUR', freeCancellationUntilHours: 24 })
       .expect(201);
     ratePlanId = ratePlan.body.id;
     await request(app.getHttpServer())
       .post(`${propertyUrl}/rate-plans/${ratePlanId}/rules`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', ownerCookie)
       .send({ roomTypeId, startsOn: null, endsOn: null, amount: '90.00' })
       .expect(201);
     await request(app.getHttpServer())
       .put(`${propertyUrl}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', ownerCookie)
       .send({ roomTypeId, startsOn: today, endsOn: dateFromToday(1), availableUnits: 2 })
       .expect(204);
     await request(app.getHttpServer())
       .put(`${propertyUrl}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', ownerCookie)
       .send({ roomTypeId, startsOn, endsOn, availableUnits: 2 })
       .expect(204);
     await request(app.getHttpServer())
       .put(`${propertyUrl}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', ownerCookie)
       .send({ roomTypeId, startsOn: staffStartsOn, endsOn: staffEndsOn, availableUnits: 1 })
       .expect(204);
@@ -194,7 +205,7 @@ describe('tenant dashboard end-to-end flow', () => {
         expect.objectContaining({
           type: 'BOOKING_CREATED',
           readAt: null,
-          payload: expect.objectContaining({ bookingId }),
+          booking: expect.objectContaining({ id: bookingId }),
         }),
       ]),
     );
@@ -244,7 +255,7 @@ describe('tenant dashboard end-to-end flow', () => {
     await request(app.getHttpServer())
       .post(`${propertyUrl}/role-templates`)
       .set('Cookie', ownerCookie)
-      .send({ name: templateName, capabilityKeys: ['bookings.manage'] })
+      .send({ name: templateName, capabilities: ['bookings.view', 'bookings.create'] })
       .expect(201);
     const templates = await request(app.getHttpServer())
       .get(`${propertyUrl}/role-templates`)
@@ -252,8 +263,10 @@ describe('tenant dashboard end-to-end flow', () => {
       .expect(200);
     const bookingsOnlyTemplate = templates.body.find(
       (template: { name: string }) => template.name === templateName,
-    ) as { id?: string; capabilities?: Array<{ key: string }> } | undefined;
-    expect(bookingsOnlyTemplate).toMatchObject({ capabilities: [{ key: 'bookings.manage' }] });
+    ) as { id?: string; capabilities?: string[] } | undefined;
+    expect(bookingsOnlyTemplate).toMatchObject({
+      capabilities: ['bookings.create', 'bookings.view'],
+    });
     if (!bookingsOnlyTemplate?.id) throw new Error('Expected the custom role template.');
     const frontDeskTemplate = templates.body.find(
       (template: { name: string }) => template.name === 'Front Desk',
@@ -304,7 +317,9 @@ describe('tenant dashboard end-to-end flow', () => {
       .get(`${propertyUrl}/capabilities/mine`)
       .set('Cookie', staffCookie)
       .expect(200)
-      .expect(['bookings.manage']);
+      .expect((response) =>
+        expect([...response.body].sort()).toEqual(['bookings.create', 'bookings.view']),
+      );
     const staffBooking = await request(app.getHttpServer())
       .post(`${propertyUrl}/staff-bookings`)
       .set('Cookie', staffCookie)
@@ -336,6 +351,7 @@ describe('tenant dashboard end-to-end flow', () => {
       () =>
         request(app.getHttpServer())
           .post(`${propertyUrl}/rate-plans`)
+          .set('Idempotency-Key', globalThis.crypto.randomUUID())
           .set('Cookie', staffCookie)
           .send({ name: 'Not allowed', currency: 'EUR', freeCancellationUntilHours: 24 }),
     ];

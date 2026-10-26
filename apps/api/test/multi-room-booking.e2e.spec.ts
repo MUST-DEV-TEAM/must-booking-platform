@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -235,29 +236,37 @@ describe('Multi-room booking orders', () => {
         .send({ name: 'Unavailable Suite', maxOccupancy: 2 }),
       request(app!.getHttpServer())
         .post(`${propertyUrl}/rate-plans`)
+        .set('Idempotency-Key', globalThis.crypto.randomUUID())
         .set('Cookie', cookie)
         .send({ name: 'Flexible', currency: 'EUR', freeCancellationUntilHours: 48 }),
     ]);
     expect(firstType.status).toBe(201);
     expect(secondType.status).toBe(201);
     expect(ratePlan.status).toBe(201);
-    const startsOn = '2027-06-01';
-    const endsOn = '2027-06-03';
+    // Relative dates keep the cancellation window open no matter when the suite runs.
+    const day = (offset: number) =>
+      new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+    const startsOn = day(90);
+    const endsOn = day(92);
     await Promise.all([
       request(app!.getHttpServer())
         .put(`${propertyUrl}/inventory-units`)
+        .set('Idempotency-Key', crypto.randomUUID())
         .set('Cookie', cookie)
         .send({ roomTypeId: firstType.body.id, startsOn, endsOn, availableUnits: 1 }),
       request(app!.getHttpServer())
         .put(`${propertyUrl}/inventory-units`)
+        .set('Idempotency-Key', crypto.randomUUID())
         .set('Cookie', cookie)
         .send({ roomTypeId: secondType.body.id, startsOn, endsOn, availableUnits: 0 }),
       request(app!.getHttpServer())
         .post(`${propertyUrl}/rate-plans/${ratePlan.body.id}/rules`)
+        .set('Idempotency-Key', globalThis.crypto.randomUUID())
         .set('Cookie', cookie)
         .send({ roomTypeId: firstType.body.id, startsOn: null, endsOn: null, amount: '100.00' }),
       request(app!.getHttpServer())
         .post(`${propertyUrl}/rate-plans/${ratePlan.body.id}/rules`)
+        .set('Idempotency-Key', globalThis.crypto.randomUUID())
         .set('Cookie', cookie)
         .send({ roomTypeId: secondType.body.id, startsOn: null, endsOn: null, amount: '110.00' }),
     ]);
@@ -331,6 +340,7 @@ describe('Multi-room booking orders', () => {
 
     await request(app!.getHttpServer())
       .put(`${propertyUrl}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ roomTypeId: secondType.body.id, startsOn, endsOn, availableUnits: 1 })
       .expect(204);
@@ -379,6 +389,74 @@ describe('Multi-room booking orders', () => {
         },
       ],
     };
+    const physicalRoom = await request(app!.getHttpServer())
+      .post(`${propertyUrl}/room-types/${firstType.body.id}/rooms`)
+      .set('Cookie', cookie)
+      .send({ name: 'Inactive multi-room candidate' })
+      .expect(201);
+    // The eligibility checks below should stay on the local path. The Clock mock
+    // intentionally omits connection credentials because it only handles the later
+    // successful order.
+    clockConnected = false;
+    const physicalRoomQuote = await quotes.create(tenantId, propertyId, sessionId, {
+      roomTypeId: firstType.body.id,
+      roomId: physicalRoom.body.id,
+      ratePlanId: ratePlan.body.id,
+      startsOn,
+      endsOn,
+    });
+    await admin.$executeRaw`
+      UPDATE rooms SET is_active = false
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND id = ${physicalRoom.body.id}::uuid
+    `;
+    const inactiveRoomOrder = await orders.create(
+      { tenantId, propertyId },
+      {
+        ...heldCommand,
+        idempotencyKey: randomUUID(),
+        rooms: [
+          {
+            ...heldCommand.rooms[0]!,
+            roomId: physicalRoom.body.id,
+            total: physicalRoomQuote.total,
+            quoteToken: physicalRoomQuote.quoteToken,
+          },
+          heldCommand.rooms[1]!,
+        ],
+      },
+    );
+    expect(inactiveRoomOrder).toMatchObject({
+      ok: false,
+      error: { code: 'CATALOG_MISMATCH' },
+    });
+    await admin.$executeRaw`
+      UPDATE rooms SET is_active = true
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND id = ${physicalRoom.body.id}::uuid
+    `;
+    await admin.$executeRaw`
+      UPDATE room_types SET status = 'DRAFT'::"RoomTypeStatus"
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND id = ${secondType.body.id}::uuid
+    `;
+    const unpublishedRoomTypeOrder = await orders.create(
+      { tenantId, propertyId },
+      {
+        ...heldCommand,
+        idempotencyKey: randomUUID(),
+      },
+    );
+    expect(unpublishedRoomTypeOrder).toMatchObject({
+      ok: false,
+      error: { code: 'CATALOG_MISMATCH' },
+    });
+    await admin.$executeRaw`
+      UPDATE room_types SET status = 'PUBLISHED'::"RoomTypeStatus"
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND id = ${secondType.body.id}::uuid
+    `;
+    clockConnected = true;
     const held = await orders.create({ tenantId, propertyId }, heldCommand);
     expect(held.ok).toBe(true);
     if (!held.ok) return;
@@ -411,12 +489,28 @@ describe('Multi-room booking orders', () => {
       { externalBookingId: `clock-${held.value.bookings[1]!.id}` },
     ]);
     const provider = app!.get(LocalPmsProvider);
+    const guestAttempt = await provider.cancelBooking(
+      { tenantId, propertyId },
+      {
+        idempotencyKey: randomUUID(),
+        bookingId: held.value.bookings[0]!.id,
+        guestSessionId: sessionId,
+        expectedVersion: 1,
+        reason: 'Guest needs group cancellation',
+      },
+    );
+    expect(guestAttempt).toMatchObject({
+      ok: false,
+      error: { code: 'CANCELLATION_REQUIRES_REVIEW' },
+    });
+    expect(cancelledClockBookingIds).toEqual([]);
     const cancelledOrder = await provider.cancelBooking(
       { tenantId, propertyId },
       {
         idempotencyKey: randomUUID(),
         bookingId: held.value.bookings[0]!.id,
         guestSessionId: sessionId,
+        staffActorId: userId,
         expectedVersion: 1,
         reason: 'The family changed its plans.',
       },
@@ -491,6 +585,7 @@ describe('Multi-room booking orders', () => {
         idempotencyKey: randomUUID(),
         bookingId: partialCancellationOrder.value.bookings[0]!.id,
         guestSessionId: partialCancellationSessionId,
+        staffActorId: userId,
         expectedVersion: 1,
         reason: 'Force the second Clock cancellation to fail.',
       },
@@ -564,6 +659,7 @@ describe('Multi-room booking orders', () => {
     await Promise.all([
       request(app!.getHttpServer())
         .put(`${propertyUrl}/inventory-units`)
+        .set('Idempotency-Key', crypto.randomUUID())
         .set('Cookie', cookie)
         .send({
           roomTypeId: firstType.body.id,
@@ -573,6 +669,7 @@ describe('Multi-room booking orders', () => {
         }),
       request(app!.getHttpServer())
         .put(`${propertyUrl}/inventory-units`)
+        .set('Idempotency-Key', crypto.randomUUID())
         .set('Cookie', cookie)
         .send({
           roomTypeId: secondType.body.id,
@@ -688,6 +785,7 @@ describe('Multi-room booking orders', () => {
         idempotencyKey: randomUUID(),
         bookingId: paidOrder.value.bookings[0]!.id,
         guestSessionId: paidSessionId,
+        staffActorId: userId,
         expectedVersion: paidAnchor[0]!.version,
         reason: 'The group needs to cancel.',
       },
@@ -721,6 +819,7 @@ describe('Multi-room booking orders', () => {
     await Promise.all([
       request(app!.getHttpServer())
         .put(`${propertyUrl}/inventory-units`)
+        .set('Idempotency-Key', crypto.randomUUID())
         .set('Cookie', cookie)
         .send({
           roomTypeId: firstType.body.id,
@@ -730,6 +829,7 @@ describe('Multi-room booking orders', () => {
         }),
       request(app!.getHttpServer())
         .put(`${propertyUrl}/inventory-units`)
+        .set('Idempotency-Key', crypto.randomUUID())
         .set('Cookie', cookie)
         .send({
           roomTypeId: secondType.body.id,
@@ -830,7 +930,16 @@ describe('Multi-room booking orders', () => {
       WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
         AND reference_id = ${failedRefundOrder.value.bookings[0]!.id}
     `;
-    expect(failedRefundManualReviews).toEqual([
+    // A refund that cannot be confirmed now also records a payment/booking mismatch item that
+    // blocks automatic retries (payment-refund.service.ts), next to the unknown-result item.
+    expect(failedRefundManualReviews).toHaveLength(2);
+    expect(failedRefundManualReviews).toContainEqual(
+      expect.objectContaining({
+        category: 'PAYMENT_BOOKING_MISMATCH',
+        referenceId: failedRefundOrder.value.bookings[0]!.id,
+      }),
+    );
+    expect(failedRefundManualReviews).toContainEqual(
       expect.objectContaining({
         category: 'UNKNOWN_RESULT',
         referenceId: failedRefundOrder.value.bookings[0]!.id,
@@ -844,7 +953,7 @@ describe('Multi-room booking orders', () => {
           amount: { amount: '420.00', currency: 'EUR' },
         }),
       }),
-    ]);
+    );
   });
 
   it('checks live Clock availability for every room before online checkout', async () => {
@@ -881,6 +990,7 @@ describe('Multi-room booking orders', () => {
         .send({ name: 'Sea View Double', maxOccupancy: 2 }),
       request(app!.getHttpServer())
         .post(`${propertyUrl}/rate-plans`)
+        .set('Idempotency-Key', globalThis.crypto.randomUUID())
         .set('Cookie', cookie)
         .send({ name: 'Flexible', currency: 'EUR', freeCancellationUntilHours: 48 }),
     ]);
@@ -891,11 +1001,13 @@ describe('Multi-room booking orders', () => {
     await Promise.all([
       request(app!.getHttpServer())
         .put(`${propertyUrl}/inventory-units`)
+        .set('Idempotency-Key', crypto.randomUUID())
         .set('Cookie', cookie)
         .send({ roomTypeId: roomType.body.id, startsOn, endsOn, availableUnits: 2 })
         .expect(204),
       request(app!.getHttpServer())
         .post(`${propertyUrl}/rate-plans/${ratePlan.body.id}/rules`)
+        .set('Idempotency-Key', globalThis.crypto.randomUUID())
         .set('Cookie', cookie)
         .send({ roomTypeId: roomType.body.id, startsOn: null, endsOn: null, amount: '90.00' })
         .expect(201),

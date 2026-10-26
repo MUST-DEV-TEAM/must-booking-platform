@@ -19,7 +19,7 @@ export class TenantDatabaseService extends PrismaClient implements OnModuleDestr
   async withTenantTransaction<T>(
     context: TenantDatabaseContext,
     operation: (transaction: TenantTransaction) => Promise<T>,
-    options?: { timeoutMs?: number },
+    options?: { timeoutMs?: number; isolationLevel?: Prisma.TransactionIsolationLevel },
   ): Promise<T> {
     const tenantId = this.requireUuid(context.tenantId, 'tenantId');
     const propertyId = context.propertyId ? this.requireUuid(context.propertyId, 'propertyId') : '';
@@ -39,7 +39,7 @@ export class TenantDatabaseService extends PrismaClient implements OnModuleDestr
       // (e.g. ClockBookingService calling Clock) — a slow-but-successful
       // third-party response must not spuriously abort a committed-so-far
       // local write. Callers making no such call should leave this unset.
-      options?.timeoutMs ? { timeout: options.timeoutMs } : undefined,
+      options ? { timeout: options.timeoutMs, isolationLevel: options.isolationLevel } : undefined,
     );
   }
 
@@ -52,6 +52,44 @@ export class TenantDatabaseService extends PrismaClient implements OnModuleDestr
       // context: it must not leak to another request through Prisma's pool.
       await transaction.$executeRaw`
         SELECT set_config('app.role', ${context.role}, true)
+      `;
+
+      return operation(transaction);
+    });
+  }
+
+  /**
+   * Platform-global tables (platform accounts, roles, sessions, audit log) are readable only under
+   * this role. Only server code that has authenticated a platform session may call it.
+   */
+  async withPlatformConsoleTransaction<T>(
+    operation: (transaction: TenantTransaction) => Promise<T>,
+  ): Promise<T> {
+    return this.$transaction(async (transaction) => {
+      await transaction.$executeRaw`
+        SELECT set_config('app.role', 'platform_console', true)
+      `;
+
+      return operation(transaction);
+    });
+  }
+
+  /**
+   * Console role plus one hotel's tenant context in the same transaction, so a change to hotel
+   * data and its platform audit row commit or roll back together. The tenant id must come from a
+   * validated route parameter or a session row, never from a client-supplied body.
+   */
+  async withConsoleTenantTransaction<T>(
+    context: TenantDatabaseContext,
+    operation: (transaction: TenantTransaction) => Promise<T>,
+  ): Promise<T> {
+    const tenantId = this.requireUuid(context.tenantId, 'tenantId');
+    const propertyId = context.propertyId ? this.requireUuid(context.propertyId, 'propertyId') : '';
+    return this.$transaction(async (transaction) => {
+      await transaction.$executeRaw`
+        SELECT set_config('app.role', 'platform_console', true),
+               set_config('app.tenant_id', ${tenantId}, true),
+               set_config('app.property_id', ${propertyId}, true)
       `;
 
       return operation(transaction);
