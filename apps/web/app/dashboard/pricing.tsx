@@ -28,7 +28,7 @@ import { PricingEditor } from './pricing-editor';
 import { PricingBaseEditor } from './pricing-base-editor';
 import { PricingPreviewPanel } from './pricing-preview';
 import { ClockAvailabilityPanel } from './clock-availability-panel';
-import { ClockRatesOverview } from './clock-rates-overview';
+import { ClockOverviewTiles, ClockRatesOverview } from './clock-rates-overview';
 import { PromoCodesPanel } from './promo-codes-panel';
 import {
   priceDay,
@@ -412,46 +412,36 @@ export function PricingSection({
           />
           {tab === 'overview' ? (
             <>
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                <StatTile
-                  label="Active plans"
-                  value={
-                    data.readOnly
-                      ? 'Managed in Clock'
-                      : data.plans.filter((p) => p.lifecycle === 'Active').length
-                  }
-                />
-                <StatTile
-                  label="Coverage"
-                  value={
-                    data.readOnly
-                      ? 'Check a stay'
-                      : data.coverage?.percentage == null
-                        ? 'Unknown'
-                        : `${data.coverage.percentage}%`
-                  }
-                  note={
-                    data.coverage
-                      ? `${data.coverage.startsOn} to ${data.coverage.endsOn}${data.coverage.horizonComplete ? '' : ' - 365-day sample'}`
-                      : data.readOnly
-                        ? 'Managed in Clock'
+              {data.readOnly ? (
+                <ClockOverviewTiles root={root} types={data.roomTypes} />
+              ) : (
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                  <StatTile
+                    label="Active plans"
+                    value={data.plans.filter((p) => p.lifecycle === 'Active').length}
+                  />
+                  <StatTile
+                    label="Coverage"
+                    value={
+                      data.coverage?.percentage == null ? 'Unknown' : `${data.coverage.percentage}%`
+                    }
+                    note={
+                      data.coverage
+                        ? `${data.coverage.startsOn} to ${data.coverage.endsOn}${data.coverage.horizonComplete ? '' : ' - 365-day sample'}`
                         : 'No coverage calculated'
-                  }
-                />
-                <StatTile
-                  label="Active rules"
-                  value={
-                    data.readOnly
-                      ? 'See Clock snapshot'
-                      : data.rules.filter((r) => r.lifecycle === 'Active').length
-                  }
-                />
-                <StatTile
-                  label="Pricing issues"
-                  value={data.readOnly ? 'Review in Clock' : data.issues.length}
-                  onClick={() => setTab('issues')}
-                />
-              </div>
+                    }
+                  />
+                  <StatTile
+                    label="Active rules"
+                    value={data.rules.filter((r) => r.lifecycle === 'Active').length}
+                  />
+                  <StatTile
+                    label="Pricing issues"
+                    value={data.issues.length}
+                    onClick={() => setTab('issues')}
+                  />
+                </div>
+              )}
               {data.coverage ? (
                 <Alert>
                   <AlertTitle>Coverage checks pricing configuration</AlertTitle>

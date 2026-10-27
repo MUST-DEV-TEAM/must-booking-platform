@@ -1001,6 +1001,10 @@ model Payment {
   currency          String      @db.VarChar(3)
   reasonCode        String?     @map("reason_code")
   note              String?     @db.VarChar(500)
+  /// Units of the booking's currency one unit of `currency` bought when the payment was recorded. Set by the
+  /// database for a payment in another currency than its booking; absent for older payments.
+  fxRateToBooking   Decimal?    @map("fx_rate_to_booking") @db.Decimal(20, 8)
+  fxRateDate        DateTime?   @map("fx_rate_date") @db.Date
   createdAt         DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
   property          Property    @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
   booking           Booking     @relation(fields: [tenantId, propertyId, bookingId], references: [tenantId, propertyId, id], onDelete: Restrict)
@@ -1220,6 +1224,21 @@ model ClockRateRanking {
   @@unique([tenantId, roomTypeId, rank])
   @@index([tenantId, propertyId])
   @@map("clock_rate_rankings")
+}
+
+// A Clock rate that staff switched off for the website. Rates are on by default, so a rate has a row only while it
+// is off; Clock stays the source of the rate itself. Staff booking screens ignore this list.
+model ClockWebsiteHiddenRate {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  propertyId     String   @map("property_id") @db.Uuid
+  externalRateId String   @map("external_rate_id")
+  hiddenByUserId String?  @map("hidden_by_user_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, propertyId, externalRateId])
+  @@index([tenantId, propertyId])
+  @@map("clock_website_hidden_rates")
 }
 
 enum ManualReviewCategory {

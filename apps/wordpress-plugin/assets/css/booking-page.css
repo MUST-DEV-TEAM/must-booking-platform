@@ -6203,3 +6203,41 @@ div.must-confirmation-picker:nth-child(1) > div:nth-child(3) > div:nth-child(1) 
     font-size: 15px;
     opacity: 0.8;
 }
+
+/* A room type that cannot be booked for the chosen stay: still shown, greyed out, with the reason. */
+.must-booking-accommodation-room-card.is-unavailable {
+    opacity: 0.62;
+}
+.must-booking-accommodation-room-card.is-unavailable .must-booking-room-media img {
+    filter: grayscale(1);
+}
+.must-booking-room-unavailable-reason {
+    margin: 0.35rem 0 0;
+    font-weight: 600;
+    color: #8a2d1b;
+}
+.must-booking-room-availability.is-scarce {
+    color: #8a4b00;
+    font-weight: 600;
+}
+.must-booking-no-available-notice {
+    margin: 0 0 1rem;
+    padding: 0.85rem 1rem;
+    border: 1px solid #e0c9a6;
+    background: #fbf5ea;
+    border-radius: 6px;
+}
+.must-booking-alternative-dates {
+    margin: -0.5rem 0 1rem;
+}
+.must-booking-alternative-dates ul {
+    margin: 0.25rem 0 0;
+    padding-left: 1.1rem;
+}
+.must-booking-alternative-dates li {
+    margin: 0.2rem 0;
+}
+.must-booking-alternative-price {
+    margin-left: 0.4rem;
+    opacity: 0.75;
+}

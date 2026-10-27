@@ -244,6 +244,7 @@ import { ClockCatalogSyncController } from './integrations/clock/clock-catalog-s
 import { ClockPermissionsController } from './integrations/clock/clock-permissions.controller';
 import { ClockPermissionsService } from './integrations/clock/clock-permissions.service';
 import { ClockPermissionsMonitorService } from './integrations/clock/clock-permissions-monitor.service';
+import { DisplayPriceStore } from './integrations/clock/display-price-store';
 import { ClockAvailabilityService } from './integrations/clock/clock-availability.service';
 import { ClockPrePaymentAvailability } from './integrations/clock/clock-pre-payment-availability';
 import { PrePaymentAvailabilityRegistry } from './booking/pre-payment-availability';
@@ -252,6 +253,10 @@ import {
   ClockRateRankingBatchController,
   ClockRateRankingController,
 } from './integrations/clock/clock-rate-ranking.controller';
+import { ClockWebsiteRatesService } from './integrations/clock/clock-website-rates.service';
+import { ClockSamplePricesService } from './integrations/clock/clock-sample-prices.service';
+import { ClockSamplePricesController } from './integrations/clock/clock-sample-prices.controller';
+import { ClockWebsiteRatesController } from './integrations/clock/clock-website-rates.controller';
 import { ClockBookingService } from './integrations/clock/clock-booking.service';
 import { BookingReviewController, BookingReviewService } from './booking/booking-review.service';
 import { ClockBookingConsistencyService } from './integrations/clock/clock-booking-consistency.service';
@@ -383,6 +388,8 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     ClockPermissionsController,
     ClockRateRankingController,
     ClockRateRankingBatchController,
+    ClockWebsiteRatesController,
+    ClockSamplePricesController,
     ClockWebhookController,
   ],
   providers: [
@@ -506,9 +513,12 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     ClockPermissionsService,
     ClockPermissionsMonitorService,
     ClockAvailabilityService,
+    DisplayPriceStore,
     ClockPrePaymentAvailability,
     PrePaymentAvailabilityRegistry,
     ClockRateRankingService,
+    ClockWebsiteRatesService,
+    ClockSamplePricesService,
     ClockBookingService,
     BookingReviewService,
     ClockBookingConsistencyService,

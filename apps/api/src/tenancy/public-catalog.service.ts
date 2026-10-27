@@ -71,6 +71,11 @@ export type PublicCatalog = {
   paymentMethods: Array<'stripe' | 'pokpay' | 'pay_at_hotel'>;
   roomTypes: PublicCatalogRoomType[] | PublicCatalogIndividualRoomType[];
   bookingMode?: 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
+  /**
+   * Where availability and prices come from. For a hotel system such as Clock, one price request answers every
+   * room type (see /quotes/display-prices), so the website does not need to ask room type by room type.
+   */
+  pricingSource?: 'CLOCK_PMS' | 'LOCAL';
 };
 
 @Injectable()
@@ -262,7 +267,11 @@ export class PublicCatalogService {
           ]
         : [];
       if (!property || property.bookingMode === 'ROOM_TYPE_ONLY')
-        return { roomTypes, paymentMethods };
+        return {
+          roomTypes,
+          paymentMethods,
+          pricingSource: properties[0]?.pricingSource as 'CLOCK_PMS' | 'LOCAL' | undefined,
+        };
 
       const range = this.availabilityRange(query);
       const roomRows = await tx.$queryRaw<
@@ -404,6 +413,7 @@ export class PublicCatalogService {
       }
       return {
         bookingMode: property.bookingMode,
+        pricingSource: property.pricingSource as 'CLOCK_PMS' | 'LOCAL',
         roomTypes: roomTypes.map((roomType) => ({
           ...roomType,
           rooms: roomsByType.get(roomType.id) ?? [],

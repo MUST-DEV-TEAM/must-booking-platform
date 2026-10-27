@@ -1,5 +1,6 @@
 'use client';
 
+import { MoneyList } from './approximate-money';
 import { useQuery } from '@tanstack/react-query';
 import { Ban, CalendarPlus, Mail, Pencil, Phone } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
@@ -9,7 +10,7 @@ import { ActivityFeed, type ActivityEntry } from '../../components/ui/activity-f
 import { DetailList } from '../../components/ui/detail-list';
 import { TabBar } from '../../components/ui/tab-bar';
 import { nightsBetween } from '../../lib/reservation-display';
-import { formatMoneyList, guestStatsById } from './guest-stats';
+import { guestStatsById } from './guest-stats';
 import { dayLabel, GuestBadges, stayLabel } from './guest-sheet';
 
 import { Badge } from '../../components/ui/badge';
@@ -257,13 +258,19 @@ export function GuestDetail({
         <StatTile
           label="Net paid"
           size="sm"
-          value={formatMoneyList(stats?.net ?? [])}
+          value={<MoneyList tenantId={tenantId} propertyId={propertyId} list={stats?.net ?? []} />}
           note="Collected minus refunds"
         />
         <StatTile
           label="Still owed"
           size="sm"
-          value={stats?.hasBalance ? formatMoneyList(stats.outstanding) : '—'}
+          value={
+            stats?.hasBalance ? (
+              <MoneyList tenantId={tenantId} propertyId={propertyId} list={stats.outstanding} />
+            ) : (
+              '—'
+            )
+          }
           tone={stats?.hasBalance ? 'warning' : 'default'}
         />
         <StatTile label={nextLabel.label} size="sm" value={nextLabel.value ?? '—'} />

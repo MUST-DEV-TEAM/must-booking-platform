@@ -182,6 +182,7 @@ describe('public catalog individual rooms', () => {
       .expect(200);
     expect(pooledCatalog.body).toEqual({
       paymentMethods: [],
+      pricingSource: 'LOCAL',
       roomTypes: [
         {
           id: pooledRoomType.body.id,

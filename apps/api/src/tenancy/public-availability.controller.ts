@@ -82,6 +82,7 @@ export class PublicAvailabilityController {
         endsOn: parsed.endsOn,
         adultCount: parsed.adultCount,
         childrenCount: parsed.childrenCount,
+        channel: 'website',
       },
     );
     if (!result.ok) {

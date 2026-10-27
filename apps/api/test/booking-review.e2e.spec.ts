@@ -263,11 +263,12 @@ describe('staff view of a booking that needs review', () => {
       app.get(IntegrationConnectionsService),
       'activePmsConnectionCredentials',
     ).mockResolvedValue({ provider: 'CLOCK_PMS' } as never);
-    const price = vi
-      .spyOn(app.get(ClockAvailabilityService), 'getQuotesForStay')
-      .mockResolvedValue({
-        [roomType]: { ok: true, value: { amount: '100.00', currency: 'EUR' } },
-      });
+    const price = vi.spyOn(app.get(ClockAvailabilityService), 'getStaySearch').mockResolvedValue({
+      results: { [roomType]: { ok: true, value: { amount: '100.00', currency: 'EUR' } } },
+      details: {
+        [roomType]: { available: true, price: { amount: '100.00', currency: 'EUR' }, freeRooms: 2 },
+      },
+    });
     vi.spyOn(app.get(ClockAvailabilityService), 'unavailableRoomsForBooking').mockResolvedValue({
       ok: true,
       value: [],

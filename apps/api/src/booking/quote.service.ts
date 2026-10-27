@@ -9,7 +9,9 @@ import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant
 import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
 import {
   ClockAvailabilityService,
+  type ClockChannel,
   type ClockStayQuoteQuery,
+  type UnavailableReason,
 } from '../integrations/clock/clock-availability.service';
 import { resolveBookingOccupancy, validBookingOccupancy } from './booking-occupancy';
 import {
@@ -77,7 +79,66 @@ export type DisplayPrice = {
   roomTypeId: string;
   available: boolean;
   total?: Money;
+  /** How many rooms of this type are left, when the hotel system says. */
+  freeRooms?: number | null;
+  /** Why this room type cannot be sold for the stay, when that is known. Absent when it could not be checked. */
+  reason?: StayUnavailableReason;
 };
+
+/** Another set of dates, close to the one asked for, on which something can be booked. */
+export type AlternativeDate = {
+  startsOn: string;
+  endsOn: string;
+  /** Days earlier (negative) or later (positive) than the dates asked for. */
+  shiftDays: number;
+  availableRoomTypes: number;
+  /** Price of the cheapest room type available on these dates. */
+  fromPrice: Money;
+};
+
+const DAY_MS = 86_400_000;
+/** Which shifts are tried, in the order of how close they are to the dates asked for. */
+const ALTERNATIVE_DATE_SHIFTS = [1, -1, 2, -2, 3, -3];
+const ALTERNATIVE_DATES_MAX_ROOM_TYPES = 30;
+
+function parseIsoDate(value: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const time = Date.parse(value + 'T00:00:00Z');
+  return Number.isNaN(time) ? null : time;
+}
+
+function formatIsoDate(time: number): string {
+  return new Date(time).toISOString().slice(0, 10);
+}
+
+/** Why a room type cannot be booked for a stay, in terms a guest can act on. */
+export type StayUnavailableReason =
+  UnavailableReason | 'max_stay' | 'same_day_closed' | 'too_far_ahead' | 'past_date';
+
+/** The reason behind a booking rule that refused a stay, from the code the rule raised. */
+function reasonFromRule(code: string | undefined): StayUnavailableReason {
+  switch (code) {
+    case 'MIN_STAY':
+      return 'min_stay';
+    case 'MAX_STAY':
+      return 'max_stay';
+    case 'CAPACITY_EXCEEDED':
+    case 'MAX_GUESTS_PER_BOOKING':
+      return 'capacity';
+    case 'SAME_DAY_CLOSED':
+      return 'same_day_closed';
+    case 'ADVANCE_BOOKING_LIMIT':
+      return 'too_far_ahead';
+    case 'CHECK_IN_PAST':
+      return 'past_date';
+    case 'NO_AVAILABILITY':
+    case 'BOOKING_CONFLICT':
+    case 'AVAILABILITY_BLOCK_CONFLICT':
+      return 'sold_out';
+    default:
+      return 'unavailable';
+  }
+}
 
 export type DisplayPriceInput = Omit<QuoteInput, 'roomTypeId' | 'roomId' | 'ratePlanId'> & {
   roomCount?: number;
@@ -233,6 +294,7 @@ export class QuoteService {
         childrenCount: normalizedInput.children,
         childrenAges: normalizedInput.childrenAges,
         clockRateId: normalizedInput.clockRateId,
+        channel: pricingChannel,
       });
       if (!quote.ok) throw new BadRequestException(quote.error.message);
       return quote.value;
@@ -269,6 +331,67 @@ export class QuoteService {
   }
 
   /**
+   * When nothing can be booked for the chosen stay, finds the closest dates (same number of nights, moved a few
+   * days earlier or later) on which at least one room type can be. Nearest first, at most three.
+   */
+  async alternativeDates(
+    tenantId: string,
+    propertyId: string,
+    input: DisplayPriceInput,
+    items: DisplayPriceItem[],
+  ): Promise<AlternativeDate[]> {
+    const start = parseIsoDate(input.startsOn);
+    const end = parseIsoDate(input.endsOn);
+    if (items.length === 0 || !start || !end || end <= start) return [];
+    // One entry per room type, and a small cap: this fans out into several shifted searches.
+    const seen = new Set<string>();
+    const roomTypes = items
+      .filter((item) => !seen.has(item.roomTypeId) && !!seen.add(item.roomTypeId))
+      .slice(0, ALTERNATIVE_DATES_MAX_ROOM_TYPES);
+    const nights = Math.round((end - start) / DAY_MS);
+    const now = new Date();
+    const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    const windows = ALTERNATIVE_DATE_SHIFTS.flatMap((shiftDays) => {
+      const from = start + shiftDays * DAY_MS;
+      return from < today
+        ? []
+        : [
+            {
+              shiftDays,
+              startsOn: formatIsoDate(from),
+              endsOn: formatIsoDate(from + nights * DAY_MS),
+            },
+          ];
+    });
+    const found = await Promise.all(
+      windows.map(async (window): Promise<AlternativeDate | null> => {
+        try {
+          const prices = await this.displayPrices(
+            tenantId,
+            propertyId,
+            { ...input, startsOn: window.startsOn, endsOn: window.endsOn },
+            roomTypes,
+            'website',
+          );
+          const open = prices.filter((price) => price.available && price.total);
+          if (open.length === 0) return null;
+          const cheapest = open
+            .map((price) => price.total as Money)
+            .sort((a, b) => Number(a.amount) - Number(b.amount))[0];
+          return { ...window, availableRoomTypes: open.length, fromPrice: cheapest };
+        } catch {
+          // A window we cannot check is simply not suggested.
+          return null;
+        }
+      }),
+    );
+    return found
+      .filter((entry): entry is AlternativeDate => entry !== null)
+      .sort((a, b) => Math.abs(a.shiftDays) - Math.abs(b.shiftDays) || a.shiftDays - b.shiftDays)
+      .slice(0, 3);
+  }
+
+  /**
    * Returns bounded, guest-session-scoped display prices for visible room
    * cards. Clock-connected properties use one bounded provider request for the
    * cache misses; the final room-selection quote remains authoritative and
@@ -279,6 +402,7 @@ export class QuoteService {
     propertyId: string,
     input: DisplayPriceInput,
     items: DisplayPriceItem[],
+    channel: ClockChannel = 'website',
   ): Promise<DisplayPrice[]> {
     if (items.length === 0) return [];
     const { roomCount: requestedRoomCount, ...quoteInput } = input;
@@ -293,7 +417,11 @@ export class QuoteService {
       throw new BadRequestException('Invalid room selection.');
     const normalized = this.normalizeOccupancy({ roomTypeId: items[0].roomTypeId, ...quoteInput });
     this.validStayInput(normalized);
-    const eligibility = new Map<string, boolean>();
+    // Whether the hotel's own booking rules allow this stay for each room type, and if not, which rule said no.
+    const eligibility = new Map<
+      string,
+      { ok: true } | { ok: false; reason: StayUnavailableReason }
+    >();
     for (const item of items) {
       const key = item.roomTypeId + ':' + (item.roomId ?? '');
       if (eligibility.has(key)) continue;
@@ -303,16 +431,25 @@ export class QuoteService {
           roomTypeId: item.roomTypeId,
           roomId: item.roomId,
         });
-        eligibility.set(key, true);
+        eligibility.set(key, { ok: true });
       } catch (error) {
         if (!(error instanceof BadRequestException || error instanceof NotFoundException))
           throw error;
-        eligibility.set(key, false);
+        const response = error instanceof BadRequestException ? error.getResponse() : null;
+        const code =
+          response && typeof response === 'object' && 'code' in response
+            ? String((response as { code?: unknown }).code)
+            : undefined;
+        eligibility.set(key, { ok: false, reason: reasonFromRule(code) });
       }
     }
-    const eligible = items.filter((item) =>
-      eligibility.get(item.roomTypeId + ':' + (item.roomId ?? '')),
-    );
+    const allowed = (item: DisplayPriceItem) =>
+      eligibility.get(item.roomTypeId + ':' + (item.roomId ?? ''))?.ok === true;
+    const refusal = (item: DisplayPriceItem): StayUnavailableReason | undefined => {
+      const entry = eligibility.get(item.roomTypeId + ':' + (item.roomId ?? ''));
+      return entry && !entry.ok ? entry.reason : undefined;
+    };
+    const eligible = items.filter(allowed);
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
     if (connection?.provider === 'CLOCK_PMS') {
       const queries: ClockStayQuoteQuery[] = eligible.map((item) => ({
@@ -324,19 +461,27 @@ export class QuoteService {
         childrenAges: normalized.childrenAges,
         roomCount,
         currency: item.currency,
+        channel,
       }));
-      const quotes = queries.length
-        ? await this.clockAvailability.getQuotesForStay(tenantId, propertyId, queries)
-        : {};
+      const search = queries.length
+        ? await this.clockAvailability.getStaySearch(tenantId, propertyId, queries)
+        : { results: {}, details: {} };
       return items.map((item) => {
-        const quote = quotes[item.roomTypeId];
-        return {
+        const quote = search.results[item.roomTypeId];
+        const detail = search.details[item.roomTypeId];
+        const refused = refusal(item);
+        const base = {
           key: item.key,
           roomTypeId: item.roomTypeId,
-          available:
-            eligibility.get(item.roomTypeId + ':' + (item.roomId ?? '')) === true &&
-            Boolean(quote?.ok),
-          ...(quote?.ok ? { total: quote.value } : {}),
+          available: allowed(item) && Boolean(quote?.ok),
+        };
+        if (refused) return { ...base, reason: refused };
+        if (!quote?.ok)
+          return detail && !detail.available ? { ...base, reason: detail.reason } : base;
+        return {
+          ...base,
+          total: quote.value,
+          ...(detail?.available ? { freeRooms: detail.freeRooms } : {}),
         };
       });
     }
@@ -366,7 +511,13 @@ export class QuoteService {
             total: quote.total,
           };
         } catch {
-          return { key: item.key, roomTypeId: item.roomTypeId, available: false };
+          const refused = refusal(item);
+          return {
+            key: item.key,
+            roomTypeId: item.roomTypeId,
+            available: false,
+            ...(refused ? { reason: refused } : {}),
+          };
         }
       }),
     );
