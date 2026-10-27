@@ -39,8 +39,14 @@ export const NOTIFICATION_TOPICS = {
     defaultStaff: 'assigned-or-owners',
     optional: true,
   },
-  /** The guest started a booking but the payment was not completed in time. */
-  payment_not_completed: { label: 'Payment not completed', guest: true, staff: false },
+  /** The guest started a booking but the payment was not completed in time. Staff hear about it too. */
+  payment_not_completed: {
+    label: 'Payment not completed',
+    guest: true,
+    staff: true,
+    defaultStaff: 'assigned-or-owners',
+    optional: true,
+  },
   pre_arrival: {
     label: 'Pre-arrival reminder',
     guest: true,

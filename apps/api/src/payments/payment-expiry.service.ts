@@ -3,6 +3,7 @@ import { Queue, Worker, type ConnectionOptions } from 'bullmq';
 
 import { LocalPmsProvider } from '../booking/local-pms.provider';
 import { BookingUpdateNotificationService } from '../mail/booking-update-notification.service';
+import { LifecycleEmailService } from '../mail/lifecycle-email.service';
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
 import { PokPayPaymentService } from './pokpay-payment.service';
 
@@ -32,6 +33,7 @@ export class PaymentExpiryService implements OnModuleInit, OnModuleDestroy {
     @Inject(PokPayPaymentService) private readonly pokpay: PokPayPaymentService,
     @Inject(BookingUpdateNotificationService)
     private readonly updates: BookingUpdateNotificationService,
+    @Inject(LifecycleEmailService) private readonly lifecycle: LifecycleEmailService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -90,6 +92,18 @@ export class PaymentExpiryService implements OnModuleInit, OnModuleDestroy {
       await this.updates.sendPaymentNotCompleted(
         { tenantId: candidate.tenantId, propertyId: candidate.propertyId },
         candidate.bookingId,
+      );
+      await this.lifecycle.staff(
+        { tenantId: candidate.tenantId, propertyId: candidate.propertyId },
+        {
+          topic: 'payment_not_completed',
+          key: 'staff_payment_failed',
+          eventType: 'staff.payment_not_completed',
+          idempotencyKey: `payment-not-completed/staff/${candidate.bookingId}`,
+          bookingId: candidate.bookingId,
+          heading: 'Payment not completed',
+          rows: [{ label: 'What happened', value: 'Not paid in time; the room was released' }],
+        },
       );
     }
     return { expired };
