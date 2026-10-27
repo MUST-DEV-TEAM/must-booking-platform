@@ -204,6 +204,19 @@ export class PaymentRefundService {
         confirmation: null,
         clockRefund: null,
       };
+    // The provider is the record of where the money really is. When it already shows this payment as refunded
+    // in full but our records show less, bring our records in line instead of attempting a second refund.
+    if (charge.provider === 'pokpay') {
+      const synced = await this.syncRefundAlreadyDone(
+        tx,
+        context,
+        bookingId,
+        charge,
+        provider,
+        command,
+      );
+      if (synced) return synced;
+    }
     const refunded = await this.gatewayRefund(
       context,
       bookingId,
@@ -354,6 +367,74 @@ export class PaymentRefundService {
       confirmation,
       clockRefund:
         inserted[0] && completed ? { amount: command.amount, refundId: refunded.value.id } : null,
+    };
+  }
+
+  /**
+   * The provider says this payment is already refunded in full. If our ledger shows less, the difference is
+   * recorded as a refund "reconciled from the provider" (never sent again), audited and flagged for a look, so
+   * every later screen agrees with the provider. Nothing is sent to the provider in this case.
+   */
+  private async syncRefundAlreadyDone(
+    tx: TenantTransaction,
+    context: PaymentProviderContext,
+    bookingId: string,
+    charge: Pick<Charge, 'provider' | 'externalPaymentId' | 'amount' | 'currency'>,
+    provider: NonNullable<ReturnType<PaymentProviderRegistry['forProvider']>>,
+    command: { actorUserId?: string },
+  ): Promise<RefundChargeOutcome | null> {
+    // A provider that cannot answer, or fails, never blocks a refund; the refund then goes its normal way.
+    const state = await Promise.resolve()
+      .then(() => provider.getPayment(context, charge.externalPaymentId))
+      .catch(() => null);
+    if (state?.status !== 'REFUNDED') return null;
+    const missing =
+      this.minorUnits(charge.amount) - (await this.refundedAmount(tx, context, bookingId));
+    const behind = this.money(missing > 0n ? missing : 0n);
+    if (missing > 0n) {
+      const recordedId = `${charge.externalPaymentId}:refund:reconciled`;
+      await tx.$executeRaw`
+        INSERT INTO payments (
+          tenant_id, property_id, booking_id, kind, provider, external_payment_id, status, amount, currency, note
+        ) VALUES (
+          ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${bookingId}::uuid,
+          'REFUND'::"PaymentKind", ${charge.provider}, ${recordedId}, 'REFUNDED',
+          ${behind}::numeric, ${charge.currency},
+          'Reconciled from the payment provider: it already showed this payment as fully refunded.'
+        )
+        ON CONFLICT (tenant_id, external_payment_id) DO NOTHING
+      `;
+      await this.audit.recordInTransaction(tx, {
+        ...context,
+        actorUserId: command.actorUserId ?? null,
+        action: 'payment.refund_reconciled',
+        targetType: 'booking',
+        targetId: bookingId,
+        source: 'POKPAY',
+        details: {
+          chargeExternalPaymentId: charge.externalPaymentId,
+          amount: { amount: behind, currency: charge.currency },
+          reason: 'The provider showed the payment as fully refunded; the ledger was behind.',
+        },
+      });
+      await this.manualReview.recordInTransaction(tx, {
+        ...context,
+        category: 'PAYMENT_BOOKING_MISMATCH',
+        referenceType: 'booking',
+        referenceId: bookingId,
+        message: `The payment provider had already refunded this payment in full; our records were behind by ${behind} ${charge.currency} and were corrected. If the hotel system also holds this payment, check it matches.`,
+        context: { chargeExternalPaymentId: charge.externalPaymentId, reconciled: true },
+      });
+    }
+    return {
+      result: this.failure(
+        'REFUND_ALREADY_DONE',
+        missing > 0n
+          ? `The payment provider had already refunded this payment in full, so nothing new was sent. Our records were behind by ${behind} ${charge.currency}; they are now corrected.`
+          : 'The payment provider shows this payment as already fully refunded, and our records agree. Nothing was sent.',
+      ),
+      confirmation: null,
+      clockRefund: null,
     };
   }
 

@@ -415,7 +415,14 @@ export function IntegrationSettings({
             ) : null}
             {edit
               ? credentialFieldsByProvider[edit.provider]
-                  .filter((f) => !(edit.provider === 'POKPAY' && f.key === 'webhookUrl'))
+                  // The Environment dropdown above already chooses staging or production, and the notification
+                  // address is set up automatically, so neither is asked for again as a text box.
+                  .filter(
+                    (f) =>
+                      !(
+                        edit.provider === 'POKPAY' && ['webhookUrl', 'environment'].includes(f.key)
+                      ),
+                  )
                   .map((f) => {
                     const editable =
                       !edit.id ||
