@@ -907,6 +907,7 @@ model Booking {
   status                     BookingStatus            @default(DRAFT)
   // The PMS's own stay status as received (Clock: expected, checked_in, ...).
   pmsStayStatus              String?                  @map("pms_stay_status") @db.VarChar(40)
+  checkedInAt                DateTime?                @map("checked_in_at") @db.Timestamptz
   // DIRECT (staff) | WEBSITE (public booking flow) | null (unknown, e.g. created in Clock).
   source                     String?                  @db.VarChar(20)
   paymentMethod              BookingPaymentMethod     @default(STRIPE_CHECKOUT) @map("payment_method")

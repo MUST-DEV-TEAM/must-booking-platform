@@ -53,7 +53,7 @@ export const NOTIFICATION_TOPICS = {
     staff: false,
     daysOffset: { default: 3, min: 1, max: 30, label: 'Days before check-in' },
   },
-  /** A short welcome on the morning of arrival, with check-in time and directions. */
+  /** A short welcome one hour after the guest is recorded as arrived. */
   check_in_day: { label: 'Check-in day message', guest: true, staff: false },
   /** Thank-you after check-out, with the property's review links. */
   post_stay: {

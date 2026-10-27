@@ -39,7 +39,8 @@ const SWEEP_INTERVAL_MS = 15 * 60_000;
 const OWNER_SUMMARY_HOUR = 7;
 const PRE_ARRIVAL_HOUR = 9;
 const POST_STAY_HOUR = 10;
-const CHECK_IN_DAY_HOUR = 8;
+/** The welcome goes out this long after the guest is recorded as arrived. */
+const CHECK_IN_DAY_DELAY_MINUTES = 60;
 
 type Context = { tenantId: string; propertyId: string };
 type PropertyRow = {
@@ -190,8 +191,7 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
         await this.senderProofs?.recover(context);
         if (local.hour >= OWNER_SUMMARY_HOUR)
           await this.sendOwnerSummary(context, property.timezone || 'UTC', local.date);
-        if (local.hour >= CHECK_IN_DAY_HOUR)
-          await this.sendCheckInDay(context, property.timezone || 'UTC', local.date);
+        await this.sendCheckInDay(context, property.timezone || 'UTC', local.date, now);
         if (local.hour >= PRE_ARRIVAL_HOUR)
           await this.sendPreArrival(context, property.timezone || 'UTC', local.date);
         if (local.hour >= POST_STAY_HOUR) await this.sendPostStay(context, local.date);
@@ -205,11 +205,18 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * A short welcome on the morning of arrival. Same rules as the pre-arrival reminder: direct bookings only,
-   * confirmed, and not made today (they just got their confirmation). One email per order, not per room.
+   * A short welcome one hour after the guest is recorded as arrived (the stay status became checked-in), on
+   * the day of arrival only, so reading older stays from a PMS never sends anything. Direct bookings only,
+   * confirmed, still in the hotel. One email per order, not per room.
    */
-  async sendCheckInDay(context: Context, timeZone: string, today: string): Promise<void> {
+  async sendCheckInDay(
+    context: Context,
+    timeZone: string,
+    today: string,
+    now = new Date(),
+  ): Promise<void> {
     if (!this.lifecycle) return;
+    const arrivedBefore = new Date(now.getTime() - CHECK_IN_DAY_DELAY_MINUTES * 60_000);
     const bookingIds = await this.database.withTenantTransaction(context, async (tx) => {
       const settings = await scheduledGuestSettings(tx, context, 'check_in_day');
       if (!settings.enabled) return [];
@@ -218,8 +225,10 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
         FROM bookings b
         WHERE b.tenant_id = ${context.tenantId}::uuid AND b.property_id = ${context.propertyId}::uuid
           AND b.status = 'CONFIRMED'::"BookingStatus" AND b.starts_on = ${today}::date
+          AND b.pms_stay_status = 'checked_in'
+          AND b.checked_in_at IS NOT NULL AND b.checked_in_at <= ${arrivedBefore}::timestamptz
+          AND (b.checked_in_at AT TIME ZONE ${timeZone})::date = ${today}::date
           AND b.external_reference NOT LIKE 'CLOCK-%'
-          AND (b.created_at AT TIME ZONE ${timeZone})::date < ${today}::date
         ORDER BY COALESCE(b.order_reference, b.id::text), b.order_room_number NULLS FIRST, b.id
       `;
       return rows.map((row) => row.id);
