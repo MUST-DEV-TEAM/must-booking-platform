@@ -55,3 +55,5 @@ Documentation-only edits do not require starting services, exercising gateways o
 Hotel photos use the local-disk provider that is live on `booking.must.al`: `STORAGE_DRIVER=local`, `LOCAL_STORAGE_DIR` and `LOCAL_STORAGE_PUBLIC_BASE_URL`; see the [deployment steps](../../infrastructure/containers/README.md#interim-local-photo-storage) and ADR-0011. The separate `STORAGE_BACKEND=server` provider that ADR-0034 first described was removed when the redesign was merged with live on 2026-10-26, so the redesign and the live host store photos the same way and existing live photos keep working. Its `server_media_uploads` table remains in the schema, unused, and can be dropped by a later migration.
 
 Back up the photo directory together with the database. Server volume backup/restore has not been verified in production. Do not delete legacy remote objects.
+
+- [One-off live data fixes, 2026-10-09](data-fixes-2026-10-09.md): the refund-ledger repair scripts that were run by hand, kept for the record.
