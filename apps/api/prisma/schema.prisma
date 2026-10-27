@@ -1001,6 +1001,10 @@ model Payment {
   currency          String      @db.VarChar(3)
   reasonCode        String?     @map("reason_code")
   note              String?     @db.VarChar(500)
+  /// Units of the booking's currency one unit of `currency` bought when the payment was recorded. Set by the
+  /// database for a payment in another currency than its booking; absent for older payments.
+  fxRateToBooking   Decimal?    @map("fx_rate_to_booking") @db.Decimal(20, 8)
+  fxRateDate        DateTime?   @map("fx_rate_date") @db.Date
   createdAt         DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
   property          Property    @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
   booking           Booking     @relation(fields: [tenantId, propertyId, bookingId], references: [tenantId, propertyId, id], onDelete: Restrict)

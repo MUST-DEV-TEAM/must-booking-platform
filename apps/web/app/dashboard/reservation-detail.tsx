@@ -1,4 +1,5 @@
 'use client';
+import { LedgerAmount } from './approximate-money';
 import { toast } from 'sonner';
 import { MoveRoomDialog } from './move-room-dialog';
 import {
@@ -141,6 +142,8 @@ type LedgerEntry = {
   status: string;
   amount: string;
   currency: string;
+  fxRate?: string | null;
+  fxRateDate?: string | null;
   createdAt: string;
 };
 
@@ -832,7 +835,15 @@ export function ReservationDetail({
                         <span className="text-muted-foreground">{dateTime(entry.createdAt)}</span>
                       </>
                     ),
-                    value: `${entry.kind === 'REFUND' ? '−' : ''}${money(entry.amount, entry.currency)}`,
+                    value: (
+                      <LedgerAmount
+                        tenantId={tenantId}
+                        propertyId={propertyId}
+                        entry={entry}
+                        bookingCurrency={currency}
+                        negative={entry.kind === 'REFUND'}
+                      />
+                    ),
                   }))}
                 />
               ) : null}

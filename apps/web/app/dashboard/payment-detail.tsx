@@ -1,4 +1,5 @@
 'use client';
+import { LedgerAmount } from './approximate-money';
 import { ClockFinancialCard, useClockFinancial, moneyText } from './clock-financial';
 import { CancellationDialog } from './cancellation-dialog';
 import { BookingReviewCard } from './booking-review-card';
@@ -43,6 +44,8 @@ export type LedgerEntry = {
   status: string;
   amount: string;
   currency: string;
+  fxRate?: string | null;
+  fxRateDate?: string | null;
   note: string | null;
   createdAt: string;
   actorEmail: string | null;
@@ -409,8 +412,14 @@ export function PaymentDetail({
                     {entry.kind === 'REFUND' ? 'Refund' : 'Payment'}
                   </TableCell>
                   <TableCell className="px-2 py-2 text-right font-semibold whitespace-nowrap">
-                    {entry.kind === 'REFUND' ? '−' : '+'}
-                    {money(entry.amount, entry.currency)}
+                    {entry.kind === 'REFUND' ? '' : '+'}
+                    <LedgerAmount
+                      tenantId={tenantId}
+                      propertyId={propertyId}
+                      entry={entry}
+                      bookingCurrency={currency}
+                      negative={entry.kind === 'REFUND'}
+                    />
                   </TableCell>
                   <TableCell className="px-2 py-2">{entryMethod(entry)}</TableCell>
                   <TableCell className="px-2 py-2">

@@ -1,4 +1,5 @@
 'use client';
+import { ConvertedMoney } from './approximate-money';
 import { useQuery } from '@tanstack/react-query';
 import { Download, MoreHorizontal, UserRound } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -483,13 +484,23 @@ export function DashboardPayments({
                               : 'text-muted-foreground',
                           )}
                         >
-                          {booking.balanceBasis === 'CLOCK'
-                            ? booking.clockBalance
-                              ? money(booking.clockBalance.amount, booking.clockBalance.currency)
-                              : 'Verifying Clock balance'
-                            : ['PMS_UNKNOWN_RESULT', 'MANUAL_REVIEW'].includes(booking.status)
-                              ? 'Balance not confirmed'
-                              : money(owed, currency)}
+                          {booking.balanceBasis === 'CLOCK' ? (
+                            booking.clockBalance ? (
+                              <ConvertedMoney
+                                tenantId={tenantId}
+                                propertyId={propertyId}
+                                amount={booking.clockBalance.amount}
+                                currency={booking.clockBalance.currency}
+                                into={currency}
+                              />
+                            ) : (
+                              'Verifying Clock balance'
+                            )
+                          ) : ['PMS_UNKNOWN_RESULT', 'MANUAL_REVIEW'].includes(booking.status) ? (
+                            'Balance not confirmed'
+                          ) : (
+                            money(owed, currency)
+                          )}
                         </TableCell>
                         <TableCell className="px-2 py-1 text-right">
                           <DropdownMenu>

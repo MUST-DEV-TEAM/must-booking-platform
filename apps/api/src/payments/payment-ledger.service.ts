@@ -11,6 +11,12 @@ export type PaymentLedgerEntry = {
   status: string;
   amount: string;
   currency: string;
+  /**
+   * For a payment in another currency than its booking: how many units of the booking's currency one unit of
+   * `currency` was worth when it was recorded, and the day of that rate. Absent for older payments.
+   */
+  fxRate: string | null;
+  fxRateDate: string | null;
   note: string | null;
   createdAt: string;
   /** Who recorded it, when an audit entry ties the payment to a staff user. */
@@ -26,6 +32,8 @@ export type PaymentLedgerEvent = {
 
 export type PaymentLedger = {
   bookingId: string;
+  /** The currency of the booking itself, which a payment in another currency is compared with. */
+  bookingCurrency: string;
   entries: PaymentLedgerEntry[];
   events: PaymentLedgerEvent[];
 };
@@ -69,8 +77,8 @@ export class PaymentLedgerService {
   ): Promise<PaymentLedger | null> {
     if (!UUID.test(bookingId)) return null;
     return this.database.withTenantTransaction(context, async (tx) => {
-      const booking = await tx.$queryRaw<Array<{ id: string }>>`
-        SELECT id FROM bookings
+      const booking = await tx.$queryRaw<Array<{ id: string; currency: string }>>`
+        SELECT id, currency FROM bookings
         WHERE id = ${bookingId}::uuid AND tenant_id = ${context.tenantId}::uuid
           AND property_id = ${context.propertyId}::uuid
       `;
@@ -79,7 +87,8 @@ export class PaymentLedgerService {
       const payments = await tx.$queryRaw<EntryRow[]>`
         SELECT p.id, p.kind::text AS kind, p.provider, p.method,
           p.external_payment_id AS "externalPaymentId", p.status, p.amount::text AS amount,
-          p.currency, p.note, p.created_at AS "createdAt"
+          p.currency, p.fx_rate_to_booking::text AS "fxRate", p.fx_rate_date::text AS "fxRateDate",
+          p.note, p.created_at AS "createdAt"
         FROM payments p
         WHERE p.booking_id = ${bookingId}::uuid AND p.tenant_id = ${context.tenantId}::uuid
           AND p.property_id = ${context.propertyId}::uuid
@@ -108,6 +117,7 @@ export class PaymentLedgerService {
 
       return {
         bookingId,
+        bookingCurrency: booking[0]!.currency,
         entries: payments.map((payment) => ({
           ...payment,
           createdAt: payment.createdAt.toISOString(),
