@@ -13,6 +13,7 @@ import type { MailBrand } from '@must/domain-contracts';
 
 import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant-database.service';
 import { renderTemplate, savedTemplate, stayTemplateValues } from './email-templates';
+import { isChannelRelayEmail } from './channel-relay-email';
 import { LifecycleEmailService } from './lifecycle-email.service';
 import { MailDeliveryService } from './mail-delivery.service';
 import { EmailSenderVerificationService } from '../tenancy/email-sender-verification.service';
@@ -206,8 +207,8 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * A short welcome one hour after the guest is recorded as arrived (the stay status became checked-in), on
-   * the day of arrival only, so reading older stays from a PMS never sends anything. Direct bookings only,
-   * confirmed, still in the hotel. One email per order, not per room.
+   * the day of arrival only, so reading older stays from a PMS never sends anything. Confirmed, still in the
+   * hotel, with a guest address of their own (not a booking channel's relay). One email per order, not per room.
    */
   async sendCheckInDay(
     context: Context,
@@ -220,18 +221,21 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
     const bookingIds = await this.database.withTenantTransaction(context, async (tx) => {
       const settings = await scheduledGuestSettings(tx, context, 'check_in_day');
       if (!settings.enabled) return [];
-      const rows = await tx.$queryRaw<Array<{ id: string }>>`
-        SELECT DISTINCT ON (COALESCE(b.order_reference, b.id::text)) b.id::text AS id
+      const rows = await tx.$queryRaw<Array<{ id: string; email: string | null }>>`
+        SELECT DISTINCT ON (COALESCE(b.order_reference, b.id::text)) b.id::text AS id,
+          ${bookingContactSql.email} AS email
         FROM bookings b
+        LEFT JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
         WHERE b.tenant_id = ${context.tenantId}::uuid AND b.property_id = ${context.propertyId}::uuid
           AND b.status = 'CONFIRMED'::"BookingStatus" AND b.starts_on = ${today}::date
           AND b.pms_stay_status = 'checked_in'
           AND b.checked_in_at IS NOT NULL AND b.checked_in_at <= ${arrivedBefore}::timestamptz
           AND (b.checked_in_at AT TIME ZONE ${timeZone})::date = ${today}::date
-          AND b.external_reference NOT LIKE 'CLOCK-%'
+          AND COALESCE(${bookingContactSql.email}, '') <> ''
         ORDER BY COALESCE(b.order_reference, b.id::text), b.order_room_number NULLS FIRST, b.id
       `;
-      return rows.map((row) => row.id);
+      // Reservations read from a PMS count too, but not when the address is a booking channel's relay.
+      return rows.filter((row) => !isChannelRelayEmail(row.email)).map((row) => row.id);
     });
     for (const bookingId of bookingIds)
       await this.lifecycle.guest(context, {

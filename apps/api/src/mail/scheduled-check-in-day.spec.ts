@@ -10,7 +10,10 @@ import { ScheduledEmailService } from './scheduled-email.service';
 
 function setup(ids: string[]) {
   const guest = vi.fn().mockResolvedValue(undefined);
-  const tx = { $queryRaw: async () => ids.map((id) => ({ id })) };
+  const tx = {
+    $queryRaw: async () =>
+      ids.map((id) => ({ id, email: id === 'relay' ? 'x@guest.booking.com' : 'ada@gmail.com' })),
+  };
   const database = {
     withTenantTransaction: async (_c: unknown, fn: (t: typeof tx) => unknown) => fn(tx),
   };
@@ -39,6 +42,14 @@ describe('check-in day email', () => {
       idempotencyKey: 'check-in-day/b1',
       bookingId: 'b1',
     });
+  });
+
+  it('skips a reservation whose address is a booking channel relay', async () => {
+    settings.enabled = true;
+    const { service, guest } = setup(['relay', 'b2']);
+    await service.sendCheckInDay(context, 'Europe/Tirane', '2027-07-12');
+    expect(guest).toHaveBeenCalledTimes(1);
+    expect(guest.mock.calls[0]![1].bookingId).toBe('b2');
   });
 
   it('sends nothing when the hotel switched it off', async () => {
