@@ -13,6 +13,7 @@ import type { MailBrand } from '@must/domain-contracts';
 
 import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant-database.service';
 import { renderTemplate, savedTemplate, stayTemplateValues } from './email-templates';
+import { LifecycleEmailService } from './lifecycle-email.service';
 import { MailDeliveryService } from './mail-delivery.service';
 import { EmailSenderVerificationService } from '../tenancy/email-sender-verification.service';
 import { EmailTransportJournal } from './email-transport-journal';
@@ -38,6 +39,7 @@ const SWEEP_INTERVAL_MS = 15 * 60_000;
 const OWNER_SUMMARY_HOUR = 7;
 const PRE_ARRIVAL_HOUR = 9;
 const POST_STAY_HOUR = 10;
+const CHECK_IN_DAY_HOUR = 8;
 
 type Context = { tenantId: string; propertyId: string };
 type PropertyRow = {
@@ -121,6 +123,9 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
     @Optional()
     @Inject(EmailSenderTestService)
     private readonly senderTests?: EmailSenderTestService,
+    @Optional()
+    @Inject(LifecycleEmailService)
+    private readonly lifecycle?: LifecycleEmailService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -185,6 +190,8 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
         await this.senderProofs?.recover(context);
         if (local.hour >= OWNER_SUMMARY_HOUR)
           await this.sendOwnerSummary(context, property.timezone || 'UTC', local.date);
+        if (local.hour >= CHECK_IN_DAY_HOUR)
+          await this.sendCheckInDay(context, property.timezone || 'UTC', local.date);
         if (local.hour >= PRE_ARRIVAL_HOUR)
           await this.sendPreArrival(context, property.timezone || 'UTC', local.date);
         if (local.hour >= POST_STAY_HOUR) await this.sendPostStay(context, local.date);
@@ -195,6 +202,37 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
         );
       }
     }
+  }
+
+  /**
+   * A short welcome on the morning of arrival. Same rules as the pre-arrival reminder: direct bookings only,
+   * confirmed, and not made today (they just got their confirmation). One email per order, not per room.
+   */
+  async sendCheckInDay(context: Context, timeZone: string, today: string): Promise<void> {
+    if (!this.lifecycle) return;
+    const bookingIds = await this.database.withTenantTransaction(context, async (tx) => {
+      const settings = await scheduledGuestSettings(tx, context, 'check_in_day');
+      if (!settings.enabled) return [];
+      const rows = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT DISTINCT ON (COALESCE(b.order_reference, b.id::text)) b.id::text AS id
+        FROM bookings b
+        WHERE b.tenant_id = ${context.tenantId}::uuid AND b.property_id = ${context.propertyId}::uuid
+          AND b.status = 'CONFIRMED'::"BookingStatus" AND b.starts_on = ${today}::date
+          AND b.external_reference NOT LIKE 'CLOCK-%'
+          AND (b.created_at AT TIME ZONE ${timeZone})::date < ${today}::date
+        ORDER BY COALESCE(b.order_reference, b.id::text), b.order_room_number NULLS FIRST, b.id
+      `;
+      return rows.map((row) => row.id);
+    });
+    for (const bookingId of bookingIds)
+      await this.lifecycle.guest(context, {
+        topic: 'check_in_day',
+        key: 'check_in_day',
+        eventType: 'guest.check_in_day',
+        idempotencyKey: `check-in-day/${bookingId}`,
+        bookingId,
+        heading: 'Welcome today',
+      });
   }
 
   async sendPreArrival(context: Context, timeZone: string, today: string): Promise<void> {

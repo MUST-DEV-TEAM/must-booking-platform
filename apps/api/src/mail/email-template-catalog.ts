@@ -12,6 +12,7 @@ const triggers: Partial<Record<EmailTemplateKey, string>> = {
   staff_payment_received: 'staff.payment_received',
   payment_not_completed: 'guest.payment_not_completed',
   staff_payment_failed: 'staff.payment_not_completed',
+  check_in_day: 'guest.check_in_day',
   post_stay: 'guest.post_stay',
   staff_new_booking: 'booking.staff_new',
   staff_booking_cancelled: 'booking.staff_cancelled',
