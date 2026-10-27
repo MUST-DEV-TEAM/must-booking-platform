@@ -1,6 +1,8 @@
 import { AuditMutationInterceptor } from './tenancy/audit-mutation.interceptor';
 import { ClockStayAmendmentService } from './integrations/clock/clock-stay-amendment.service';
 import { BookingRoomMoveController } from './booking/booking-room-move.controller';
+import { BookingStayStatusController } from './booking/booking-stay-status.controller';
+import { BookingStayStatusService } from './booking/booking-stay-status.service';
 import { requestLogPath } from './observability/request-log-path';
 import { GuestBookingManageController } from './booking/guest-booking-manage.controller';
 import { ClockFinancialService } from './integrations/clock/clock-financial.service';
@@ -355,6 +357,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     BookingDetailsController,
     BookingAmendController,
     BookingRoomMoveController,
+    BookingStayStatusController,
     StaffBookingController,
     PublicBookingController,
     StripeWebhookController,
@@ -421,6 +424,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     NotificationInboxService,
     NotificationRetentionService,
     AuditLogService,
+    BookingStayStatusService,
     PlanUsageService,
     PropertiesService,
     CancellationPoliciesService,

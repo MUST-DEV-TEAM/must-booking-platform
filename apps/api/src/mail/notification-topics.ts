@@ -53,6 +53,8 @@ export const NOTIFICATION_TOPICS = {
     staff: false,
     daysOffset: { default: 3, min: 1, max: 30, label: 'Days before check-in' },
   },
+  /** Sent to the guest when staff record that they did not arrive. */
+  no_show_notice: { label: 'No-show notice', guest: true, staff: false },
   /** A short welcome one hour after the guest is recorded as arrived. */
   check_in_day: { label: 'Check-in day message', guest: true, staff: false },
   /** Thank-you after check-out, with the property's review links. */
