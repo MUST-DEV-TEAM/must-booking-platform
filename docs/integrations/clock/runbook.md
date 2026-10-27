@@ -120,3 +120,5 @@ Manual-review resolution is not automatic recovery. No general queue replay/reco
 ## Acceptance evidence
 
 The [archived sandbox report](../../archive/clock-sandbox-validation-2026-08-05.md), [test log](../../archive/clock-test-evidence-2026-09-04.md) and [Milestone 21](../../roadmap/milestones/21-clock-certification-fixes.md) record past observations. They do not certify today's deployment. Current deposit behavior leaves folios open; old close instructions are superseded. Retain the distinction between local tests, sandbox observations and production verification in every new report.
+
+- [Clock booking status survey script](status-survey-script.md): the read-only script used on 2026-10-09 to see which statuses Clock returns for the sandbox property.
