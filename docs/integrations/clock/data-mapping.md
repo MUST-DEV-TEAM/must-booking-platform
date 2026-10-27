@@ -73,3 +73,17 @@ Rate fields relevant to discounts (rate 546549, Website BB): `derived_rate_type:
 - The sandbox API user **has** the rate-plans right (`GET /rate_plans` returns `[70813, 69242]`, ids only) but still lacks `pms_api_rate_packages_index`. Live Empire lacks the rate-plans rights.
 - A `/products` offer carries only `available`, `price.cents`, `price.currency`, `room_type_free_rooms` and `errors`. It has **no original/"was" price and no discount field**. A struck-through price therefore has to be computed by also pricing the derived rate's `base_rate_id` for the same stay (sandbox example: "Normal" 784161 = 1050.00 EUR against derived "FAM - Summer" rates; derived types seen: `DerivedAmountPrice`, `DerivedPercentPrice`, `Pms::RateCalculation::DerivedPrice`).
 - Occupancy is enforced per rate (`errors` text "Maximum adults allowed - 1" makes `available: false`), so a multi-rate picker must hide or disable unavailable offers.
+
+## Currency of Clock reservations (finding and fix, 2026-10-26/27)
+
+Verified against the live Empire data (read-only) and the code.
+
+- **What went wrong:** a booking has no currency of its own; it was taken from its rate plan, and every Clock reservation was filed under the hidden per-room-type shadow plan, whose currency is `EUR`. Clock bills some reservations in another currency (Reception rates are in `ALL`, lek). Those reservations were stored with their lek totals but shown as euros: 70 reservations, among them the 69 guest-less one-per-room bookings of 19-22 May 2027 (48,500-102,000 shown as euros; as lek they are about EUR 178-375 per night per room type, the same as the hotel's normal euro prices). The "Expected on arrival" figure was inflated by them.
+- **Fix:** the hydration step reads `total_booking_value.currency` and files a reservation under a plan in that currency (`Clock reservations billed in <CUR>`, inactive, not bookable) whenever it differs from the room type's shadow plan. A re-read of every reservation (`BOOKINGS_IMPORT_VERSION = 3`) corrects the stored ones; it only starts after the fix is deployed.
+- **Safeguards so it cannot happen silently again:**
+  1. A total with no valid ISO currency is never assumed to be euro: the reservation is not imported and a review item is raised (`UNKNOWN_RESULT`).
+  2. `bookings.currency` now stores the currency on the booking. Clock reservations take Clock's own value; for every other writer a database trigger fills it from the rate plan and follows the plan if it changes.
+  3. Every refresh of a Clock bill compares the bill's currency with the booking's. A difference raises a `CURRENCY_MISMATCH` review item (shown under Needs attention on the reservation) and is closed again automatically when the two agree.
+  4. Reports keep one line per currency and never add amounts of different currencies.
+- **Outstanding and Expected on arrival:** where Clock holds the bill, the Clock balance is what is owed. Only stays that have started count as Outstanding. Stays that have not started are Expected on arrival, shown with how much of it is for stays with no guest name (often room blocks or tests made in Clock).
+- **Not yet confirmed:** what the 69 + 42 guest-less reservations are (a block of every room, an import, or a test). The hotel has to say.

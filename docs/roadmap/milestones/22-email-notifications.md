@@ -197,3 +197,29 @@ Ship Phase A immediately (it is a live bug). Phases B and C fix reliability and 
 
 
 M24 owner-authorized A2 extends this implementation with versioned structured authoring, controlled tests, configuration and delivery recovery. The exact active contract, limitations and verification are owned by [24-notifications-emails-audit-plan.md](24-notifications-emails-audit-plan.md); historical task states above are not self-marked accepted. The previous Settings email screen becomes a compatibility entry into the same sidebar Emails workspace. Separate private recipient deliveries remain the supported transport behavior; CC/BCC headers are not implemented. Code inspection found no existing reserved-address/property-hourly safety checks: A2 adds them at the shared delivery boundary and records that as new behavior, rather than treating a requirement as historical implementation evidence.
+
+## Lifecycle emails wired on 2026-10-27 (branch `feat/batch-oct27`, not merged)
+
+Each email below follows the hotel's editable template, is gated by its notification topic (the hotel can switch it off, and for timed ones change the days) and goes through the durable mail pipeline and email log. Guest emails that come from a PMS reservation are never sent to a booking channel's masked address (Booking.com, Expedia, Airbnb and similar; `channel-relay-email.ts`).
+
+| Email | Sent to | When | Setting |
+|---|---|---|---|
+| Payment received | guest and staff | a balance is paid by link | topic `payment_received` |
+| Booking modified | staff | a booking's stay changes | topic `booking_changed` |
+| Payment not completed | staff (the guest email already existed) | an unpaid online hold ends | topic `payment_not_completed` |
+| Payment link | guest | staff press "send payment link" (always sent) | template `payment_pending` |
+| Payment link expiring | guest | 10 minutes before an unpaid online hold ends | topic `payment_link_expiring` |
+| Payment reminder | guest | 3 days (adjustable 1-6) after a staff-sent link, if still unpaid; links now stay valid 7 days | topic `payment_reminder` |
+| Check-in day | guest | one hour after the guest is recorded as checked in | topic `check_in_day` |
+| No-show notice | guest | staff mark a no-show in MUST | topic `no_show_notice` |
+| Weekly summary | owners | Monday 07:00 hotel time | topic `owner_weekly_summary` |
+| Staff account ready | the new staff member | an account is created directly (never contains the password) | template `staff_account_created` |
+| Post-stay thank-you | guest | N days after check-out (existing), now also with a private review link and for PMS reservations with the guest's own address | topic `post_stay` |
+
+Not wired on purpose: the guest "Payment failed" wording. PokPay has no failed status (only completed, cancelled and refunded flags, per its public API collection); a failed attempt does not end the order, so the useful moment is the hold ending, which is "payment not completed".
+
+Built-in check-in, check-out and no-show exist for stays MUST manages itself (`PATCH bookings/:id/stay-status`, audited); stays held by a PMS are recorded in the PMS and only read back. `bookings.checked_in_at` is stamped by a database trigger when the status becomes `checked_in`.
+
+### Finding: staff cancellation emails for Clock cancellations (live, read-only, 2026-10-27)
+
+In the last 45 days 737 `booking.staff_cancelled` emails were queued, all for reservations imported or updated as cancelled from Clock (about 200 on 10-10, 235 on 10-21, then 55-90 a day on 10-23 to 10-26). 280 were delivered (to the owner's two addresses), 309 bounced, 121 failed and 27 were suppressed; every bounce and failure was to three staff test accounts at the fake domain `must.test`. The existing per-hour cap (`PMS_CANCELLATION_EMAILS_PER_HOUR`) did not prevent this. Open decisions: remove or re-address those test staff accounts on the live hotel, and whether staff should get one email per Clock cancellation at all or a daily digest.
