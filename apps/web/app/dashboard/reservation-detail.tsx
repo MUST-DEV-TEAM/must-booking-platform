@@ -14,6 +14,7 @@ import { minorUnits as paymentMinor, money as decimalMoney } from './payment-sta
 import { Alert, AlertTitle, AlertDescription } from '../../components/ui/alert';
 import { EditBookingDetailsDialog } from './edit-booking-details-dialog';
 import { CancellationDialog } from './cancellation-dialog';
+import { StayStatusActions } from './stay-status-actions';
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -102,6 +103,7 @@ type Detail = {
   version: number;
   updatedAt: string;
   externalBookingId: string | null;
+  pmsStayStatus: string | null;
   nightlyRates: Array<{ date: string; amount: string }> | null;
   promo?: {
     code: string;
@@ -489,6 +491,9 @@ export function ReservationDetail({
         }
         actions={
           <>
+            {canEditBooking ? (
+              <StayStatusActions tenantId={tenantId} propertyId={propertyId} booking={booking} />
+            ) : null}
             {canEditBooking ? (
               <Button onClick={() => setEditingDetails(true)}>
                 <Pencil aria-hidden="true" /> Edit details
