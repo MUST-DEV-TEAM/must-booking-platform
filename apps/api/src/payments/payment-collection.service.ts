@@ -15,6 +15,7 @@ import { AuditLogService } from '../tenancy/audit-log.service';
 import { PaymentProviderRegistry } from './payment-provider-registry';
 import { ClockBookingService } from '../integrations/clock/clock-booking.service';
 import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
+import { LifecycleEmailService } from '../mail/lifecycle-email.service';
 import { MailDeliveryService } from '../mail/mail-delivery.service';
 import { renderBrandedEmail } from '../mail/email-layout';
 import { bookingContactSql } from '../booking/booking-contact';
@@ -44,6 +45,7 @@ export class PaymentCollectionService {
     @Inject(ClockBookingService) private readonly clock: ClockBookingService,
     @Inject(MailDeliveryService) private readonly delivery: MailDeliveryService,
     @Inject(ClockFinancialService) private readonly financial: ClockFinancialService,
+    @Inject(LifecycleEmailService) private readonly lifecycle: LifecycleEmailService,
   ) {}
   async options(scope: Scope, bookingId: string) {
     return this.db.withTenantTransaction(scope, async (tx) => {
@@ -543,66 +545,23 @@ export class PaymentCollectionService {
     orderId: string,
     collection: Collection,
   ) {
-    const rows = await this.db.withTenantTransaction(
-      scope,
-      (tx) => tx.$queryRaw<
-        Array<{
-          email: string | null;
-          reference: string;
-          name: string;
-          logoUrl: string | null;
-          supportEmail: string | null;
-          brandColour: string | null;
-          phone: string | null;
-          address: string | null;
-          startsOn: string;
-          endsOn: string;
-          roomName: string;
-          guests: number;
-        }>
-      >`
-   SELECT ${bookingContactSql.email} AS email,b.external_reference AS reference,p.name,p.logo_url AS "logoUrl",p.support_email AS "supportEmail",p.brand_colour AS "brandColour",p.phone,p.address,b.starts_on::text AS "startsOn",b.ends_on::text AS "endsOn",rt.name AS "roomName",(b.adults+b.children) AS guests
-   FROM bookings b LEFT JOIN guests g ON g.tenant_id=b.tenant_id AND g.id=b.guest_id JOIN properties p ON p.tenant_id=b.tenant_id AND p.id=b.property_id JOIN room_types rt ON rt.tenant_id=b.tenant_id AND rt.property_id=b.property_id AND rt.id=b.room_type_id
-   WHERE b.tenant_id=${scope.tenantId}::uuid AND b.property_id=${scope.propertyId}::uuid AND b.id=${bookingId}::uuid`,
-    );
-    const row = rows[0];
-    if (!row?.email) return;
-    const subject = `Payment received - ${row.reference}`;
-    const amount = `${collection.amount} ${collection.currency}`;
-    const text = `We received your payment of ${amount} for booking ${row.reference} at ${row.name}. Stay: ${row.startsOn} to ${row.endsOn}. Room type: ${row.roomName}. Guests: ${row.guests}. Keep this receipt with your booking confirmation.`;
-    await this.delivery.dispatch(
-      'rendered',
-      {
-        to: row.email,
-        subject,
-        text,
-        html: renderBrandedEmail({
-          subject,
-          brand: {
-            name: row.name,
-            logoUrl: row.logoUrl,
-            supportEmail: row.supportEmail,
-            brandColour: row.brandColour,
-            phone: row.phone,
-            address: row.address,
-          },
-          heading: 'Payment received',
-          content:
-            '<p>Thank you. Your payment has been recorded against your existing reservation.</p>',
-          summaryRows: [
-            { label: 'Booking', value: row.reference },
-            { label: 'Stay', value: `${row.startsOn} to ${row.endsOn}` },
-            { label: 'Room type', value: row.roomName },
-            { label: 'Guests', value: String(row.guests) },
-            { label: 'Payment method', value: 'PokPay' },
-            { label: 'Amount received', value: amount },
-          ],
-        }),
-        idempotencyKey: `balance-receipt/${orderId}`,
-        eventType: 'payment.received',
-        bookingId,
-      },
-      scope,
-    );
+    const email = {
+      topic: 'payment_received' as const,
+      eventType: 'payment.received',
+      idempotencyKey: `balance-receipt/${orderId}`,
+      bookingId,
+      heading: 'Payment received',
+      values: { payment_amount: `${collection.amount} ${collection.currency}` },
+      rows: [
+        { label: 'Payment method', value: 'PokPay' },
+        { label: 'Amount received', value: `${collection.amount} ${collection.currency}` },
+      ],
+    };
+    await this.lifecycle.guest(scope, { ...email, key: 'payment_received' });
+    await this.lifecycle.staff(scope, {
+      ...email,
+      key: 'staff_payment_received',
+      idempotencyKey: `balance-receipt/staff/${orderId}`,
+    });
   }
 }

@@ -24,7 +24,21 @@ export const NOTIFICATION_TOPICS = {
     defaultStaff: 'owners',
     optional: true,
   },
-  booking_changed: { label: 'Booking changed', guest: true, staff: false },
+  booking_changed: {
+    label: 'Booking changed',
+    guest: true,
+    staff: true,
+    defaultStaff: 'assigned-or-owners',
+    optional: true,
+  },
+  /** Money recorded against an existing reservation: a payment link paid, or a payment taken at the hotel. */
+  payment_received: {
+    label: 'Payment received',
+    guest: true,
+    staff: true,
+    defaultStaff: 'assigned-or-owners',
+    optional: true,
+  },
   /** The guest started a booking but the payment was not completed in time. */
   payment_not_completed: { label: 'Payment not completed', guest: true, staff: false },
   pre_arrival: {
