@@ -78,6 +78,9 @@ export class PokPayPaymentProvider implements PaymentProvider {
         webhookUrl: configuration.value.webhookUrl,
         redirectUrl: command.successUrl,
         failRedirectUrl: command.cancelUrl,
+        ...(command.expiresAfterMinutes
+          ? { expiresAfterMinutes: command.expiresAfterMinutes }
+          : {}),
         merchantCustomReference: command.bookingId,
         description: `Hotel booking ${command.bookingId}`,
       },

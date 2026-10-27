@@ -55,6 +55,13 @@ export const NOTIFICATION_TOPICS = {
   },
   /** Staff send a guest a payment link for a booking that still has something to pay. */
   payment_pending: { label: 'Payment link', guest: true, staff: false },
+  /** Staff-sent payment link still unpaid after a few days: one gentle reminder, with the same link. */
+  payment_reminder: {
+    label: 'Payment reminder',
+    guest: true,
+    staff: false,
+    daysOffset: { default: 3, min: 1, max: 6, label: 'Days after the payment link was sent' },
+  },
   /** An unpaid online booking is about to be released; the guest can still finish paying. */
   payment_link_expiring: { label: 'Payment link expiring', guest: true, staff: false },
   /** Sent to the guest when staff record that they did not arrive. */

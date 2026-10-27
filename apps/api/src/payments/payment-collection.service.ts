@@ -24,11 +24,15 @@ type Collection = {
   amount: string;
   currency: string;
   checkoutUrl?: string;
+  /** When the payment page stops working; a reminder is never sent after this. */
+  expiresAt?: string;
   externalPaymentId?: string;
   clockConnectionId?: string;
   stage: 'PREPARING' | 'READY' | 'PAID' | 'UNCERTAIN';
 };
 type Operation = { id: string; result: Collection };
+/** A link staff send for a balance stays payable this long, so a reminder always has a working link. */
+const BALANCE_LINK_VALID_MINUTES = 7 * 24 * 60;
 /** Confirmed reservations keep their identity and payment method. Captures append to the ledger.
  * The committed PREPARING intent prevents a timeout/retry from creating another gateway order.
  */
@@ -202,6 +206,7 @@ export class PaymentCollectionService {
           `/bookings/${bookingId}/payment/cancel?${new URLSearchParams(scope)}`,
           origin,
         ).toString(),
+        expiresAfterMinutes: BALANCE_LINK_VALID_MINUTES,
       });
     } catch {
       checkout = {
@@ -241,6 +246,7 @@ export class PaymentCollectionService {
       stage: 'READY',
       externalPaymentId: checkout.value.id,
       checkoutUrl: checkout.value.url,
+      expiresAt: new Date(Date.now() + BALANCE_LINK_VALID_MINUTES * 60_000).toISOString(),
     };
     await this.db.withTenantTransaction(scope, async (tx) => {
       await tx.$executeRaw`INSERT INTO payment_provider_sessions(tenant_id,property_id,booking_id,provider,external_payment_id) VALUES(${scope.tenantId}::uuid,${scope.propertyId}::uuid,${bookingId}::uuid,'pokpay',${checkout.value.id}) ON CONFLICT(tenant_id,provider,external_payment_id) DO NOTHING`;
@@ -302,6 +308,41 @@ export class PaymentCollectionService {
         : null;
     });
   }
+  /**
+   * A gentle reminder for a payment link staff emailed, when it is still unpaid after the hotel's chosen number
+   * of days (default 3). The link is the one already sent, which is still valid. Sent once per link.
+   */
+  async sendDueReminders(): Promise<void> {
+    const due = await this.db.$queryRaw<
+      Array<{
+        bookingId: string;
+        tenantId: string;
+        propertyId: string;
+        operationId: string;
+        checkoutUrl: string;
+        amount: string;
+        currency: string;
+      }>
+    >`SELECT * FROM "payment_link_reminder_candidates"(100::integer)`;
+    for (const link of due) {
+      const amount = `${link.amount} ${link.currency}`;
+      await this.lifecycle.guest(
+        { tenantId: link.tenantId, propertyId: link.propertyId },
+        {
+          topic: 'payment_reminder',
+          key: 'payment_reminder',
+          eventType: 'guest.payment_reminder',
+          idempotencyKey: `payment-reminder/${link.operationId}`,
+          bookingId: link.bookingId,
+          heading: 'Payment reminder',
+          values: { payment_link: link.checkoutUrl, payment_due: amount },
+          rows: [{ label: 'Amount', value: amount }],
+          cta: { label: 'Pay securely with PokPay', url: link.checkoutUrl },
+        },
+      );
+    }
+  }
+
   async sendLink(scope: Scope, bookingId: string, actorUserId: string, key: string) {
     const initial = await this.db.withTenantTransaction(scope, async (tx) => {
       const rows = await tx.$queryRaw<Array<{ url: string; amount: string; currency: string }>>`

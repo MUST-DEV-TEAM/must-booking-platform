@@ -5,6 +5,7 @@ import { LocalPmsProvider } from '../booking/local-pms.provider';
 import { BookingUpdateNotificationService } from '../mail/booking-update-notification.service';
 import { LifecycleEmailService } from '../mail/lifecycle-email.service';
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
+import { PaymentCollectionService } from './payment-collection.service';
 import { PokPayPaymentService } from './pokpay-payment.service';
 
 const PAYMENT_EXPIRY_QUEUE = 'payment-expiry';
@@ -36,6 +37,7 @@ export class PaymentExpiryService implements OnModuleInit, OnModuleDestroy {
     @Inject(BookingUpdateNotificationService)
     private readonly updates: BookingUpdateNotificationService,
     @Inject(LifecycleEmailService) private readonly lifecycle: LifecycleEmailService,
+    @Inject(PaymentCollectionService) private readonly collection: PaymentCollectionService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -70,6 +72,9 @@ export class PaymentExpiryService implements OnModuleInit, OnModuleDestroy {
   async sweep(now = new Date()): Promise<{ expired: number }> {
     await this.pokpay.pollPendingOrders();
     await this.warnExpiring();
+    await this.collection.sendDueReminders().catch(() => {
+      this.logger.warn('Payment reminders could not be prepared.');
+    });
     const cutoffAt = new Date(now.getTime() - PAYMENT_PENDING_TIMEOUT_MINUTES * 60_000);
     const candidates = await this.database.$queryRaw<ExpiryCandidate[]>`
       SELECT "bookingId", "tenantId", "propertyId"
