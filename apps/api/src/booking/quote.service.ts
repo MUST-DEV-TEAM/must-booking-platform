@@ -98,6 +98,7 @@ export type AlternativeDate = {
 const DAY_MS = 86_400_000;
 /** Which shifts are tried, in the order of how close they are to the dates asked for. */
 const ALTERNATIVE_DATE_SHIFTS = [1, -1, 2, -2, 3, -3];
+const ALTERNATIVE_DATES_MAX_ROOM_TYPES = 30;
 
 function parseIsoDate(value: string): number | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
@@ -340,6 +341,11 @@ export class QuoteService {
     const start = parseIsoDate(input.startsOn);
     const end = parseIsoDate(input.endsOn);
     if (items.length === 0 || !start || !end || end <= start) return [];
+    // One entry per room type, and a small cap: this fans out into several shifted searches.
+    const seen = new Set<string>();
+    const roomTypes = items
+      .filter((item) => !seen.has(item.roomTypeId) && !!seen.add(item.roomTypeId))
+      .slice(0, ALTERNATIVE_DATES_MAX_ROOM_TYPES);
     const nights = Math.round((end - start) / DAY_MS);
     const now = new Date();
     const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
@@ -362,7 +368,7 @@ export class QuoteService {
             tenantId,
             propertyId,
             { ...input, startsOn: window.startsOn, endsOn: window.endsOn },
-            items,
+            roomTypes,
           );
           const open = prices.filter((price) => price.available && price.total);
           if (open.length === 0) return null;

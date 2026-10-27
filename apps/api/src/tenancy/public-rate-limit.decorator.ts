@@ -32,6 +32,16 @@ export const PUBLIC_QUOTE_RATE_LIMIT: PublicRateLimitOptions = {
   windowSeconds: 60,
 };
 
+/**
+ * One call checks several shifted stays (up to six provider lookups, mostly answered from the price memory),
+ * so it has its own, tighter window than a single quote.
+ */
+export const PUBLIC_ALTERNATIVE_DATES_RATE_LIMIT: PublicRateLimitOptions = {
+  name: 'alternative-dates',
+  maximum: 10,
+  windowSeconds: 60,
+};
+
 export const PUBLIC_BOOKING_MUTATION_RATE_LIMIT: PublicRateLimitOptions = {
   name: 'booking-mutation',
   maximum: 10,

@@ -3,7 +3,11 @@ import { normalizePromoCode } from './promo-code.service';
 
 import { PublicTenantScoped } from '../tenancy/tenant-context.decorator';
 import { PublicRateLimitGuard } from '../tenancy/public-rate-limit.guard';
-import { PUBLIC_QUOTE_RATE_LIMIT, PublicRateLimit } from '../tenancy/public-rate-limit.decorator';
+import {
+  PUBLIC_ALTERNATIVE_DATES_RATE_LIMIT,
+  PUBLIC_QUOTE_RATE_LIMIT,
+  PublicRateLimit,
+} from '../tenancy/public-rate-limit.decorator';
 import { QuoteService, type DisplayPriceItem } from './quote.service';
 
 type TenantPropertyRequest = {
@@ -47,7 +51,7 @@ export class QuoteController {
   @Post('alternative-dates')
   @PublicTenantScoped({ propertyParam: 'propertyId' })
   @UseGuards(PublicRateLimitGuard)
-  @PublicRateLimit(PUBLIC_QUOTE_RATE_LIMIT)
+  @PublicRateLimit(PUBLIC_ALTERNATIVE_DATES_RATE_LIMIT)
   async alternativeDates(@Body() body: unknown, @Req() request: TenantPropertyRequest) {
     const { value, items } = this.displayPriceBody(body);
     return {

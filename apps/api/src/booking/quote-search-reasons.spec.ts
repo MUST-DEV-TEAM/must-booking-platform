@@ -105,3 +105,25 @@ describe('alternative dates when nothing can be booked', () => {
     ).toEqual([]);
   });
 });
+
+describe('alternative dates stay cheap to ask for', () => {
+  it('asks about each room type once and no more than thirty of them', async () => {
+    const asked: number[] = [];
+    const service = Object.create(QuoteService.prototype) as Record<string, unknown>;
+    service.displayPrices = async (
+      _t: string,
+      _p: string,
+      _stay: unknown,
+      items: { roomTypeId: string }[],
+    ) => {
+      asked.push(items.length);
+      return [];
+    };
+    const many = Array.from({ length: 80 }, (_, index) =>
+      item(`00000000-0000-4000-8000-${String(index % 50).padStart(12, '0')}`),
+    );
+    await (service as unknown as QuoteService).alternativeDates('t', 'p', input, many);
+    expect(asked.length).toBeGreaterThan(0);
+    expect(new Set(asked)).toEqual(new Set([30]));
+  });
+});
