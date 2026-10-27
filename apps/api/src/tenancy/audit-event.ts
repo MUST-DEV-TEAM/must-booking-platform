@@ -4,6 +4,10 @@ export type AuditSource =
 type Definition = { title: string; result?: AuditResult; source?: AuditSource; routine?: boolean };
 /** Reviewed producer meanings. Defaults apply at INSERT only, never to historical reads. */
 export const AUDIT_EVENTS: Record<string, Definition> = {
+  'rates.website_visibility_changed': {
+    title: 'Rate switched on or off for the website',
+    result: 'completed',
+  },
   'booking.created': { title: 'Reservation created', result: 'completed' },
   'booking.updated': { title: 'Reservation updated', result: 'completed' },
   'booking.details_edited': { title: 'Guest and reservation details updated', result: 'completed' },

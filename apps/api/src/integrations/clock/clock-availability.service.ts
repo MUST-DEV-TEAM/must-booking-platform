@@ -27,6 +27,7 @@ import {
 import { ClockRateLimiterService } from './clock-rate-limiter';
 import { DisplayPriceStore, type StoredDisplayPrice } from './display-price-store';
 import { ClockRateRankingService } from './clock-rate-ranking.service';
+import { ClockWebsiteRatesService } from './clock-website-rates.service';
 import {
   ClockBookingConsistencyService,
   ClockBookingReadError,
@@ -130,8 +131,15 @@ export type ClockRateSelection = {
   total: Money;
 };
 
+/**
+ * Who a price or offer is for. The website honours the rates staff switched off for it; staff always see every
+ * published rate. Callers that say nothing are treated as staff.
+ */
+export type ClockChannel = 'website' | 'staff';
+
 export type ClockStayQuoteQuery = {
   roomTypeId: string;
+  channel?: ClockChannel;
   externalRoomTypeId?: string;
   startsOn: string;
   endsOn: string;
@@ -162,6 +170,8 @@ type ClockProductOffer = {
 type RoomTypeRates = {
   ids: string[];
   excludedForWbe: number;
+  /** Published rates that staff switched off for the website, and so are left out of `ids`. */
+  hiddenForWebsite?: number;
   /** Display facts per published rate id (name and meals), from the same `/rates/` call. */
   info: Record<string, ClockRateInfo>;
 };
@@ -300,6 +310,9 @@ export class ClockAvailabilityService {
     @Inject(ClockBookingConsistencyService)
     private readonly bookingConsistency: ClockBookingConsistencyService,
     @Optional() @Inject(DisplayPriceStore) private readonly displayPriceStore?: DisplayPriceStore,
+    @Optional()
+    @Inject(ClockWebsiteRatesService)
+    private readonly websiteRates?: ClockWebsiteRatesService,
   ) {}
 
   /**
@@ -481,7 +494,7 @@ export class ClockAvailabilityService {
   async getAvailability(
     tenantId: string,
     propertyId: string,
-    query: AvailabilityQuery & { childrenAges?: number[] },
+    query: AvailabilityQuery & { childrenAges?: number[]; channel?: ClockChannel },
     options: { skipCache?: boolean } = {},
   ): Promise<Result<AvailabilityResult>> {
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
@@ -506,13 +519,20 @@ export class ClockAvailabilityService {
 
     const adultCount = query.adultCount ?? 1;
     const childrenCount = query.childrenCount ?? 0;
-    const cacheKey = `${tenantId}:${propertyId}:${connection.connectionId}:${externalRoomTypeId}:${query.startsOn}:${query.endsOn}:${adultCount}:${childrenCount}:${JSON.stringify(query.childrenAges ?? [])}`;
+    const hidden = await this.hiddenRatesFor(tenantId, propertyId, query.channel);
+    const cacheKey = `${tenantId}:${propertyId}:${connection.connectionId}:${externalRoomTypeId}:${query.startsOn}:${query.endsOn}:${adultCount}:${childrenCount}:${JSON.stringify(query.childrenAges ?? [])}${hiddenKeyPart(hidden)}`;
     if (!options.skipCache) {
       const cached = this.availabilityCache.get(cacheKey);
       if (cached && cached.expiresAt > Date.now()) return { ok: true, value: cached.value };
     }
 
-    const rateIds = await this.ratesForRoomType(parsed.value, externalRoomTypeId);
+    const rateIds = await this.ratesForRoomType(
+      parsed.value,
+      externalRoomTypeId,
+      undefined,
+      false,
+      hidden,
+    );
     if (!rateIds.ok) return failure(rateIds.error);
     if (rateIds.value.ids.length === 0) return failure(noRatesError(rateIds.value));
 
@@ -558,6 +578,7 @@ export class ClockAvailabilityService {
       childrenCount?: number;
       childrenAges?: number[];
       clockRateId?: string;
+      channel?: ClockChannel;
     },
   ): Promise<Result<Money>> {
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
@@ -591,6 +612,7 @@ export class ClockAvailabilityService {
       childrenCount: query.childrenCount,
       childrenAges: query.childrenAges,
       chosenRateId: query.clockRateId,
+      channel: query.channel,
     });
     if (!selection.ok) return selection;
     return { ok: true, value: selection.value.total };
@@ -671,6 +693,7 @@ export class ClockAvailabilityService {
       return results;
     }
 
+    const hidden = await this.hiddenRatesFor(tenantId, propertyId, uniqueQueries[0]?.channel);
     // /rates/ returns the entire catalogue. Share one cold-cache fetch within
     // this tenant/property request, leaving allowance for the products query.
     let batchRates: Promise<ClockOutcome<ClockRateRow[]>> | undefined;
@@ -695,7 +718,13 @@ export class ClockAvailabilityService {
         return {
           query,
           externalRoomTypeId,
-          rates: await this.ratesForRoomType(parsed.value, externalRoomTypeId, loadBatchRates),
+          rates: await this.ratesForRoomType(
+            parsed.value,
+            externalRoomTypeId,
+            loadBatchRates,
+            false,
+            hidden,
+          ),
         };
       }),
     );
@@ -854,7 +883,12 @@ export class ClockAvailabilityService {
 
     for (const { entry, rankOrder } of misses) {
       const roomType = response.value.find((item) => String(item.id) === entry.externalRoomTypeId);
-      const winner = roomType ? selectBestOffer(roomType.rates, rankOrder) : undefined;
+      const winner = roomType
+        ? selectBestOffer(
+            ratesAmong(roomType.rates, entry.rates.ok ? entry.rates.value.ids : []),
+            rankOrder,
+          )
+        : undefined;
       const cacheKey = this.displayPriceCacheKey(
         tenantId,
         propertyId,
@@ -973,9 +1007,17 @@ export class ClockAvailabilityService {
       requiredRateId?: string;
       /** The rate the guest chose from the offers; only that rate may win. */
       chosenRateId?: string;
+      channel?: ClockChannel;
     },
   ): Promise<Result<ClockRateSelection>> {
-    const rateIds = await this.ratesForRoomType(credentials, query.externalRoomTypeId);
+    const hidden = await this.hiddenRatesFor(query.tenantId, query.propertyId, query.channel);
+    const rateIds = await this.ratesForRoomType(
+      credentials,
+      query.externalRoomTypeId,
+      undefined,
+      false,
+      hidden,
+    );
     if (!rateIds.ok) return failure(rateIds.error);
     if (rateIds.value.ids.length === 0) return failure(noRatesError(rateIds.value));
     if (query.requiredRateId && !rateIds.value.ids.includes(query.requiredRateId))
@@ -1024,7 +1066,9 @@ export class ClockAvailabilityService {
       query.roomTypeId,
     );
     const roomType = response.value.find((item) => String(item.id) === query.externalRoomTypeId);
-    const winner = roomType ? selectBestOffer(roomType.rates, rankOrder) : undefined;
+    const winner = roomType
+      ? selectBestOffer(ratesAmong(roomType.rates, selectedIds), rankOrder)
+      : undefined;
     if (!winner) {
       // The real rejection reason (Clock's per-offer `errors`, e.g. a
       // staff-set stop-from-sale or a min-stay restriction) was previously
@@ -1118,6 +1162,7 @@ export class ClockAvailabilityService {
       adultCount?: number;
       childrenCount?: number;
       childrenAges?: number[];
+      channel?: ClockChannel;
     },
   ): Promise<Result<ClockStayOffer[]>> {
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
@@ -1136,7 +1181,14 @@ export class ClockAvailabilityService {
           'This room type has no confirmed Clock catalog mapping — sync and confirm it first.',
         ),
       );
-    const rates = await this.ratesForRoomType(parsed.value, externalRoomTypeId);
+    const hidden = await this.hiddenRatesFor(tenantId, propertyId, query.channel);
+    const rates = await this.ratesForRoomType(
+      parsed.value,
+      externalRoomTypeId,
+      undefined,
+      false,
+      hidden,
+    );
     if (!rates.ok) return failure(rates.error);
     if (rates.value.ids.length === 0) return failure(noRatesError(rates.value));
 
@@ -1157,7 +1209,7 @@ export class ClockAvailabilityService {
     if (!response.ok) return failure(response.error);
 
     const roomType = response.value.find((item) => String(item.id) === externalRoomTypeId);
-    const offers = roomType ? collectValidOffers(roomType.rates) : [];
+    const offers = roomType ? collectValidOffers(ratesAmong(roomType.rates, rates.value.ids)) : [];
     return {
       ok: true,
       value: orderOffers(offers).map(({ rateId, offer }) => {
@@ -1203,6 +1255,7 @@ export class ClockAvailabilityService {
       childrenCount?: number;
       childrenAges?: number[];
       clockRateId?: string;
+      channel?: ClockChannel;
     },
   ): Promise<Result<ClockQuote>> {
     const total = await this.getQuote(tenantId, propertyId, query);
@@ -1226,8 +1279,22 @@ export class ClockAvailabilityService {
           'This room type has no confirmed Clock catalog mapping — sync and confirm it first.',
         ),
       );
-    const rateIds = await this.ratesForRoomType(parsed.value, externalRoomTypeId);
+    const hidden = await this.hiddenRatesFor(tenantId, propertyId, query.channel);
+    const rateIds = await this.ratesForRoomType(
+      parsed.value,
+      externalRoomTypeId,
+      undefined,
+      false,
+      hidden,
+    );
     if (!rateIds.ok) return failure(rateIds.error);
+    if (query.clockRateId && hidden?.has(query.clockRateId))
+      return failure({
+        category: 'validation',
+        code: 'clock_rate_unavailable',
+        message: 'The selected rate is not available for this room type.',
+        retryable: false,
+      });
     // A guest-chosen rate prices every night; otherwise every published rate competes.
     const pricedRateIds = query.clockRateId ? [query.clockRateId] : rateIds.value.ids;
 
@@ -1267,7 +1334,9 @@ export class ClockAvailabilityService {
       );
       if (!response.ok) return failure(response.error);
       const roomType = response.value.find((item) => String(item.id) === externalRoomTypeId);
-      const winner = roomType ? selectBestOffer(roomType.rates, rankOrder) : undefined;
+      const winner = roomType
+        ? selectBestOffer(ratesAmong(roomType.rates, pricedRateIds), rankOrder)
+        : undefined;
       if (!winner) {
         this.logger.warn(
           `No available Clock offer for room type ${query.roomTypeId} on ${date}: ${JSON.stringify(rejectionReasons(roomType?.rates))}`,
@@ -1355,6 +1424,7 @@ export class ClockAvailabilityService {
       childrenCount?: number;
       childrenAges?: number[];
       roomCount?: number;
+      channel?: ClockChannel;
     },
   ): Promise<Result<CalendarDay[]>> {
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
@@ -1377,6 +1447,7 @@ export class ClockAvailabilityService {
         ),
       );
 
+    const hidden = await this.hiddenRatesFor(tenantId, propertyId, query.channel);
     const calendarKey = JSON.stringify([
       tenantId,
       propertyId,
@@ -1387,6 +1458,7 @@ export class ClockAvailabilityService {
       query.childrenCount ?? 0,
       query.childrenAges ?? [],
       query.roomCount ?? 1,
+      hiddenKeyPart(hidden),
     ]);
     const cachedCalendar = this.calendarCache.get(calendarKey);
     if (!query.fresh && cachedCalendar && cachedCalendar.expiresAt > Date.now())
@@ -1396,6 +1468,7 @@ export class ClockAvailabilityService {
       externalRoomTypeId,
       undefined,
       query.fresh,
+      hidden,
     );
     if (!rateIds.ok) return failure(rateIds.error);
     if (rateIds.value.ids.length === 0) return failure(noRatesError(rateIds.value));
@@ -1578,7 +1651,37 @@ export class ClockAvailabilityService {
     return request;
   }
 
+  /** The rate ids switched off for the website, or none when the caller is staff (or nothing is switched off). */
+  private async hiddenRatesFor(
+    tenantId: string,
+    propertyId: string,
+    channel?: ClockChannel,
+  ): Promise<Set<string> | undefined> {
+    if (channel !== 'website' || !this.websiteRates) return undefined;
+    const hidden = await this.websiteRates.hiddenRateIds(tenantId, propertyId);
+    return hidden.size > 0 ? hidden : undefined;
+  }
+
   private async ratesForRoomType(
+    credentials: ClockConnectionCredentials,
+    externalRoomTypeId: string,
+    loadRates?: () => Promise<ClockOutcome<ClockRateRow[]>>,
+    fresh = false,
+    hidden?: Set<string>,
+  ): Promise<ClockOutcome<RoomTypeRates>> {
+    const all = await this.allRatesForRoomType(credentials, externalRoomTypeId, loadRates, fresh);
+    if (!all.ok || !hidden) return all;
+    const ids = all.value.ids.filter((id) => !hidden.has(id));
+    const info = Object.fromEntries(
+      Object.entries(all.value.info).filter(([id]) => !hidden.has(id)),
+    );
+    return {
+      ok: true,
+      value: { ...all.value, ids, info, hiddenForWebsite: all.value.ids.length - ids.length },
+    };
+  }
+
+  private async allRatesForRoomType(
     credentials: ClockConnectionCredentials,
     externalRoomTypeId: string,
     loadRates?: () => Promise<ClockOutcome<ClockRateRow[]>>,
@@ -1877,11 +1980,18 @@ function noOfferError(): ClockClassifiedError {
   };
 }
 
+/** Part of a cache key: answers computed without some rates must not be reused once the list of rates changes. */
+function hiddenKeyPart(hidden?: Set<string>): string {
+  return hidden && hidden.size > 0 ? `:hidden=${[...hidden].sort().join(',')}` : '';
+}
+
 function noRatesError(rates: RoomTypeRates): ClockClassifiedError {
   return classifyConfigurationError(
-    rates.excludedForWbe > 0
-      ? "This room type has Clock rates configured, but none are published to the booking engine (wbe) — check Clock's rate configuration."
-      : 'This room type has no rate configured in Clock yet.',
+    (rates.hiddenForWebsite ?? 0) > 0
+      ? 'Every rate for this room type is switched off for the website.'
+      : rates.excludedForWbe > 0
+        ? "This room type has Clock rates configured, but none are published to the booking engine (wbe) — check Clock's rate configuration."
+        : 'This room type has no rate configured in Clock yet.',
   );
 }
 
@@ -1913,6 +2023,17 @@ function selectBestOffer(
 }
 
 /** The offers a guest could actually book: available and without any restriction error. */
+/** Only the offers of the given rates. Clock answers for the rates it was asked about; this keeps a rate that was left out of the question out of the answer too. */
+function ratesAmong(
+  rateOffers: Record<string, ClockProductOffer[]>,
+  ids: string[],
+): Record<string, ClockProductOffer[]> {
+  const allowed = new Set(ids);
+  return Object.fromEntries(
+    Object.entries(rateOffers ?? {}).filter(([rateId]) => allowed.has(rateId)),
+  );
+}
+
 function collectValidOffers(
   rateOffers: Record<string, ClockProductOffer[]>,
 ): Array<{ rateId: string; offer: ClockProductOffer }> {

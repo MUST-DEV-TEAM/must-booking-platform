@@ -8,6 +8,15 @@ Status: **IMPLEMENTED mappings with partial normalization**. Code inspected 2026
 
 There is no RATE_PLAN catalog mapping. This does **not** mean the property must have one rate: `ClockAvailabilityService.selectRateForStay` supports multiple published child rates and `clock_rate_rankings` stores staff order per room type. Shadow `rate_plans.clock_shadow_room_type_id` links the local schema to a Clock room type; it is not a local price mirror. Rate-plan IDs and child rate IDs are different concepts.
 
+## Rates sold on the website (2026-10-27)
+
+Every Clock rate with `wbe: true` is sold on the hotel's website by default. Staff can switch an individual rate off for the website in Rates & Pricing (Rates by room type). A switched-off rate has a row in `clock_website_hidden_rates` (tenant, property, Clock rate id, who switched it off); a rate with no row is on, so a new rate published in Clock is sold at once. Clock stays the source of the rate and its price; every change is written to the audit log (`rates.website_visibility_changed`).
+
+- **Who honours it.** Only guest-facing paths pass `channel: 'website'`: the room-card price search (`getStaySearch`), the rate offers at checkout (`listOffersForStay`) and the final quote (`getQuoteWithNightlyRates`). A guest who names a switched-off rate gets `clock_rate_unavailable`. Staff paths (staff availability search, staff quotes, staff bookings, amendments) see every rate. The booking itself trusts the quote token, which can only name a rate the website quote allowed.
+- **Caches.** The room-card price memory and the availability and calendar caches include the switched-off rate ids in their keys, so switching a rate is felt at once without waiting for a cache to expire. The list of switched-off rates is read from the database at most every 30 seconds.
+- **Known gap.** The advisory availability check and the date-picker calendar do not yet filter switched-off rates, so a date can look free when the only free rate is switched off; the quote step then says the rate is unavailable. Fix this together with the public calendar if a hotel starts switching rates off.
+- **All rates off.** A room type whose every rate is off is not bookable on the website; the staff screen says so.
+
 ## Booking fields
 
 | MUST | Clock | Current handling |

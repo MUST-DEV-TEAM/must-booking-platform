@@ -9,6 +9,7 @@ import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant
 import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
 import {
   ClockAvailabilityService,
+  type ClockChannel,
   type ClockStayQuoteQuery,
   type UnavailableReason,
 } from '../integrations/clock/clock-availability.service';
@@ -293,6 +294,7 @@ export class QuoteService {
         childrenCount: normalizedInput.children,
         childrenAges: normalizedInput.childrenAges,
         clockRateId: normalizedInput.clockRateId,
+        channel: pricingChannel,
       });
       if (!quote.ok) throw new BadRequestException(quote.error.message);
       return quote.value;
@@ -369,6 +371,7 @@ export class QuoteService {
             propertyId,
             { ...input, startsOn: window.startsOn, endsOn: window.endsOn },
             roomTypes,
+            'website',
           );
           const open = prices.filter((price) => price.available && price.total);
           if (open.length === 0) return null;
@@ -399,6 +402,7 @@ export class QuoteService {
     propertyId: string,
     input: DisplayPriceInput,
     items: DisplayPriceItem[],
+    channel: ClockChannel = 'website',
   ): Promise<DisplayPrice[]> {
     if (items.length === 0) return [];
     const { roomCount: requestedRoomCount, ...quoteInput } = input;
@@ -457,6 +461,7 @@ export class QuoteService {
         childrenAges: normalized.childrenAges,
         roomCount,
         currency: item.currency,
+        channel,
       }));
       const search = queries.length
         ? await this.clockAvailability.getStaySearch(tenantId, propertyId, queries)

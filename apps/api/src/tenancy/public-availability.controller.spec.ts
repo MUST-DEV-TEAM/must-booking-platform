@@ -234,6 +234,8 @@ describe('PublicAvailabilityController.getRateOffers', () => {
       endsOn: '2026-09-22',
       adultCount: 2,
       childrenCount: 0,
+      // The website honours the rates staff switched off; staff screens do not.
+      channel: 'website',
     });
   });
 

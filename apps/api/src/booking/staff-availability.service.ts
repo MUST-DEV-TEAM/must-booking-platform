@@ -92,6 +92,7 @@ export class StaffAvailabilityService {
         scope.propertyId,
         input,
         eligible,
+        'staff',
       );
       const roomIds = eligible.flatMap((i) => (i.roomId ? [i.roomId] : []));
       const unavailable = roomIds.length
