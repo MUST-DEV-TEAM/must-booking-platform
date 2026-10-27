@@ -334,9 +334,71 @@ function get_accommodation_page_view_data(): array
         // simpler per-room-type flow — the backend auto-assigns a same-priced
         // room, no picker needed.
         $bookingMode = get_must_booking_mode($checkin, $checkout);
-        foreach (get_must_room_types($checkin, $checkout) as $roomType) {
+        $allRoomTypes = get_must_room_types($checkin, $checkout);
+        // A hotel system such as Clock answers availability, rooms left and the price of every room type in ONE
+        // request, so the room types are not asked about one by one. Room types that cannot be booked are shown
+        // greyed out with the reason. If that one request fails, the old room-by-room path below still works.
+        $searchAnswers = [];
+        if ($bookingMode !== 'INDIVIDUAL_ROOM_ONLY' && get_must_pricing_source($checkin, $checkout) === 'CLOCK_PMS') {
+            $searchItems = [];
+            foreach ($allRoomTypes as $searchRoomType) {
+                $searchRoomTypeId = (string) ($searchRoomType['id'] ?? '');
+                if ($searchRoomTypeId === '' || ($accommodationType !== '' && $searchRoomTypeId !== $accommodationType)) continue;
+                $searchItems[] = ['key' => $searchRoomTypeId, 'room_type_id' => $searchRoomTypeId, 'room_id' => '', 'rate_plan_id' => '', 'currency' => ''];
+            }
+            $searchAnswers = get_must_display_prices($searchItems, $checkin, $checkout, $adults, $children, $guests, 1);
+        }
+        foreach ($allRoomTypes as $roomType) {
             $roomTypeId = (string) ($roomType['id'] ?? '');
             if ($roomTypeId === '' || ($accommodationType !== '' && $roomTypeId !== $accommodationType)) continue;
+            $searchAnswer = isset($searchAnswers[$roomTypeId]) && \is_array($searchAnswers[$roomTypeId]) ? $searchAnswers[$roomTypeId] : null;
+            if ($searchAnswer !== null) {
+                $fits = (int) ($roomType['maxOccupancy'] ?? 0) >= $guests;
+                if ($fits) $hasRoomWithSufficientCapacity = true;
+                $answerReason = $fits ? (string) ($searchAnswer['reason'] ?? '') : 'capacity';
+                $answerAvailable = $fits && !empty($searchAnswer['available']);
+                if (!$answerAvailable && $answerReason !== '') {
+                    $index++;
+                    $rooms[] = [
+                        'id' => $index, 'room_type_id' => $index, 'physical_room_id' => 0,
+                        'must_room_type_uuid' => $roomTypeId, 'must_room_uuid' => '',
+                        'name' => (string) ($roomType['name'] ?? ''), 'description' => (string) ($roomType['description'] ?? ''),
+                        'max_guests' => (int) ($roomType['maxOccupancy'] ?? 0),
+                        'view_type' => '', 'floor' => null, 'available_count' => 0,
+                        'currency' => (string) ($roomType['ratePlans'][0]['currency'] ?? 'USD'),
+                        ...get_room_type_media_view_data($roomType),
+                        'room_rules' => '', 'amenities' => get_room_type_amenities_view_data($roomType),
+                        'rate_plans' => [], 'is_selected' => false, 'selected_rate_plan_id' => 0,
+                        'is_unavailable' => true,
+                        'unavailable_reason' => get_must_unavailable_reason_label($answerReason, $roomType),
+                        'display_price' => ['key' => (string) $index, 'available' => false],
+                    ];
+                    continue;
+                }
+                if ($answerAvailable) {
+                    $index++;
+                    $freeRooms = isset($searchAnswer['freeRooms']) && $searchAnswer['freeRooms'] !== null ? (int) $searchAnswer['freeRooms'] : 0;
+                    $rooms[] = [
+                        'id' => $index, 'room_type_id' => $index, 'physical_room_id' => 0,
+                        'must_room_type_uuid' => $roomTypeId, 'must_room_uuid' => '',
+                        'name' => (string) ($roomType['name'] ?? ''), 'description' => (string) ($roomType['description'] ?? ''),
+                        'max_guests' => (int) ($roomType['maxOccupancy'] ?? 0),
+                        'view_type' => '', 'floor' => null,
+                        // Only a short supply is worth saying; a long list of free rooms is noise.
+                        'available_count' => ($freeRooms >= 1 && $freeRooms <= 3) ? $freeRooms : 0,
+                        'scarce' => $freeRooms >= 1 && $freeRooms <= 3,
+                        'currency' => (string) ($roomType['ratePlans'][0]['currency'] ?? 'USD'),
+                        ...get_room_type_media_view_data($roomType),
+                        'room_rules' => '', 'amenities' => get_room_type_amenities_view_data($roomType),
+                        'rate_plans' => get_room_type_rate_plans_view_data($roomType, $index),
+                        'is_selected' => $selectionMatchesContext && ($selection['roomTypeId'] ?? '') === $roomTypeId,
+                        'selected_rate_plan_id' => 0,
+                        'display_price' => \array_merge($searchAnswer, ['key' => (string) $index]),
+                    ];
+                    continue;
+                }
+                // Clock could not be asked about this room type: show it as before and let the final check decide.
+            }
             if ((int) ($roomType['maxOccupancy'] ?? 0) < $guests) continue;
             $hasRoomWithSufficientCapacity = true;
 
@@ -395,8 +457,12 @@ function get_accommodation_page_view_data(): array
         }
     }
 
+    // Bookable room types first, the ones that cannot be booked after them.
+    \usort($rooms, static fn (array $a, array $b): int => (int) !empty($a['is_unavailable']) <=> (int) !empty($b['is_unavailable']));
+
     $displayPriceItems = [];
     foreach ($rooms as $room) {
+        if (isset($room['display_price'])) continue; // already answered by the one search request
         $ratePlans = isset($room['rate_plans']) && \is_array($room['rate_plans']) ? $room['rate_plans'] : [];
         $firstRatePlan = \is_array($ratePlans[0] ?? null) ? $ratePlans[0] : [];
         $displayPriceItems[] = [
@@ -409,10 +475,12 @@ function get_accommodation_page_view_data(): array
     }
     $displayPrices = get_must_display_prices($displayPriceItems, $checkin, $checkout, $adults, $children, $guests, 1);
     foreach ($rooms as &$room) {
+        if (isset($room['display_price'])) continue;
         $roomKey = (string) ($room['id'] ?? '');
         $room['display_price'] = $displayPrices[$roomKey] ?? ['key' => $roomKey, 'available' => false];
     }
     unset($room);
+    $allUnavailable = $rooms !== [] && \count(\array_filter($rooms, static fn (array $r): bool => empty($r['is_unavailable']))) === 0;
 
     $noRoomsMessage = $hasContext
         ? __('No rooms are available for the selected dates.', 'must-hotel-booking')
@@ -434,7 +502,7 @@ function get_accommodation_page_view_data(): array
         'room_count' => $roomCount, 'resolved_room_count' => 1,
         'accommodation_type' => $accommodationType, 'selected_rooms' => [], 'selected_room_count' => $selectedRoomCount,
         'can_continue' => $selectedRoomCount > 0 && $partyCapacityMessage === '', 'selection_limit_reached' => $selectedRoomCount > 0, 'single_room_mode' => true,
-        'no_rooms_message' => $noRoomsMessage,
+        'no_rooms_message' => $noRoomsMessage, 'all_unavailable' => $allUnavailable,
         'selection_status_message' => '', 'selection_status_tone' => 'neutral',
         'booking_url' => get_booking_page_url(), 'checkout_url' => get_checkout_page_url(), 'accommodation_url' => get_booking_accommodation_page_url(),
     ];

@@ -9,6 +9,7 @@ $view = \must_hotel_booking\get_accommodation_page_view_data();
 $messages = isset($view['messages']) && \is_array($view['messages']) ? $view['messages'] : [];
 $rooms = isset($view['rooms']) && \is_array($view['rooms']) ? $view['rooms'] : [];
 $has_context = !empty($view['has_context']);
+$all_unavailable = !empty($view['all_unavailable']);
 $is_valid = !empty($view['is_valid']);
 $checkin = isset($view['checkin']) ? (string) $view['checkin'] : '';
 $checkout = isset($view['checkout']) ? (string) $view['checkout'] : '';
@@ -279,6 +280,11 @@ $continue_label = \function_exists('\must_hotel_booking\get_accommodation_contin
                         <?php echo \esc_html($no_rooms_message); ?>
                     </p>
                 <?php else : ?>
+                    <?php if ($all_unavailable) : ?>
+                        <p class="must-booking-no-available-notice" role="status">
+                            <?php echo \esc_html__('Nothing is available for these dates. The reason for each room is shown below; please try other dates.', 'must-hotel-booking'); ?>
+                        </p>
+                    <?php endif; ?>
                     <div id="must-booking-room-list" class="must-hotel-booking-room-list">
                         <?php foreach ($rooms as $room) : ?>
                             <?php
@@ -321,6 +327,9 @@ $continue_label = \function_exists('\must_hotel_booking\get_accommodation_contin
                             $people_icon_url = isset($room['people_icon_url']) ? (string) $room['people_icon_url'] : '';
                             $surface_icon_url = isset($room['surface_icon_url']) ? (string) $room['surface_icon_url'] : '';
                             $is_selected = !empty($room['is_selected']);
+                            $is_unavailable = !empty($room['is_unavailable']);
+                            $unavailable_reason = isset($room['unavailable_reason']) ? (string) $room['unavailable_reason'] : '';
+                            $is_scarce = !empty($room['scarce']);
                             $selected_rate_plan_id = isset($room['selected_rate_plan_id']) ? (int) $room['selected_rate_plan_id'] : 0;
                             $rate_plans = isset($room['rate_plans']) && \is_array($room['rate_plans']) ? $room['rate_plans'] : [];
                             $primary_rate_plan = [];
@@ -368,7 +377,7 @@ $continue_label = \function_exists('\must_hotel_booking\get_accommodation_contin
                             ?>
                             <div class="must-booking-accommodation-room-entry">
                                 <article
-                                    class="must-hotel-booking-room-card must-booking-accommodation-room-card<?php echo $is_selected ? ' is-selected' : ''; ?>"
+                                    class="must-hotel-booking-room-card must-booking-accommodation-room-card<?php echo $is_selected ? ' is-selected' : ''; ?><?php echo $is_unavailable ? ' is-unavailable' : ''; ?>"
                                     data-room-id="<?php echo \esc_attr((string) $room_id); ?>"
                                     data-lightbox-images="<?php echo $lightbox_attr; ?>"
                                     data-lightbox-title="<?php echo \esc_attr($room_name); ?>"
@@ -389,19 +398,20 @@ $continue_label = \function_exists('\must_hotel_booking\get_accommodation_contin
                                                 <h3><?php echo \esc_html($room_name !== '' ? $room_name : __('Room', 'must-hotel-booking')); ?></h3>
 
                                                 <?php if ($available_count > 0) : ?>
-                                                    <p class="must-booking-room-availability">
+                                                    <p class="must-booking-room-availability<?php echo $is_scarce ? ' is-scarce' : ''; ?>">
                                                         <?php
                                                         echo \esc_html(
-                                                            \sprintf(
-                                                                \_n('%d available', '%d available', $available_count, 'must-hotel-booking'),
-                                                                $available_count
-                                                            )
+                                                            $is_scarce
+                                                                ? \sprintf(\_n('Only %d left', 'Only %d left', $available_count, 'must-hotel-booking'), $available_count)
+                                                                : \sprintf(\_n('%d available', '%d available', $available_count, 'must-hotel-booking'), $available_count)
                                                         );
                                                         ?>
                                                     </p>
                                                 <?php endif; ?>
 
-                                                <?php if ($display_price_available) : ?>
+                                                <?php if ($is_unavailable) : ?>
+                                                    <p class="must-booking-room-unavailable-reason"><?php echo \esc_html($unavailable_reason !== '' ? $unavailable_reason : __('Not available for these dates', 'must-hotel-booking')); ?></p>
+                                                <?php elseif ($display_price_available) : ?>
                                                     <p class="must-booking-room-from-price">
                                                         <span><?php echo \esc_html__('From', 'must-hotel-booking'); ?></span>
                                                         <strong><?php echo $display_price_html; ?></strong>
@@ -468,7 +478,7 @@ $continue_label = \function_exists('\must_hotel_booking\get_accommodation_contin
 
                                         <div class="must-booking-room-section must-booking-room-section-actions">
                                             <div class="must-booking-room-actions">
-                                                <?php if (!empty($primary_rate_plan)) : ?>
+                                                <?php if (!empty($primary_rate_plan) && !$is_unavailable) : ?>
                                                     <?php
                                                     $primary_rate_plan_id = isset($primary_rate_plan['id']) ? (int) $primary_rate_plan['id'] : 0;
                                                     $room_button_action = $is_selected ? 'remove_selected_room' : 'select_room';

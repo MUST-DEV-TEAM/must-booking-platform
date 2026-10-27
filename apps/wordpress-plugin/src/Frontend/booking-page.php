@@ -142,6 +142,51 @@ function get_must_display_prices(
     return $result;
 }
 
+/** @return string where the hotel's availability and prices come from: 'CLOCK_PMS' (one request answers every room type) or 'LOCAL' */
+function get_must_pricing_source(string $startsOn = '', string $endsOn = ''): string
+{
+    $catalog = get_must_catalog($startsOn, $endsOn);
+    return (isset($catalog['pricingSource']) && $catalog['pricingSource'] === 'CLOCK_PMS') ? 'CLOCK_PMS' : 'LOCAL';
+}
+
+/**
+ * What to tell a guest about a room type that cannot be booked for their stay.
+ *
+ * @param array<string, mixed> $roomType
+ */
+function get_must_unavailable_reason_label(string $reason, array $roomType = []): string
+{
+    switch ($reason) {
+        case 'sold_out':
+            return \__('Sold out for these dates', 'must-hotel-booking');
+        case 'min_stay':
+            return \__('Needs a longer stay on these dates', 'must-hotel-booking');
+        case 'max_stay':
+            return \__('Stay is longer than we allow', 'must-hotel-booking');
+        case 'no_arrival':
+            return \__('No arrivals on this date', 'must-hotel-booking');
+        case 'no_departure':
+            return \__('No departures on this date', 'must-hotel-booking');
+        case 'capacity':
+            $max = (int) ($roomType['maxOccupancy'] ?? 0);
+            return $max > 0
+                ? \sprintf(
+                    /* translators: %d is the most guests the room takes. */
+                    \__('Sleeps up to %d guests', 'must-hotel-booking'),
+                    $max
+                )
+                : \__('Too many guests for this room', 'must-hotel-booking');
+        case 'same_day_closed':
+            return \__('Same-day booking is closed', 'must-hotel-booking');
+        case 'too_far_ahead':
+            return \__('Too far ahead to book online', 'must-hotel-booking');
+        case 'past_date':
+            return \__('This date has passed', 'must-hotel-booking');
+        default:
+            return \__('Not available for these dates', 'must-hotel-booking');
+    }
+}
+
 /** @return string the property's bookingMode, e.g. 'ROOM_TYPE_ONLY'/'INDIVIDUAL_ROOM_ONLY'/'MIXED' (defaults to 'ROOM_TYPE_ONLY' if unknown) */
 function get_must_booking_mode(string $startsOn = '', string $endsOn = ''): string
 {
