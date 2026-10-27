@@ -1,5 +1,10 @@
 import { withClockBackgroundWork } from './clock-request-context';
-import { buildSyncSummary, type SyncCounts, type SyncJobRow } from './clock-sync-progress';
+import {
+  BOOKINGS_IMPORT_VERSION,
+  buildSyncSummary,
+  type SyncCounts,
+  type SyncJobRow,
+} from './clock-sync-progress';
 import { ClockFinancialService, ClockFinancialCurrencyError } from './clock-financial.service';
 import { Param } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
@@ -149,6 +154,7 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
           progress->>'startedAt' AS "startedAt",
           (progress->>'total')::int AS "progressTotal",
           COALESCE((snapshot->>'initialComplete')::boolean,false) AS "initialComplete",
+          (snapshot->>'schemaVersion')::int AS "importVersion",
           COALESCE((snapshot->>'initialTotal')::int,(snapshot->>'total')::int) AS "snapshotTotal",
           COALESCE((progress->>'skipped')::int,(snapshot->>'skipped')::int,0) AS skipped
           FROM clock_sync_jobs WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND connection_id=${scope.connectionId}::uuid ORDER BY resource`,
@@ -451,7 +457,7 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
         ? job.progress.ids
         : await this.reader.updatedBookingIds(
             credentials.value,
-            job.snapshot?.schemaVersion === 2 && job.snapshot?.highWater
+            job.snapshot?.schemaVersion === BOOKINGS_IMPORT_VERSION && job.snapshot?.highWater
               ? new Date(Date.parse(job.snapshot.highWater) - 60000).toISOString()
               : '1970-01-01T00:00:00.000Z',
             until,
@@ -506,7 +512,7 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
               highWater: until,
               total: ids.length,
               initialComplete: true,
-              schemaVersion: 2,
+              schemaVersion: BOOKINGS_IMPORT_VERSION,
               initialTotal: job.snapshot?.initialTotal ?? ids.length,
               skipped: Number(job.snapshot?.skipped ?? 0) + skipped,
             }

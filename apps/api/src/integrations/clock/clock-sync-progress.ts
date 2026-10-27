@@ -14,11 +14,19 @@ export interface SyncJobRow {
   progressTotal: number | null;
   /** Set once the first complete pass has finished. */
   initialComplete: boolean;
+  /** Which version of the import produced the last complete pass. */
+  importVersion?: number | null;
   /** Size of the last complete pass. */
   snapshotTotal: number | null;
   /** Reservations that could not be brought in (an unmapped room type or an unknown status). */
   skipped?: number;
 }
+
+/**
+ * Bump this to make the reservation import read every reservation again from the start: for example when what
+ * is stored from each one changed (version 3: the currency Clock bills it in).
+ */
+export const BOOKINGS_IMPORT_VERSION = 3;
 
 export type SyncGroupState = 'done' | 'running' | 'waiting' | 'error';
 
@@ -118,7 +126,9 @@ function listGroup(
       detail,
     };
   // After the first full pass the job only picks up changes, so the figure to show is that full pass.
-  if (job.initialComplete) {
+  // A new version of the import reads everything again, so the earlier pass no longer counts as done.
+  const current = key !== 'bookings' || job.importVersion === BOOKINGS_IMPORT_VERSION;
+  if (job.initialComplete && current) {
     const total = Math.max(job.snapshotTotal ?? job.total ?? job.processed, held);
     return {
       key,

@@ -333,6 +333,7 @@ export class ClockBookingHydrationService {
            status = EXCLUDED.status,
            starts_on = EXCLUDED.starts_on,
            ends_on = EXCLUDED.ends_on,
+           rate_plan_id = CASE WHEN bookings.external_reference LIKE 'CLOCK-%' THEN EXCLUDED.rate_plan_id ELSE bookings.rate_plan_id END,
            total_amount = EXCLUDED.total_amount,
            adults = EXCLUDED.adults,
            children = EXCLUDED.children,
@@ -522,14 +523,17 @@ export class ClockBookingHydrationService {
     externalRoomTypeId: number | null | undefined,
     currency: string,
   ): Promise<string> {
-    const existing = await tx.$queryRawUnsafe<Array<{ id: string }>>(
-      `SELECT id FROM rate_plans WHERE tenant_id = $1::uuid AND property_id = $2::uuid
+    const existing = await tx.$queryRawUnsafe<Array<{ id: string; currency: string }>>(
+      `SELECT id, currency FROM rate_plans WHERE tenant_id = $1::uuid AND property_id = $2::uuid
          AND clock_shadow_room_type_id = $3::uuid`,
       tenantId,
       propertyId,
       roomTypeId,
     );
-    if (existing[0]) return existing[0].id;
+    if (existing[0] && existing[0].currency === currency) return existing[0].id;
+    // Clock bills some reservations in another currency (a Reception rate in lek, a channel booking). Those
+    // are kept on a plan in that currency, so their totals are never shown as if they were the hotel's own.
+    if (existing[0]) return this.currencyRatePlanId(tx, tenantId, propertyId, currency);
 
     const id = randomUUID();
     await tx.$executeRawUnsafe(
@@ -541,6 +545,39 @@ export class ClockBookingHydrationService {
       `Clock room type ${externalRoomTypeId ?? roomTypeId}`,
       currency,
       roomTypeId,
+    );
+    return id;
+  }
+
+  /**
+   * The inactive plan that holds Clock reservations billed in a currency other than the hotel's. It is not a
+   * plan a guest or staff member can book; it only gives those reservations the right currency.
+   */
+  private async currencyRatePlanId(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+    currency: string,
+  ): Promise<string> {
+    const name = `Clock reservations billed in ${currency}`;
+    const found = await tx.$queryRawUnsafe<Array<{ id: string }>>(
+      `SELECT id FROM rate_plans WHERE tenant_id = $1::uuid AND property_id = $2::uuid
+         AND clock_shadow_room_type_id IS NULL AND is_active = false AND name = $3 AND currency = $4`,
+      tenantId,
+      propertyId,
+      name,
+      currency,
+    );
+    if (found[0]) return found[0].id;
+    const id = randomUUID();
+    await tx.$executeRawUnsafe(
+      `INSERT INTO rate_plans (id, tenant_id, property_id, name, currency, is_active)
+       VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, false)`,
+      id,
+      tenantId,
+      propertyId,
+      name,
+      currency,
     );
     return id;
   }

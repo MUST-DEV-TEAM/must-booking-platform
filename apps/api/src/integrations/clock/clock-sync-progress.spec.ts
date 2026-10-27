@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildSyncSummary, type SyncJobRow } from './clock-sync-progress';
+import { BOOKINGS_IMPORT_VERSION, buildSyncSummary, type SyncJobRow } from './clock-sync-progress';
 
 const now = new Date('2026-10-26T16:00:00Z');
 const job = (over: Partial<SyncJobRow> & { resource: string }): SyncJobRow => ({
@@ -58,6 +58,7 @@ describe('buildSyncSummary', () => {
           resource: 'bookings',
           status: 'SYNCED',
           initialComplete: true,
+          importVersion: BOOKINGS_IMPORT_VERSION,
           snapshotTotal: 15926,
           processed: 3,
           total: 3,
@@ -142,6 +143,7 @@ describe('buildSyncSummary', () => {
           resource: 'bookings',
           status: 'SYNCED',
           initialComplete: true,
+          importVersion: BOOKINGS_IMPORT_VERSION,
           snapshotTotal: 10,
           lastSyncedAt: '2026-10-26T15:00:00Z',
         }),
@@ -205,5 +207,26 @@ describe('buildSyncSummary', () => {
     );
     expect(detail('guests')).toBe('13,750 guest profiles held.');
     expect(detail('money')).toBe('1 bill checked of 1 current and recent reservations.');
+  });
+
+  it('counts a pass made by an older version of the import as not finished, so everything is read again', () => {
+    const bookings = buildSyncSummary(
+      [
+        job({
+          resource: 'bookings',
+          status: 'READY',
+          initialComplete: true,
+          importVersion: BOOKINGS_IMPORT_VERSION - 1,
+          snapshotTotal: 15926,
+          processed: 100,
+          total: 15926,
+          startedAt: '2026-10-26T15:00:00Z',
+        }),
+      ],
+      now,
+    ).groups.find((g) => g.key === 'bookings')!;
+    expect(bookings.state).toBe('running');
+    expect(bookings.total).toBe(15926);
+    expect(bookings.done).toBe(100);
   });
 });
