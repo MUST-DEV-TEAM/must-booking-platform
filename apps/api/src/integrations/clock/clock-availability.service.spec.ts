@@ -1,7 +1,11 @@
 import { Logger } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 
-import { ClockAvailabilityService, rateOfferLabel } from './clock-availability.service';
+import {
+  ClockAvailabilityService,
+  rateOfferLabel,
+  classifyUnavailable,
+} from './clock-availability.service';
 
 const credentials = { host: 'h', accountId: '1', subscriptionId: '2', apiUser: 'u', apiKey: 'k' };
 const query = { roomTypeId: 'local-rt-1', startsOn: '2026-08-10', endsOn: '2026-08-12' };
@@ -2105,5 +2109,120 @@ describe('ClockAvailabilityService chosen rate', () => {
       ok: true,
       value: { amount: '310.00', currency: 'EUR' },
     });
+  });
+});
+
+describe('classifyUnavailable', () => {
+  const offer = (...messages: string[]) => ({
+    available: false,
+    room_type_free_rooms: 0,
+    price: { cents: 0, currency: 'EUR' },
+    errors: { base: messages },
+  });
+
+  it('reads the sentences Clock really sends', () => {
+    expect(classifyUnavailable({ '1': [offer('Free?  ')] })).toBe('sold_out');
+    expect(classifyUnavailable({ '1': [offer('Rate restriction stop from sale?  ')] })).toBe(
+      'closed',
+    );
+    expect(
+      classifyUnavailable({
+        '1': [offer('Maximum children exceeded.', 'Maximum adults allowed - 2', 'Maximum guests')],
+      }),
+    ).toBe('capacity');
+  });
+
+  it('says sold out when one rate is sold out and another is closed, because that is what is happening', () => {
+    expect(
+      classifyUnavailable({
+        '1': [offer('Free?  ', 'Rate restriction stop from sale?  ')],
+        '2': [offer('Rate restriction stop from sale?  ')],
+      }),
+    ).toBe('sold_out');
+  });
+
+  it('knows minimum stay and arrival or departure closures, and falls back to a general reason', () => {
+    expect(classifyUnavailable({ '1': [offer('Minimum stay 3 nights')] })).toBe('min_stay');
+    expect(classifyUnavailable({ '1': [offer('Closed to arrival')] })).toBe('no_arrival');
+    expect(classifyUnavailable({ '1': [offer('Closed to departure')] })).toBe('no_departure');
+    expect(classifyUnavailable({ '1': [offer('Something new Clock invented')] })).toBe(
+      'unavailable',
+    );
+    expect(classifyUnavailable(undefined)).toBe('unavailable');
+  });
+});
+
+describe('ClockAvailabilityService.getStaySearch', () => {
+  it('answers every room type from one product request: price and rooms left, or why not', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [
+          { id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true },
+          { id: 69243, bookable_id: 42024, bookable_type: 'Pms::RoomType', wbe: true },
+        ],
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [
+          {
+            id: 42023,
+            rates: {
+              '69242': [
+                {
+                  available: true,
+                  room_type_free_rooms: 2,
+                  price: { cents: 11000, currency: 'EUR' },
+                  errors: {},
+                },
+              ],
+            },
+          },
+          {
+            id: 42024,
+            rates: {
+              '69243': [
+                {
+                  available: false,
+                  room_type_free_rooms: 0,
+                  price: { cents: 0, currency: 'EUR' },
+                  errors: { base: ['Free?  '] },
+                },
+              ],
+            },
+          },
+        ],
+      });
+    const { service } = makeService({ client: { request } });
+    const stay = (roomTypeId: string, externalRoomTypeId: string) => ({
+      roomTypeId,
+      externalRoomTypeId,
+      startsOn: '2026-08-10',
+      endsOn: '2026-08-12',
+      adultCount: 2,
+      childrenCount: 0,
+      currency: 'EUR',
+    });
+    const { details } = await service.getStaySearch('t1', 'p1', [
+      stay('rt-1', '42023'),
+      stay('rt-2', '42024'),
+    ]);
+    expect(details['rt-1']).toEqual({
+      available: true,
+      price: { amount: '110.00', currency: 'EUR' },
+      freeRooms: 2,
+    });
+    expect(details['rt-2']).toEqual({ available: false, reason: 'sold_out' });
+    expect(request).toHaveBeenCalledTimes(2); // the rate list and one product request
+
+    // Asked again, both answers come from memory, including the reason a room type is not for sale.
+    const again = await service.getStaySearch('t1', 'p1', [
+      stay('rt-1', '42023'),
+      stay('rt-2', '42024'),
+    ]);
+    expect(again.details['rt-2']).toEqual({ available: false, reason: 'sold_out' });
+    expect(again.details['rt-1']).toMatchObject({ available: true, freeRooms: 2 });
+    expect(request).toHaveBeenCalledTimes(2);
   });
 });

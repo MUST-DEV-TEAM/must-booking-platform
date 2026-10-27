@@ -9,6 +9,10 @@ export type StoredDisplayPrice = {
   value: { amount: string; currency: string } | null;
   /** When Clock last answered, in milliseconds since 1970. */
   storedAt: number;
+  /** How many rooms of this type were free, when Clock said. */
+  freeRooms?: number | null;
+  /** Why nothing was available (sold out, closed, ...), when the value is null. */
+  reason?: string;
 };
 
 const PREFIX = 'display-price:v1:';

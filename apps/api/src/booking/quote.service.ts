@@ -10,6 +10,7 @@ import { IntegrationConnectionsService } from '../integrations/integration-conne
 import {
   ClockAvailabilityService,
   type ClockStayQuoteQuery,
+  type UnavailableReason,
 } from '../integrations/clock/clock-availability.service';
 import { resolveBookingOccupancy, validBookingOccupancy } from './booking-occupancy';
 import {
@@ -77,7 +78,40 @@ export type DisplayPrice = {
   roomTypeId: string;
   available: boolean;
   total?: Money;
+  /** How many rooms of this type are left, when the hotel system says. */
+  freeRooms?: number | null;
+  /** Why this room type cannot be sold for the stay, when that is known. Absent when it could not be checked. */
+  reason?: StayUnavailableReason;
 };
+
+/** Why a room type cannot be booked for a stay, in terms a guest can act on. */
+export type StayUnavailableReason =
+  UnavailableReason | 'max_stay' | 'same_day_closed' | 'too_far_ahead' | 'past_date';
+
+/** The reason behind a booking rule that refused a stay, from the code the rule raised. */
+function reasonFromRule(code: string | undefined): StayUnavailableReason {
+  switch (code) {
+    case 'MIN_STAY':
+      return 'min_stay';
+    case 'MAX_STAY':
+      return 'max_stay';
+    case 'CAPACITY_EXCEEDED':
+    case 'MAX_GUESTS_PER_BOOKING':
+      return 'capacity';
+    case 'SAME_DAY_CLOSED':
+      return 'same_day_closed';
+    case 'ADVANCE_BOOKING_LIMIT':
+      return 'too_far_ahead';
+    case 'CHECK_IN_PAST':
+      return 'past_date';
+    case 'NO_AVAILABILITY':
+    case 'BOOKING_CONFLICT':
+    case 'AVAILABILITY_BLOCK_CONFLICT':
+      return 'sold_out';
+    default:
+      return 'unavailable';
+  }
+}
 
 export type DisplayPriceInput = Omit<QuoteInput, 'roomTypeId' | 'roomId' | 'ratePlanId'> & {
   roomCount?: number;
@@ -293,7 +327,11 @@ export class QuoteService {
       throw new BadRequestException('Invalid room selection.');
     const normalized = this.normalizeOccupancy({ roomTypeId: items[0].roomTypeId, ...quoteInput });
     this.validStayInput(normalized);
-    const eligibility = new Map<string, boolean>();
+    // Whether the hotel's own booking rules allow this stay for each room type, and if not, which rule said no.
+    const eligibility = new Map<
+      string,
+      { ok: true } | { ok: false; reason: StayUnavailableReason }
+    >();
     for (const item of items) {
       const key = item.roomTypeId + ':' + (item.roomId ?? '');
       if (eligibility.has(key)) continue;
@@ -303,16 +341,25 @@ export class QuoteService {
           roomTypeId: item.roomTypeId,
           roomId: item.roomId,
         });
-        eligibility.set(key, true);
+        eligibility.set(key, { ok: true });
       } catch (error) {
         if (!(error instanceof BadRequestException || error instanceof NotFoundException))
           throw error;
-        eligibility.set(key, false);
+        const response = error instanceof BadRequestException ? error.getResponse() : null;
+        const code =
+          response && typeof response === 'object' && 'code' in response
+            ? String((response as { code?: unknown }).code)
+            : undefined;
+        eligibility.set(key, { ok: false, reason: reasonFromRule(code) });
       }
     }
-    const eligible = items.filter((item) =>
-      eligibility.get(item.roomTypeId + ':' + (item.roomId ?? '')),
-    );
+    const allowed = (item: DisplayPriceItem) =>
+      eligibility.get(item.roomTypeId + ':' + (item.roomId ?? ''))?.ok === true;
+    const refusal = (item: DisplayPriceItem): StayUnavailableReason | undefined => {
+      const entry = eligibility.get(item.roomTypeId + ':' + (item.roomId ?? ''));
+      return entry && !entry.ok ? entry.reason : undefined;
+    };
+    const eligible = items.filter(allowed);
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
     if (connection?.provider === 'CLOCK_PMS') {
       const queries: ClockStayQuoteQuery[] = eligible.map((item) => ({
@@ -325,18 +372,25 @@ export class QuoteService {
         roomCount,
         currency: item.currency,
       }));
-      const quotes = queries.length
-        ? await this.clockAvailability.getQuotesForStay(tenantId, propertyId, queries)
-        : {};
+      const search = queries.length
+        ? await this.clockAvailability.getStaySearch(tenantId, propertyId, queries)
+        : { results: {}, details: {} };
       return items.map((item) => {
-        const quote = quotes[item.roomTypeId];
-        return {
+        const quote = search.results[item.roomTypeId];
+        const detail = search.details[item.roomTypeId];
+        const refused = refusal(item);
+        const base = {
           key: item.key,
           roomTypeId: item.roomTypeId,
-          available:
-            eligibility.get(item.roomTypeId + ':' + (item.roomId ?? '')) === true &&
-            Boolean(quote?.ok),
-          ...(quote?.ok ? { total: quote.value } : {}),
+          available: allowed(item) && Boolean(quote?.ok),
+        };
+        if (refused) return { ...base, reason: refused };
+        if (!quote?.ok)
+          return detail && !detail.available ? { ...base, reason: detail.reason } : base;
+        return {
+          ...base,
+          total: quote.value,
+          ...(detail?.available ? { freeRooms: detail.freeRooms } : {}),
         };
       });
     }
@@ -366,7 +420,13 @@ export class QuoteService {
             total: quote.total,
           };
         } catch {
-          return { key: item.key, roomTypeId: item.roomTypeId, available: false };
+          const refused = refusal(item);
+          return {
+            key: item.key,
+            roomTypeId: item.roomTypeId,
+            available: false,
+            ...(refused ? { reason: refused } : {}),
+          };
         }
       }),
     );

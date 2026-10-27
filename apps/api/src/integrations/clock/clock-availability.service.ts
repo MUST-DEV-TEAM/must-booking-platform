@@ -113,6 +113,15 @@ type ClockProductsResponse = Array<{
 
 type ClockQuote = { total: Money; nightlyRates: NightlyRate[] };
 
+/** Why a room type cannot be sold for a stay, in words a guest can act on. */
+export type UnavailableReason =
+  'sold_out' | 'closed' | 'min_stay' | 'no_arrival' | 'no_departure' | 'capacity' | 'unavailable';
+
+/** What a search learns about one room type for one stay, from a single Clock product request. */
+export type StaySearchDetail =
+  | { available: true; price: Money; freeRooms: number | null }
+  | { available: false; reason: UnavailableReason };
+
 /** Said when a property is not connected to Clock; callers that only apply to Clock hotels match it. */
 export const NO_CLOCK_CONNECTION_MESSAGE = 'This property has no active Clock PMS connection.';
 
@@ -615,10 +624,30 @@ export class ClockAvailabilityService {
     }
   }
 
+  /**
+   * What one search needs about every room type for a stay: whether it can be sold, how many rooms are left,
+   * the lowest available price, or why it cannot be sold. One Clock product request covers all room types, and
+   * the answers share the price memory with the room cards. A room type missing from `details` could not be
+   * checked (Clock unreachable); callers treat that as unknown rather than unavailable.
+   */
+  async getStaySearch(
+    tenantId: string,
+    propertyId: string,
+    queries: ClockStayQuoteQuery[],
+  ): Promise<{
+    results: Record<string, Result<Money>>;
+    details: Record<string, StaySearchDetail>;
+  }> {
+    const details: Record<string, StaySearchDetail> = {};
+    const results = await this.loadQuotesForStay(tenantId, propertyId, queries, details);
+    return { results, details };
+  }
+
   private async loadQuotesForStay(
     tenantId: string,
     propertyId: string,
     queries: ClockStayQuoteQuery[],
+    details: Record<string, StaySearchDetail> = {},
   ): Promise<Record<string, Result<Money>>> {
     const results: Record<string, Result<Money>> = {};
     const uniqueQueries = Array.from(
@@ -710,10 +739,24 @@ export class ClockAvailabilityService {
       const age = stored ? Date.now() - stored.storedAt : Number.POSITIVE_INFINITY;
       if (stored && stored.value === null && age < DISPLAY_PRICE_NEGATIVE_MS) {
         results[entry.query.roomTypeId] = failure(noOfferError());
+        details[entry.query.roomTypeId] = {
+          available: false,
+          reason: (stored.reason as UnavailableReason | undefined) ?? 'unavailable',
+        };
       } else if (stored?.value && age < DISPLAY_PRICE_FRESH_MS) {
         results[entry.query.roomTypeId] = { ok: true, value: stored.value };
+        details[entry.query.roomTypeId] = {
+          available: true,
+          price: stored.value,
+          freeRooms: stored.freeRooms ?? null,
+        };
       } else if (stored?.value && age < DISPLAY_PRICE_STALE_MS) {
         results[entry.query.roomTypeId] = { ok: true, value: stored.value };
+        details[entry.query.roomTypeId] = {
+          available: true,
+          price: stored.value,
+          freeRooms: stored.freeRooms ?? null,
+        };
         stale.push(item);
       } else {
         misses.push(item);
@@ -736,6 +779,7 @@ export class ClockAvailabilityService {
       connection.connectionId,
       misses,
       results,
+      details,
     );
     return results;
   }
@@ -781,6 +825,7 @@ export class ClockAvailabilityService {
     connectionId: string,
     misses: StayQuoteItem[],
     results: Record<string, Result<Money>>,
+    details: Record<string, StaySearchDetail> = {},
   ): Promise<void> {
     const first = misses[0]!.entry.query;
     const rateIds = Array.from(
@@ -825,8 +870,10 @@ export class ClockAvailabilityService {
             rejectionReasons(roomType?.rates),
           )}`,
         );
-        await this.rememberDisplayPrice(cacheKey, null);
+        const reason = classifyUnavailable(roomType?.rates);
+        await this.rememberDisplayPrice(cacheKey, null, { reason });
         results[entry.query.roomTypeId] = failure(noOfferError());
+        details[entry.query.roomTypeId] = { available: false, reason };
         continue;
       }
       const value = {
@@ -838,8 +885,12 @@ export class ClockAvailabilityService {
         this.logger.log(
           `Price changed for room type ${entry.query.roomTypeId} (${entry.query.startsOn} to ${entry.query.endsOn}): ${before.amount} ${before.currency} -> ${value.amount} ${value.currency}`,
         );
-      await this.rememberDisplayPrice(cacheKey, value);
+      const freeRooms = Number.isFinite(winner.offer.room_type_free_rooms)
+        ? winner.offer.room_type_free_rooms
+        : null;
+      await this.rememberDisplayPrice(cacheKey, value, { freeRooms });
       results[entry.query.roomTypeId] = { ok: true, value };
+      details[entry.query.roomTypeId] = { available: true, price: value, freeRooms };
     }
   }
 
@@ -852,8 +903,12 @@ export class ClockAvailabilityService {
     return far;
   }
 
-  private async rememberDisplayPrice(key: string, value: Money | null): Promise<void> {
-    const entry: StoredDisplayPrice = { value, storedAt: Date.now() };
+  private async rememberDisplayPrice(
+    key: string,
+    value: Money | null,
+    extra: { freeRooms?: number | null; reason?: UnavailableReason } = {},
+  ): Promise<void> {
+    const entry: StoredDisplayPrice = { value, storedAt: Date.now(), ...extra };
     this.keepDisplayPriceInMemory(key, entry);
     await this.displayPriceStore?.set(key, entry, Math.ceil(DISPLAY_PRICE_STALE_MS / 1000) + 3600);
   }
@@ -1788,6 +1843,31 @@ function failure(error: ClockClassifiedError): { ok: false; error: ClockClassifi
 
 /** Distinguishes "no Clock rate at all" from "has rates, none published to
  * the booking engine" — the two need different, actionable error text. */
+/**
+ * Clock explains a rate that cannot be sold in plain sentences ("Free?", "Rate restriction stop from sale",
+ * "Maximum adults allowed - 2"). When no offer is bookable for a room type, the most telling of those
+ * sentences decides the reason shown to the guest. Sold out wins over closed, because it says what is
+ * really happening; an unrecognised sentence becomes a general "not available".
+ */
+export function classifyUnavailable(
+  rateOffers: Record<string, ClockProductOffer[]> | undefined,
+): UnavailableReason {
+  const text = Object.values(rateOffers ?? {})
+    .flat()
+    .flatMap((offer) => Object.values(offer.errors ?? {}))
+    .flatMap((value) => (Array.isArray(value) ? value : [value]))
+    .map((value) => String(value).toLowerCase())
+    .join(' | ');
+  if (/\bfree\?/.test(text) || /sold out|no (free )?rooms/.test(text)) return 'sold_out';
+  if (/minimum stay|min(imum)? nights|min\.? stay/.test(text)) return 'min_stay';
+  if (/closed to arrival|no arrival|cta\b/.test(text)) return 'no_arrival';
+  if (/closed to departure|no departure|ctd\b/.test(text)) return 'no_departure';
+  if (/maximum (adults|children|guests|occupancy)|too many (guests|people)/.test(text))
+    return 'capacity';
+  if (/stop from sale|stop sale|not for sale|closed/.test(text)) return 'closed';
+  return 'unavailable';
+}
+
 function noOfferError(): ClockClassifiedError {
   return {
     category: 'validation',
