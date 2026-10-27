@@ -34,6 +34,7 @@ import {
 } from './clock-http-client';
 import { ClockRateLimiterService } from './clock-rate-limiter';
 import { resolveBookingOccupancy } from '../../booking/booking-occupancy';
+import { isoCurrency } from '../../money/iso-currency';
 
 // CONFIRMED_IN_SANDBOX 2026-09-03 against a real GET /bookings/{id} response
 // (Empire Beach Resort) — see docs/CLOCK_WEBHOOK_FLOW.md. Only the fields
@@ -738,6 +739,5 @@ function providerTimestamp(value: unknown): Date | null {
 export function billedCurrency(
   value: { currency?: string | null } | null | undefined,
 ): string | null {
-  const code = value?.currency?.trim().toUpperCase();
-  return code && /^[A-Z]{3}$/.test(code) ? code : null;
+  return isoCurrency(value?.currency);
 }

@@ -13,5 +13,6 @@ describe('billedCurrency', () => {
     expect(billedCurrency({})).toBeNull();
     expect(billedCurrency({ currency: '' })).toBeNull();
     expect(billedCurrency({ currency: 'EURO' })).toBeNull();
+    expect(billedCurrency({ currency: 'EUO' })).toBeNull();
   });
 });

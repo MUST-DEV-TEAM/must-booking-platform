@@ -8,6 +8,7 @@ import {
 import { randomUUID } from 'node:crypto';
 
 import { PricingWrites } from './pricing-writes.service';
+import { isoCurrency } from '../money/iso-currency';
 type WriteOptions = { key: string; version?: number; reason?: string };
 import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
 
@@ -471,13 +472,13 @@ export class RatePlansService {
   private ratePlanInput(body: unknown): RatePlanInput {
     const value = (body ?? {}) as Record<string, unknown>;
     const name = typeof value.name === 'string' ? value.name.trim() : '';
-    const currency = typeof value.currency === 'string' ? value.currency.trim().toUpperCase() : '';
+    const currency = isoCurrency(value.currency) ?? '';
     const isActive = typeof value.isActive === 'boolean' ? value.isActive : true;
     const rawFreeCancellationUntilHours = value.freeCancellationUntilHours;
     if (!name) throw new BadRequestException('name is required.');
     if (name.length > 200) throw new BadRequestException('name must be at most 200 characters.');
-    if (!/^[A-Z]{3}$/.test(currency))
-      throw new BadRequestException('currency must be a three-letter ISO code.');
+    if (!currency)
+      throw new BadRequestException('currency must be a real ISO 4217 code, such as EUR.');
     if (
       rawFreeCancellationUntilHours !== undefined &&
       rawFreeCancellationUntilHours !== null &&
@@ -550,6 +551,10 @@ export class RatePlansService {
   }
 
   private rethrowRatePlanConflict(error: unknown): never {
+    if (error instanceof Error && /currency of a rate plan with bookings/.test(error.message))
+      throw new ConflictException(
+        'This rate plan already has bookings, so its currency cannot be changed. Create a new plan in the other currency instead.',
+      );
     if (this.isUniqueViolation(error))
       throw new ConflictException('A rate plan with this name already exists for this property.');
     throw error;
