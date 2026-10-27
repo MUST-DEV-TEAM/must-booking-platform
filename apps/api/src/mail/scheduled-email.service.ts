@@ -27,9 +27,11 @@ import {
 import { reviewButtons, storedReviewLinks } from './review-links';
 import {
   ownerDailySummaryEmail,
+  ownerWeeklySummaryEmail,
   postStayEmail,
   preArrivalEmail,
   type OwnerDailySummary,
+  type OwnerWeeklySummary,
   type PreArrivalStay,
 } from './scheduled-email-content';
 
@@ -92,6 +94,10 @@ export function localNow(now: Date, timeZone: string | null): { date: string; ho
   }
   const part = (type: string) => parts.find((p) => p.type === type)!.value;
   return { date: `${part('year')}-${part('month')}-${part('day')}`, hour: Number(part('hour')) };
+}
+
+export function isMonday(date: string): boolean {
+  return new Date(`${date}T00:00:00Z`).getUTCDay() === 1;
 }
 
 export function addDays(date: string, days: number): string {
@@ -192,6 +198,8 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
         await this.senderProofs?.recover(context);
         if (local.hour >= OWNER_SUMMARY_HOUR)
           await this.sendOwnerSummary(context, property.timezone || 'UTC', local.date);
+        if (local.hour >= OWNER_SUMMARY_HOUR && isMonday(local.date))
+          await this.sendOwnerWeeklySummary(context, property.timezone || 'UTC', local.date);
         await this.sendCheckInDay(context, property.timezone || 'UTC', local.date, now);
         if (local.hour >= PRE_ARRIVAL_HOUR)
           await this.sendPreArrival(context, property.timezone || 'UTC', local.date);
@@ -425,6 +433,104 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
         { recipientEnvelope: recipient.envelope },
       );
     }
+  }
+
+  /** Monday morning: the week that just ended and the one starting. Once per owner per week. */
+  async sendOwnerWeeklySummary(context: Context, timeZone: string, today: string): Promise<void> {
+    const work = await this.database.withTenantTransaction(context, async (tx) => {
+      const recipients = staffDeliveryGroups(
+        await staffRecipients(tx, context, 'owner_weekly_summary'),
+      );
+      if (!recipients.length) return null;
+      const pending = [];
+      for (const recipient of recipients) {
+        const key = `owner-weekly-summary/${context.propertyId}/${today}/${recipient.staffUserId}`;
+        if (!(await this.alreadyLogged(tx, context, key))) pending.push({ ...recipient, key });
+      }
+      if (!pending.length) return null;
+      return {
+        pending,
+        brand: await this.brand(tx, context),
+        summary: await this.ownerWeeklySummary(tx, context, timeZone, today),
+        template: await savedTemplate(tx, context, 'owner_weekly_summary'),
+      };
+    });
+    if (!work) return;
+    const dashboardUrl = this.dashboardUrl();
+    const { summary } = work;
+    const revenue = summary.newBookings.revenue
+      .map((row) => `${row.amount} ${row.currency}`)
+      .join(' + ');
+    for (const recipient of work.pending) {
+      const message = renderTemplate('owner_weekly_summary', work.template, {
+        hotel_name: work.brand.name,
+        hotel_contact: work.brand.supportEmail ?? work.brand.phone ?? 'Contact the hotel',
+        summary_date: today,
+        summary: `${summary.newBookings.count} new bookings${revenue ? ` (${revenue})` : ''}; ${summary.cancellations} cancellations; ${summary.guestsHosted} stays completed; ${summary.upcomingArrivals} arrivals in the next 7 days.`,
+      });
+      const email = ownerWeeklySummaryEmail(
+        summary,
+        recipient.email,
+        work.brand,
+        dashboardUrl,
+        message,
+      );
+      await this.delivery.dispatch(
+        'rendered',
+        { ...email, idempotencyKey: recipient.key },
+        context,
+        { recipientEnvelope: recipient.envelope },
+      );
+    }
+  }
+
+  private async ownerWeeklySummary(
+    tx: TenantTransaction,
+    context: Context,
+    timeZone: string,
+    today: string,
+  ): Promise<OwnerWeeklySummary> {
+    const weekStart = addDays(today, -7);
+    const weekEnd = addDays(today, -1);
+    const nextWeekEnd = addDays(today, 6);
+    const created = await tx.$queryRaw<
+      Array<{ count: number; amount: string | null; currency: string | null }>
+    >`
+      SELECT COUNT(*)::int AS count, SUM(b.total_amount)::text AS amount, rp.currency
+      FROM bookings b
+      JOIN rate_plans rp ON rp.tenant_id = b.tenant_id AND rp.property_id = b.property_id AND rp.id = b.rate_plan_id
+      WHERE b.tenant_id = ${context.tenantId}::uuid AND b.property_id = ${context.propertyId}::uuid
+        AND b.status = 'CONFIRMED'::"BookingStatus"
+        AND (b.created_at AT TIME ZONE ${timeZone})::date BETWEEN ${weekStart}::date AND ${weekEnd}::date
+      GROUP BY rp.currency ORDER BY rp.currency
+    `;
+    const counts = await tx.$queryRaw<
+      Array<{ cancelled: number; hosted: number; arriving: number }>
+    >`
+      SELECT
+        COUNT(*) FILTER (WHERE b.status = 'CANCELLED'::"BookingStatus"
+          AND (b.updated_at AT TIME ZONE ${timeZone})::date BETWEEN ${weekStart}::date AND ${weekEnd}::date)::int AS cancelled,
+        COUNT(*) FILTER (WHERE b.status = 'CONFIRMED'::"BookingStatus"
+          AND b.ends_on BETWEEN ${weekStart}::date AND ${weekEnd}::date)::int AS hosted,
+        COUNT(*) FILTER (WHERE b.status = 'CONFIRMED'::"BookingStatus"
+          AND b.starts_on BETWEEN ${today}::date AND ${nextWeekEnd}::date)::int AS arriving
+      FROM bookings b
+      WHERE b.tenant_id = ${context.tenantId}::uuid AND b.property_id = ${context.propertyId}::uuid
+    `;
+    return {
+      date: today,
+      weekStart,
+      weekEnd,
+      newBookings: {
+        count: created.reduce((sum, row) => sum + row.count, 0),
+        revenue: created
+          .filter((row) => row.amount && row.currency)
+          .map((row) => ({ amount: row.amount!, currency: row.currency! })),
+      },
+      cancellations: counts[0]?.cancelled ?? 0,
+      guestsHosted: counts[0]?.hosted ?? 0,
+      upcomingArrivals: counts[0]?.arriving ?? 0,
+    };
   }
 
   private async ownerSummary(

@@ -82,6 +82,14 @@ export const NOTIFICATION_TOPICS = {
     defaultStaff: 'owners',
     optional: true,
   },
+  /** Monday morning look back at the week that ended and ahead at the one starting. */
+  owner_weekly_summary: {
+    label: 'Weekly summary',
+    guest: false,
+    staff: true,
+    defaultStaff: 'owners',
+    optional: true,
+  },
   /** Bookings that need attention and Clock sync problems, sent within minutes. */
   owner_alerts: {
     label: 'Problem alerts',

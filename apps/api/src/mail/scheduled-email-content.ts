@@ -191,6 +191,69 @@ export function ownerDailySummaryEmail(
   return { eventType: 'owner.daily_summary', to, subject, html, text, bookingId: null };
 }
 
+export type OwnerWeeklySummary = {
+  /** The Monday this summary is sent; the week it covers ended the day before. */
+  date: string;
+  weekStart: string;
+  weekEnd: string;
+  newBookings: { count: number; revenue: Array<{ amount: string; currency: string }> };
+  cancellations: number;
+  /** Stays that ended during the week. */
+  guestsHosted: number;
+  /** Arrivals in the coming seven days, starting today. */
+  upcomingArrivals: number;
+};
+
+/** The owner's Monday look back at the week that ended and ahead at the one starting. */
+export function ownerWeeklySummaryEmail(
+  summary: OwnerWeeklySummary,
+  to: string,
+  brand: MailBrand,
+  dashboardUrl: string | null,
+  message?: MailTemplateOverride,
+): Omit<RenderedEmailCommand, 'idempotencyKey'> {
+  const hotel = brand.name || 'your property';
+  const subject =
+    message?.subject ?? `${hotel} last week: ${plural(summary.newBookings.count, 'new booking')}`;
+  const revenue = summary.newBookings.revenue.map(money).join(' + ');
+  const rows = [
+    {
+      label: 'New bookings',
+      value: summary.newBookings.count
+        ? `${summary.newBookings.count}${revenue ? ` · ${revenue}` : ''}`
+        : 'None',
+    },
+    { label: 'Cancellations', value: String(summary.cancellations || 'None') },
+    { label: 'Stays completed', value: String(summary.guestsHosted || 'None') },
+    { label: 'Arrivals in the next 7 days', value: String(summary.upcomingArrivals || 'None') },
+  ];
+  const html = renderBrandedEmail({
+    subject,
+    brand,
+    preheader:
+      message?.previewText ||
+      `${plural(summary.newBookings.count, 'new booking')} last week, ${plural(summary.upcomingArrivals, 'arrival')} coming up.`,
+    eyebrow: `${longDate(summary.weekStart)} – ${longDate(summary.weekEnd)}`,
+    heading: `Last week at ${hotel}`,
+    content: message?.html ?? `<p style="margin:0;">Here is your weekly overview.</p>`,
+    summaryRows: rows,
+    summaryHeading: 'Weekly summary',
+    cta: dashboardUrl ? { url: dashboardUrl, label: 'Open dashboard' } : null,
+    supportStyle: 'plain',
+    supportLinks: [],
+    showBrandFooter: false,
+    footerNote: `You get this summary as an owner of ${escapeHtml(hotel)}. You can turn it off in the property&#39;s email settings.`,
+    platformFooter: 'MUST Booking Platform',
+  });
+  const text = [
+    ...(message?.text ? [message.text] : []),
+    `Last week at ${hotel} — ${longDate(summary.weekStart)} to ${longDate(summary.weekEnd)}`,
+    ...rows.map((row) => `${row.label}: ${row.value}`),
+    ...(dashboardUrl ? [`Dashboard: ${dashboardUrl}`] : []),
+  ].join('\n');
+  return { eventType: 'owner.weekly_summary', to, subject, html, text, bookingId: null };
+}
+
 /** Guest thank-you after check-out, with a button per review link. */
 export function postStayEmail(
   stay: PreArrivalStay,

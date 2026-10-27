@@ -23,6 +23,7 @@ const triggers: Partial<Record<EmailTemplateKey, string>> = {
   staff_refund_processed: 'owner.refund_alert',
   owner_alerts: 'owner.alert',
   owner_daily_summary: 'owner.daily_summary',
+  owner_weekly_summary: 'owner.weekly_summary',
   staff_invitation: 'staff.invitation',
 };
 export function templateCatalog(key: EmailTemplateKey) {
