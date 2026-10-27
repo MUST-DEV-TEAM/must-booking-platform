@@ -40,6 +40,8 @@ const CATEGORY_TEXT: Record<string, string> = {
   PAYMENT_BOOKING_MISMATCH: 'The payment and the booking do not agree.',
   UNKNOWN_STATUS: 'The property system reported a status we do not recognise.',
   SCHEMA_MISMATCH: 'The property system answered in a way we could not read.',
+  CURRENCY_MISMATCH:
+    'The currency this booking is stored in is not the one the property system bills it in, so its amounts are not trusted.',
 };
 
 /** What hotel staff may see and do about a booking that needs review (technical evidence stays in platform admin). */

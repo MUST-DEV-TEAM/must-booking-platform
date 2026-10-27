@@ -334,11 +334,11 @@ export class ClockBookingHydrationService {
           `INSERT INTO bookings (
            tenant_id, property_id, room_type_id, room_id, guest_id, external_reference,
            external_booking_id, status, payment_method, starts_on, ends_on, rate_plan_id,
-           total_amount, adults, children, guest_count, nightly_rates, pms_stay_status, created_at, updated_at, pms_source_updated_at, children_ages, guest_contact
+           total_amount, adults, children, guest_count, nightly_rates, pms_stay_status, created_at, updated_at, pms_source_updated_at, children_ages, guest_contact, currency
          ) VALUES (
            $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, $7, $8::"BookingStatus",
            'PAY_AT_HOTEL'::"BookingPaymentMethod", $9::date, $10::date, $11::uuid, $12::decimal,
-           $13, $14, $15, $16::jsonb, $17, COALESCE($19::timestamptz,CURRENT_TIMESTAMP), COALESCE($20::timestamptz,CURRENT_TIMESTAMP), $21::timestamptz, $22::jsonb, $23::jsonb
+           $13, $14, $15, $16::jsonb, $17, COALESCE($19::timestamptz,CURRENT_TIMESTAMP), COALESCE($20::timestamptz,CURRENT_TIMESTAMP), $21::timestamptz, $22::jsonb, $23::jsonb, $24
          )
          ON CONFLICT (tenant_id, property_id, external_booking_id) DO UPDATE SET
            room_type_id = EXCLUDED.room_type_id,
@@ -349,6 +349,7 @@ export class ClockBookingHydrationService {
            starts_on = EXCLUDED.starts_on,
            ends_on = EXCLUDED.ends_on,
            rate_plan_id = CASE WHEN bookings.external_reference LIKE 'CLOCK-%' THEN EXCLUDED.rate_plan_id ELSE bookings.rate_plan_id END,
+           currency = CASE WHEN bookings.external_reference LIKE 'CLOCK-%' THEN EXCLUDED.currency ELSE bookings.currency END,
            total_amount = EXCLUDED.total_amount,
            adults = EXCLUDED.adults,
            children = EXCLUDED.children,
@@ -393,6 +394,7 @@ export class ClockBookingHydrationService {
             email: detail.guest_e_mail?.trim() || null,
             phone: detail.guest_phone_number?.trim() || null,
           }),
+          billedIn,
         );
 
         const row = rows[0]!;
@@ -733,7 +735,9 @@ function providerTimestamp(value: unknown): Date | null {
 }
 
 /** The ISO currency code Clock bills a reservation in, or null when it is missing or not a 3-letter code. */
-export function billedCurrency(value: { currency?: string | null } | null | undefined): string | null {
+export function billedCurrency(
+  value: { currency?: string | null } | null | undefined,
+): string | null {
   const code = value?.currency?.trim().toUpperCase();
   return code && /^[A-Z]{3}$/.test(code) ? code : null;
 }

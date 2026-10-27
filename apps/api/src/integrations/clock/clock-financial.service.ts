@@ -5,7 +5,10 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
-import { TenantDatabaseService } from '../../tenancy/tenant-database.service';
+import {
+  TenantDatabaseService,
+  type TenantTransaction,
+} from '../../tenancy/tenant-database.service';
 import { IntegrationConnectionsService } from '../integration-connections.service';
 import { ClockBookingConsistencyService } from './clock-booking-consistency.service';
 import { parseClockCredentials } from './clock-credentials';
@@ -191,8 +194,47 @@ export class ClockFinancialService {
           'Booking changed during the financial check. It will be checked again.',
         );
       await tx.$executeRaw`INSERT INTO clock_sync_jobs(tenant_id,property_id,connection_id,resource,snapshot,status,last_success_at,next_run_at) VALUES(${scope.tenantId}::uuid,${scope.propertyId}::uuid,${connection.connectionId}::uuid,${'financial:' + bookingId},${JSON.stringify(snapshot)}::jsonb,'SYNCED',now(),now()+interval '5 minutes') ON CONFLICT(tenant_id,property_id,connection_id,resource) DO UPDATE SET snapshot=CASE WHEN (clock_sync_jobs.snapshot->>'fetchedAt')::timestamptz > ${before[0].at} THEN clock_sync_jobs.snapshot ELSE EXCLUDED.snapshot END,last_success_at=now(),updated_at=now()`;
+      await this.checkCurrency(
+        tx,
+        scope,
+        connection.connectionId,
+        bookingId,
+        snapshot.balance.currency,
+      );
     });
     return snapshot;
+  }
+  /**
+   * The bill's currency must be the one the booking is stored in. A difference is never accepted quietly: it is
+   * raised once for review, and closed again by itself when the two agree.
+   */
+  private async checkCurrency(
+    tx: TenantTransaction,
+    scope: Scope,
+    connectionId: string,
+    bookingId: string,
+    billCurrency: string,
+  ): Promise<void> {
+    const rows = await tx.$queryRaw<Array<{ currency: string | null; reference: string }>>`
+      SELECT COALESCE(b.currency, rp.currency) AS currency, b.external_reference AS reference
+      FROM bookings b JOIN rate_plans rp ON rp.tenant_id = b.tenant_id AND rp.property_id = b.property_id AND rp.id = b.rate_plan_id
+      WHERE b.tenant_id = ${scope.tenantId}::uuid AND b.property_id = ${scope.propertyId}::uuid AND b.id = ${bookingId}::uuid`;
+    const stored = rows[0];
+    if (!stored) return;
+    if (stored.currency === billCurrency) {
+      await tx.$executeRaw`UPDATE manual_review_items SET status = 'RESOLVED', resolved_at = now(), updated_at = now()
+        WHERE tenant_id = ${scope.tenantId}::uuid AND property_id = ${scope.propertyId}::uuid
+          AND category = 'CURRENCY_MISMATCH' AND reference_type = 'booking'
+          AND reference_id = ${bookingId} AND status = 'OPEN'`;
+      return;
+    }
+    await tx.$executeRaw`INSERT INTO manual_review_items (tenant_id, property_id, connection_id, category, reference_type, reference_id, message, context)
+      SELECT ${scope.tenantId}::uuid, ${scope.propertyId}::uuid, ${connectionId}::uuid, 'CURRENCY_MISMATCH'::"ManualReviewCategory", 'booking', ${bookingId},
+        ${`Reservation ${stored.reference} is stored in ${stored.currency ?? 'an unknown currency'} but Clock bills it in ${billCurrency}. Its amounts are not trusted until this is fixed.`},
+        ${JSON.stringify({ stored: stored.currency, clockBills: billCurrency })}::jsonb
+      WHERE NOT EXISTS (
+        SELECT 1 FROM manual_review_items WHERE tenant_id = ${scope.tenantId}::uuid AND property_id = ${scope.propertyId}::uuid
+          AND category = 'CURRENCY_MISMATCH' AND reference_type = 'booking' AND reference_id = ${bookingId} AND status = 'OPEN')`;
   }
   async read(scope: Scope, bookingId: string) {
     if (!/^[0-9a-f-]{36}$/i.test(bookingId)) throw new BadRequestException('Invalid booking.');
