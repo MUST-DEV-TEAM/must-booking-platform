@@ -16,6 +16,22 @@ import { reportFacts } from '../src/tenancy/report-facts.repository';
 import { parseReportQuery } from '../src/tenancy/report-query';
 import { propertyDay, shiftDay } from '../src/tenancy/report-metrics';
 
+/**
+ * A time zone far from UTC, but where it is not the small hours: the nightly snapshot refuses to run before 02:00
+ * local time, so a fixed zone made this test fail for two hours of every day.
+ */
+const CAPTURE_ZONE = (() => {
+  for (const zone of ['Pacific/Auckland', 'America/New_York', 'Europe/Tirane', 'Asia/Tokyo']) {
+    const hour = Number(
+      new Intl.DateTimeFormat('en', { timeZone: zone, hour: '2-digit', hourCycle: 'h23' }).format(
+        new Date(),
+      ),
+    );
+    if (hour >= 3 && hour <= 21) return zone;
+  }
+  return 'UTC';
+})();
+
 const admin = new PrismaClient({
   datasources: {
     db: {
@@ -1021,8 +1037,8 @@ describe('Reports R2 real scoped projections, cache and export audit', () => {
   it('collects one 365-day snapshot under concurrent retries, enforces RLS/retention and Clock Unknown', async () => {
     const collector = app.get(ReportOtbService),
       db = app.get(TenantDatabaseService);
-    await admin.$executeRaw`UPDATE properties SET timezone='Pacific/Auckland' WHERE tenant_id=${tenant}::uuid AND id=${property}::uuid`;
-    const today = propertyDay(new Date(), 'Pacific/Auckland');
+    await admin.$executeRaw`UPDATE properties SET timezone=${CAPTURE_ZONE} WHERE tenant_id=${tenant}::uuid AND id=${property}::uuid`;
+    const today = propertyDay(new Date(), CAPTURE_ZONE);
     await admin.$executeRaw`UPDATE bookings SET starts_on=${today}::date,ends_on=${shiftDay(today, 1)}::date,nightly_rates=${JSON.stringify(
       [
         {
@@ -1036,7 +1052,7 @@ describe('Reports R2 real scoped projections, cache and export audit', () => {
       ],
     )}::jsonb WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid AND id=${b1}::uuid`;
     try {
-      await admin.$executeRaw`INSERT INTO report_otb_snapshots(tenant_id,property_id,snapshot_date,timezone,source) VALUES(${tenant}::uuid,${property}::uuid,${shiftDay(today, -800)}::date,'Pacific/Auckland','LOCAL'),(${tenant}::uuid,${property}::uuid,${shiftDay(today, -799)}::date,'Pacific/Auckland','LOCAL')`;
+      await admin.$executeRaw`INSERT INTO report_otb_snapshots(tenant_id,property_id,snapshot_date,timezone,source) VALUES(${tenant}::uuid,${property}::uuid,${shiftDay(today, -800)}::date,${CAPTURE_ZONE},'LOCAL'),(${tenant}::uuid,${property}::uuid,${shiftDay(today, -799)}::date,${CAPTURE_ZONE},'LOCAL')`;
       const captures = await Promise.all([
         collector.capture(context),
         collector.capture(context),
@@ -1084,7 +1100,7 @@ describe('Reports R2 real scoped projections, cache and export audit', () => {
         ),
       ).toBe(true);
       const previous = shiftDay(today, -1);
-      await admin.$executeRaw`INSERT INTO report_otb_snapshots(tenant_id,property_id,snapshot_date,timezone,source) VALUES(${tenant}::uuid,${property}::uuid,${previous}::date,'Pacific/Auckland','LOCAL')`;
+      await admin.$executeRaw`INSERT INTO report_otb_snapshots(tenant_id,property_id,snapshot_date,timezone,source) VALUES(${tenant}::uuid,${property}::uuid,${previous}::date,${CAPTURE_ZONE},'LOCAL')`;
       await admin.$executeRaw`INSERT INTO report_otb_days(tenant_id,property_id,snapshot_date,stay_date,sold,available)VALUES(${tenant}::uuid,${property}::uuid,${previous}::date,${today}::date,0,5)`;
       const historicalQuery = { report: 'occupancy', from: today, to: today };
       const live = await app.get(ReportWorkspaceService).workspace(context, historicalQuery, true);
