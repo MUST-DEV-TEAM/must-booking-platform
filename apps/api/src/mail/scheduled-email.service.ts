@@ -13,6 +13,7 @@ import type { MailBrand } from '@must/domain-contracts';
 
 import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant-database.service';
 import { renderTemplate, savedTemplate, stayTemplateValues } from './email-templates';
+import { GuestReviewService } from '../booking/guest-review.service';
 import { isChannelRelayEmail } from './channel-relay-email';
 import { LifecycleEmailService } from './lifecycle-email.service';
 import { MailDeliveryService } from './mail-delivery.service';
@@ -134,6 +135,9 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
     @Optional()
     @Inject(LifecycleEmailService)
     private readonly lifecycle?: LifecycleEmailService,
+    @Optional()
+    @Inject(GuestReviewService)
+    private readonly guestReviews?: GuestReviewService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -343,25 +347,38 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
         LEFT JOIN rooms r ON r.tenant_id = b.tenant_id AND r.property_id = b.property_id AND r.id = b.room_id
         WHERE b.tenant_id = ${context.tenantId}::uuid AND b.property_id = ${context.propertyId}::uuid
           AND b.status = 'CONFIRMED'::"BookingStatus" AND b.ends_on = ${departure}::date
-          AND b.external_reference NOT LIKE 'CLOCK-%'
           AND COALESCE(b.pms_stay_status, '') <> 'no_show'
           AND COALESCE(${bookingContactSql.email}, '') <> ''
         ORDER BY "groupKey", b.order_room_number NULLS FIRST, b.id
       `;
-      if (!rows.length) return null;
+      // Stays read from a PMS count too, but a booking channel's relay address is never used.
+      const own = rows.filter((row) => !isChannelRelayEmail(row.email));
+      if (!own.length) return null;
       const [links] = await tx.$queryRaw<Array<{ reviewLinks: unknown }>>`
         SELECT review_links AS "reviewLinks" FROM properties
         WHERE tenant_id = ${context.tenantId}::uuid AND id = ${context.propertyId}::uuid
       `;
       return {
         brand: await this.brand(tx, context),
-        stays: this.groupStays(rows),
+        stays: this.groupStays(own),
         template: await savedTemplate(tx, context, 'post_stay'),
         buttons: reviewButtons(storedReviewLinks(links?.reviewLinks)),
       };
     });
     if (!work) return;
     for (const stay of work.stays) {
+      const key = `post-stay/${stay.bookingId}`;
+      // Already sent: leave it alone, so the private review link in that email stays valid.
+      if (
+        await this.database.withTenantTransaction(context, (tx) =>
+          this.alreadyLogged(tx, context, key),
+        )
+      )
+        continue;
+      const reviewUrl = await this.guestReviews?.invite(context, stay.bookingId);
+      const buttons = reviewUrl
+        ? [{ url: reviewUrl, label: 'Rate your stay' }, ...work.buttons]
+        : work.buttons;
       const message = renderTemplate(
         'post_stay',
         work.template,
@@ -383,8 +400,8 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
       await this.delivery.dispatch(
         'rendered',
         {
-          ...postStayEmail(stay, work.brand, message, work.buttons),
-          idempotencyKey: `post-stay/${stay.bookingId}`,
+          ...postStayEmail(stay, work.brand, message, buttons),
+          idempotencyKey: key,
         },
         context,
       );

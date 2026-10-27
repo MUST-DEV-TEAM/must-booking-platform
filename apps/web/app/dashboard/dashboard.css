@@ -10,6 +10,7 @@
 @import 'tailwindcss/utilities.css' layer(utilities) source(none);
 @source './';
 @source '../../components';
+@source '../review';
 @import 'tw-animate-css';
 @import '../ui-theme.css';
 
