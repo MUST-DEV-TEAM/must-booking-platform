@@ -476,6 +476,8 @@ export interface CreateCheckoutSessionCommand {
   amount: Money;
   successUrl: string;
   cancelUrl: string;
+  /** How long the payment page stays usable. Omitted: the provider default. */
+  expiresAfterMinutes?: number;
 }
 
 export interface CheckoutSession {

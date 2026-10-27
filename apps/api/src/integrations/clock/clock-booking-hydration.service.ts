@@ -34,6 +34,7 @@ import {
 } from './clock-http-client';
 import { ClockRateLimiterService } from './clock-rate-limiter';
 import { resolveBookingOccupancy } from '../../booking/booking-occupancy';
+import { isoCurrency } from '../../money/iso-currency';
 
 // CONFIRMED_IN_SANDBOX 2026-09-03 against a real GET /bookings/{id} response
 // (Empire Beach Resort) — see docs/CLOCK_WEBHOOK_FLOW.md. Only the fields
@@ -279,13 +280,28 @@ export class ClockBookingHydrationService {
           return { outcome: 'missing_room_type_mapping' };
         }
 
+        // Never assume a currency: a total in an unknown currency is worse than a booking waiting for review.
+        const billedIn = billedCurrency(detail.total_booking_value);
+        if (!billedIn) {
+          await this.manualReview.recordInTransaction(tx, {
+            tenantId,
+            propertyId,
+            connectionId,
+            category: 'UNKNOWN_RESULT',
+            referenceType: 'clock_booking',
+            referenceId: String(detail.id),
+            message: `Clock booking ${detail.number ?? detail.id} has a total with no valid currency, so its amount was not imported. Check the bill in Clock, then re-send the event.`,
+          });
+          if (ownership) await this.finalizeOwnedEvent(tx, tenantId, ownership, 'FAILED');
+          return { outcome: 'unknown_status' };
+        }
         const ratePlanId = await this.shadowRatePlanId(
           tx,
           tenantId,
           propertyId,
           roomTypeId,
           detail.arrival_room_type_id,
-          detail.total_booking_value?.currency ?? 'EUR',
+          billedIn,
         );
         const roomId = await this.mappedEntityId(
           tx,
@@ -319,11 +335,11 @@ export class ClockBookingHydrationService {
           `INSERT INTO bookings (
            tenant_id, property_id, room_type_id, room_id, guest_id, external_reference,
            external_booking_id, status, payment_method, starts_on, ends_on, rate_plan_id,
-           total_amount, adults, children, guest_count, nightly_rates, pms_stay_status, created_at, updated_at, pms_source_updated_at, children_ages, guest_contact
+           total_amount, adults, children, guest_count, nightly_rates, pms_stay_status, created_at, updated_at, pms_source_updated_at, children_ages, guest_contact, currency
          ) VALUES (
            $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, $7, $8::"BookingStatus",
            'PAY_AT_HOTEL'::"BookingPaymentMethod", $9::date, $10::date, $11::uuid, $12::decimal,
-           $13, $14, $15, $16::jsonb, $17, COALESCE($19::timestamptz,CURRENT_TIMESTAMP), COALESCE($20::timestamptz,CURRENT_TIMESTAMP), $21::timestamptz, $22::jsonb, $23::jsonb
+           $13, $14, $15, $16::jsonb, $17, COALESCE($19::timestamptz,CURRENT_TIMESTAMP), COALESCE($20::timestamptz,CURRENT_TIMESTAMP), $21::timestamptz, $22::jsonb, $23::jsonb, $24
          )
          ON CONFLICT (tenant_id, property_id, external_booking_id) DO UPDATE SET
            room_type_id = EXCLUDED.room_type_id,
@@ -333,6 +349,8 @@ export class ClockBookingHydrationService {
            status = EXCLUDED.status,
            starts_on = EXCLUDED.starts_on,
            ends_on = EXCLUDED.ends_on,
+           rate_plan_id = CASE WHEN bookings.external_reference LIKE 'CLOCK-%' THEN EXCLUDED.rate_plan_id ELSE bookings.rate_plan_id END,
+           currency = CASE WHEN bookings.external_reference LIKE 'CLOCK-%' THEN EXCLUDED.currency ELSE bookings.currency END,
            total_amount = EXCLUDED.total_amount,
            adults = EXCLUDED.adults,
            children = EXCLUDED.children,
@@ -377,6 +395,7 @@ export class ClockBookingHydrationService {
             email: detail.guest_e_mail?.trim() || null,
             phone: detail.guest_phone_number?.trim() || null,
           }),
+          billedIn,
         );
 
         const row = rows[0]!;
@@ -522,14 +541,17 @@ export class ClockBookingHydrationService {
     externalRoomTypeId: number | null | undefined,
     currency: string,
   ): Promise<string> {
-    const existing = await tx.$queryRawUnsafe<Array<{ id: string }>>(
-      `SELECT id FROM rate_plans WHERE tenant_id = $1::uuid AND property_id = $2::uuid
+    const existing = await tx.$queryRawUnsafe<Array<{ id: string; currency: string }>>(
+      `SELECT id, currency FROM rate_plans WHERE tenant_id = $1::uuid AND property_id = $2::uuid
          AND clock_shadow_room_type_id = $3::uuid`,
       tenantId,
       propertyId,
       roomTypeId,
     );
-    if (existing[0]) return existing[0].id;
+    if (existing[0] && existing[0].currency === currency) return existing[0].id;
+    // Clock bills some reservations in another currency (a Reception rate in lek, a channel booking). Those
+    // are kept on a plan in that currency, so their totals are never shown as if they were the hotel's own.
+    if (existing[0]) return this.currencyRatePlanId(tx, tenantId, propertyId, currency);
 
     const id = randomUUID();
     await tx.$executeRawUnsafe(
@@ -541,6 +563,39 @@ export class ClockBookingHydrationService {
       `Clock room type ${externalRoomTypeId ?? roomTypeId}`,
       currency,
       roomTypeId,
+    );
+    return id;
+  }
+
+  /**
+   * The inactive plan that holds Clock reservations billed in a currency other than the hotel's. It is not a
+   * plan a guest or staff member can book; it only gives those reservations the right currency.
+   */
+  private async currencyRatePlanId(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+    currency: string,
+  ): Promise<string> {
+    const name = `Clock reservations billed in ${currency}`;
+    const found = await tx.$queryRawUnsafe<Array<{ id: string }>>(
+      `SELECT id FROM rate_plans WHERE tenant_id = $1::uuid AND property_id = $2::uuid
+         AND clock_shadow_room_type_id IS NULL AND is_active = false AND name = $3 AND currency = $4`,
+      tenantId,
+      propertyId,
+      name,
+      currency,
+    );
+    if (found[0]) return found[0].id;
+    const id = randomUUID();
+    await tx.$executeRawUnsafe(
+      `INSERT INTO rate_plans (id, tenant_id, property_id, name, currency, is_active)
+       VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, false)`,
+      id,
+      tenantId,
+      propertyId,
+      name,
+      currency,
     );
     return id;
   }
@@ -678,4 +733,11 @@ function providerTimestamp(value: unknown): Date | null {
   return Number.isFinite(parsed.getTime()) && parsed.getTime() <= Date.now() + 300000
     ? parsed
     : null;
+}
+
+/** The ISO currency code Clock bills a reservation in, or null when it is missing or not a 3-letter code. */
+export function billedCurrency(
+  value: { currency?: string | null } | null | undefined,
+): string | null {
+  return isoCurrency(value?.currency);
 }

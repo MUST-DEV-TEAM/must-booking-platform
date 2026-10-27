@@ -14,6 +14,8 @@ import { minorUnits as paymentMinor, money as decimalMoney } from './payment-sta
 import { Alert, AlertTitle, AlertDescription } from '../../components/ui/alert';
 import { EditBookingDetailsDialog } from './edit-booking-details-dialog';
 import { CancellationDialog } from './cancellation-dialog';
+import { StayStatusActions } from './stay-status-actions';
+import { ReservationReview } from './reservation-review';
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -102,6 +104,7 @@ type Detail = {
   version: number;
   updatedAt: string;
   externalBookingId: string | null;
+  pmsStayStatus: string | null;
   nightlyRates: Array<{ date: string; amount: string }> | null;
   promo?: {
     code: string;
@@ -236,6 +239,7 @@ export function ReservationDetail({
   checkOutTime,
   canCancelBooking = false,
   canRefundPayment = false,
+  canRefundLate = false,
   canEditBooking = false,
 }: {
   tenantId: string;
@@ -247,6 +251,8 @@ export function ReservationDetail({
   checkOutTime?: string | null;
   canCancelBooking?: boolean;
   canRefundPayment?: boolean;
+  /** May refund a cancelled booking after the 24-hour window (owners, admins, managers). */
+  canRefundLate?: boolean;
   canEditBooking?: boolean;
 }) {
   const CHECK_IN = /^\d{2}:\d{2}/.test(checkInTime ?? '')
@@ -385,12 +391,20 @@ export function ReservationDetail({
     cancelledEvent !== undefined &&
     Date.now() - new Date(cancelledEvent.createdAt).getTime() > 24 * 60 * 60 * 1000;
   const canRefundHere =
-    canRefundPayment && refundable && !refundWindowClosed && booking.status !== 'EXPIRED';
+    canRefundPayment &&
+    refundable &&
+    booking.status !== 'EXPIRED' &&
+    (!refundWindowClosed || canRefundLate);
 
   const refundOnly = async (note: string) => {
     const body = refundRequestBody(refundOnlyPick, booking);
     if (!body) throw new Error('Choose how much to refund.');
-    const payload = JSON.stringify({ bookingId: booking.id, ...body, note: note.slice(0, 500) });
+    const payload = JSON.stringify({
+      bookingId: booking.id,
+      ...body,
+      ...(refundWindowClosed ? { lateRefund: true } : {}),
+      note: note.slice(0, 500),
+    });
     if (refundAttempt.current.body !== payload)
       refundAttempt.current = { body: payload, key: crypto.randomUUID() };
     const response = await fetch(`${base}/payments/refunds`, {
@@ -479,6 +493,9 @@ export function ReservationDetail({
         actions={
           <>
             {canEditBooking ? (
+              <StayStatusActions tenantId={tenantId} propertyId={propertyId} booking={booking} />
+            ) : null}
+            {canEditBooking ? (
               <Button onClick={() => setEditingDetails(true)}>
                 <Pencil aria-hidden="true" /> Edit details
               </Button>
@@ -495,11 +512,12 @@ export function ReservationDetail({
                 title={
                   canRefundHere
                     ? undefined
-                    : 'A cancelled reservation can only be refunded for 24 hours after it was cancelled.'
+                    : 'This reservation was cancelled more than 24 hours ago. Only an owner, admin or manager can refund it now.'
                 }
                 onClick={() => setRefunding(true)}
               >
-                <Undo2 aria-hidden="true" /> Refund
+                <Undo2 aria-hidden="true" />{' '}
+                {refundWindowClosed ? 'Refund after 24 hours' : 'Refund'}
               </Button>
             ) : null}
             {canCancel ? (
@@ -512,6 +530,7 @@ export function ReservationDetail({
         }
       />
       <CollectPaymentActions tenantId={tenantId} propertyId={propertyId} booking={booking} />
+      <ReservationReview tenantId={tenantId} propertyId={propertyId} bookingId={booking.id} />
       {editingDetails ? (
         <EditBookingDetailsDialog
           tenantId={tenantId}
@@ -917,6 +936,15 @@ export function ReservationDetail({
         confirmDisabled={!!refundChoiceError(refundOnlyPick, booking)}
         onConfirm={refundOnly}
       >
+        {refundWindowClosed ? (
+          <Alert variant="warning">
+            <AlertTitle>Refund after the usual 24 hours</AlertTitle>
+            <AlertDescription>
+              This reservation was cancelled more than 24 hours ago. Check that the payment provider
+              still allows the refund. It is recorded in the activity log as a late refund.
+            </AlertDescription>
+          </Alert>
+        ) : null}
         {canCancelBooking && booking.status === 'CONFIRMED' ? (
           <Button
             variant="outline"

@@ -26,6 +26,7 @@ import {
   type AuditEvent,
   type AuditExport,
 } from '../../lib/activity-audit';
+import { DateField } from '../../components/ui/date-field';
 /** Property evidence directory; every CSV is created and audited on the server. */
 export function ActivityAudit({
   tenantId,
@@ -213,19 +214,19 @@ export function ActivityAudit({
           />
         </FormField>
         <FormField label="From">
-          <Input
+          <DateField
             aria-label="Audit from date"
-            type="date"
+
             value={from || data?.filters.from || ''}
-            onChange={(e) => change(setFrom)(e.target.value)}
+            onChange={(date) => change(setFrom)(date)}
           />
         </FormField>
         <FormField label="To">
-          <Input
+          <DateField
             aria-label="Audit to date"
-            type="date"
+
             value={to || data?.filters.to || ''}
-            onChange={(e) => change(setTo)(e.target.value)}
+            onChange={(date) => change(setTo)(date)}
           />
         </FormField>
         {data?.canViewActors ? (

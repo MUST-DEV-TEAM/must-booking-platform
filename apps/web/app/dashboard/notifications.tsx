@@ -34,6 +34,7 @@ import {
   type InboxNotification,
   type InboxPage,
 } from '../../lib/notification-inbox';
+import { DateField } from '../../components/ui/date-field';
 export type Notification = InboxNotification;
 export type NotificationPage = InboxPage;
 export function notificationsInboxHref(tenantId: string, propertyId: string) {
@@ -331,19 +332,19 @@ export function NotificationsInbox({
           />
         </FormField>
         <FormField label="From">
-          <Input
+          <DateField
             aria-label="From date"
-            type="date"
+
             value={from}
-            onChange={(e) => change(setFrom)(e.target.value)}
+            onChange={(date) => change(setFrom)(date)}
           />
         </FormField>
         <FormField label="To">
-          <Input
+          <DateField
             aria-label="To date"
-            type="date"
+
             value={to}
-            onChange={(e) => change(setTo)(e.target.value)}
+            onChange={(date) => change(setTo)(date)}
           />
         </FormField>
       </div>

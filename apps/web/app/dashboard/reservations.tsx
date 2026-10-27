@@ -14,6 +14,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown, LoaderCircle } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 import styles from './reservations.module.css';
+import { DateField } from '../../components/ui/date-field';
 
 export type Reservation = {
   id: string;
@@ -240,20 +241,20 @@ export function DashboardReservations({
           </label>
           <label>
             <span>From</span>
-            <input
+            <DateField
               aria-label="From date"
-              type="date"
+
               value={from}
-              onChange={(event) => setFrom(event.target.value)}
+              onChange={(date) => setFrom(date)}
             />
           </label>
           <label>
             <span>To</span>
-            <input
+            <DateField
               aria-label="To date"
-              type="date"
+
               value={to}
-              onChange={(event) => setTo(event.target.value)}
+              onChange={(date) => setTo(date)}
             />
           </label>
         </div>

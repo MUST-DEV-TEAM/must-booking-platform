@@ -223,7 +223,7 @@ describe('confirmed booking collection controls', () => {
     expect(view.requests.some((u) => u.endsWith('/manual-payment'))).toBe(false);
     const dialog = document.body.querySelector('[role="dialog"]')!;
     expect(dialog.textContent).toContain('money has arrived');
-    expect(dialog.querySelector('input[type="date"]')).toBeTruthy();
+    expect(dialog.querySelector('button[aria-haspopup="dialog"]')).toBeTruthy();
     await act(async () =>
       [...dialog.querySelectorAll('button')]
         .find((b) => b.textContent === 'Record payment')!

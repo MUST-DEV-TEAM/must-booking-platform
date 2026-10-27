@@ -30,5 +30,20 @@ export default tseslint.config(
       },
     },
   },
+  {
+    // Dates are asked for with the shared calendar (DateField), never with a plain browser date box.
+    files: ['apps/web/**/*.{ts,tsx}'],
+    ignores: ['apps/web/**/*.test.{ts,tsx}', 'apps/web/app/design/**', 'apps/web/e2e/**'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "JSXAttribute[name.name='type'][value.value=/^(date|datetime-local|week)$/]",
+          message:
+            'Use <DateField> (components/ui/date-field) for dates, so every calendar looks and behaves the same.',
+        },
+      ],
+    },
+  },
   eslintConfigPrettier,
 );

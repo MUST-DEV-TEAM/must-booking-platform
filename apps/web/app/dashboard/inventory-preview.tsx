@@ -14,6 +14,7 @@ import { Input } from '../../components/ui/input';
 import { Alert, AlertTitle, AlertDescription } from '../../components/ui/alert';
 import { inventoryRequest } from './inventory-api';
 import type { CatalogItem } from './inventory-types';
+import { DateField } from '../../components/ui/date-field';
 /** Tests a saved-rule stay through the server evaluator, without holding inventory. */
 export function InventoryPreview({
   base,
@@ -139,25 +140,23 @@ export function InventoryPreview({
               />
             </FormField>
             <FormField label="Arrival" htmlFor="preview-arrival">
-              <Input
+              <DateField
                 id="preview-arrival"
-                type="date"
-                required
+                aria-label="Arrival"
                 value={startsOn}
-                onChange={(e) => {
-                  setStart(e.target.value);
+                onChange={(date) => {
+                  setStart(date);
                   reset();
                 }}
               />
             </FormField>
             <FormField label="Departure" htmlFor="preview-departure">
-              <Input
+              <DateField
                 id="preview-departure"
-                type="date"
-                required
+                aria-label="Departure"
                 value={endsOn}
-                onChange={(e) => {
-                  setEnd(e.target.value);
+                onChange={(date) => {
+                  setEnd(date);
                   reset();
                 }}
               />

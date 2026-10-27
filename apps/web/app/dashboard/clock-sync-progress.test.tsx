@@ -23,6 +23,7 @@ const summary: SyncSummary = {
       lastSyncedAt: null,
       lastError: null,
       skipped: 12,
+      detail: '15,926 reservations held: 5,200 confirmed, 1,800 cancelled.',
     },
     {
       key: 'catalog',
@@ -37,6 +38,7 @@ const summary: SyncSummary = {
       lastSyncedAt: '2026-10-26T15:00:00Z',
       lastError: null,
       skipped: 0,
+      detail: '13 room types, 150 rooms and 26 rates.',
     },
   ],
 };
@@ -68,6 +70,8 @@ describe('ClockSyncProgress', () => {
     expect(text).toContain('1,000 of 15,926 · 14,926 left');
     expect(text).toContain('25 per minute');
     expect(text).toContain('12 could not be brought in');
+    expect(text).toContain('5,200 confirmed, 1,800 cancelled');
+    expect(text).toContain('13 room types, 150 rooms and 26 rates.');
     expect(text).toContain('Room types, rooms and rates');
     expect(text).toContain('3 in total');
     expect(text).toContain('Up to date');

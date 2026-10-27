@@ -21,12 +21,13 @@ import {
   shiftDay,
   snapshotDelta,
   withinFreeCancellation,
+  bookingOutstanding,
 } from './report-metrics';
 
 describe('shared report metric definitions and dates', () => {
   it('provides unique auditable definitions for all core KPIs', () => {
     expect(new Set(REPORT_METRICS.map((m) => m.key)).size).toBe(REPORT_METRICS.length);
-    expect(REPORT_METRICS.length).toBe(40);
+    expect(REPORT_METRICS.length).toBe(41);
     for (const metric of REPORT_METRICS) {
       expect(metric.formula.length).toBeGreaterThan(10);
       expect(metric.dateBasis.length).toBeGreaterThan(3);
@@ -347,5 +348,36 @@ it('shares confirmed scheduled stay counters with operational lists', () => {
     arrivals: 1,
     departures: 1,
     inHouse: 1,
+  });
+});
+
+describe('bookingOutstanding', () => {
+  it('uses MUST’s own ledger for a booking MUST bills', () => {
+    expect(bookingOutstanding({ totalAmount: '250.00' }, '100.00')).toBe('150.00');
+    expect(bookingOutstanding({ totalAmount: '250.00' }, '300.00')).toBe('0.00');
+  });
+
+  it('uses Clock’s balance when Clock holds the bill, even if MUST never saw the payment', () => {
+    const paidAtTheDesk = {
+      totalAmount: '694.44',
+      clockBasis: true,
+      clockBalance: { amount: '0.00', currency: 'EUR' },
+    };
+    expect(bookingOutstanding(paidAtTheDesk, '0.00')).toBe('0.00');
+    expect(
+      bookingOutstanding(
+        { ...paidAtTheDesk, clockBalance: { amount: '120.50', currency: 'EUR' } },
+        '0.00',
+      ),
+    ).toBe('120.50');
+  });
+
+  it('owes nothing for a Clock credit, or for a Clock bill that has not been read yet', () => {
+    const base = { totalAmount: '500.00', clockBasis: true };
+    expect(
+      bookingOutstanding({ ...base, clockBalance: { amount: '-40.00', currency: 'EUR' } }, '0.00'),
+    ).toBe('0.00');
+    expect(bookingOutstanding({ ...base, clockBalance: null }, '0.00')).toBe('0.00');
+    expect(bookingOutstanding(base, '0.00')).toBe('0.00');
   });
 });

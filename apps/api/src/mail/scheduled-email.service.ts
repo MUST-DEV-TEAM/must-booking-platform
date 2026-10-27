@@ -13,6 +13,9 @@ import type { MailBrand } from '@must/domain-contracts';
 
 import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant-database.service';
 import { renderTemplate, savedTemplate, stayTemplateValues } from './email-templates';
+import { GuestReviewService } from '../booking/guest-review.service';
+import { isChannelRelayEmail } from './channel-relay-email';
+import { LifecycleEmailService } from './lifecycle-email.service';
 import { MailDeliveryService } from './mail-delivery.service';
 import { EmailSenderVerificationService } from '../tenancy/email-sender-verification.service';
 import { EmailTransportJournal } from './email-transport-journal';
@@ -25,9 +28,11 @@ import {
 import { reviewButtons, storedReviewLinks } from './review-links';
 import {
   ownerDailySummaryEmail,
+  ownerWeeklySummaryEmail,
   postStayEmail,
   preArrivalEmail,
   type OwnerDailySummary,
+  type OwnerWeeklySummary,
   type PreArrivalStay,
 } from './scheduled-email-content';
 
@@ -38,6 +43,8 @@ const SWEEP_INTERVAL_MS = 15 * 60_000;
 const OWNER_SUMMARY_HOUR = 7;
 const PRE_ARRIVAL_HOUR = 9;
 const POST_STAY_HOUR = 10;
+/** The welcome goes out this long after the guest is recorded as arrived. */
+const CHECK_IN_DAY_DELAY_MINUTES = 60;
 
 type Context = { tenantId: string; propertyId: string };
 type PropertyRow = {
@@ -90,6 +97,10 @@ export function localNow(now: Date, timeZone: string | null): { date: string; ho
   return { date: `${part('year')}-${part('month')}-${part('day')}`, hour: Number(part('hour')) };
 }
 
+export function isMonday(date: string): boolean {
+  return new Date(`${date}T00:00:00Z`).getUTCDay() === 1;
+}
+
 export function addDays(date: string, days: number): string {
   const [year, month, day] = date.split('-').map(Number);
   return new Date(Date.UTC(year!, month! - 1, day! + days)).toISOString().slice(0, 10);
@@ -121,6 +132,12 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
     @Optional()
     @Inject(EmailSenderTestService)
     private readonly senderTests?: EmailSenderTestService,
+    @Optional()
+    @Inject(LifecycleEmailService)
+    private readonly lifecycle?: LifecycleEmailService,
+    @Optional()
+    @Inject(GuestReviewService)
+    private readonly guestReviews?: GuestReviewService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -185,6 +202,9 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
         await this.senderProofs?.recover(context);
         if (local.hour >= OWNER_SUMMARY_HOUR)
           await this.sendOwnerSummary(context, property.timezone || 'UTC', local.date);
+        if (local.hour >= OWNER_SUMMARY_HOUR && isMonday(local.date))
+          await this.sendOwnerWeeklySummary(context, property.timezone || 'UTC', local.date);
+        await this.sendCheckInDay(context, property.timezone || 'UTC', local.date, now);
         if (local.hour >= PRE_ARRIVAL_HOUR)
           await this.sendPreArrival(context, property.timezone || 'UTC', local.date);
         if (local.hour >= POST_STAY_HOUR) await this.sendPostStay(context, local.date);
@@ -195,6 +215,49 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
         );
       }
     }
+  }
+
+  /**
+   * A short welcome one hour after the guest is recorded as arrived (the stay status became checked-in), on
+   * the day of arrival only, so reading older stays from a PMS never sends anything. Confirmed, still in the
+   * hotel, with a guest address of their own (not a booking channel's relay). One email per order, not per room.
+   */
+  async sendCheckInDay(
+    context: Context,
+    timeZone: string,
+    today: string,
+    now = new Date(),
+  ): Promise<void> {
+    if (!this.lifecycle) return;
+    const arrivedBefore = new Date(now.getTime() - CHECK_IN_DAY_DELAY_MINUTES * 60_000);
+    const bookingIds = await this.database.withTenantTransaction(context, async (tx) => {
+      const settings = await scheduledGuestSettings(tx, context, 'check_in_day');
+      if (!settings.enabled) return [];
+      const rows = await tx.$queryRaw<Array<{ id: string; email: string | null }>>`
+        SELECT DISTINCT ON (COALESCE(b.order_reference, b.id::text)) b.id::text AS id,
+          ${bookingContactSql.email} AS email
+        FROM bookings b
+        LEFT JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
+        WHERE b.tenant_id = ${context.tenantId}::uuid AND b.property_id = ${context.propertyId}::uuid
+          AND b.status = 'CONFIRMED'::"BookingStatus" AND b.starts_on = ${today}::date
+          AND b.pms_stay_status = 'checked_in'
+          AND b.checked_in_at IS NOT NULL AND b.checked_in_at <= ${arrivedBefore}::timestamptz
+          AND (b.checked_in_at AT TIME ZONE ${timeZone})::date = ${today}::date
+          AND COALESCE(${bookingContactSql.email}, '') <> ''
+        ORDER BY COALESCE(b.order_reference, b.id::text), b.order_room_number NULLS FIRST, b.id
+      `;
+      // Reservations read from a PMS count too, but not when the address is a booking channel's relay.
+      return rows.filter((row) => !isChannelRelayEmail(row.email)).map((row) => row.id);
+    });
+    for (const bookingId of bookingIds)
+      await this.lifecycle.guest(context, {
+        topic: 'check_in_day',
+        key: 'check_in_day',
+        eventType: 'guest.check_in_day',
+        idempotencyKey: `check-in-day/${bookingId}`,
+        bookingId,
+        heading: 'Welcome today',
+      });
   }
 
   async sendPreArrival(context: Context, timeZone: string, today: string): Promise<void> {
@@ -284,25 +347,38 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
         LEFT JOIN rooms r ON r.tenant_id = b.tenant_id AND r.property_id = b.property_id AND r.id = b.room_id
         WHERE b.tenant_id = ${context.tenantId}::uuid AND b.property_id = ${context.propertyId}::uuid
           AND b.status = 'CONFIRMED'::"BookingStatus" AND b.ends_on = ${departure}::date
-          AND b.external_reference NOT LIKE 'CLOCK-%'
           AND COALESCE(b.pms_stay_status, '') <> 'no_show'
           AND COALESCE(${bookingContactSql.email}, '') <> ''
         ORDER BY "groupKey", b.order_room_number NULLS FIRST, b.id
       `;
-      if (!rows.length) return null;
+      // Stays read from a PMS count too, but a booking channel's relay address is never used.
+      const own = rows.filter((row) => !isChannelRelayEmail(row.email));
+      if (!own.length) return null;
       const [links] = await tx.$queryRaw<Array<{ reviewLinks: unknown }>>`
         SELECT review_links AS "reviewLinks" FROM properties
         WHERE tenant_id = ${context.tenantId}::uuid AND id = ${context.propertyId}::uuid
       `;
       return {
         brand: await this.brand(tx, context),
-        stays: this.groupStays(rows),
+        stays: this.groupStays(own),
         template: await savedTemplate(tx, context, 'post_stay'),
         buttons: reviewButtons(storedReviewLinks(links?.reviewLinks)),
       };
     });
     if (!work) return;
     for (const stay of work.stays) {
+      const key = `post-stay/${stay.bookingId}`;
+      // Already sent: leave it alone, so the private review link in that email stays valid.
+      if (
+        await this.database.withTenantTransaction(context, (tx) =>
+          this.alreadyLogged(tx, context, key),
+        )
+      )
+        continue;
+      const reviewUrl = await this.guestReviews?.invite(context, stay.bookingId);
+      const buttons = reviewUrl
+        ? [{ url: reviewUrl, label: 'Rate your stay' }, ...work.buttons]
+        : work.buttons;
       const message = renderTemplate(
         'post_stay',
         work.template,
@@ -324,8 +400,8 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
       await this.delivery.dispatch(
         'rendered',
         {
-          ...postStayEmail(stay, work.brand, message, work.buttons),
-          idempotencyKey: `post-stay/${stay.bookingId}`,
+          ...postStayEmail(stay, work.brand, message, buttons),
+          idempotencyKey: key,
         },
         context,
       );
@@ -374,6 +450,104 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
         { recipientEnvelope: recipient.envelope },
       );
     }
+  }
+
+  /** Monday morning: the week that just ended and the one starting. Once per owner per week. */
+  async sendOwnerWeeklySummary(context: Context, timeZone: string, today: string): Promise<void> {
+    const work = await this.database.withTenantTransaction(context, async (tx) => {
+      const recipients = staffDeliveryGroups(
+        await staffRecipients(tx, context, 'owner_weekly_summary'),
+      );
+      if (!recipients.length) return null;
+      const pending = [];
+      for (const recipient of recipients) {
+        const key = `owner-weekly-summary/${context.propertyId}/${today}/${recipient.staffUserId}`;
+        if (!(await this.alreadyLogged(tx, context, key))) pending.push({ ...recipient, key });
+      }
+      if (!pending.length) return null;
+      return {
+        pending,
+        brand: await this.brand(tx, context),
+        summary: await this.ownerWeeklySummary(tx, context, timeZone, today),
+        template: await savedTemplate(tx, context, 'owner_weekly_summary'),
+      };
+    });
+    if (!work) return;
+    const dashboardUrl = this.dashboardUrl();
+    const { summary } = work;
+    const revenue = summary.newBookings.revenue
+      .map((row) => `${row.amount} ${row.currency}`)
+      .join(' + ');
+    for (const recipient of work.pending) {
+      const message = renderTemplate('owner_weekly_summary', work.template, {
+        hotel_name: work.brand.name,
+        hotel_contact: work.brand.supportEmail ?? work.brand.phone ?? 'Contact the hotel',
+        summary_date: today,
+        summary: `${summary.newBookings.count} new bookings${revenue ? ` (${revenue})` : ''}; ${summary.cancellations} cancellations; ${summary.guestsHosted} stays completed; ${summary.upcomingArrivals} arrivals in the next 7 days.`,
+      });
+      const email = ownerWeeklySummaryEmail(
+        summary,
+        recipient.email,
+        work.brand,
+        dashboardUrl,
+        message,
+      );
+      await this.delivery.dispatch(
+        'rendered',
+        { ...email, idempotencyKey: recipient.key },
+        context,
+        { recipientEnvelope: recipient.envelope },
+      );
+    }
+  }
+
+  private async ownerWeeklySummary(
+    tx: TenantTransaction,
+    context: Context,
+    timeZone: string,
+    today: string,
+  ): Promise<OwnerWeeklySummary> {
+    const weekStart = addDays(today, -7);
+    const weekEnd = addDays(today, -1);
+    const nextWeekEnd = addDays(today, 6);
+    const created = await tx.$queryRaw<
+      Array<{ count: number; amount: string | null; currency: string | null }>
+    >`
+      SELECT COUNT(*)::int AS count, SUM(b.total_amount)::text AS amount, rp.currency
+      FROM bookings b
+      JOIN rate_plans rp ON rp.tenant_id = b.tenant_id AND rp.property_id = b.property_id AND rp.id = b.rate_plan_id
+      WHERE b.tenant_id = ${context.tenantId}::uuid AND b.property_id = ${context.propertyId}::uuid
+        AND b.status = 'CONFIRMED'::"BookingStatus"
+        AND (b.created_at AT TIME ZONE ${timeZone})::date BETWEEN ${weekStart}::date AND ${weekEnd}::date
+      GROUP BY rp.currency ORDER BY rp.currency
+    `;
+    const counts = await tx.$queryRaw<
+      Array<{ cancelled: number; hosted: number; arriving: number }>
+    >`
+      SELECT
+        COUNT(*) FILTER (WHERE b.status = 'CANCELLED'::"BookingStatus"
+          AND (b.updated_at AT TIME ZONE ${timeZone})::date BETWEEN ${weekStart}::date AND ${weekEnd}::date)::int AS cancelled,
+        COUNT(*) FILTER (WHERE b.status = 'CONFIRMED'::"BookingStatus"
+          AND b.ends_on BETWEEN ${weekStart}::date AND ${weekEnd}::date)::int AS hosted,
+        COUNT(*) FILTER (WHERE b.status = 'CONFIRMED'::"BookingStatus"
+          AND b.starts_on BETWEEN ${today}::date AND ${nextWeekEnd}::date)::int AS arriving
+      FROM bookings b
+      WHERE b.tenant_id = ${context.tenantId}::uuid AND b.property_id = ${context.propertyId}::uuid
+    `;
+    return {
+      date: today,
+      weekStart,
+      weekEnd,
+      newBookings: {
+        count: created.reduce((sum, row) => sum + row.count, 0),
+        revenue: created
+          .filter((row) => row.amount && row.currency)
+          .map((row) => ({ amount: row.amount!, currency: row.currency! })),
+      },
+      cancellations: counts[0]?.cancelled ?? 0,
+      guestsHosted: counts[0]?.hosted ?? 0,
+      upcomingArrivals: counts[0]?.arriving ?? 0,
+    };
   }
 
   private async ownerSummary(

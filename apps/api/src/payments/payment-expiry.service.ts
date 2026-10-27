@@ -3,7 +3,9 @@ import { Queue, Worker, type ConnectionOptions } from 'bullmq';
 
 import { LocalPmsProvider } from '../booking/local-pms.provider';
 import { BookingUpdateNotificationService } from '../mail/booking-update-notification.service';
+import { LifecycleEmailService } from '../mail/lifecycle-email.service';
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
+import { PaymentCollectionService } from './payment-collection.service';
 import { PokPayPaymentService } from './pokpay-payment.service';
 
 const PAYMENT_EXPIRY_QUEUE = 'payment-expiry';
@@ -12,6 +14,8 @@ const PAYMENT_EXPIRY_SCHEDULER = 'payment-pending-every-minute';
 const PAYMENT_PENDING_TIMEOUT_MINUTES = 30;
 const SWEEP_INTERVAL_MS = 60_000;
 const SWEEP_BATCH_SIZE = 100;
+/** An unpaid hold gets one "finish paying" email when this many minutes are left. */
+const EXPIRING_WARNING_MINUTES = 10;
 
 type ExpiryCandidate = {
   bookingId: string;
@@ -32,6 +36,8 @@ export class PaymentExpiryService implements OnModuleInit, OnModuleDestroy {
     @Inject(PokPayPaymentService) private readonly pokpay: PokPayPaymentService,
     @Inject(BookingUpdateNotificationService)
     private readonly updates: BookingUpdateNotificationService,
+    @Inject(LifecycleEmailService) private readonly lifecycle: LifecycleEmailService,
+    @Inject(PaymentCollectionService) private readonly collection: PaymentCollectionService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -65,6 +71,10 @@ export class PaymentExpiryService implements OnModuleInit, OnModuleDestroy {
 
   async sweep(now = new Date()): Promise<{ expired: number }> {
     await this.pokpay.pollPendingOrders();
+    await this.warnExpiring();
+    await this.collection.sendDueReminders().catch(() => {
+      this.logger.warn('Payment reminders could not be prepared.');
+    });
     const cutoffAt = new Date(now.getTime() - PAYMENT_PENDING_TIMEOUT_MINUTES * 60_000);
     const candidates = await this.database.$queryRaw<ExpiryCandidate[]>`
       SELECT "bookingId", "tenantId", "propertyId"
@@ -91,8 +101,72 @@ export class PaymentExpiryService implements OnModuleInit, OnModuleDestroy {
         { tenantId: candidate.tenantId, propertyId: candidate.propertyId },
         candidate.bookingId,
       );
+      await this.lifecycle.staff(
+        { tenantId: candidate.tenantId, propertyId: candidate.propertyId },
+        {
+          topic: 'payment_not_completed',
+          key: 'staff_payment_failed',
+          eventType: 'staff.payment_not_completed',
+          idempotencyKey: `payment-not-completed/staff/${candidate.bookingId}`,
+          bookingId: candidate.bookingId,
+          heading: 'Payment not completed',
+          rows: [{ label: 'What happened', value: 'Not paid in time; the room was released' }],
+        },
+      );
     }
     return { expired };
+  }
+
+  /** One email to guests whose unpaid online booking is about to be released, with the link to finish. */
+  async warnExpiring(): Promise<void> {
+    const candidates = await this.database.$queryRaw<Array<ExpiryCandidate & { expiresAt: Date }>>`
+      SELECT "bookingId", "tenantId", "propertyId", "expiresAt"
+      FROM "payment_pending_expiring_candidates"(
+        ${EXPIRING_WARNING_MINUTES}::integer,
+        ${SWEEP_BATCH_SIZE}::integer
+      )
+    `;
+    for (const candidate of candidates) {
+      const context = { tenantId: candidate.tenantId, propertyId: candidate.propertyId };
+      try {
+        const link = await this.database.withTenantTransaction(context, async (tx) => {
+          const rows = await tx.$queryRaw<Array<{ url: string; time: string }>>`
+            SELECT op.result->'value'->>'checkoutUrl' AS url,
+              to_char(${candidate.expiresAt}::timestamptz AT TIME ZONE COALESCE(p.timezone, 'UTC'), 'HH24:MI') AS time
+            FROM bookings b JOIN properties p ON p.tenant_id = b.tenant_id AND p.id = b.property_id
+            JOIN LATERAL (
+              SELECT result FROM integration_operations
+              WHERE tenant_id = b.tenant_id AND property_id = b.property_id
+                AND external_entity_id IN (
+                  SELECT x.id FROM bookings x
+                  WHERE x.tenant_id = b.tenant_id AND x.property_id = b.property_id
+                    AND (x.id = b.id OR (b.order_reference IS NOT NULL AND x.order_reference = b.order_reference)))
+                AND status = 'SUCCEEDED' AND result->'value'->>'checkoutUrl' IS NOT NULL
+              ORDER BY created_at DESC LIMIT 1) op ON true
+            WHERE b.tenant_id = ${candidate.tenantId}::uuid AND b.property_id = ${candidate.propertyId}::uuid
+              AND b.id = ${candidate.bookingId}::uuid AND b.status = 'PAYMENT_PENDING'
+          `;
+          return rows[0] ?? null;
+        });
+        if (!link) continue;
+        await this.lifecycle.guest(context, {
+          topic: 'payment_link_expiring',
+          key: 'payment_link_expiring',
+          eventType: 'guest.payment_link_expiring',
+          idempotencyKey: `payment-link-expiring/${candidate.bookingId}`,
+          bookingId: candidate.bookingId,
+          heading: 'Finish your booking',
+          values: { payment_link: link.url, expires_at: link.time },
+          cta: { label: 'Complete payment', url: link.url },
+        });
+      } catch (error) {
+        this.logger.warn(
+          `Could not prepare the payment-link-expiring email for booking ${candidate.bookingId}: ${
+            error instanceof Error ? error.name : 'unknown error'
+          }`,
+        );
+      }
+    }
   }
 
   private bullConnection(redisUrl: string): ConnectionOptions {

@@ -9,7 +9,7 @@ import {
   moneyPerNight,
   moneyPercent,
   nightlySnapshot,
-  outstanding,
+  bookingOutstanding,
   percent,
   propertyDay,
   reportMinor,
@@ -191,11 +191,15 @@ function financial(
         cashMetrics((f.paymentsByBooking.get(b.id) ?? []).filter((p) => p.currency === currency))[0]
           ?.netCollected ?? '0.00';
       return {
-        amount: outstanding(b.totalAmount, netPaid),
+        amount: bookingOutstanding(b, netPaid),
         bucket: ageingBucket(b.startsOn, f.context.today),
         payAtHotel: b.paymentMethod === 'PAY_AT_HOTEL',
+        // A stay that has not started yet is not owed yet: it is expected on arrival (pay at the hotel).
+        started: b.startsOn <= f.context.today,
+        noGuest: !b.guestName,
       };
     });
+    const dueNow = balances.filter((b) => b.started);
     return {
       currency,
       roomRevenue: a?.roomRevenue ?? (a ? null : '0.00'),
@@ -212,11 +216,16 @@ function financial(
       cohortNetCollected: net,
       collectionRate: moneyPercent(net, gross),
       refundToCollectionRatio: moneyPercent(c?.refunded ?? '0.00', c?.collected ?? '0.00'),
-      outstanding: sum(balances.map((b) => b.amount)),
+      outstanding: sum(dueNow.map((b) => b.amount)),
+      expectedOnArrival: sum(balances.filter((b) => !b.started).map((b) => b.amount)),
+      // Stays with no guest name are often room blocks or test entries made in Clock; shown so they cannot mislead.
+      expectedWithoutGuest: sum(
+        balances.filter((b) => !b.started && b.noGuest).map((b) => b.amount),
+      ),
       ageing: Object.fromEntries(
         ['0-7', '8-30', '31+'].map((bucket) => [
           bucket,
-          sum(balances.filter((b) => b.bucket === bucket).map((b) => b.amount)),
+          sum(dueNow.filter((b) => b.bucket === bucket).map((b) => b.amount)),
         ]),
       ),
       payAtHotelReceivables: sum(balances.filter((b) => b.payAtHotel).map((b) => b.amount)),
@@ -633,7 +642,11 @@ export function projectReport(
             currency: b.currency,
             bookingValue: b.totalAmount,
             netCollected: net,
-            difference: decimal(reportMinor(b.totalAmount) - reportMinor(net)),
+            // Where Clock holds the bill, the difference is what Clock says is still due.
+            difference: b.clockBasis
+              ? bookingOutstanding(b, net)
+              : decimal(reportMinor(b.totalAmount) - reportMinor(net)),
+            owed: bookingOutstanding(b, net),
             href: link(tenantId, propertyId, 'bookings', b.id),
           };
         });
@@ -644,7 +657,7 @@ export function projectReport(
         rows = reconciliationRows
           .map((row) => ({
             ...row,
-            outstanding: outstanding(row.bookingValue, row.netCollected),
+            outstanding: row.owed,
             ageing: ageingBucket(
               validBookings.find((b) => b.id === row.id)!.startsOn,
               f.context.today,

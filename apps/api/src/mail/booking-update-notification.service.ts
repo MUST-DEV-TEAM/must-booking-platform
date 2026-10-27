@@ -15,6 +15,7 @@ import {
   type EmailTemplateKey,
   type SavedTemplate,
 } from './email-templates';
+import { LifecycleEmailService } from './lifecycle-email.service';
 import { MailDeliveryService } from './mail-delivery.service';
 import { guestNotificationEnabled } from './notification-recipients';
 
@@ -49,9 +50,27 @@ export class BookingUpdateNotificationService {
   constructor(
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
     @Inject(MailDeliveryService) private readonly delivery: MailDeliveryService,
+    @Inject(LifecycleEmailService) private readonly lifecycle: LifecycleEmailService,
   ) {}
 
   async sendBookingChanged(
+    context: Context,
+    bookingId: string,
+    previous: PreviousStay,
+  ): Promise<void> {
+    await this.sendBookingChangedToGuest(context, bookingId, previous);
+    await this.lifecycle.staff(context, {
+      topic: 'booking_changed',
+      key: 'staff_booking_changed',
+      eventType: 'booking.staff_changed',
+      idempotencyKey: `booking-changed/staff/${bookingId}/${previous.startsOn}/${previous.endsOn}/${previous.roomTypeId}`,
+      bookingId,
+      heading: 'Booking updated',
+      rows: [{ label: 'Before', value: `${previous.startsOn} to ${previous.endsOn}` }],
+    });
+  }
+
+  private async sendBookingChangedToGuest(
     context: Context,
     bookingId: string,
     previous: PreviousStay,

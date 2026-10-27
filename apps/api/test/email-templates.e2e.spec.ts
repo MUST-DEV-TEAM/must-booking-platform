@@ -723,6 +723,12 @@ describe('email templates (a property’s own wording for guest emails)', () => 
       'booking_changed',
       'payment_not_completed',
       'post_stay',
+      'payment_pending',
+      'payment_reminder',
+      'payment_link_expiring',
+      'payment_received',
+      'check_in_day',
+      'no_show_notice',
     ]) {
       const endpoint = `${base}/email-template-versions/${key}`;
       const wording = {
@@ -732,7 +738,11 @@ describe('email templates (a property’s own wording for guest emails)', () => 
           (['booking_confirmed', 'booking_confirmed_pay_at_hotel'].includes(key)
             ? ' {payment_note}'
             : '') +
-          (key === 'refund_processed' ? ' {refund_amount}' : ''),
+          (key === 'refund_processed' ? ' {refund_amount}' : '') +
+          (['payment_pending', 'payment_reminder', 'payment_link_expiring'].includes(key)
+            ? ' {payment_link}'
+            : '') +
+          (key === 'payment_received' ? ' {payment_amount}' : ''),
       };
       await http()
         .put(endpoint + '/draft')
@@ -1012,7 +1022,8 @@ describe('email templates (a property’s own wording for guest emails)', () => 
   it('versions inbox preview text, rejects secret-link metadata, and refuses unsupported live triggers', async () => {
     const base = url().replace('/email-templates', ''),
       http = () => request(app!.getHttpServer());
-    const endpoint = base + '/email-template-versions/payment_pending';
+    // A wording with no sending trigger yet (the guest "Payment failed" wording is deliberately not wired).
+    const endpoint = base + '/email-template-versions/payment_failed';
     const draft = await http()
       .put(endpoint + '/draft')
       .set('Cookie', cookie)
@@ -1020,7 +1031,7 @@ describe('email templates (a property’s own wording for guest emails)', () => 
       .send({
         version: 0,
         subject: 'Payment for {guest_name}',
-        body: '{guest_name}: {payment_link}',
+        body: '{guest_name}: {hotel_name}',
         previewText: 'Stay at {hotel_name}',
       })
       .expect(200);

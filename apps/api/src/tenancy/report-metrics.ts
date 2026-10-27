@@ -172,11 +172,20 @@ export const REPORT_METRICS: readonly MetricDefinition[] = [
   definition(
     'outstanding',
     'Outstanding',
-    'max(Booking gross − matching-currency net collected, 0)',
+    'What stays that have started still owe: Clock’s own balance where Clock holds the bill, otherwise max(Booking gross − matching-currency net collected, 0)',
     'Booking cohort; ageing from arrival',
     true,
-    'Booking total and successful linked ledger',
-    'Currency mismatch excluded and reported, never converted.',
+    'Clock bill balance, or booking total and successful linked ledger',
+    'A payment taken at the hotel desk is settled in Clock even though MUST never saw it. Currency mismatch excluded and reported, never converted.',
+  ),
+  definition(
+    'expectedOnArrival',
+    'Expected on arrival',
+    'The same balance for stays that have not started yet (pay at the hotel)',
+    'Booking cohort',
+    true,
+    'Clock bill balance, or booking total and successful linked ledger',
+    'Not owed yet, so it is kept out of Outstanding.',
   ),
   definition(
     'collectionRate',
@@ -491,6 +500,25 @@ export function moneyPercent(numerator: string | null, denominator: string | nul
 export function outstanding(gross: string, netCollected: string): string {
   const due = minor(gross) - minor(netCollected);
   return decimal(due > 0n ? due : 0n);
+}
+/**
+ * What a reservation still owes. When Clock holds the bill, Clock's own balance is the answer: a stay that was paid
+ * at the desk is settled there even though MUST never saw the payment, a credit owes nothing, and a bill Clock has
+ * not been asked about yet is not counted. Otherwise it is the booking total less what MUST collected.
+ */
+export function bookingOutstanding(
+  booking: {
+    totalAmount: string;
+    clockBasis?: boolean;
+    clockBalance?: { amount: string; currency: string } | null;
+  },
+  netCollected: string,
+): string {
+  if (booking.clockBasis) {
+    const balance = booking.clockBalance;
+    return balance && !balance.amount.startsWith('-') ? balance.amount : '0.00';
+  }
+  return outstanding(booking.totalAmount, netCollected);
 }
 export function ageingBucket(arrival: string, today: string): '0-7' | '8-30' | '31+' {
   const age = Math.max(dayDistance(arrival, today), 0);

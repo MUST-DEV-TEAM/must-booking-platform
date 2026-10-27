@@ -1,5 +1,10 @@
 import { withClockBackgroundWork } from './clock-request-context';
-import { buildSyncSummary, type SyncJobRow } from './clock-sync-progress';
+import {
+  BOOKINGS_IMPORT_VERSION,
+  buildSyncSummary,
+  type SyncCounts,
+  type SyncJobRow,
+} from './clock-sync-progress';
 import { ClockFinancialService, ClockFinancialCurrencyError } from './clock-financial.service';
 import { Param } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
@@ -149,15 +154,45 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
           progress->>'startedAt' AS "startedAt",
           (progress->>'total')::int AS "progressTotal",
           COALESCE((snapshot->>'initialComplete')::boolean,false) AS "initialComplete",
+          (snapshot->>'schemaVersion')::int AS "importVersion",
           COALESCE((snapshot->>'initialTotal')::int,(snapshot->>'total')::int) AS "snapshotTotal",
           COALESCE((progress->>'skipped')::int,(snapshot->>'skipped')::int,0) AS skipped
           FROM clock_sync_jobs WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND connection_id=${scope.connectionId}::uuid ORDER BY resource`,
     );
+    // What is really held, so each figure survives the small catch-up passes and says what it counts.
+    const held = await this.db.withTenantTransaction(scope, async (tx) => {
+      const profiles = await tx.$queryRaw<
+        Array<{ count: number }>
+      >`SELECT count(*)::int AS count FROM clock_guest_profiles WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND connection_id=${scope.connectionId}::uuid`;
+      const mappings = await tx.$queryRaw<
+        Array<{ type: string; count: number }>
+      >`SELECT entity_type::text AS type, count(*)::int AS count FROM clock_catalog_mappings WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND sync_status='CONFIRMED' GROUP BY entity_type`;
+      const rates = await tx.$queryRaw<
+        Array<{ count: number }>
+      >`SELECT COALESCE(sum(jsonb_array_length(e.value)),0)::int AS count FROM clock_sync_jobs j, jsonb_each(COALESCE(j.snapshot->'roomTypes','{}'::jsonb)) e WHERE j.tenant_id=${tenantId}::uuid AND j.property_id=${propertyId}::uuid AND j.connection_id=${scope.connectionId}::uuid AND j.resource='rates' AND jsonb_typeof(e.value)='array'`;
+      const bookings = await tx.$queryRaw<
+        Array<{ status: string; count: number; first: string | null }>
+      >`SELECT status::text AS status, count(*)::int AS count, min(starts_on)::text AS first FROM bookings WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND external_booking_id IS NOT NULL GROUP BY status`;
+      return { profiles, mappings, rates, bookings };
+    });
+    const mapped = (type: string) => held.mappings.find((m) => m.type === type)?.count ?? 0;
+    const counts: SyncCounts = {
+      guestProfiles: held.profiles[0]?.count ?? 0,
+      roomTypes: mapped('ROOM_TYPE'),
+      rooms: mapped('ROOM'),
+      rates: held.rates[0]?.count ?? 0,
+      bookingsByStatus: Object.fromEntries(held.bookings.map((b) => [b.status, b.count])),
+      earliestStay:
+        held.bookings
+          .map((b) => b.first)
+          .filter(Boolean)
+          .sort()[0] ?? null,
+    };
     return {
       source: 'CLOCK_PMS',
       enabled: enabled() && this.allowed(propertyId),
       jobs,
-      ...buildSyncSummary(jobs),
+      ...buildSyncSummary(jobs, new Date(), counts),
     };
   }
   async read(tenantId: string, propertyId: string, resource: string) {
@@ -190,16 +225,6 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
         >`SELECT snapshot AS data,status,last_success_at AS "lastSyncedAt",last_error AS "lastError" FROM clock_sync_jobs WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND connection_id=${scope.connectionId}::uuid AND resource=${resource}`,
     );
     const result = rows[0] ?? { data: null, status: 'READY', lastSyncedAt: null, lastError: null };
-    if (resource === 'rates' && result.data?.roomTypes) {
-      for (const [id, rates] of Object.entries(result.data.roomTypes)) {
-        const ranks = await this.rankings.getRanking(tenantId, propertyId, id);
-        const byId = new Map(ranks.map((r) => [r.externalRateId, r.rank]));
-        result.data.roomTypes[id] = rates.map((r) => ({
-          ...r,
-          rank: byId.get(r.externalRateId) ?? null,
-        }));
-      }
-    }
     return result;
   }
   async requestRefresh(tenantId: string, propertyId: string) {
@@ -432,7 +457,7 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
         ? job.progress.ids
         : await this.reader.updatedBookingIds(
             credentials.value,
-            job.snapshot?.schemaVersion === 2 && job.snapshot?.highWater
+            job.snapshot?.schemaVersion === BOOKINGS_IMPORT_VERSION && job.snapshot?.highWater
               ? new Date(Date.parse(job.snapshot.highWater) - 60000).toISOString()
               : '1970-01-01T00:00:00.000Z',
             until,
@@ -487,7 +512,7 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
               highWater: until,
               total: ids.length,
               initialComplete: true,
-              schemaVersion: 2,
+              schemaVersion: BOOKINGS_IMPORT_VERSION,
               initialTotal: job.snapshot?.initialTotal ?? ids.length,
               skipped: Number(job.snapshot?.skipped ?? 0) + skipped,
             }

@@ -15,8 +15,8 @@ import { AuditLogService } from '../tenancy/audit-log.service';
 import { PaymentProviderRegistry } from './payment-provider-registry';
 import { ClockBookingService } from '../integrations/clock/clock-booking.service';
 import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
+import { LifecycleEmailService } from '../mail/lifecycle-email.service';
 import { MailDeliveryService } from '../mail/mail-delivery.service';
-import { renderBrandedEmail } from '../mail/email-layout';
 import { bookingContactSql } from '../booking/booking-contact';
 type Scope = { tenantId: string; propertyId: string };
 type Collection = {
@@ -24,11 +24,15 @@ type Collection = {
   amount: string;
   currency: string;
   checkoutUrl?: string;
+  /** When the payment page stops working; a reminder is never sent after this. */
+  expiresAt?: string;
   externalPaymentId?: string;
   clockConnectionId?: string;
   stage: 'PREPARING' | 'READY' | 'PAID' | 'UNCERTAIN';
 };
 type Operation = { id: string; result: Collection };
+/** A link staff send for a balance stays payable this long, so a reminder always has a working link. */
+const BALANCE_LINK_VALID_MINUTES = 7 * 24 * 60;
 /** Confirmed reservations keep their identity and payment method. Captures append to the ledger.
  * The committed PREPARING intent prevents a timeout/retry from creating another gateway order.
  */
@@ -44,6 +48,7 @@ export class PaymentCollectionService {
     @Inject(ClockBookingService) private readonly clock: ClockBookingService,
     @Inject(MailDeliveryService) private readonly delivery: MailDeliveryService,
     @Inject(ClockFinancialService) private readonly financial: ClockFinancialService,
+    @Inject(LifecycleEmailService) private readonly lifecycle: LifecycleEmailService,
   ) {}
   async options(scope: Scope, bookingId: string) {
     return this.db.withTenantTransaction(scope, async (tx) => {
@@ -201,6 +206,7 @@ export class PaymentCollectionService {
           `/bookings/${bookingId}/payment/cancel?${new URLSearchParams(scope)}`,
           origin,
         ).toString(),
+        expiresAfterMinutes: BALANCE_LINK_VALID_MINUTES,
       });
     } catch {
       checkout = {
@@ -240,6 +246,7 @@ export class PaymentCollectionService {
       stage: 'READY',
       externalPaymentId: checkout.value.id,
       checkoutUrl: checkout.value.url,
+      expiresAt: new Date(Date.now() + BALANCE_LINK_VALID_MINUTES * 60_000).toISOString(),
     };
     await this.db.withTenantTransaction(scope, async (tx) => {
       await tx.$executeRaw`INSERT INTO payment_provider_sessions(tenant_id,property_id,booking_id,provider,external_payment_id) VALUES(${scope.tenantId}::uuid,${scope.propertyId}::uuid,${bookingId}::uuid,'pokpay',${checkout.value.id}) ON CONFLICT(tenant_id,provider,external_payment_id) DO NOTHING`;
@@ -301,6 +308,41 @@ export class PaymentCollectionService {
         : null;
     });
   }
+  /**
+   * A gentle reminder for a payment link staff emailed, when it is still unpaid after the hotel's chosen number
+   * of days (default 3). The link is the one already sent, which is still valid. Sent once per link.
+   */
+  async sendDueReminders(): Promise<void> {
+    const due = await this.db.$queryRaw<
+      Array<{
+        bookingId: string;
+        tenantId: string;
+        propertyId: string;
+        operationId: string;
+        checkoutUrl: string;
+        amount: string;
+        currency: string;
+      }>
+    >`SELECT * FROM "payment_link_reminder_candidates"(100::integer)`;
+    for (const link of due) {
+      const amount = `${link.amount} ${link.currency}`;
+      await this.lifecycle.guest(
+        { tenantId: link.tenantId, propertyId: link.propertyId },
+        {
+          topic: 'payment_reminder',
+          key: 'payment_reminder',
+          eventType: 'guest.payment_reminder',
+          idempotencyKey: `payment-reminder/${link.operationId}`,
+          bookingId: link.bookingId,
+          heading: 'Payment reminder',
+          values: { payment_link: link.checkoutUrl, payment_due: amount },
+          rows: [{ label: 'Amount', value: amount }],
+          cta: { label: 'Pay securely with PokPay', url: link.checkoutUrl },
+        },
+      );
+    }
+  }
+
   async sendLink(scope: Scope, bookingId: string, actorUserId: string, key: string) {
     const initial = await this.db.withTenantTransaction(scope, async (tx) => {
       const rows = await tx.$queryRaw<Array<{ url: string; amount: string; currency: string }>>`
@@ -335,32 +377,20 @@ export class PaymentCollectionService {
     const row = rows[0];
     if (!row?.email)
       throw new ConflictException('Add a verified guest email before sending a payment link.');
-    const subject = `Payment link - ${row.reference}`;
     const amount = `${checkout.amount.amount} ${checkout.amount.currency}`;
-    const text = `Please pay ${amount} for your existing booking ${row.reference} at ${row.name}: ${checkout.checkoutUrl}`;
-    await this.delivery.dispatch(
-      'rendered',
-      {
-        to: row.email,
-        subject,
-        text,
-        html: renderBrandedEmail({
-          subject,
-          brand: { name: row.name, logoUrl: row.logoUrl, supportEmail: row.supportEmail },
-          heading: 'Pay your booking balance',
-          content: '<p>Use the secure payment page below to settle your existing reservation.</p>',
-          summaryRows: [
-            { label: 'Booking', value: row.reference },
-            { label: 'Amount', value: amount },
-          ],
-          cta: { label: 'Pay securely with PokPay', url: checkout.checkoutUrl! },
-        }),
-        idempotencyKey: `balance-link/${scope.propertyId}/${key}`,
-        eventType: 'payment.link',
-        bookingId,
-      },
-      scope,
-    );
+    // The hotel's own wording and branding; staff asked for this one, so the topic switch does not hold it.
+    await this.lifecycle.guest(scope, {
+      topic: 'payment_pending',
+      key: 'payment_pending',
+      eventType: 'payment.link',
+      idempotencyKey: `balance-link/${scope.propertyId}/${key}`,
+      bookingId,
+      heading: 'Pay your booking balance',
+      values: { payment_link: checkout.checkoutUrl!, payment_due: amount },
+      rows: [{ label: 'Amount', value: amount }],
+      cta: { label: 'Pay securely with PokPay', url: checkout.checkoutUrl! },
+      force: true,
+    });
     await this.audit.record({
       ...scope,
       actorUserId,
@@ -543,66 +573,23 @@ export class PaymentCollectionService {
     orderId: string,
     collection: Collection,
   ) {
-    const rows = await this.db.withTenantTransaction(
-      scope,
-      (tx) => tx.$queryRaw<
-        Array<{
-          email: string | null;
-          reference: string;
-          name: string;
-          logoUrl: string | null;
-          supportEmail: string | null;
-          brandColour: string | null;
-          phone: string | null;
-          address: string | null;
-          startsOn: string;
-          endsOn: string;
-          roomName: string;
-          guests: number;
-        }>
-      >`
-   SELECT ${bookingContactSql.email} AS email,b.external_reference AS reference,p.name,p.logo_url AS "logoUrl",p.support_email AS "supportEmail",p.brand_colour AS "brandColour",p.phone,p.address,b.starts_on::text AS "startsOn",b.ends_on::text AS "endsOn",rt.name AS "roomName",(b.adults+b.children) AS guests
-   FROM bookings b LEFT JOIN guests g ON g.tenant_id=b.tenant_id AND g.id=b.guest_id JOIN properties p ON p.tenant_id=b.tenant_id AND p.id=b.property_id JOIN room_types rt ON rt.tenant_id=b.tenant_id AND rt.property_id=b.property_id AND rt.id=b.room_type_id
-   WHERE b.tenant_id=${scope.tenantId}::uuid AND b.property_id=${scope.propertyId}::uuid AND b.id=${bookingId}::uuid`,
-    );
-    const row = rows[0];
-    if (!row?.email) return;
-    const subject = `Payment received - ${row.reference}`;
-    const amount = `${collection.amount} ${collection.currency}`;
-    const text = `We received your payment of ${amount} for booking ${row.reference} at ${row.name}. Stay: ${row.startsOn} to ${row.endsOn}. Room type: ${row.roomName}. Guests: ${row.guests}. Keep this receipt with your booking confirmation.`;
-    await this.delivery.dispatch(
-      'rendered',
-      {
-        to: row.email,
-        subject,
-        text,
-        html: renderBrandedEmail({
-          subject,
-          brand: {
-            name: row.name,
-            logoUrl: row.logoUrl,
-            supportEmail: row.supportEmail,
-            brandColour: row.brandColour,
-            phone: row.phone,
-            address: row.address,
-          },
-          heading: 'Payment received',
-          content:
-            '<p>Thank you. Your payment has been recorded against your existing reservation.</p>',
-          summaryRows: [
-            { label: 'Booking', value: row.reference },
-            { label: 'Stay', value: `${row.startsOn} to ${row.endsOn}` },
-            { label: 'Room type', value: row.roomName },
-            { label: 'Guests', value: String(row.guests) },
-            { label: 'Payment method', value: 'PokPay' },
-            { label: 'Amount received', value: amount },
-          ],
-        }),
-        idempotencyKey: `balance-receipt/${orderId}`,
-        eventType: 'payment.received',
-        bookingId,
-      },
-      scope,
-    );
+    const email = {
+      topic: 'payment_received' as const,
+      eventType: 'payment.received',
+      idempotencyKey: `balance-receipt/${orderId}`,
+      bookingId,
+      heading: 'Payment received',
+      values: { payment_amount: `${collection.amount} ${collection.currency}` },
+      rows: [
+        { label: 'Payment method', value: 'PokPay' },
+        { label: 'Amount received', value: `${collection.amount} ${collection.currency}` },
+      ],
+    };
+    await this.lifecycle.guest(scope, { ...email, key: 'payment_received' });
+    await this.lifecycle.staff(scope, {
+      ...email,
+      key: 'staff_payment_received',
+      idempotencyKey: `balance-receipt/staff/${orderId}`,
+    });
   }
 }

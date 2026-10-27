@@ -633,6 +633,7 @@ export function DashboardShell({
               bookingMode={selectedProperty.bookingMode}
               canCancelBooking={hasCapability('bookings.cancel')}
               canRefundPayment={hasCapability('payments.refund')}
+              canRefundLate={hasCapability('payments.refund_late')}
               canEditBooking={hasCapability('bookings.edit')}
             />
           ) : (

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildSyncSummary, type SyncJobRow } from './clock-sync-progress';
+import { BOOKINGS_IMPORT_VERSION, buildSyncSummary, type SyncJobRow } from './clock-sync-progress';
 
 const now = new Date('2026-10-26T16:00:00Z');
 const job = (over: Partial<SyncJobRow> & { resource: string }): SyncJobRow => ({
@@ -58,6 +58,7 @@ describe('buildSyncSummary', () => {
           resource: 'bookings',
           status: 'SYNCED',
           initialComplete: true,
+          importVersion: BOOKINGS_IMPORT_VERSION,
           snapshotTotal: 15926,
           processed: 3,
           total: 3,
@@ -142,6 +143,7 @@ describe('buildSyncSummary', () => {
           resource: 'bookings',
           status: 'SYNCED',
           initialComplete: true,
+          importVersion: BOOKINGS_IMPORT_VERSION,
           snapshotTotal: 10,
           lastSyncedAt: '2026-10-26T15:00:00Z',
         }),
@@ -157,5 +159,74 @@ describe('buildSyncSummary', () => {
       now,
     );
     expect(summary.overall).toMatchObject({ state: 'done', percent: 100, etaSeconds: null });
+  });
+
+  it('shows the guest profiles really held, not the size of the last small catch-up pass', () => {
+    const guests = buildSyncSummary(
+      [
+        job({
+          resource: 'guests',
+          status: 'SYNCED',
+          initialComplete: true,
+          snapshotTotal: 0,
+          lastSyncedAt: '2026-10-26T15:59:00Z',
+        }),
+      ],
+      now,
+      { guestProfiles: 13750 },
+    ).groups.find((g) => g.key === 'guests')!;
+    expect(guests.total).toBe(13750);
+    expect(guests.done).toBe(13750);
+    expect(guests.state).toBe('done');
+  });
+
+  it('says in one sentence what each part holds', () => {
+    const summary = buildSyncSummary(
+      [
+        job({ resource: 'catalog', status: 'SYNCED', lastSyncedAt: '2026-10-26T15:00:00Z' }),
+        job({ resource: 'availability:2026-10' }),
+        job({ resource: 'availability:2026-11' }),
+        job({ resource: 'bookings', processed: 10, total: 100, startedAt: '2026-10-26T15:00:00Z' }),
+        job({ resource: 'financial:a', status: 'SYNCED', lastSyncedAt: '2026-10-26T15:00:00Z' }),
+      ],
+      now,
+      {
+        guestProfiles: 13750,
+        roomTypes: 13,
+        rooms: 150,
+        rates: 26,
+        bookingsByStatus: { CONFIRMED: 302, CANCELLED: 100 },
+        earliestStay: '2024-05-01',
+      },
+    );
+    const detail = (key: string) => summary.groups.find((g) => g.key === key)!.detail;
+    expect(detail('catalog')).toBe('13 room types, 150 rooms and 26 rates.');
+    expect(detail('availability')).toBe('2 months of free rooms for 13 room types.');
+    expect(detail('bookings')).toBe(
+      '402 reservations held: 302 confirmed, 100 cancelled; the earliest stay is 2024-05-01.',
+    );
+    expect(detail('guests')).toBe('13,750 guest profiles held.');
+    expect(detail('money')).toBe('1 bill checked of 1 current and recent reservations.');
+  });
+
+  it('counts a pass made by an older version of the import as not finished, so everything is read again', () => {
+    const bookings = buildSyncSummary(
+      [
+        job({
+          resource: 'bookings',
+          status: 'READY',
+          initialComplete: true,
+          importVersion: BOOKINGS_IMPORT_VERSION - 1,
+          snapshotTotal: 15926,
+          processed: 100,
+          total: 15926,
+          startedAt: '2026-10-26T15:00:00Z',
+        }),
+      ],
+      now,
+    ).groups.find((g) => g.key === 'bookings')!;
+    expect(bookings.state).toBe('running');
+    expect(bookings.total).toBe(15926);
+    expect(bookings.done).toBe(100);
   });
 });

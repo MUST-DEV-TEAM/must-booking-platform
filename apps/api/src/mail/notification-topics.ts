@@ -24,15 +24,50 @@ export const NOTIFICATION_TOPICS = {
     defaultStaff: 'owners',
     optional: true,
   },
-  booking_changed: { label: 'Booking changed', guest: true, staff: false },
-  /** The guest started a booking but the payment was not completed in time. */
-  payment_not_completed: { label: 'Payment not completed', guest: true, staff: false },
+  booking_changed: {
+    label: 'Booking changed',
+    guest: true,
+    staff: true,
+    defaultStaff: 'assigned-or-owners',
+    optional: true,
+  },
+  /** Money recorded against an existing reservation: a payment link paid, or a payment taken at the hotel. */
+  payment_received: {
+    label: 'Payment received',
+    guest: true,
+    staff: true,
+    defaultStaff: 'assigned-or-owners',
+    optional: true,
+  },
+  /** The guest started a booking but the payment was not completed in time. Staff hear about it too. */
+  payment_not_completed: {
+    label: 'Payment not completed',
+    guest: true,
+    staff: true,
+    defaultStaff: 'assigned-or-owners',
+    optional: true,
+  },
   pre_arrival: {
     label: 'Pre-arrival reminder',
     guest: true,
     staff: false,
     daysOffset: { default: 3, min: 1, max: 30, label: 'Days before check-in' },
   },
+  /** Staff send a guest a payment link for a booking that still has something to pay. */
+  payment_pending: { label: 'Payment link', guest: true, staff: false },
+  /** Staff-sent payment link still unpaid after a few days: one gentle reminder, with the same link. */
+  payment_reminder: {
+    label: 'Payment reminder',
+    guest: true,
+    staff: false,
+    daysOffset: { default: 3, min: 1, max: 6, label: 'Days after the payment link was sent' },
+  },
+  /** An unpaid online booking is about to be released; the guest can still finish paying. */
+  payment_link_expiring: { label: 'Payment link expiring', guest: true, staff: false },
+  /** Sent to the guest when staff record that they did not arrive. */
+  no_show_notice: { label: 'No-show notice', guest: true, staff: false },
+  /** A short welcome one hour after the guest is recorded as arrived. */
+  check_in_day: { label: 'Check-in day message', guest: true, staff: false },
   /** Thank-you after check-out, with the property's review links. */
   post_stay: {
     label: 'Post-stay thank-you',
@@ -42,6 +77,14 @@ export const NOTIFICATION_TOPICS = {
   },
   owner_daily_summary: {
     label: 'Daily summary',
+    guest: false,
+    staff: true,
+    defaultStaff: 'owners',
+    optional: true,
+  },
+  /** Monday morning look back at the week that ended and ahead at the one starting. */
+  owner_weekly_summary: {
+    label: 'Weekly summary',
     guest: false,
     staff: true,
     defaultStaff: 'owners',

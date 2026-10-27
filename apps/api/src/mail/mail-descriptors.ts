@@ -4,6 +4,12 @@ import type { MailProvider } from '@must/domain-contracts';
 
 type CommandOf<K extends keyof MailProvider> = Parameters<MailProvider[K]>[0];
 
+const SENSITIVE_RENDERED_EVENTS = new Set([
+  'payment.link',
+  'guest.payment_reminder',
+  'guest.payment_link_expiring',
+]);
+
 /** Emails that flow through the durable delivery queue and the email log. */
 export interface QueuedMailCommands {
   paymentConfirmation: CommandOf<'sendPaymentConfirmationEmail'>;
@@ -146,7 +152,8 @@ export function describeMail<K extends QueuedMailKind>(
         subject: c.subject,
         idempotencyKey: c.idempotencyKey,
         bookingId: c.bookingId,
-        sensitive: c.eventType === 'payment.link',
+        // Anything carrying a one-time payment page link is kept out of previews and logs.
+        sensitive: SENSITIVE_RENDERED_EVENTS.has(c.eventType),
       };
     case 'senderVerification': {
       const proof = command as QueuedMailCommands['senderVerification'];

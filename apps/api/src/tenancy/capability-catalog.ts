@@ -78,6 +78,13 @@ export const CAPABILITY_CATALOG: readonly CatalogEntry[] = [
     description: 'Refund money to guests.',
   },
   {
+    group: 'Payments',
+    key: 'payments.refund_late',
+    label: 'Refund after 24 hours',
+    description:
+      'Refund a cancelled booking more than 24 hours after it was cancelled. Meant for owners, admins and managers.',
+  },
+  {
     group: 'Accommodations',
     key: 'accommodations.manage',
     label: 'Manage accommodations',

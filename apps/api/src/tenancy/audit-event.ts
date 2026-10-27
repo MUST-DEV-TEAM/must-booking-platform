@@ -13,6 +13,7 @@ export const AUDIT_EVENTS: Record<string, Definition> = {
   },
   'booking.dates_amended': { title: 'Stay changed', result: 'completed' },
   'booking.room_moved': { title: 'Room moved', result: 'completed' },
+  'booking.stay_status_changed': { title: 'Guest arrival status changed', result: 'completed' },
   'booking.cancelled': { title: 'Reservation cancelled', result: 'completed' },
   'booking.payment_expired': {
     title: 'Unpaid reservation hold expired',

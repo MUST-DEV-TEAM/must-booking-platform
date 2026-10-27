@@ -10,7 +10,7 @@ import {
 } from '../../components/ui/dialog';
 import { Button } from '../../components/ui/button';
 import { FormField } from '../../components/ui/form-field';
-import { Input, Textarea } from '../../components/ui/input';
+import { Textarea } from '../../components/ui/input';
 import { MoneyInput } from '../../components/ui/money-input';
 import { Combobox } from '../../components/ui/combobox';
 import { MultiSelect } from '../../components/ui/multi-select';
@@ -26,6 +26,7 @@ import {
 } from '../../components/ui/table';
 import { createInventoryWriter, inventoryRequest } from './inventory-api';
 import { weekdayOptions, priceDay, type PricingWorkspace } from './pricing-types';
+import { DateField } from '../../components/ui/date-field';
 type Preview = {
   valid?: boolean;
   errors?: { message: string; date?: string }[];
@@ -212,26 +213,28 @@ export function PricingBaseEditor({
             {mode === 'range' ? (
               <div className="grid gap-4 sm:grid-cols-2">
                 <FormField label="First date" htmlFor="base-start">
-                  <Input
+                  <DateField
                     id="base-start"
-                    type="date"
+                    aria-label="First date"
+
                     min={data.today}
                     value={start}
-                    onChange={(e) => {
+                    onChange={(date) => {
                       dirty();
-                      setStart(e.target.value);
+                      setStart(date);
                     }}
                   />
                 </FormField>
                 <FormField label="Last date (included)" htmlFor="base-end">
-                  <Input
+                  <DateField
                     id="base-end"
-                    type="date"
+                    aria-label="Last date (included)"
+
                     min={start}
                     value={end}
-                    onChange={(e) => {
+                    onChange={(date) => {
                       dirty();
-                      setEnd(e.target.value);
+                      setEnd(date);
                     }}
                   />
                 </FormField>

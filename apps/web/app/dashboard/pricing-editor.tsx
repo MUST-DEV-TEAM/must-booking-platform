@@ -25,6 +25,7 @@ import {
   type PricingRecord,
   type PricingWorkspace,
 } from './pricing-types';
+import { DateField } from '../../components/ui/date-field';
 /** Versioned pricing create/edit dialog composed from shared fields; failed publication retains its saved draft. */
 export function PricingEditor({
   base,
@@ -369,21 +370,20 @@ export function PricingEditor({
                     label={isPlan ? 'Publication start' : 'Start date'}
                     htmlFor="pricing-start"
                   >
-                    <Input
+                    <DateField
                       id="pricing-start"
-                      type="date"
+
                       value={str(isPlan ? 'publicationStartsOn' : 'startsOn')}
-                      onChange={(e) =>
-                        set(isPlan ? 'publicationStartsOn' : 'startsOn', e.target.value)
-                      }
+                      onChange={(date) => set(isPlan ? 'publicationStartsOn' : 'startsOn', date)}
                     />
                   </FormField>
                   <FormField label="End date (inclusive, optional)" htmlFor="pricing-end">
-                    <Input
+                    <DateField
                       id="pricing-end"
-                      type="date"
+                      aria-label="End date (inclusive, optional)"
+
                       value={str(isPlan ? 'publicationEndsOn' : 'endsOn')}
-                      onChange={(e) => set(isPlan ? 'publicationEndsOn' : 'endsOn', e.target.value)}
+                      onChange={(date) => set(isPlan ? 'publicationEndsOn' : 'endsOn', date)}
                     />
                   </FormField>
                 </div>

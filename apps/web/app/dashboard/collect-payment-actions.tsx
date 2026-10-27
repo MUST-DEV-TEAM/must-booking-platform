@@ -17,6 +17,7 @@ import { Input } from '../../components/ui/input';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '../../components/ui/dialog';
 import { useClockFinancial } from './clock-financial';
 import { minorUnits, money as decimalMoney } from './payment-status';
+import { DateField } from '../../components/ui/date-field';
 export function CollectPaymentActions({
   tenantId,
   propertyId,
@@ -435,13 +436,12 @@ export function CollectPaymentActions({
           </Select>
           <label className="grid gap-1 text-sm">
             Date received
-            <Input
-              type="date"
+            <DateField
               value={receivedOn}
               max={new Date().toISOString().slice(0, 10)}
-              onChange={(e) => {
+              onChange={(date) => {
                 attempt.current = null;
-                setReceivedOn(e.target.value);
+                setReceivedOn(date);
               }}
             />
           </label>

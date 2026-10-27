@@ -16,7 +16,6 @@ import { Badge } from '../../components/ui/badge';
 import { Alert, AlertTitle, AlertDescription } from '../../components/ui/alert';
 import { Combobox } from '../../components/ui/combobox';
 import { FormField } from '../../components/ui/form-field';
-import { Input } from '../../components/ui/input';
 import { EmptyPanel, ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
 import { RecordDirectory, type RecordColumn } from '../../components/ui/record-directory';
 import { PriceGrid, type PriceGridRow } from '../../components/ui/price-grid';
@@ -29,7 +28,7 @@ import { PricingEditor } from './pricing-editor';
 import { PricingBaseEditor } from './pricing-base-editor';
 import { PricingPreviewPanel } from './pricing-preview';
 import { ClockAvailabilityPanel } from './clock-availability-panel';
-import { ClockPricingPriority } from './pricing-clock-priority';
+import { ClockRatesOverview } from './clock-rates-overview';
 import { PromoCodesPanel } from './promo-codes-panel';
 import {
   priceDay,
@@ -38,6 +37,7 @@ import {
   type PricingKind,
   type PricingIssue,
 } from './pricing-types';
+import { DateField } from '../../components/ui/date-field';
 const titles = { plans: 'Rate plans', rules: 'Pricing rules', charges: 'Taxes & fees' };
 /** Property-scoped rates workspace using the saved pricing contract and shared dashboard components. */
 export function PricingSection({
@@ -461,13 +461,7 @@ export function PricingSection({
                 </Alert>
               ) : null}
               <PricingPreviewPanel base={base} data={data} />
-              {data.readOnly ? (
-                <ClockPricingPriority
-                  root={root}
-                  types={data.roomTypes}
-                  canWrite={emailVerified && !!caps.data?.includes('settings.manage')}
-                />
-              ) : null}
+              {data.readOnly ? <ClockRatesOverview root={root} types={data.roomTypes} /> : null}
             </>
           ) : null}
           {tab === 'base' ? (
@@ -495,11 +489,11 @@ export function PricingSection({
                     </FormField>
                   ) : null}
                   <FormField label="Start date">
-                    <Input
+                    <DateField
                       aria-label="Price grid start date"
-                      type="date"
+
                       value={start || data.today}
-                      onChange={(e) => setStart(e.target.value)}
+                      onChange={(date) => setStart(date)}
                     />
                   </FormField>
                   <FormField label="Days">
@@ -588,11 +582,7 @@ export function PricingSection({
           {kind ? (
             data.readOnly ? (
               kind === 'plans' ? (
-                <ClockPricingPriority
-                  root={root}
-                  types={data.roomTypes}
-                  canWrite={emailVerified && !!caps.data?.includes('settings.manage')}
-                />
+                <ClockRatesOverview root={root} types={data.roomTypes} />
               ) : kind === 'rules' ? (
                 <ClockAvailabilityPanel tenantId={tenantId} propertyId={propertyId} />
               ) : (

@@ -907,6 +907,8 @@ model Booking {
   status                     BookingStatus            @default(DRAFT)
   // The PMS's own stay status as received (Clock: expected, checked_in, ...).
   pmsStayStatus              String?                  @map("pms_stay_status") @db.VarChar(40)
+  checkedInAt                DateTime?                @map("checked_in_at") @db.Timestamptz
+  currency                   String?                  @db.VarChar(3)
   // DIRECT (staff) | WEBSITE (public booking flow) | null (unknown, e.g. created in Clock).
   source                     String?                  @db.VarChar(20)
   paymentMethod              BookingPaymentMethod     @default(STRIPE_CHECKOUT) @map("payment_method")
@@ -1228,6 +1230,7 @@ enum ManualReviewCategory {
   PAYMENT_BOOKING_MISMATCH
   UNKNOWN_STATUS
   SCHEMA_MISMATCH
+  CURRENCY_MISMATCH
 }
 
 enum ManualReviewStatus {
@@ -1979,6 +1982,30 @@ model ExchangeRate {
 }
 
 /// The hotel's own promo codes (a Clock bonus code is not stored here; Clock owns those).
+model GuestReview {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  propertyId     String    @map("property_id") @db.Uuid
+  bookingId      String    @map("booking_id") @db.Uuid
+  tokenHash      String    @map("token_hash")
+  invitedAt      DateTime  @default(now()) @map("invited_at") @db.Timestamptz(6)
+  expiresAt      DateTime  @map("expires_at") @db.Timestamptz(6)
+  submittedAt    DateTime? @map("submitted_at") @db.Timestamptz(6)
+  overall        Int?      @db.SmallInt
+  cleanliness    Int?      @db.SmallInt
+  staff          Int?      @db.SmallInt
+  location       Int?      @db.SmallInt
+  comfort        Int?      @db.SmallInt
+  food           Int?      @db.SmallInt
+  valueForMoney  Int?      @map("value_for_money") @db.SmallInt
+  comment        String?
+
+  @@unique([tenantId, bookingId])
+  @@unique([tenantId, tokenHash])
+  @@index([tenantId, propertyId, submittedAt(sort: Desc)])
+  @@map("guest_reviews")
+}
+
 model PromoCode {
   id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId       String    @map("tenant_id") @db.Uuid

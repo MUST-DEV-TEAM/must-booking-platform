@@ -14,8 +14,30 @@ import {
 } from '../../components/ui/card';
 import { EmptyPanel } from '../../components/ui/state-panel';
 import { PriceBreakdown } from '../../components/ui/price-breakdown';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../../components/ui/table';
 import { inventoryRequest } from './inventory-api';
 import { priceDay, type PricingWorkspace, type PricingPreview } from './pricing-types';
+import { DateField } from '../../components/ui/date-field';
+type RateOffer = {
+  rateId: string;
+  name: string;
+  label: string;
+  mealNames: string[];
+  total: { amount: string; currency: string };
+};
+
+const money = (value: { amount: string; currency: string }) =>
+  new Intl.NumberFormat('en-GB', { style: 'currency', currency: value.currency }).format(
+    Number(value.amount),
+  );
+
 /** The server's saved-state price explainer; provider results are labeled separately and never synthesized locally. */
 export function PricingPreviewPanel({
   base,
@@ -37,12 +59,14 @@ export function PricingPreviewPanel({
     [children, setChildren] = useState('0'),
     [channel, setChannel] = useState('staff'),
     [result, setResult] = useState<PricingPreview | null>(null),
+    [offers, setOffers] = useState<RateOffer[] | null>(null),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false);
   const revision = useRef(0);
   const dirty = () => {
     revision.current++;
     setResult(null);
+    setOffers(null);
     setError('');
   };
   if (
@@ -128,24 +152,26 @@ export function PricingPreviewPanel({
             </FormField>
           ) : null}
           <FormField label="Arrival" htmlFor="price-start">
-            <Input
+            <DateField
               id="price-start"
-              type="date"
+              aria-label="Arrival"
+
               value={start}
-              onChange={(e) => {
+              onChange={(date) => {
                 dirty();
-                setStart(e.target.value);
+                setStart(date);
               }}
             />
           </FormField>
           <FormField label="Departure (exclusive)" htmlFor="price-end">
-            <Input
+            <DateField
               id="price-end"
-              type="date"
+              aria-label="Departure (exclusive)"
+
               value={end}
-              onChange={(e) => {
+              onChange={(date) => {
                 dirty();
-                setEnd(e.target.value);
+                setEnd(date);
               }}
             />
           </FormField>
@@ -196,6 +222,31 @@ export function PricingPreviewPanel({
             setBusy(true);
             setError('');
             setResult(null);
+            setOffers(null);
+            if (data.source === 'CLOCK_PMS') {
+              // Every bookable rate for this stay, so the price of each can be compared. Staff-only: a
+              // refusal (no booking rights) simply leaves the list out.
+              const staffBase = base.replace(/\/pricing$/, '');
+              void inventoryRequest<{ offers: RateOffer[] }>(
+                `${staffBase}/staff-bookings/rate-offers`,
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    roomTypeId: type,
+                    startsOn: start,
+                    endsOn: end,
+                    adults: Number(adults),
+                    children: Number(children),
+                    childrenAges: [],
+                  }),
+                },
+              )
+                .then((next) => {
+                  if (current === revision.current) setOffers(next.offers);
+                })
+                .catch(() => undefined);
+            }
             try {
               const next = await inventoryRequest<PricingPreview>(`${base}/preview`, {
                 method: 'POST',
@@ -230,6 +281,42 @@ export function PricingPreviewPanel({
                 result?.errors.map((e) => `${e.date ? e.date + ': ' : ''}${e.message}`).join(' ')}
             </AlertDescription>
           </Alert>
+        ) : null}
+        {offers ? (
+          <div className="flex flex-col gap-2">
+            <p className="m-0 text-sm font-semibold">Every rate for this stay</p>
+            {offers.length ? (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Rate</TableHead>
+                    <TableHead>Total for the stay</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {offers.map((offer) => (
+                    <TableRow key={offer.rateId}>
+                      <TableCell>
+                        {offer.label}
+                        {offer.label !== offer.name ? (
+                          <span className="text-muted-foreground"> · {offer.name}</span>
+                        ) : null}
+                      </TableCell>
+                      <TableCell>{money(offer.total)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            ) : (
+              <p className="m-0 text-sm text-muted-foreground">
+                No rate can be booked for these dates. Check availability and the rate setup in
+                Clock.
+              </p>
+            )}
+            <p className="m-0 text-xs text-muted-foreground">
+              Cheapest first. Guests see the same list.
+            </p>
+          </div>
         ) : null}
         {result?.valid ? (
           <PriceBreakdown value={result} />

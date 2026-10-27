@@ -1600,6 +1600,7 @@ describe('ClockAvailabilityService.ratesForRoomTypeDetailed', () => {
           bookable_type: 'Pms::RoomType',
           wbe: true,
           name: 'DBL - Summer',
+          meals: [{ name: 'Breakfast' }],
           rate_restriction: { max_adults: 6, max_children: 6 },
         },
         {
@@ -1626,7 +1627,16 @@ describe('ClockAvailabilityService.ratesForRoomTypeDetailed', () => {
 
     expect(result).toEqual({
       ok: true,
-      value: [{ externalRateId: '803404', name: 'DBL - Summer', maxAdults: 6, maxChildren: 6 }],
+      value: [
+        {
+          externalRateId: '803404',
+          name: 'DBL - Summer',
+          label: 'Bed & breakfast',
+          mealNames: ['Breakfast'],
+          maxAdults: 6,
+          maxChildren: 6,
+        },
+      ],
     });
   });
 
@@ -1825,7 +1835,7 @@ describe('ClockAvailabilityService.listOffersForStay', () => {
     );
   });
 
-  it('puts a staff-ranked rate first even when it costs more', async () => {
+  it('lists the cheapest rate first and ignores any stored order', async () => {
     const request = vi
       .fn()
       .mockResolvedValueOnce({ status: 200, body: ratesBody })
@@ -1837,7 +1847,7 @@ describe('ClockAvailabilityService.listOffersForStay', () => {
 
     const result = await service.listOffersForStay('t1', 'p1', query);
 
-    expect(result.ok && result.value.map((entry) => entry.rateId)).toEqual(['615688', '546549']);
+    expect(result.ok && result.value.map((entry) => entry.rateId)).toEqual(['546549', '615688']);
   });
 
   it('leaves out an offer Clock marks unavailable or restricted, such as a party too large', async () => {

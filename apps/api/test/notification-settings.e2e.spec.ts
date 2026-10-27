@@ -114,10 +114,17 @@ describe('notification settings (who receives which email)', () => {
       'booking_cancelled',
       'refund_processed',
       'booking_changed',
+      'payment_received',
       'payment_not_completed',
       'pre_arrival',
+      'payment_pending',
+      'payment_reminder',
+      'payment_link_expiring',
+      'no_show_notice',
+      'check_in_day',
       'post_stay',
       'owner_daily_summary',
+      'owner_weekly_summary',
       'owner_alerts',
     ]);
     expect(topic(settings.body, 'new_booking')).toMatchObject({
@@ -386,7 +393,11 @@ describe('notification settings (who receives which email)', () => {
         muteOptionalEmails: false,
         optionalEmails: [
           { topic: 'refund_processed', label: 'Refund processed' },
+          { topic: 'booking_changed', label: 'Booking changed' },
+          { topic: 'payment_received', label: 'Payment received' },
+          { topic: 'payment_not_completed', label: 'Payment not completed' },
           { topic: 'owner_daily_summary', label: 'Daily summary' },
+          { topic: 'owner_weekly_summary', label: 'Weekly summary' },
         ],
       });
       await request(app!.getHttpServer())

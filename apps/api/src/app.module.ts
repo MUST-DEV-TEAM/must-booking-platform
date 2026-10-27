@@ -1,6 +1,11 @@
 import { AuditMutationInterceptor } from './tenancy/audit-mutation.interceptor';
 import { ClockStayAmendmentService } from './integrations/clock/clock-stay-amendment.service';
 import { BookingRoomMoveController } from './booking/booking-room-move.controller';
+import { GuestReviewController } from './booking/guest-review.controller';
+import { GuestReviewReportController } from './booking/guest-review-report.controller';
+import { GuestReviewService } from './booking/guest-review.service';
+import { BookingStayStatusController } from './booking/booking-stay-status.controller';
+import { BookingStayStatusService } from './booking/booking-stay-status.service';
 import { requestLogPath } from './observability/request-log-path';
 import { GuestBookingManageController } from './booking/guest-booking-manage.controller';
 import { ClockFinancialService } from './integrations/clock/clock-financial.service';
@@ -121,6 +126,7 @@ import { ResendMailProvider } from './mail/resend-mail.provider';
 import { MailDeliveryService } from './mail/mail-delivery.service';
 import { AlertEmailService } from './mail/alert-email.service';
 import { BookingUpdateNotificationService } from './mail/booking-update-notification.service';
+import { LifecycleEmailService } from './mail/lifecycle-email.service';
 import { ScheduledEmailService } from './mail/scheduled-email.service';
 import { ResendWebhookController } from './mail/resend-webhook.controller';
 import { ResendWebhookService } from './mail/resend-webhook.service';
@@ -354,6 +360,9 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     BookingDetailsController,
     BookingAmendController,
     BookingRoomMoveController,
+    BookingStayStatusController,
+    GuestReviewController,
+    GuestReviewReportController,
     StaffBookingController,
     PublicBookingController,
     StripeWebhookController,
@@ -420,6 +429,8 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     NotificationInboxService,
     NotificationRetentionService,
     AuditLogService,
+    BookingStayStatusService,
+    GuestReviewService,
     PlanUsageService,
     PropertiesService,
     CancellationPoliciesService,
@@ -540,6 +551,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     ScheduledEmailService,
     AlertEmailService,
     BookingUpdateNotificationService,
+    LifecycleEmailService,
     ResendWebhookService,
     PaymentNotificationService,
     BookingConfirmationNotificationService,

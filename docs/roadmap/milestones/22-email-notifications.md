@@ -197,3 +197,30 @@ Ship Phase A immediately (it is a live bug). Phases B and C fix reliability and 
 
 
 M24 owner-authorized A2 extends this implementation with versioned structured authoring, controlled tests, configuration and delivery recovery. The exact active contract, limitations and verification are owned by [24-notifications-emails-audit-plan.md](24-notifications-emails-audit-plan.md); historical task states above are not self-marked accepted. The previous Settings email screen becomes a compatibility entry into the same sidebar Emails workspace. Separate private recipient deliveries remain the supported transport behavior; CC/BCC headers are not implemented. Code inspection found no existing reserved-address/property-hourly safety checks: A2 adds them at the shared delivery boundary and records that as new behavior, rather than treating a requirement as historical implementation evidence.
+
+## Lifecycle emails wired on 2026-10-27 (branch `feat/batch-oct27`, not merged)
+
+Each email below follows the hotel's editable template, is gated by its notification topic (the hotel can switch it off, and for timed ones change the days) and goes through the durable mail pipeline and email log. Guest emails that come from a PMS reservation are never sent to a booking channel's masked address (Booking.com, Expedia, Airbnb and similar; `channel-relay-email.ts`).
+
+| Email | Sent to | When | Setting |
+|---|---|---|---|
+| Payment received | guest and staff | a balance is paid by link | topic `payment_received` |
+| Booking modified | staff | a booking's stay changes | topic `booking_changed` |
+| Payment not completed | staff (the guest email already existed) | an unpaid online hold ends | topic `payment_not_completed` |
+| Payment link | guest | staff press "send payment link" (always sent) | template `payment_pending` |
+| Payment link expiring | guest | 10 minutes before an unpaid online hold ends | topic `payment_link_expiring` |
+| Payment reminder | guest | 3 days (adjustable 1-6) after a staff-sent link, if still unpaid; links now stay valid 7 days | topic `payment_reminder` |
+| Check-in day | guest | one hour after the guest is recorded as checked in | topic `check_in_day` |
+| No-show notice | guest | staff mark a no-show in MUST | topic `no_show_notice` |
+| Weekly summary | owners | Monday 07:00 hotel time | topic `owner_weekly_summary` |
+| Staff account ready | the new staff member | an account is created directly (never contains the password) | template `staff_account_created` |
+| Post-stay thank-you | guest | N days after check-out (existing), now also with a private review link and for PMS reservations with the guest's own address | topic `post_stay` |
+
+Not wired on purpose: the guest "Payment failed" wording. PokPay has no failed status (only completed, cancelled and refunded flags, per its public API collection); a failed attempt does not end the order, so the useful moment is the hold ending, which is "payment not completed".
+
+Built-in check-in, check-out and no-show exist for stays MUST manages itself (`PATCH bookings/:id/stay-status`, audited); stays held by a PMS are recorded in the PMS and only read back. `bookings.checked_in_at` is stamped by a database trigger when the status becomes `checked_in`.
+
+### Finding: staff cancellation emails for Clock cancellations (live, read-only, 2026-10-27)
+
+In the 45 days before 2026-10-27 the live system queued 737 `booking.staff_cancelled` emails. 735 were for the hotel "Must Hotel" (the one connected to the Clock sandbox account) and are the owner's own test bookings, created and cancelled the same day; 2 were for one Empire Beach Resort reservation (CLOCK-15856, total 0.00, created and cancelled one minute apart on 2026-10-24). Outcomes: 280 delivered (to the owner's two addresses), 309 bounced, 121 failed, 27 suppressed. Every bounce, failure and suppression was to three staff test accounts at the reserved domain `must.test`. The bounces stop after 2026-10-24: from 2026-10-25 those messages are recorded as FAILED (the production guard that does not send to reserved test domains) and then SUPPRESSED. So the existing safeguards (3 emails per hotel per hour for PMS cancellations, no sending to reserved test domains, suppression after a bounce) work; no code change is needed. Convention for the sandbox: do not cancel test bookings unless a cancellation is what is being tested.
+
