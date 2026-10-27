@@ -113,6 +113,8 @@ describe('integration settings', () => {
     );
     expect(document.querySelector<HTMLInputElement>('[aria-label="Key ID"]')!.value).toBe('');
     expect(document.querySelector('[aria-label="Webhook URL"]')).toBeNull();
+    // The Environment choice is the dropdown only; it is not asked for again as a typed text box.
+    expect(document.querySelector('input[aria-label="Environment"]')).toBeNull();
     await act(async () => {
       env.click();
     });
