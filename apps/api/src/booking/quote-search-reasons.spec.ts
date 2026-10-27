@@ -68,3 +68,40 @@ describe('display prices say why a room type cannot be booked', () => {
     expect(by[unchecked]).not.toHaveProperty('reason');
   });
 });
+
+describe('alternative dates when nothing can be booked', () => {
+  function withAvailability(openStarts: Record<string, string>) {
+    const service = Object.create(QuoteService.prototype) as Record<string, unknown>;
+    service.displayPrices = async (_t: string, _p: string, stay: { startsOn: string }) => {
+      const amount = openStarts[stay.startsOn];
+      return amount
+        ? [{ key: 'a', roomTypeId: open, available: true, total: { amount, currency: 'EUR' } }]
+        : [{ key: 'a', roomTypeId: open, available: false, reason: 'sold_out' }];
+    };
+    return service as unknown as QuoteService;
+  }
+
+  it('suggests the nearest dates that work, closest first, keeping the number of nights', async () => {
+    const service = withAvailability({
+      '2027-07-13': '250.00',
+      '2027-07-09': '200.00',
+      '2027-07-07': '180.00',
+    });
+    const found = await service.alternativeDates('t', 'p', input, [item(open)]);
+    expect(found.map((entry) => [entry.startsOn, entry.endsOn, entry.shiftDays])).toEqual([
+      ['2027-07-09', '2027-07-11', -1],
+      ['2027-07-07', '2027-07-09', -3],
+      ['2027-07-13', '2027-07-15', 3],
+    ]);
+    expect(found[0].fromPrice).toEqual({ amount: '200.00', currency: 'EUR' });
+  });
+
+  it('never suggests dates in the past and gives nothing when the dates are invalid', async () => {
+    const service = withAvailability({ '2020-01-01': '100.00', '2020-01-03': '100.00' });
+    const past = { ...input, startsOn: '2020-01-02', endsOn: '2020-01-04' };
+    expect(await service.alternativeDates('t', 'p', past, [item(open)])).toEqual([]);
+    expect(
+      await service.alternativeDates('t', 'p', { ...input, endsOn: 'nope' }, [item(open)]),
+    ).toEqual([]);
+  });
+});

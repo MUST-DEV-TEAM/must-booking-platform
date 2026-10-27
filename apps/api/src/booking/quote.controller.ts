@@ -33,6 +33,49 @@ export class QuoteController {
   @UseGuards(PublicRateLimitGuard)
   @PublicRateLimit(PUBLIC_QUOTE_RATE_LIMIT)
   async displayPrices(@Body() body: unknown, @Req() request: TenantPropertyRequest) {
+    const { value, items } = this.displayPriceBody(body);
+    return {
+      prices: await this.quotes.displayPrices(
+        request.tenantContext.tenantId,
+        request.tenantContext.propertyId,
+        this.displayPriceInput(value),
+        items,
+      ),
+    };
+  }
+
+  @Post('alternative-dates')
+  @PublicTenantScoped({ propertyParam: 'propertyId' })
+  @UseGuards(PublicRateLimitGuard)
+  @PublicRateLimit(PUBLIC_QUOTE_RATE_LIMIT)
+  async alternativeDates(@Body() body: unknown, @Req() request: TenantPropertyRequest) {
+    const { value, items } = this.displayPriceBody(body);
+    return {
+      alternatives: await this.quotes.alternativeDates(
+        request.tenantContext.tenantId,
+        request.tenantContext.propertyId,
+        this.displayPriceInput(value),
+        items,
+      ),
+    };
+  }
+
+  private displayPriceInput(value: Record<string, unknown>) {
+    return {
+      startsOn: typeof value.startsOn === 'string' ? value.startsOn : '',
+      endsOn: typeof value.endsOn === 'string' ? value.endsOn : '',
+      adults: typeof value.adults === 'number' ? value.adults : undefined,
+      children: typeof value.children === 'number' ? value.children : undefined,
+      childrenAges: value.childrenAges as number[] | undefined,
+      guestCount: typeof value.guestCount === 'number' ? value.guestCount : undefined,
+      roomCount: typeof value.roomCount === 'number' ? value.roomCount : undefined,
+    };
+  }
+
+  private displayPriceBody(body: unknown): {
+    value: Record<string, unknown>;
+    items: DisplayPriceItem[];
+  } {
     const value = (body ?? {}) as Record<string, unknown>;
     const rawItems = Array.isArray(value.items) ? value.items : [];
     // Individual-room properties can have far more cards than room types.
@@ -59,22 +102,7 @@ export class QuoteController {
         },
       ];
     });
-    return {
-      prices: await this.quotes.displayPrices(
-        request.tenantContext.tenantId,
-        request.tenantContext.propertyId,
-        {
-          startsOn: typeof value.startsOn === 'string' ? value.startsOn : '',
-          endsOn: typeof value.endsOn === 'string' ? value.endsOn : '',
-          adults: typeof value.adults === 'number' ? value.adults : undefined,
-          children: typeof value.children === 'number' ? value.children : undefined,
-          childrenAges: value.childrenAges as number[] | undefined,
-          guestCount: typeof value.guestCount === 'number' ? value.guestCount : undefined,
-          roomCount: typeof value.roomCount === 'number' ? value.roomCount : undefined,
-        },
-        items,
-      ),
-    };
+    return { value, items };
   }
 
   private input(body: unknown) {

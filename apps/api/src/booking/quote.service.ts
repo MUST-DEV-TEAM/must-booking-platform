@@ -84,6 +84,31 @@ export type DisplayPrice = {
   reason?: StayUnavailableReason;
 };
 
+/** Another set of dates, close to the one asked for, on which something can be booked. */
+export type AlternativeDate = {
+  startsOn: string;
+  endsOn: string;
+  /** Days earlier (negative) or later (positive) than the dates asked for. */
+  shiftDays: number;
+  availableRoomTypes: number;
+  /** Price of the cheapest room type available on these dates. */
+  fromPrice: Money;
+};
+
+const DAY_MS = 86_400_000;
+/** Which shifts are tried, in the order of how close they are to the dates asked for. */
+const ALTERNATIVE_DATE_SHIFTS = [1, -1, 2, -2, 3, -3];
+
+function parseIsoDate(value: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const time = Date.parse(value + 'T00:00:00Z');
+  return Number.isNaN(time) ? null : time;
+}
+
+function formatIsoDate(time: number): string {
+  return new Date(time).toISOString().slice(0, 10);
+}
+
 /** Why a room type cannot be booked for a stay, in terms a guest can act on. */
 export type StayUnavailableReason =
   UnavailableReason | 'max_stay' | 'same_day_closed' | 'too_far_ahead' | 'past_date';
@@ -300,6 +325,61 @@ export class QuoteService {
         });
       return { total: result.total, nightlyRates: result.nightlyRates };
     });
+  }
+
+  /**
+   * When nothing can be booked for the chosen stay, finds the closest dates (same number of nights, moved a few
+   * days earlier or later) on which at least one room type can be. Nearest first, at most three.
+   */
+  async alternativeDates(
+    tenantId: string,
+    propertyId: string,
+    input: DisplayPriceInput,
+    items: DisplayPriceItem[],
+  ): Promise<AlternativeDate[]> {
+    const start = parseIsoDate(input.startsOn);
+    const end = parseIsoDate(input.endsOn);
+    if (items.length === 0 || !start || !end || end <= start) return [];
+    const nights = Math.round((end - start) / DAY_MS);
+    const now = new Date();
+    const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    const windows = ALTERNATIVE_DATE_SHIFTS.flatMap((shiftDays) => {
+      const from = start + shiftDays * DAY_MS;
+      return from < today
+        ? []
+        : [
+            {
+              shiftDays,
+              startsOn: formatIsoDate(from),
+              endsOn: formatIsoDate(from + nights * DAY_MS),
+            },
+          ];
+    });
+    const found = await Promise.all(
+      windows.map(async (window): Promise<AlternativeDate | null> => {
+        try {
+          const prices = await this.displayPrices(
+            tenantId,
+            propertyId,
+            { ...input, startsOn: window.startsOn, endsOn: window.endsOn },
+            items,
+          );
+          const open = prices.filter((price) => price.available && price.total);
+          if (open.length === 0) return null;
+          const cheapest = open
+            .map((price) => price.total as Money)
+            .sort((a, b) => Number(a.amount) - Number(b.amount))[0];
+          return { ...window, availableRoomTypes: open.length, fromPrice: cheapest };
+        } catch {
+          // A window we cannot check is simply not suggested.
+          return null;
+        }
+      }),
+    );
+    return found
+      .filter((entry): entry is AlternativeDate => entry !== null)
+      .sort((a, b) => Math.abs(a.shiftDays) - Math.abs(b.shiftDays) || a.shiftDays - b.shiftDays)
+      .slice(0, 3);
   }
 
   /**
