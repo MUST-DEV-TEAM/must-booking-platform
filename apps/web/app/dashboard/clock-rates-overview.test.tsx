@@ -3,7 +3,7 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { ClockRatesOverview } from './clock-rates-overview';
+import { ClockOverviewTiles, ClockRatesOverview } from './clock-rates-overview';
 import { DashboardQueryProvider } from './query-provider';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -42,6 +42,16 @@ function mount(hiddenRateIds: string[]) {
               ],
             },
           },
+        }),
+      );
+    if (url.endsWith('/clock-sample-prices'))
+      return Promise.resolve(
+        Response.json({
+          startsOn: '2026-11-04',
+          endsOn: '2026-11-06',
+          adults: 2,
+          nights: 2,
+          roomTypes: { rt: [{ rateId: '1', total: { amount: '210.00', currency: 'EUR' } }] },
         }),
       );
     if (url.endsWith('/clock-website-rates/hidden'))
@@ -105,6 +115,52 @@ describe('Rates by room type: sold on the website', () => {
     await act(async () => switches[1]!.click());
     await settle();
     expect(puts).toEqual([{ url: `${root}/clock-website-rates/2`, body: { onWebsite: true } }]);
+    reactRoot.unmount();
+  });
+
+  it('shows what each rate costs for the sample stay, and says when a rate cannot be booked then', async () => {
+    const { container, reactRoot } = mount([]);
+    await act(async () => {
+      reactRoot.render(
+        createElement(
+          DashboardQueryProvider,
+          null,
+          createElement(ClockRatesOverview, { root, types: [{ id: 'rt', name: 'Double' }] }),
+        ),
+      );
+    });
+    await settle();
+    expect(container.textContent).toContain('Sample stay for the prices below: 2 adults, 2 nights');
+    const rows = [...container.querySelectorAll('tbody tr')].map((row) => row.textContent ?? '');
+    expect(rows[0]).toContain('Bed & breakfast');
+    expect(rows[0]).toMatch(/210/);
+    expect(rows[1]).toContain('Full board');
+    expect(rows[1]).toContain('Not bookable then');
+    reactRoot.unmount();
+  });
+
+  it('shows real numbers at the top: rates sold online, room types bookable, rates switched off', async () => {
+    const { container, reactRoot } = mount(['2']);
+    await act(async () => {
+      reactRoot.render(
+        createElement(
+          DashboardQueryProvider,
+          null,
+          createElement(ClockOverviewTiles, {
+            root,
+            types: [
+              { id: 'rt', name: 'Double' },
+              { id: 'rt-closed', name: 'Suite' },
+            ],
+          }),
+        ),
+      );
+    });
+    await settle();
+    const text = container.textContent ?? '';
+    expect(text).toContain('1 of 2');
+    expect(text).toContain('Rates switched off');
+    expect(text).toContain('Last synced with Clock');
     reactRoot.unmount();
   });
 });

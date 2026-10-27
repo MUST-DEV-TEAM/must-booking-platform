@@ -254,6 +254,8 @@ import {
   ClockRateRankingController,
 } from './integrations/clock/clock-rate-ranking.controller';
 import { ClockWebsiteRatesService } from './integrations/clock/clock-website-rates.service';
+import { ClockSamplePricesService } from './integrations/clock/clock-sample-prices.service';
+import { ClockSamplePricesController } from './integrations/clock/clock-sample-prices.controller';
 import { ClockWebsiteRatesController } from './integrations/clock/clock-website-rates.controller';
 import { ClockBookingService } from './integrations/clock/clock-booking.service';
 import { BookingReviewController, BookingReviewService } from './booking/booking-review.service';
@@ -387,6 +389,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     ClockRateRankingController,
     ClockRateRankingBatchController,
     ClockWebsiteRatesController,
+    ClockSamplePricesController,
     ClockWebhookController,
   ],
   providers: [
@@ -515,6 +518,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     PrePaymentAvailabilityRegistry,
     ClockRateRankingService,
     ClockWebsiteRatesService,
+    ClockSamplePricesService,
     ClockBookingService,
     BookingReviewService,
     ClockBookingConsistencyService,
