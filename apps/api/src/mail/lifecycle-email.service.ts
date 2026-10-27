@@ -53,6 +53,13 @@ export interface LifecycleEmail {
   values?: TemplateValues;
   /** Extra lines in the summary box, after the booking reference and stay. */
   rows?: Row[];
+  /** A button in the guest's email, for example the payment link. */
+  cta?: { url: string; label: string };
+  /**
+   * Staff asked for this email to go to this guest right now (for example "send the payment link"), so the
+   * hotel's notification switch for the topic does not hold it back.
+   */
+  force?: boolean;
 }
 
 /**
@@ -73,7 +80,8 @@ export class LifecycleEmailService {
   async guest(context: Context, email: LifecycleEmail): Promise<void> {
     try {
       const work = await this.database.withTenantTransaction(context, async (tx) => {
-        if (!(await guestNotificationEnabled(tx, context, email.topic))) return null;
+        if (!email.force && !(await guestNotificationEnabled(tx, context, email.topic)))
+          return null;
         const facts = await this.facts(tx, context, email.bookingId);
         if (!facts?.email) return null;
         return {
@@ -89,8 +97,12 @@ export class LifecycleEmailService {
         {
           to: work.facts.email!,
           subject: message.subject,
-          text: message.text,
-          html: this.html(email, work.facts, work.brand, message, null),
+          text: email.cta
+            ? `${message.text}
+
+${email.cta.label}: ${email.cta.url}`
+            : message.text,
+          html: this.html(email, work.facts, work.brand, message, email.cta ?? null),
           idempotencyKey: email.idempotencyKey,
           eventType: email.eventType,
           bookingId: work.facts.id,

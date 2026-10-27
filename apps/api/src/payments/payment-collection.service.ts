@@ -17,7 +17,6 @@ import { ClockBookingService } from '../integrations/clock/clock-booking.service
 import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
 import { LifecycleEmailService } from '../mail/lifecycle-email.service';
 import { MailDeliveryService } from '../mail/mail-delivery.service';
-import { renderBrandedEmail } from '../mail/email-layout';
 import { bookingContactSql } from '../booking/booking-contact';
 type Scope = { tenantId: string; propertyId: string };
 type Collection = {
@@ -337,32 +336,20 @@ export class PaymentCollectionService {
     const row = rows[0];
     if (!row?.email)
       throw new ConflictException('Add a verified guest email before sending a payment link.');
-    const subject = `Payment link - ${row.reference}`;
     const amount = `${checkout.amount.amount} ${checkout.amount.currency}`;
-    const text = `Please pay ${amount} for your existing booking ${row.reference} at ${row.name}: ${checkout.checkoutUrl}`;
-    await this.delivery.dispatch(
-      'rendered',
-      {
-        to: row.email,
-        subject,
-        text,
-        html: renderBrandedEmail({
-          subject,
-          brand: { name: row.name, logoUrl: row.logoUrl, supportEmail: row.supportEmail },
-          heading: 'Pay your booking balance',
-          content: '<p>Use the secure payment page below to settle your existing reservation.</p>',
-          summaryRows: [
-            { label: 'Booking', value: row.reference },
-            { label: 'Amount', value: amount },
-          ],
-          cta: { label: 'Pay securely with PokPay', url: checkout.checkoutUrl! },
-        }),
-        idempotencyKey: `balance-link/${scope.propertyId}/${key}`,
-        eventType: 'payment.link',
-        bookingId,
-      },
-      scope,
-    );
+    // The hotel's own wording and branding; staff asked for this one, so the topic switch does not hold it.
+    await this.lifecycle.guest(scope, {
+      topic: 'payment_pending',
+      key: 'payment_pending',
+      eventType: 'payment.link',
+      idempotencyKey: `balance-link/${scope.propertyId}/${key}`,
+      bookingId,
+      heading: 'Pay your booking balance',
+      values: { payment_link: checkout.checkoutUrl!, payment_due: amount },
+      rows: [{ label: 'Amount', value: amount }],
+      cta: { label: 'Pay securely with PokPay', url: checkout.checkoutUrl! },
+      force: true,
+    });
     await this.audit.record({
       ...scope,
       actorUserId,

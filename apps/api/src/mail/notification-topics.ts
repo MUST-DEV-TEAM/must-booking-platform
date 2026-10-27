@@ -53,6 +53,10 @@ export const NOTIFICATION_TOPICS = {
     staff: false,
     daysOffset: { default: 3, min: 1, max: 30, label: 'Days before check-in' },
   },
+  /** Staff send a guest a payment link for a booking that still has something to pay. */
+  payment_pending: { label: 'Payment link', guest: true, staff: false },
+  /** An unpaid online booking is about to be released; the guest can still finish paying. */
+  payment_link_expiring: { label: 'Payment link expiring', guest: true, staff: false },
   /** Sent to the guest when staff record that they did not arrive. */
   no_show_notice: { label: 'No-show notice', guest: true, staff: false },
   /** A short welcome one hour after the guest is recorded as arrived. */
