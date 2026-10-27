@@ -77,3 +77,27 @@ export function RatingInput({
     </div>
   );
 }
+
+/** A score shown as stars, for reading rather than choosing. */
+export function RatingDisplay({ value, className }: { value: number | null; className?: string }) {
+  return (
+    <span
+      role="img"
+      aria-label={value ? `${value} out of 5` : 'Not rated'}
+      className={cn('inline-flex items-center gap-0.5', className)}
+    >
+      {[1, 2, 3, 4, 5].map((score) => (
+        <Star
+          key={score}
+          aria-hidden="true"
+          className={cn(
+            'size-4',
+            value && score <= Math.round(value)
+              ? 'fill-amber-400 stroke-amber-500'
+              : 'fill-transparent stroke-muted-foreground/40',
+          )}
+        />
+      ))}
+    </span>
+  );
+}

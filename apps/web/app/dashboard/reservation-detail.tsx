@@ -15,6 +15,7 @@ import { Alert, AlertTitle, AlertDescription } from '../../components/ui/alert';
 import { EditBookingDetailsDialog } from './edit-booking-details-dialog';
 import { CancellationDialog } from './cancellation-dialog';
 import { StayStatusActions } from './stay-status-actions';
+import { ReservationReview } from './reservation-review';
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -529,6 +530,7 @@ export function ReservationDetail({
         }
       />
       <CollectPaymentActions tenantId={tenantId} propertyId={propertyId} booking={booking} />
+      <ReservationReview tenantId={tenantId} propertyId={propertyId} bookingId={booking.id} />
       {editingDetails ? (
         <EditBookingDetailsDialog
           tenantId={tenantId}

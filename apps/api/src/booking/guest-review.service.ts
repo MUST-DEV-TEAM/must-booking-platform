@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import {
   ConflictException,
   GoneException,
@@ -7,6 +8,7 @@ import {
 } from '@nestjs/common';
 
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
+import { bookingContactSql } from './booking-contact';
 import {
   REVIEW_CATEGORIES,
   REVIEW_LINK_VALID_DAYS,
@@ -16,6 +18,71 @@ import {
 } from './guest-review';
 
 type Scope = { tenantId: string; propertyId: string };
+
+type ReviewRow = {
+  id: string;
+  submittedAt: Date;
+  overall: number;
+  cleanliness: number | null;
+  staff: number | null;
+  location: number | null;
+  comfort: number | null;
+  food: number | null;
+  valueForMoney: number | null;
+  comment: string | null;
+  bookingId: string;
+  reference: string;
+  startsOn: string;
+  endsOn: string;
+  roomName: string;
+  guestId: string | null;
+  guestName: string | null;
+  guestEmail: string | null;
+};
+
+const REVIEW_SELECT = Prisma.sql`
+  SELECT r.id::text AS id, r.submitted_at AS "submittedAt", r.overall, r.cleanliness, r.staff, r.location,
+    r.comfort, r.food, r.value_for_money AS "valueForMoney", r.comment,
+    b.id::text AS "bookingId", b.external_reference AS reference,
+    b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn",
+    COALESCE(rm.name, rt.name) AS "roomName", b.guest_id::text AS "guestId",
+    NULLIF(TRIM(CONCAT_WS(' ', ${bookingContactSql.firstName}, ${bookingContactSql.lastName})), '') AS "guestName",
+    ${bookingContactSql.email} AS "guestEmail"
+  FROM guest_reviews r
+  JOIN bookings b ON b.tenant_id = r.tenant_id AND b.property_id = r.property_id AND b.id = r.booking_id
+  JOIN room_types rt ON rt.tenant_id = b.tenant_id AND rt.property_id = b.property_id AND rt.id = b.room_type_id
+  LEFT JOIN rooms rm ON rm.tenant_id = b.tenant_id AND rm.property_id = b.property_id AND rm.id = b.room_id
+  LEFT JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
+`;
+
+function toItem(row: ReviewRow) {
+  return {
+    id: row.id,
+    submittedAt: row.submittedAt.toISOString(),
+    overall: row.overall,
+    categories: {
+      cleanliness: row.cleanliness,
+      staff: row.staff,
+      location: row.location,
+      comfort: row.comfort,
+      food: row.food,
+      valueForMoney: row.valueForMoney,
+    } as Record<string, number | null>,
+    comment: row.comment,
+    booking: {
+      id: row.bookingId,
+      reference: row.reference,
+      startsOn: row.startsOn,
+      endsOn: row.endsOn,
+      roomName: row.roomName,
+    },
+    guest: row.guestId
+      ? { id: row.guestId, name: row.guestName, email: row.guestEmail }
+      : row.guestName || row.guestEmail
+        ? { id: null, name: row.guestName, email: row.guestEmail }
+        : null,
+  };
+}
 
 /** The private "how was your stay" page: one link and one review per stay, collected for the hotel only. */
 @Injectable()
@@ -90,6 +157,60 @@ export class GuestReviewService {
     if (!saved)
       throw new ConflictException('Thank you, we already have your review for this stay.');
     return { saved: true };
+  }
+
+  /** The hotel's own view: averages and every review in the period, each tied to its stay and guest. */
+  async report(scope: Scope, days: number | null) {
+    const rows = await this.database.withTenantTransaction(
+      scope,
+      (tx) =>
+        tx.$queryRaw<ReviewRow[]>`
+        ${REVIEW_SELECT}
+        WHERE r.tenant_id = ${scope.tenantId}::uuid AND r.property_id = ${scope.propertyId}::uuid
+          AND r.submitted_at IS NOT NULL
+          AND (${days}::int IS NULL OR r.submitted_at >= now() - ${days ?? 0}::int * interval '1 day')
+        ORDER BY r.submitted_at DESC
+        LIMIT 500
+      `,
+    );
+    const items = rows.map(toItem);
+    const average = (values: Array<number | null>) => {
+      const given = values.filter((value): value is number => value !== null);
+      return given.length
+        ? {
+            average: Math.round((given.reduce((a, b) => a + b, 0) / given.length) * 100) / 100,
+            count: given.length,
+          }
+        : null;
+    };
+    return {
+      summary: {
+        overall: average(items.map((item) => item.overall)),
+        categories: REVIEW_CATEGORIES.map(({ key, label }) => ({
+          key,
+          label,
+          ...(average(items.map((item) => item.categories[key] ?? null)) ?? {
+            average: null,
+            count: 0,
+          }),
+        })),
+      },
+      items,
+    };
+  }
+
+  /** The review for one reservation, or null when the guest has not left one. */
+  async forBooking(scope: Scope, bookingId: string) {
+    const rows = await this.database.withTenantTransaction(
+      scope,
+      (tx) =>
+        tx.$queryRaw<ReviewRow[]>`
+        ${REVIEW_SELECT}
+        WHERE r.tenant_id = ${scope.tenantId}::uuid AND r.property_id = ${scope.propertyId}::uuid
+          AND r.booking_id = ${bookingId}::uuid AND r.submitted_at IS NOT NULL
+      `,
+    );
+    return rows[0] ? toItem(rows[0]) : null;
   }
 
   private async find(scope: Scope, token: string | undefined) {

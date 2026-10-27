@@ -135,13 +135,14 @@ export function GuestReview() {
     >
       <div className="mx-auto w-full max-w-xl space-y-6">
         {form ? (
-          <header className="flex flex-col items-center gap-3 text-center">
+          <header className="flex flex-col items-center gap-2 pt-4 text-center">
             {form.hotel.logoUrl ? (
               // The hotel's own logo; its size is unknown, so it is only bounded.
-              <img src={form.hotel.logoUrl} alt={form.hotel.name} className="max-h-16 w-auto" />
-            ) : (
-              <p className="m-0 text-lg font-extrabold">{form.hotel.name}</p>
-            )}
+              <img src={form.hotel.logoUrl} alt="" className="max-h-20 w-auto" />
+            ) : null}
+            <p className="m-0 text-sm font-semibold tracking-wide text-muted-foreground">
+              {form.hotel.name}
+            </p>
           </header>
         ) : null}
 
