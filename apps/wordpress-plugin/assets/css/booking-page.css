@@ -6227,3 +6227,17 @@ div.must-confirmation-picker:nth-child(1) > div:nth-child(3) > div:nth-child(1) 
     background: #fbf5ea;
     border-radius: 6px;
 }
+.must-booking-alternative-dates {
+    margin: -0.5rem 0 1rem;
+}
+.must-booking-alternative-dates ul {
+    margin: 0.25rem 0 0;
+    padding-left: 1.1rem;
+}
+.must-booking-alternative-dates li {
+    margin: 0.2rem 0;
+}
+.must-booking-alternative-price {
+    margin-left: 0.4rem;
+    opacity: 0.75;
+}

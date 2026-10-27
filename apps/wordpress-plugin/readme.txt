@@ -33,7 +33,7 @@ Main features include:
 == Changelog ==
 
 = 0.4.114 =
-* Search: for hotels connected to a hotel system, one request now answers every room type. Room types that cannot be booked stay on the page, greyed out with the reason (sold out, minimum stay, no arrivals, too many guests). When only 1-3 rooms are left the card says so, and bookable rooms are listed first.
+* Search: for hotels connected to a hotel system, one request now answers every room type. Room types that cannot be booked stay on the page, greyed out with the reason (sold out, minimum stay, no arrivals, too many guests). When only 1-3 rooms are left the card says so, and bookable rooms are listed first. When nothing is available, the page suggests the nearest dates (up to 3 days either side, same number of nights) that are, with a link and the lowest price.
 
 = 0.4.113 =
 * Checkout: the coupon field now works. A valid hotel coupon shows the original price crossed out, the discount and the new total, keeps what the guest typed, and survives a change of rate.

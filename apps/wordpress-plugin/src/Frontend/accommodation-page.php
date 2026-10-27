@@ -482,6 +482,12 @@ function get_accommodation_page_view_data(): array
     unset($room);
     $allUnavailable = $rooms !== [] && \count(\array_filter($rooms, static fn (array $r): bool => empty($r['is_unavailable']))) === 0;
 
+    // Nothing can be booked: offer the closest dates that work (only where one request answers every room type).
+    $alternativeDates = [];
+    if ($allUnavailable && !empty($searchItems)) {
+        $alternativeDates = get_must_alternative_dates($searchItems, $checkin, $checkout, $adults, $children, $guests);
+    }
+
     $noRoomsMessage = $hasContext
         ? __('No rooms are available for the selected dates.', 'must-hotel-booking')
         : __('Choose your dates to see available rooms.', 'must-hotel-booking');
@@ -503,6 +509,7 @@ function get_accommodation_page_view_data(): array
         'accommodation_type' => $accommodationType, 'selected_rooms' => [], 'selected_room_count' => $selectedRoomCount,
         'can_continue' => $selectedRoomCount > 0 && $partyCapacityMessage === '', 'selection_limit_reached' => $selectedRoomCount > 0, 'single_room_mode' => true,
         'no_rooms_message' => $noRoomsMessage, 'all_unavailable' => $allUnavailable,
+        'alternative_dates' => $alternativeDates,
         'selection_status_message' => '', 'selection_status_tone' => 'neutral',
         'booking_url' => get_booking_page_url(), 'checkout_url' => get_checkout_page_url(), 'accommodation_url' => get_booking_accommodation_page_url(),
     ];

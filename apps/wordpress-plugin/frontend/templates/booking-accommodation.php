@@ -284,6 +284,35 @@ $continue_label = \function_exists('\must_hotel_booking\get_accommodation_contin
                         <p class="must-booking-no-available-notice" role="status">
                             <?php echo \esc_html__('Nothing is available for these dates. The reason for each room is shown below; please try other dates.', 'must-hotel-booking'); ?>
                         </p>
+                        <?php if (!empty($view['alternative_dates'])) : ?>
+                            <div class="must-booking-alternative-dates">
+                                <p><?php echo \esc_html__('These nearby dates are available:', 'must-hotel-booking'); ?></p>
+                                <ul>
+                                    <?php foreach ($view['alternative_dates'] as $alternative) : ?>
+                                        <?php
+                                        $alternative_currency = (string) ($alternative['fromPrice']['currency'] ?? '');
+                                        $alternative_url = $accommodation_url . (\strpos($accommodation_url, '?') === false ? '?' : '&') . \http_build_query([
+                                            'checkin' => (string) $alternative['startsOn'],
+                                            'checkout' => (string) $alternative['endsOn'],
+                                            'adults' => (int) ($view['adults'] ?? 1),
+                                            'children' => (int) ($view['children'] ?? 0),
+                                            'guests' => (int) ($view['guests'] ?? 1),
+                                        ]);
+                                        ?>
+                                        <li>
+                                            <a href="<?php echo \esc_url($alternative_url); ?>">
+                                                <?php echo \esc_html(\wp_date('D j M', (int) \strtotime((string) $alternative['startsOn'] . ' UTC')) . ' – ' . \wp_date('D j M', (int) \strtotime((string) $alternative['endsOn'] . ' UTC'))); ?>
+                                            </a>
+                                            <?php if ($alternative_currency !== '') : ?>
+                                                <span class="must-booking-alternative-price">
+                                                    <?php echo \esc_html(\sprintf(\__('from %s total', 'must-hotel-booking'), \must_hotel_booking\format_frontend_money((float) ($alternative['fromPrice']['amount'] ?? 0), $alternative_currency))); ?>
+                                                </span>
+                                            <?php endif; ?>
+                                        </li>
+                                    <?php endforeach; ?>
+                                </ul>
+                            </div>
+                        <?php endif; ?>
                     <?php endif; ?>
                     <div id="must-booking-room-list" class="must-hotel-booking-room-list">
                         <?php foreach ($rooms as $room) : ?>

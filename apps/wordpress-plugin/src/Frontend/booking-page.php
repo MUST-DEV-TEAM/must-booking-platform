@@ -142,6 +142,60 @@ function get_must_display_prices(
     return $result;
 }
 
+/**
+ * When nothing can be booked, the closest dates (same number of nights) on which something can be.
+ *
+ * @param array<int, array<string, string>> $items
+ * @return array<int, array<string, mixed>>
+ */
+function get_must_alternative_dates(
+    array $items,
+    string $startsOn,
+    string $endsOn,
+    int $adults,
+    int $children,
+    int $guestCount
+): array {
+    $requestItems = [];
+    foreach (\array_slice($items, 0, 250) as $item) {
+        $key = isset($item['key']) ? (string) $item['key'] : '';
+        $roomTypeId = isset($item['room_type_id']) ? (string) $item['room_type_id'] : '';
+        if ($key === '' || $roomTypeId === '') {
+            continue;
+        }
+        $requestItems[] = ['key' => $key, 'roomTypeId' => $roomTypeId, 'roomId' => '', 'ratePlanId' => '', 'currency' => ''];
+    }
+    if ($requestItems === [] || $startsOn === '' || $endsOn === '') {
+        return [];
+    }
+
+    $response = MustApiClient::post('/quotes/alternative-dates', [
+        'startsOn' => $startsOn,
+        'endsOn' => $endsOn,
+        'adults' => \max(1, $adults),
+        'children' => \max(0, $children),
+        'guestCount' => \max(1, $guestCount),
+        'roomCount' => 1,
+        'items' => $requestItems,
+    ]);
+    if (!$response['ok'] || !\is_array($response['body']) || !\is_array($response['body']['alternatives'] ?? null)) {
+        return [];
+    }
+
+    $alternatives = [];
+    foreach ($response['body']['alternatives'] as $alternative) {
+        if (
+            \is_array($alternative)
+            && isset($alternative['startsOn'], $alternative['endsOn'])
+            && \preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $alternative['startsOn']) === 1
+            && \preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $alternative['endsOn']) === 1
+        ) {
+            $alternatives[] = $alternative;
+        }
+    }
+    return \array_slice($alternatives, 0, 3);
+}
+
 /** @return string where the hotel's availability and prices come from: 'CLOCK_PMS' (one request answers every room type) or 'LOCAL' */
 function get_must_pricing_source(string $startsOn = '', string $endsOn = ''): string
 {

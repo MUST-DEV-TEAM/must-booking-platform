@@ -105,6 +105,9 @@ namespace MustHotelBooking\Core {
                 }
                 return ['ok' => true, 'body' => ['prices' => $prices]];
             }
+            if ($path === '/quotes/alternative-dates') {
+                return ['ok' => true, 'body' => ['alternatives' => [['startsOn' => '2030-05-05', 'endsOn' => '2030-05-08', 'shiftDays' => 1, 'availableRoomTypes' => 1, 'fromPrice' => ['amount' => '310.00', 'currency' => 'EUR']]]]];
+            }
             return ['ok' => true, 'body' => []];
         }
 
@@ -160,6 +163,11 @@ namespace MustHotelBooking\Frontend {
     \MustHotelBooking\Core\MustApiClient::$displayAnswers['rt-open'] = ['available' => false, 'reason' => 'closed'];
     $view = get_accommodation_page_view_data();
     if (empty($view['all_unavailable']) || count($view['rooms']) !== 3) $fail('All greyed: the page must say nothing is available and list the rooms.');
+    if (count($view['alternative_dates'] ?? []) !== 1) $fail('When nothing is available, nearby dates that work are offered.');
+    ob_start();
+    include __DIR__ . '/../frontend/templates/booking-accommodation.php';
+    $greyHtml = (string) ob_get_clean();
+    if (strpos($greyHtml, 'checkin=2030-05-05') === false || strpos($greyHtml, 'checkout=2030-05-08') === false) $fail('The nearby dates must be links back to the search.');
 
     // If the search request itself fails, the old room-by-room path takes over (nothing breaks).
     \MustHotelBooking\Core\MustApiClient::$calls = [];
@@ -180,6 +188,7 @@ namespace MustHotelBooking\Frontend {
     if (substr_count($html, 'is-unavailable') < 2) $fail('Both greyed rooms must carry the greyed class.');
     if (strpos($html, 'Sold out for these dates') === false) $fail('The reason must be on the page.');
     if (substr_count($html, 'must-hotel-booking-select-room-form') !== 1) $fail('Only the bookable room can be selected.');
+    if (strpos($html, 'must-booking-alternative-dates') !== false) $fail('Nearby dates are only offered when nothing is available.');
     if (strpos($html, 'Only 9 left') !== false) $fail('Nine free rooms is not scarce and must not be announced as scarce.');
 
     fwrite(STDOUT, "Clock search greyed rooms test passed.\n");
