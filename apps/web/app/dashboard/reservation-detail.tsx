@@ -416,9 +416,18 @@ export function ReservationDetail({
     const result = (await response.json().catch(() => null)) as {
       ok?: boolean;
       value?: { status?: string };
-      error?: { message?: string };
+      error?: { message?: string; code?: string };
       message?: string;
     } | null;
+    // The payment provider had already refunded this in full; our records were just corrected. Not an error.
+    if (result?.ok === false && result.error?.code === 'REFUND_ALREADY_DONE') {
+      toast.info(
+        result.error.message ?? 'The payment was already refunded; the records are now up to date.',
+      );
+      refundAttempt.current = { body: '', key: '' };
+      await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      return;
+    }
     if (!response.ok || result?.ok === false)
       throw new Error(result?.error?.message ?? result?.message ?? 'The refund could not be made.');
     if (result?.value?.status === 'REFUND_PENDING')

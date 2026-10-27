@@ -56,6 +56,10 @@ export const AUDIT_EVENTS: Record<string, Definition> = {
   'payment.pokpay_checkout_resent': { title: 'Payment checkout renewed', result: 'completed' },
   'payment.refunded': { title: 'Refund completed', result: 'completed' },
   'payment.refund_pending': { title: 'Refund awaiting provider confirmation', result: 'pending' },
+  'payment.refund_reconciled': {
+    title: 'Refund records corrected from the provider',
+    result: 'completed',
+  },
   'payment.refund_unknown': { title: 'Refund needs verification', result: 'unknown' },
   'payment.clock_refund_posted': {
     title: 'Refund posted to Clock',

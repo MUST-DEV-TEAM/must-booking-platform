@@ -75,6 +75,16 @@ export function RefundDialog({
     } | null;
     if (result?.error?.code === 'REFUND_WINDOW_CLOSED' && result.error.lateAllowed === true)
       setLateAllowed(true);
+    // The payment provider had already refunded this in full; our records were just corrected. Not an error.
+    if (result?.ok === false && result.error?.code === 'REFUND_ALREADY_DONE') {
+      toast.info(
+        result.error.message ?? 'The payment was already refunded; the records are now up to date.',
+      );
+      await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      onRefunded();
+      onClose();
+      return;
+    }
     if (!response.ok || result?.ok === false)
       throw new Error(result?.error?.message ?? result?.message ?? 'The refund could not be made.');
     await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
