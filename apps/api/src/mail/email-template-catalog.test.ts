@@ -20,7 +20,7 @@ describe('safe complete situation catalog and local civil stay dates', () => {
         expect(metadata.unavailableReason).toContain('No sending trigger');
     }
     expect(templateCatalog('booking_confirmed_pay_at_hotel').triggerAvailable).toBe(true);
-    expect(templateCatalog('staff_account_created').triggerAvailable).toBe(false);
+    expect(templateCatalog('payment_failed').triggerAvailable).toBe(false);
   });
   it('keeps per-night rates exact and dates civil across DST, leap days and year boundaries', () => {
     const base = {

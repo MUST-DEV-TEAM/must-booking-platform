@@ -25,6 +25,7 @@ const triggers: Partial<Record<EmailTemplateKey, string>> = {
   owner_daily_summary: 'owner.daily_summary',
   owner_weekly_summary: 'owner.weekly_summary',
   staff_invitation: 'staff.invitation',
+  staff_account_created: 'staff.account_created',
 };
 export function templateCatalog(key: EmailTemplateKey) {
   const audience =

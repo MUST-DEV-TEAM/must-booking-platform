@@ -81,6 +81,7 @@ const LABELS: Record<string, string> = {
   'owner.daily_summary': 'Daily summary (owner)',
   'template.test': 'Template test',
   'staff.invitation': 'Staff invitation',
+  'staff.account_created': 'Staff account ready',
   'email.sender_verification': 'Sender mailbox verification',
   'sender.test': 'Custom sender test',
 };
@@ -131,9 +132,12 @@ export class EmailActivityService {
           canResend:
             !row.transportBlocked &&
             row.status === 'FAILED' &&
-            !['staff.invitation', 'email.sender_verification', 'sender.test'].includes(
-              row.eventType,
-            ) &&
+            ![
+              'staff.invitation',
+              'staff.account_created',
+              'email.sender_verification',
+              'sender.test',
+            ].includes(row.eventType) &&
             new Date(row.createdAt).getTime() > cutoff,
         })),
         observedAt: properties[0]!.observedAt,

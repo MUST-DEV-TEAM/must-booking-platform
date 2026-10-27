@@ -16,6 +16,7 @@ import { TenantDatabaseService, type TenantTransaction } from './tenant-database
 import { AuditLogService } from './audit-log.service';
 import { NotificationsService } from './notifications.service';
 import { MailDeliveryService } from '../mail/mail-delivery.service';
+import { renderBrandedEmail } from '../mail/email-layout';
 
 export interface StaffInvite {
   tenantId: string;
@@ -176,7 +177,65 @@ export class StaffInviteService implements OnModuleDestroy {
         );
       throw error;
     }
+    await this.sendAccountCreatedEmailSafely(command, userId);
     return { userId };
+  }
+
+  /**
+   * Tells a person their staff account is ready. The password is never in the email; whoever created the
+   * account gives it to them. A failure here must not undo the account.
+   */
+  private async sendAccountCreatedEmailSafely(
+    command: { tenantId: string; propertyId: string; firstName: string; email: string },
+    userId: string,
+  ): Promise<void> {
+    try {
+      const scope = { tenantId: command.tenantId, propertyId: command.propertyId };
+      const signInLink = new URL('/login', process.env.WEB_APP_URL).toString();
+      const work = await this.database.withTenantTransaction(scope, async (tx) => {
+        const [brand] = await tx.$queryRaw<MailBrand[]>`
+          SELECT name, brand_colour AS "brandColour", email_footer_text AS "emailFooterText",
+            terms_url AS "termsUrl", logo_url AS "logoUrl", support_email AS "supportEmail", phone,
+            public_website_origin AS "websiteUrl", address
+          FROM properties WHERE tenant_id = ${command.tenantId}::uuid AND id = ${command.propertyId}::uuid
+        `;
+        return { brand, saved: await savedTemplate(tx, scope, 'staff_account_created') };
+      });
+      if (!work.brand) return;
+      const message = renderTemplate('staff_account_created', work.saved, {
+        hotel_name: work.brand.name,
+        staff_name: command.firstName,
+        staff_email: command.email,
+        sign_in_link: signInLink,
+      });
+      await this.delivery.dispatch(
+        'rendered',
+        {
+          to: command.email,
+          subject: message.subject,
+          text: `${message.text}
+
+Sign in: ${signInLink}`,
+          html: renderBrandedEmail({
+            subject: message.subject,
+            brand: work.brand,
+            preheader: message.previewText || message.subject,
+            heading: 'Your staff account is ready',
+            content: message.html,
+            cta: { url: signInLink, label: 'Sign in' },
+          }),
+          idempotencyKey: `staff-account-created/${userId}`,
+          eventType: 'staff.account_created',
+          bookingId: null,
+        },
+        scope,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Unable to send the account-ready email for staff account ${userId}.`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
   }
 
   async accept(token: string, userId: string): Promise<void> {
