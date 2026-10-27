@@ -85,5 +85,8 @@ Verified against the live Empire data (read-only) and the code.
   2. `bookings.currency` now stores the currency on the booking. Clock reservations take Clock's own value; for every other writer a database trigger fills it from the rate plan and follows the plan if it changes.
   3. Every refresh of a Clock bill compares the bill's currency with the booking's. A difference raises a `CURRENCY_MISMATCH` review item (shown under Needs attention on the reservation) and is closed again automatically when the two agree.
   4. Reports keep one line per currency and never add amounts of different currencies.
+  5. Currency codes are checked against the real ISO 4217 list (`money/iso-currency.ts`), not just "three letters", at the Clock import and when a rate plan is saved.
+  6. The database enforces that a booking's currency equals its rate plan's currency (checked at commit), and refuses to change the currency of a rate plan that already has bookings.
+  7. A payment recorded in a different currency than its booking is never refused (money really received must not be lost): it is kept and a `CURRENCY_MISMATCH` review item is raised. On the live data on 2026-10-27 no payment differed from its booking's currency (38 payments).
 - **Outstanding and Expected on arrival:** where Clock holds the bill, the Clock balance is what is owed. Only stays that have started count as Outstanding. Stays that have not started are Expected on arrival, shown with how much of it is for stays with no guest name (often room blocks or tests made in Clock).
 - **Not yet confirmed:** what the 69 + 42 guest-less reservations are (a block of every room, an import, or a test). The hotel has to say.
