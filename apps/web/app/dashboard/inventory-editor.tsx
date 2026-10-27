@@ -360,7 +360,7 @@ export function InventoryEditor({
               <FormField label="Start date" htmlFor="inventory-start" required>
                 <DateField
                   id="inventory-start"
-              aria-label="Start date"
+                  aria-label="Start date"
                   value={startsOn}
                   onChange={(date) => {
                     setStart(date);

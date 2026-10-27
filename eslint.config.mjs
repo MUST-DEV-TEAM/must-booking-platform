@@ -38,8 +38,7 @@ export default tseslint.config(
       'no-restricted-syntax': [
         'error',
         {
-          selector:
-            "JSXAttribute[name.name='type'][value.value=/^(date|datetime-local|week)$/]",
+          selector: "JSXAttribute[name.name='type'][value.value=/^(date|datetime-local|week)$/]",
           message:
             'Use <DateField> (components/ui/date-field) for dates, so every calendar looks and behaves the same.',
         },

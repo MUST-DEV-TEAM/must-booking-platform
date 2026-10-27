@@ -655,7 +655,7 @@ export function InventorySection({
                 <FormField label="Period from" htmlFor="inventory-filter-from">
                   <DateField
                     id="inventory-filter-from"
-              aria-label="Period from"
+                    aria-label="Period from"
 
                     value={dateFrom}
                     onChange={(date) => setDateFrom(date)}
@@ -664,7 +664,7 @@ export function InventorySection({
                 <FormField label="Period through" htmlFor="inventory-filter-through">
                   <DateField
                     id="inventory-filter-through"
-              aria-label="Period through"
+                    aria-label="Period through"
 
                     value={dateTo}
                     onChange={(date) => setDateTo(date)}

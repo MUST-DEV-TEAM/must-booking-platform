@@ -215,7 +215,7 @@ export function PricingBaseEditor({
                 <FormField label="First date" htmlFor="base-start">
                   <DateField
                     id="base-start"
-              aria-label="First date"
+                    aria-label="First date"
 
                     min={data.today}
                     value={start}
@@ -228,7 +228,7 @@ export function PricingBaseEditor({
                 <FormField label="Last date (included)" htmlFor="base-end">
                   <DateField
                     id="base-end"
-              aria-label="Last date (included)"
+                    aria-label="Last date (included)"
 
                     min={start}
                     value={end}

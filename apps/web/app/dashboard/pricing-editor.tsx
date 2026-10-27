@@ -380,7 +380,7 @@ export function PricingEditor({
                   <FormField label="End date (inclusive, optional)" htmlFor="pricing-end">
                     <DateField
                       id="pricing-end"
-              aria-label="End date (inclusive, optional)"
+                      aria-label="End date (inclusive, optional)"
 
                       value={str(isPlan ? 'publicationEndsOn' : 'endsOn')}
                       onChange={(date) => set(isPlan ? 'publicationEndsOn' : 'endsOn', date)}

@@ -142,7 +142,7 @@ export function InventoryPreview({
             <FormField label="Arrival" htmlFor="preview-arrival">
               <DateField
                 id="preview-arrival"
-              aria-label="Arrival"
+                aria-label="Arrival"
                 value={startsOn}
                 onChange={(date) => {
                   setStart(date);
@@ -153,7 +153,7 @@ export function InventoryPreview({
             <FormField label="Departure" htmlFor="preview-departure">
               <DateField
                 id="preview-departure"
-              aria-label="Departure"
+                aria-label="Departure"
                 value={endsOn}
                 onChange={(date) => {
                   setEnd(date);
