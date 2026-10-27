@@ -66,7 +66,10 @@ export class ClockWebsiteRatesController {
     @Param('propertyId') propertyId: string,
     @Req() request: TenantRequest,
   ): Promise<{ hiddenRateIds: string[] }> {
-    const hidden = await this.websiteRates.hiddenRateIds(request.tenantContext.tenantId, propertyId);
+    const hidden = await this.websiteRates.hiddenRateIds(
+      request.tenantContext.tenantId,
+      propertyId,
+    );
     return { hiddenRateIds: [...hidden] };
   }
 
