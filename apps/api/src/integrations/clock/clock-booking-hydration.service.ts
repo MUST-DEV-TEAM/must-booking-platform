@@ -279,13 +279,28 @@ export class ClockBookingHydrationService {
           return { outcome: 'missing_room_type_mapping' };
         }
 
+        // Never assume a currency: a total in an unknown currency is worse than a booking waiting for review.
+        const billedIn = billedCurrency(detail.total_booking_value);
+        if (!billedIn) {
+          await this.manualReview.recordInTransaction(tx, {
+            tenantId,
+            propertyId,
+            connectionId,
+            category: 'UNKNOWN_RESULT',
+            referenceType: 'clock_booking',
+            referenceId: String(detail.id),
+            message: `Clock booking ${detail.number ?? detail.id} has a total with no valid currency, so its amount was not imported. Check the bill in Clock, then re-send the event.`,
+          });
+          if (ownership) await this.finalizeOwnedEvent(tx, tenantId, ownership, 'FAILED');
+          return { outcome: 'unknown_status' };
+        }
         const ratePlanId = await this.shadowRatePlanId(
           tx,
           tenantId,
           propertyId,
           roomTypeId,
           detail.arrival_room_type_id,
-          detail.total_booking_value?.currency ?? 'EUR',
+          billedIn,
         );
         const roomId = await this.mappedEntityId(
           tx,
@@ -715,4 +730,10 @@ function providerTimestamp(value: unknown): Date | null {
   return Number.isFinite(parsed.getTime()) && parsed.getTime() <= Date.now() + 300000
     ? parsed
     : null;
+}
+
+/** The ISO currency code Clock bills a reservation in, or null when it is missing or not a 3-letter code. */
+export function billedCurrency(value: { currency?: string | null } | null | undefined): string | null {
+  const code = value?.currency?.trim().toUpperCase();
+  return code && /^[A-Z]{3}$/.test(code) ? code : null;
 }
