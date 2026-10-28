@@ -13,17 +13,52 @@ use MustHotelBooking\Core\MustApiClient;
  */
 function get_selection_rate_offers(array $selection): array
 {
+    $offers = fetch_selection_rate_offers($selection);
+    return \count($offers) < 2 ? [] : $offers;
+}
+
+/**
+ * Every rate offered for the selected stay, even when there is only one. A promo code (the guest's, or the one
+ * being tried) reveals the Clock rates that need it.
+ *
+ * @param array<string, mixed> $selection
+ * @return array<int, array<string, mixed>>
+ */
+function fetch_selection_rate_offers(array $selection, string $code = ''): array
+{
     if (empty($selection['roomTypeId'])) return [];
-    $response = MustApiClient::get('/public/rate-offers', [
+    $code = $code !== '' ? $code : (string) ($selection['rateCode'] ?? '');
+    $query = [
         'roomTypeId' => (string) $selection['roomTypeId'],
         'startsOn' => (string) ($selection['checkin'] ?? ''),
         'endsOn' => (string) ($selection['checkout'] ?? ''),
         'adults' => (int) ($selection['adults'] ?? $selection['guests'] ?? 1),
         'children' => (int) ($selection['children'] ?? 0),
-    ]);
+    ];
+    if ($code !== '') $query['code'] = $code;
+    $response = MustApiClient::get('/public/rate-offers', $query);
     $offers = \is_array($response['body'] ?? null) ? ($response['body']['offers'] ?? []) : [];
-    if (!$response['ok'] || !\is_array($offers) || \count($offers) < 2) return [];
+    if (!$response['ok'] || !\is_array($offers)) return [];
     return \array_values($offers);
+}
+
+/**
+ * A promo code that is not one of the hotel's own coupons may still unlock a rate that needs it. Returns the rate
+ * offers the code adds, or an empty list when it unlocks nothing.
+ *
+ * @param array<string, mixed> $selection
+ * @return array<int, array<string, mixed>>
+ */
+function rates_revealed_by_code(array $selection, string $code): array
+{
+    if ($code === '') return [];
+    $without = [];
+    foreach (fetch_selection_rate_offers($selection) as $offer) $without[(string) ($offer['rateId'] ?? '')] = true;
+    $revealed = [];
+    foreach (fetch_selection_rate_offers($selection, $code) as $offer) {
+        if (empty($without[(string) ($offer['rateId'] ?? '')])) $revealed[] = $offer;
+    }
+    return $revealed;
 }
 
 /**
@@ -37,9 +72,10 @@ function apply_selection_rate_choice(array $selection, string $rateId): ?array
 {
     foreach (get_selection_rate_offers($selection) as $offer) {
         if ((string) ($offer['rateId'] ?? '') !== $rateId) continue;
-        $promoCode = (string) ($selection['promoCode'] ?? '');
+        $needsCode = !empty($offer['requiresCode']);
+        $promoCode = $needsCode ? (string) ($selection['rateCode'] ?? '') : (string) ($selection['promoCode'] ?? '');
         $quote = MustApiClient::post('/quotes', selection_quote_input($selection, $rateId, $promoCode));
-        if ((!$quote['ok'] || !\is_array($quote['body'])) && $promoCode !== '') {
+        if ((!$quote['ok'] || !\is_array($quote['body'])) && $promoCode !== '' && !$needsCode) {
             // The coupon does not apply under this rate: price it without the coupon and say so.
             unset($selection['promoCode']);
             $selection['couponNotice'] = ['type' => 'error', 'message' => \__('Your coupon does not apply to this rate, so it was removed.', 'must-hotel-booking')];
@@ -48,6 +84,7 @@ function apply_selection_rate_choice(array $selection, string $rateId): ?array
         if (!$quote['ok'] || !\is_array($quote['body'])) return null;
         $selection['quote'] = $quote['body'];
         $selection['clockRateId'] = $rateId;
+        $selection['rateNeedsCode'] = $needsCode;
         $selection['ratePlanName'] = (string) ($offer['label'] ?? $selection['ratePlanName'] ?? '');
         return $selection;
     }
@@ -85,15 +122,31 @@ function selection_quote_input(array $selection, string $rateId, string $promoCo
 function apply_selection_promo(array $selection, string $code): array
 {
     $rateId = (string) ($selection['clockRateId'] ?? '');
-    $quote = MustApiClient::post('/quotes', selection_quote_input($selection, $rateId, $code));
     if ($code === '') {
+        // Removing the code also removes a rate that only the code revealed.
+        if (!empty($selection['rateNeedsCode'])) {
+            $rateId = '';
+            unset($selection['clockRateId'], $selection['rateNeedsCode']);
+        }
+        unset($selection['rateCode']);
+        $quote = MustApiClient::post('/quotes', selection_quote_input($selection, $rateId, ''));
         if ($quote['ok'] && \is_array($quote['body'])) {
             $selection['quote'] = $quote['body'];
             unset($selection['promoCode']);
         }
         return ['selection' => $selection, 'notice' => ['type' => 'info', 'message' => \__('Coupon removed.', 'must-hotel-booking')]];
     }
+    $quote = MustApiClient::post('/quotes', selection_quote_input($selection, $rateId, $code));
     if (!$quote['ok'] || !\is_array($quote['body'])) {
+        // Not one of the hotel's own coupons: it may be a code that unlocks a special rate.
+        $revealed = rates_revealed_by_code($selection, $code);
+        if ($revealed !== []) {
+            unset($selection['promoCode']);
+            $selection['rateCode'] = $code;
+            $plain = MustApiClient::post('/quotes', selection_quote_input($selection, !empty($selection['rateNeedsCode']) ? '' : $rateId, ''));
+            if ($plain['ok'] && \is_array($plain['body'])) $selection['quote'] = $plain['body'];
+            return ['selection' => $selection, 'notice' => ['type' => 'success', 'message' => \__('Code accepted. A special rate is now available in the list of rates: choose it to use it.', 'must-hotel-booking')]];
+        }
         $message = \is_array($quote['body'] ?? null) && \is_string($quote['body']['message'] ?? null) ? $quote['body']['message'] : '';
         return ['selection' => $selection, 'notice' => ['type' => 'error', 'message' => $message !== '' ? $message : \__('This coupon cannot be used for these dates.', 'must-hotel-booking')]];
     }
@@ -102,8 +155,27 @@ function apply_selection_promo(array $selection, string $code): array
         return ['selection' => $selection, 'notice' => ['type' => 'error', 'message' => \__('This coupon cannot be used for these dates.', 'must-hotel-booking')]];
     }
     $selection['quote'] = $quote['body'];
+    unset($selection['rateCode']);
     $selection['promoCode'] = (string) ($promo['code'] ?? $code);
     return ['selection' => $selection, 'notice' => ['type' => 'success', 'message' => \__('Coupon applied.', 'must-hotel-booking')]];
+}
+
+/**
+ * The offer for the rate the guest has chosen (the cheapest when none was chosen), with its price before any
+ * included discount. Empty when the hotel does not offer rates for this stay.
+ *
+ * @param array<string, mixed> $selection
+ * @return array<string, mixed>
+ */
+function selected_rate_offer(array $selection): array
+{
+    $offers = fetch_selection_rate_offers($selection);
+    if ($offers === []) return [];
+    $chosen = (string) ($selection['clockRateId'] ?? '');
+    foreach ($offers as $offer) {
+        if ($chosen === '' || (string) ($offer['rateId'] ?? '') === $chosen) return $offer;
+    }
+    return [];
 }
 
 /** Handle the guest-information form submission before any output. Stores contact details and advances to the Review & Payment step. */
@@ -211,6 +283,16 @@ function get_checkout_page_view_data(): array
         $promo = \is_array($quote['promo'] ?? null) ? $quote['promo'] : null;
         $discount = $promo !== null ? (float) ($promo['discount']['amount'] ?? 0) : 0.0;
         $original = $promo !== null ? (float) ($promo['originalTotal']['amount'] ?? $total + $discount) : $total;
+        if ($promo === null) {
+            // A rate with a discount built into its price: show the price before the discount, crossed out.
+            $chosenOffer = selected_rate_offer($selection);
+            $before = isset($chosenOffer['originalTotal']['amount']) ? (float) $chosenOffer['originalTotal']['amount'] : 0.0;
+            $offerTotal = isset($chosenOffer['total']['amount']) ? (float) $chosenOffer['total']['amount'] : 0.0;
+            if ($before > $total && \abs($offerTotal - $total) < 0.01) {
+                $discount = $before - $total;
+                $original = $before;
+            }
+        }
         $selectedRooms[] = [
             'room_id' => 1,
             'room' => ['name' => (string) $selection['roomName'], 'currency' => (string) $quote['total']['currency'], 'max_guests' => $guestCount, 'primary_image_url' => ''],

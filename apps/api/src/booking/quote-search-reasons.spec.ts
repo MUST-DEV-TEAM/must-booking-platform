@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 
+import { QuoteController } from './quote.controller';
 import { QuoteService } from './quote.service';
 
 const open = '11111111-1111-4111-8111-111111111111';
@@ -47,6 +48,30 @@ const input = { startsOn: '2027-07-10', endsOn: '2027-07-12', adults: 2, childre
 const item = (roomTypeId: string) => ({ key: roomTypeId, roomTypeId, currency: 'EUR' });
 
 describe('display prices say why a room type cannot be booked', () => {
+  it.each([true, false])(
+    'passes optional originalTotal from the search through the display-prices endpoint (%s)',
+    async (discounted) => {
+      const service = clockService();
+      const originalTotal = { amount: '300.00', currency: 'EUR' };
+      (service as unknown as Record<string, unknown>).clockAvailability = {
+        getStaySearch: async () => ({
+          results: { [open]: { ok: true, value: { amount: '264.00', currency: 'EUR' } } },
+          details: {
+            [open]: { available: true, freeRooms: 2, ...(discounted ? { originalTotal } : {}) },
+          },
+        }),
+      };
+      const controller = new QuoteController(service);
+      const answer = await controller.displayPrices(
+        { ...input, items: [item(open)] },
+        { tenantContext: { tenantId: 't', propertyId: 'p' }, guestSessionId: 'session' },
+      );
+      expect(answer.prices[0].total).toEqual({ amount: '264.00', currency: 'EUR' });
+      if (discounted) expect(answer.prices[0]).toHaveProperty('originalTotal', originalTotal);
+      else expect(answer.prices[0]).not.toHaveProperty('originalTotal');
+    },
+  );
+
   it('gives the price and rooms left when it can be sold, and the reason when it cannot', async () => {
     const prices = await clockService().displayPrices(
       't',

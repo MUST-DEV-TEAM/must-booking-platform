@@ -17,9 +17,48 @@ afterEach(() => {
 const root = '/api/tenants/t/properties/p';
 const settle = () => act(async () => void (await new Promise((r) => setTimeout(r, 30))));
 
-function mount(hiddenRateIds: string[]) {
+function mount(
+  hiddenRateIds: string[],
+  options: {
+    pairs?: Record<string, string>;
+    sampleCompare?: boolean;
+    noCapability?: boolean;
+    failSave?: boolean;
+  } = {},
+) {
+  let pairMap = options.pairs ?? {};
   const puts: Array<{ url: string; body: unknown }> = [];
   const fetch = vi.fn((url: string, init?: RequestInit) => {
+    if (url.endsWith('/capabilities/mine'))
+      return Promise.resolve(Response.json(options.noCapability ? [] : ['rates.manage']));
+    if (url.endsWith('/clock-rate-pairs'))
+      return Promise.resolve(Response.json({ pairs: pairMap }));
+    if (url.includes('/clock-rate-pairs/') && init?.method === 'PUT') {
+      const body = JSON.parse(String(init.body));
+      puts.push({ url, body });
+      if (options.failSave)
+        return Promise.resolve(
+          Response.json({ message: 'Comparison could not be saved.' }, { status: 400 }),
+        );
+      const id = url.split('/').at(-1)!;
+      pairMap = { ...pairMap };
+      if (body.compareRateId === null) delete pairMap[id];
+      else pairMap[id] = body.compareRateId;
+      return Promise.resolve(Response.json(body));
+    }
+    if (url.endsWith('/clock-website-rates'))
+      return Promise.resolve(
+        Response.json({
+          roomTypes: {
+            rt: [
+              { externalRateId: '1', name: 'BB', onWebsite: true },
+              { externalRateId: '2', name: 'FB', onWebsite: !hiddenRateIds.includes('2') },
+              { externalRateId: '3', name: 'Code only', onWebsite: true, requiresCode: true },
+              { externalRateId: '4', name: 'Switched off', onWebsite: false },
+            ],
+          },
+        }),
+      );
     if (url.endsWith('/clock-sync/rates'))
       return Promise.resolve(
         Response.json({
@@ -52,7 +91,14 @@ function mount(hiddenRateIds: string[]) {
           endsOn: '2026-11-06',
           adults: 2,
           nights: 2,
-          roomTypes: { rt: [{ rateId: '1', total: { amount: '210.00', currency: 'EUR' } }] },
+          roomTypes: {
+            rt: [
+              { rateId: '1', total: { amount: '210.00', currency: 'EUR' } },
+              ...(options.sampleCompare
+                ? [{ rateId: '2', total: { amount: '300.00', currency: 'EUR' } }]
+                : []),
+            ],
+          },
         }),
       );
     if (url.endsWith('/clock-website-rates/hidden'))
@@ -162,6 +208,87 @@ describe('Rates by room type: sold on the website', () => {
     expect(text).toContain('1 of 2');
     expect(text).toContain('Rates switched off');
     expect(text).toContain('Last synced with Clock');
+    await act(async () => reactRoot.unmount());
+  });
+});
+
+describe('Clock rate compare-with control', () => {
+  const render = async (options: Parameters<typeof mount>[1] = {}) => {
+    const mounted = mount([], options);
+    await act(async () =>
+      mounted.reactRoot.render(
+        createElement(
+          DashboardQueryProvider,
+          null,
+          createElement(ClockRatesOverview, { root, types: [{ id: 'rt', name: 'Double' }] }),
+        ),
+      ),
+    );
+    await settle();
+    return mounted;
+  };
+  const open = async (button: HTMLButtonElement) => {
+    HTMLElement.prototype.scrollIntoView = vi.fn();
+    await act(async () =>
+      button.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })),
+    );
+  };
+  const choose = async (text: string) => {
+    const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+      (o) => o.textContent === text,
+    )!;
+    await act(async () => option.click());
+    await settle();
+  };
+
+  it('offers None and only another public rate, saves on change, previews exact sample prices, and clears', async () => {
+    const { container, puts, reactRoot } = await render({ sampleCompare: true });
+    const select = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Compare BB (Double) with"]',
+    )!;
+    await open(select);
+    expect([...document.querySelectorAll('[role="option"]')].map((o) => o.textContent)).toEqual([
+      'None',
+      'FB',
+    ]);
+    await choose('FB');
+    expect(puts).toEqual([{ url: `${root}/clock-rate-pairs/1`, body: { compareRateId: '2' } }]);
+    expect(container.textContent).toMatch(/Guests will see .*300.* crossed out next to .*210/);
+    expect(container.textContent).toContain('Comparison saved.');
+    await open(select);
+    await choose('None');
+    expect(puts.at(-1)).toEqual({
+      url: `${root}/clock-rate-pairs/1`,
+      body: { compareRateId: null },
+    });
+    await act(async () => reactRoot.unmount());
+  });
+
+  it('says when the paired sample rate is not bookable', async () => {
+    const { container, reactRoot } = await render({ pairs: { '1': '2' } });
+    expect(container.textContent).toContain('No crossed-out price for the sample stay');
+    await act(async () => reactRoot.unmount());
+  });
+
+  it('disables pairing without rates.manage', async () => {
+    const { container, puts, reactRoot } = await render({ noCapability: true });
+    const selects = [...container.querySelectorAll<HTMLButtonElement>('button[role="combobox"]')];
+    expect(selects).toHaveLength(2);
+    expect(selects.every((select) => select.disabled)).toBe(true);
+    expect(puts).toEqual([]);
+    await act(async () => reactRoot.unmount());
+  });
+
+  it('shows a failed save and keeps the prior pair', async () => {
+    const { container, reactRoot } = await render({ failSave: true });
+    await open(
+      container.querySelector<HTMLButtonElement>('button[aria-label="Compare BB (Double) with"]')!,
+    );
+    await choose('FB');
+    expect(container.textContent).toContain('Comparison could not be saved.');
+    expect(
+      container.querySelector('button[aria-label="Compare BB (Double) with"]')?.textContent,
+    ).toContain('None');
     await act(async () => reactRoot.unmount());
   });
 });

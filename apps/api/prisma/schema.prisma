@@ -1241,6 +1241,19 @@ model ClockWebsiteHiddenRate {
   @@map("clock_website_hidden_rates")
 }
 
+// Display-only reference for a Clock rate, scoped to one hotel.
+model ClockRatePair {
+  tenantId        String   @map("tenant_id") @db.Uuid
+  propertyId      String   @map("property_id") @db.Uuid
+  promoRateId     String   @map("promo_rate_id")
+  compareRateId   String   @map("compare_rate_id")
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@id([tenantId, propertyId, promoRateId])
+  @@map("clock_rate_pairs")
+}
+
 enum ManualReviewCategory {
   UNKNOWN_RESULT
   DUPLICATE

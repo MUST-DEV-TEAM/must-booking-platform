@@ -61,7 +61,7 @@ namespace must_hotel_booking {
         return [
             'is_valid_context' => true, 'checkin' => '2030-05-04', 'checkout' => '2030-05-07', 'guests' => 2,
             'adults' => 2, 'children' => 0, 'room_count' => 1, 'selected_room_count' => 1,
-            'rate_offers' => [$offer('1', 'Bed and breakfast', '330.00'), $offer('2', 'Room only', '300.00')],
+            'rate_offers' => [$offer('1', 'Bed and breakfast', '330.00') + ['originalTotal' => ['amount' => '375.00', 'currency' => 'EUR']], $offer('2', 'Room only', '300.00') + ['requiresCode' => true]],
             'selected_rate_id' => '1', 'summary' => ['total_price' => 330.0, 'currency' => 'EUR'],
             'selected_rooms' => [], 'guest_form' => [], 'messages' => [],
         ];
@@ -90,6 +90,14 @@ namespace MustHotelBooking\Frontend {
     $rates = strpos($html, 'class="must-checkout-rates"');
     if ($coupon === false || $rates === false || $rates < $coupon) {
         fwrite(STDERR, "The rate picker must sit below the coupon.\n");
+        exit(1);
+    }
+    if (substr_count($html, 'must-checkout-rate-original') !== 1) {
+        fwrite(STDERR, "Only the discounted rate shows its price before the discount, crossed out.\n");
+        exit(1);
+    }
+    if (substr_count($html, 'Special rate') !== 1) {
+        fwrite(STDERR, "A rate that needs a code is labelled a special rate.\n");
         exit(1);
     }
     fwrite(STDOUT, "Checkout single rate picker test passed.\n");

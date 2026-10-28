@@ -39,12 +39,31 @@ describe('property booking rules evaluation', () => {
     expect(result.block.valid).toBe(true);
     expect(check).not.toHaveBeenCalled();
   });
+  it('applies the room-type guest cap locally but not on a Clock-managed property', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-18T12:00:00Z'));
+    const evaluate = (managed: boolean) =>
+      evaluatePropertyBookingRules(
+        database([
+          [{ timezone: 'UTC', bookingMode: 'MIXED' }],
+          [{ status: 'PUBLISHED', maxOccupancy: 2 }],
+          [{ managed }],
+        ]) as never,
+        async () => ({ availableUnits: 1 }),
+        tenantId,
+        propertyId,
+        { roomTypeId, startsOn: '2026-10-19', endsOn: '2026-10-21', adults: 3 },
+      );
+    expect((await evaluate(false)).booking.valid).toBe(false);
+    expect((await evaluate(true)).booking.valid).toBe(true);
+  });
   it('allows overlapping pooled bookings while capacity remains but rejects blocking them', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-10-18T12:00:00Z'));
     const db = database([
       [{ timezone: 'UTC', bookingMode: 'MIXED' }],
       [{ status: 'PUBLISHED', maxOccupancy: 2 }],
+      [{ managed: false }],
       [{ startsOn: '2026-10-19', endsOn: '2026-10-21', kind: 'booking' }],
       [],
     ]);
