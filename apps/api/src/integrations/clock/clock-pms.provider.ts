@@ -174,7 +174,11 @@ export class ClockPmsProvider implements PmsProvider {
           retryable: false,
         },
       };
-    return this.availability.getAvailability(context.tenantId, context.propertyId, query);
+    // This provider answers the guest-facing availability request, so rates staff switched off are left out.
+    return this.availability.getAvailability(context.tenantId, context.propertyId, {
+      ...query,
+      channel: 'website',
+    });
   }
 
   getBooking(context: PmsProviderContext, externalBookingId: string): Promise<Booking | null> {

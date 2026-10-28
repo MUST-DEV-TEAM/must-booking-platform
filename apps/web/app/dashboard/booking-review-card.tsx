@@ -11,8 +11,10 @@ type Review = {
   needsReview: boolean;
   canCheck: boolean;
   canResolve?: boolean;
+  /** Staff may close the note about an open Clock bill on a cancelled reservation. */
+  canAcknowledge?: boolean;
   pendingChange?: 'stay' | 'room' | null;
-  reasons: Array<{ text: string; openedAt: string }>;
+  reasons: Array<{ text: string; openedAt: string; kind?: string | null }>;
 };
 type CheckResult =
   | { result: 'found'; clockBookingId: string; linked: boolean }
@@ -70,6 +72,20 @@ export function BookingReviewCard({
   });
   const check = useMutation({
     mutationFn: () => request<CheckResult>(`${base}/check`, { method: 'POST' }),
+    // Checking reads the Clock bill again, which closes a note about a bill that was corrected in Clock.
+    onSuccess: () => client.invalidateQueries({ queryKey: ['dashboard'] }),
+  });
+  const closeBillNote = useMutation({
+    mutationFn: () =>
+      request(`${base}/acknowledge-open-bill`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note }),
+      }),
+    onSuccess: () => {
+      setNote('');
+      return client.invalidateQueries({ queryKey: ['dashboard'] });
+    },
   });
   const verifyChange = useMutation({
     mutationFn: async () => {
@@ -139,7 +155,16 @@ export function BookingReviewCard({
               </span>
             </span>
           ) : null}
-          {check.data ? <span role="status">{checkMessage(check.data)}</span> : null}
+          {check.data ? (
+            <span role="status">
+              {review.data.reasons.length > 0 &&
+              review.data.reasons.every(
+                (reason) => reason.kind === 'CANCELLED_WITH_OPEN_CLOCK_BILL',
+              )
+                ? 'Checked Clock again: the bill still shows money to collect.'
+                : checkMessage(check.data)}
+            </span>
+          ) : null}
           {check.error ? <span role="alert">{check.error.message}</span> : null}
           {review.data.canCheck && canRunCheck && !review.data.pendingChange ? (
             <span>
@@ -177,6 +202,25 @@ export function BookingReviewCard({
                   : 'Close as not created'}
               </Button>
               {resolve.error ? <span role="alert">{resolve.error.message}</span> : null}
+            </span>
+          ) : null}
+          {review.data.canAcknowledge ? (
+            <span className="flex flex-col gap-2">
+              <Input
+                aria-label="Reason the bill stays open"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Why the bill is meant to stay as it is"
+                maxLength={300}
+              />
+              <Button
+                variant="outline"
+                disabled={note.trim().length < 3 || closeBillNote.isPending}
+                onClick={() => closeBillNote.mutate()}
+              >
+                Close this note
+              </Button>
+              {closeBillNote.error ? <span role="alert">{closeBillNote.error.message}</span> : null}
             </span>
           ) : null}
           {!review.data.pendingChange ? (

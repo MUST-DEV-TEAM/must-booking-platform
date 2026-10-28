@@ -9,6 +9,10 @@ export const AUDIT_EVENTS: Record<string, Definition> = {
     title: 'Rate switched on or off for the website',
     result: 'completed',
   },
+  'booking.clock_bill_note_closed': {
+    title: 'Open Clock bill on a cancelled reservation closed by staff',
+    result: 'completed',
+  },
   'booking.created': { title: 'Reservation created', result: 'completed' },
   'booking.updated': { title: 'Reservation updated', result: 'completed' },
   'booking.details_edited': { title: 'Guest and reservation details updated', result: 'completed' },
