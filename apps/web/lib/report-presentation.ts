@@ -1,3 +1,4 @@
+import { formatMoney } from './money';
 import type { ReportCell, ReportColumn, ReportQuery, ReportRow } from './report-types';
 export const reportLabel = (key: string) =>
   ({
@@ -39,7 +40,7 @@ export function reportValue(
 ): string {
   if (value === null || value === undefined) return 'Unknown';
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
-  if (type === 'money') return `${currency ?? ''} ${String(value)}`.trim();
+  if (type === 'money') return currency ? formatMoney(String(value), currency) : String(value);
   if (type === 'percent') return `${typeof value === 'number' ? value.toFixed(1) : String(value)}%`;
   if (typeof value === 'number' && !Number.isInteger(value)) return value.toFixed(2);
   return String(value);

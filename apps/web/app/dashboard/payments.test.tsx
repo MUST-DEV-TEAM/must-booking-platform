@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { formatMoney } from '../../lib/money';
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -488,10 +489,10 @@ describe('Payments', () => {
       await settle();
     });
     const totals = c.querySelector('[aria-label="Payment totals"]')!.textContent ?? '';
-    expect(totals).toContain('EUR 987.65');
-    expect(totals).toContain('EUR 12.34');
-    expect(totals).toContain('EUR 975.31');
-    expect(totals).toContain('EUR 55.00');
+    expect(totals).toContain(formatMoney('987.65', 'EUR'));
+    expect(totals).toContain(formatMoney('12.34', 'EUR'));
+    expect(totals).toContain(formatMoney('975.31', 'EUR'));
+    expect(totals).toContain(formatMoney('55.00', 'EUR'));
     expect(totals).toContain('confirmed bookings created');
     expect(c.textContent).toMatch(/Needs action\s*1/);
     await unmount();

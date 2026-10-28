@@ -4,6 +4,8 @@ import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { toast } from 'sonner';
+import { mountMoneyScreen, expectHotelAmount } from '../../lib/money-test-utils';
+import { HotelMoneyProvider } from '../../lib/hotel-money-scope';
 import { CollectPaymentActions } from './collect-payment-actions';
 vi.mock('sonner', () => ({ toast: { success: vi.fn() } }));
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -46,17 +48,22 @@ async function mount(
       createElement(
         QueryClientProvider,
         { client },
-        createElement(CollectPaymentActions, {
+        createElement(HotelMoneyProvider, {
           tenantId: 't',
           propertyId: 'p',
-          booking: {
-            id: 'b',
-            ...(clock ? { balanceBasis: 'CLOCK' as const } : {}),
-            status,
-            total: { amount: '100', currency: 'EUR' },
-            paidAmount,
-            guestEmail: 'guest@example.test',
-          },
+          currency: 'EUR',
+          children: createElement(CollectPaymentActions, {
+            tenantId: 't',
+            propertyId: 'p',
+            booking: {
+              id: 'b',
+              ...(clock ? { balanceBasis: 'CLOCK' as const } : {}),
+              status,
+              total: { amount: '100', currency: 'EUR' },
+              paidAmount,
+              guestEmail: 'guest@example.test',
+            },
+          }),
         }),
       ),
     );
@@ -256,4 +263,69 @@ describe('confirmed booking collection controls', () => {
     ).toBe('https://staging.example/checkout');
     await view.close();
   });
+});
+
+it.each(['EUR', 'ALL'])(
+  'collection balance shows %s with only necessary rate requests',
+  async (currency) => {
+    const view = await mountMoneyScreen(
+      createElement(CollectPaymentActions, {
+        tenantId: 't',
+        propertyId: 'p',
+        booking: {
+          id: 'b',
+          status: 'CONFIRMED',
+          total: { amount: '5000.00', currency },
+          paidAmount: '0.00',
+          guestEmail: 'ada@test',
+        },
+      }),
+      (url) =>
+        url.endsWith('/mine')
+          ? ['payments.record']
+          : url.endsWith('/collection-options')
+            ? { pokpay: false }
+            : {},
+    );
+    await expectHotelAmount(view, currency, '5000.00');
+    expect(view.host.textContent).toContain('Balance to collect:');
+    await act(async () => view.root.unmount());
+  },
+);
+
+it('keeps a verified Clock balance in its own currency when it differs from the booking', async () => {
+  const view = await mountMoneyScreen(
+    createElement(CollectPaymentActions, {
+      tenantId: 't',
+      propertyId: 'p',
+      booking: {
+        id: 'b',
+        status: 'CONFIRMED',
+        balanceBasis: 'CLOCK',
+        total: { amount: '50.00', currency: 'EUR' },
+        paidAmount: '0.00',
+        guestEmail: 'ada@test',
+      },
+    }),
+    (url) =>
+      url.endsWith('/mine')
+        ? ['payments.record']
+        : url.endsWith('/collection-options')
+          ? { pokpay: false }
+          : url.includes('/clock-sync/financial/')
+            ? {
+                status: 'SYNCED',
+                isCurrent: true,
+                data: {
+                  localPaid: '0.00',
+                  localRefunded: '0.00',
+                  fetchedAt: '2026-10-28T12:00:00Z',
+                  balance: { amount: '5000.00', currency: 'ALL' },
+                },
+              }
+            : {},
+  );
+  await expectHotelAmount(view, 'ALL', '5000.00');
+  expect(view.host.textContent).not.toContain('\u20ac5,000.00');
+  await act(async () => view.root.unmount());
 });

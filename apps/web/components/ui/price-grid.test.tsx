@@ -27,7 +27,7 @@ describe('PriceGrid', () => {
         }),
       ),
     );
-    expect(container.textContent).toContain('EUR 100.01');
+    expect(container.textContent).toContain('€100.01');
     expect(container.textContent).toContain('Unknown');
     await act(async () => container.querySelector<HTMLButtonElement>('button')!.click());
     expect(onCell).toHaveBeenCalledWith('t', '2036-02-29');
@@ -82,7 +82,7 @@ describe('PriceBreakdown', () => {
         }),
       ),
     );
-    expect(container.textContent).toContain('EUR 101.01');
+    expect(container.textContent).toContain('€101.01');
     expect(container.textContent).toContain('VAT (included)');
     expect(container.textContent).toContain('charge / v2');
     await act(async () => root.unmount());

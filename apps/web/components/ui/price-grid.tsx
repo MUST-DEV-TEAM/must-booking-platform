@@ -1,3 +1,4 @@
+import { ScopedHotelMoney } from '../../app/dashboard/approximate-money';
 import { Badge } from './badge';
 import { Button } from './button';
 import { Table, TableHeader, TableHead, TableRow, TableBody, TableCell } from './table';
@@ -43,7 +44,13 @@ export function PriceGrid({
                 const content = (
                   <span className="flex flex-col items-center gap-1">
                     <span className="font-semibold">
-                      {d.amount === null ? 'Unknown' : `${d.currency ?? ''} ${d.amount}`.trim()}
+                      {d.amount === null ? (
+                        'Unknown'
+                      ) : d.currency ? (
+                        <ScopedHotelMoney amount={d.amount} currency={d.currency} />
+                      ) : (
+                        d.amount
+                      )}
                     </span>
                     <Badge variant={d.amount === null ? 'secondary' : 'outline'}>{d.status}</Badge>
                   </span>

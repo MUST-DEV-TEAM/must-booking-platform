@@ -1,4 +1,5 @@
 'use client';
+import { HotelMoney } from './approximate-money';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { FilterGrid } from '../../components/ui/filter-grid';
@@ -735,19 +736,42 @@ function ReportsWorkspace({ tenantId, propertyId }: { tenantId: string; property
                           <StatTile
                             key={`${row.currency}:${key}`}
                             label={`${reportLabel(key)} - ${row.currency}`}
-                            value={reportValue(
-                              row[key],
-                              key === 'collectionRate' ? 'percent' : 'money',
-                              String(row.currency),
-                            )}
+                            value={
+                              key === 'collectionRate' ? (
+                                reportValue(row[key], 'percent')
+                              ) : (
+                                <HotelMoney
+                                  tenantId={tenantId}
+                                  propertyId={propertyId}
+                                  amount={String(row[key])}
+                                  currency={String(row.currency)}
+                                />
+                              )
+                            }
                             note={
-                              data.comparison
-                                ? data.comparison.hasData
-                                  ? `Comparison: ${reportValue(prior?.[key], key === 'collectionRate' ? 'percent' : 'money', String(row.currency))}`
-                                  : undefined
-                                : key === 'roomRevenue'
-                                  ? 'Accrual by stay night; mandatory charges excluded.'
-                                  : 'See Definitions for the date and cohort basis.'
+                              data.comparison ? (
+                                data.comparison.hasData ? (
+                                  <>
+                                    Comparison:{' '}
+                                    {prior?.[key] == null ? (
+                                      'Unknown'
+                                    ) : key === 'collectionRate' ? (
+                                      reportValue(prior[key], 'percent')
+                                    ) : (
+                                      <HotelMoney
+                                        tenantId={tenantId}
+                                        propertyId={propertyId}
+                                        amount={String(prior[key])}
+                                        currency={String(row.currency)}
+                                      />
+                                    )}
+                                  </>
+                                ) : undefined
+                              ) : key === 'roomRevenue' ? (
+                                'Accrual by stay night; mandatory charges excluded.'
+                              ) : (
+                                'See Definitions for the date and cohort basis.'
+                              )
                             }
                             onClick={() => {
                               setSelectedView(null);
@@ -833,6 +857,15 @@ function ReportsWorkspace({ tenantId, propertyId }: { tenantId: string; property
                     />
                   ) : (
                     <ReportBreakdown
+                      moneyKeys={[
+                        ...data.meta.definitions.filter((d) => d.money).map((d) => d.key),
+                        ...data.columns
+                          .filter((c) => c.money || c.type === 'money')
+                          .map((c) => c.key),
+                        ...data.seriesColumns
+                          .filter((c) => c.money || c.type === 'money')
+                          .map((c) => c.key),
+                      ]}
                       title="Trend table"
                       value={data.series.map((row) =>
                         Object.fromEntries(
@@ -935,6 +968,15 @@ function ReportsWorkspace({ tenantId, propertyId }: { tenantId: string; property
                   .filter((key) => data.summary[key] !== undefined && data.summary[key] !== null)
                   .map((key) => (
                     <ReportBreakdown
+                      moneyKeys={[
+                        ...data.meta.definitions.filter((d) => d.money).map((d) => d.key),
+                        ...data.columns
+                          .filter((c) => c.money || c.type === 'money')
+                          .map((c) => c.key),
+                        ...data.seriesColumns
+                          .filter((c) => c.money || c.type === 'money')
+                          .map((c) => c.key),
+                      ]}
                       key={key}
                       title={reportLabel(key)}
                       value={reportDisplayEvidence(data.summary[key])}

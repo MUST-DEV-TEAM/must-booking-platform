@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NumberStepper } from '../../components/ui/number-stepper';
 import { Stepper } from '../../components/ui/stepper';
 import { AddReservation } from './add-reservation';
+import { HotelMoneyProvider } from '../../lib/hotel-money-scope';
+import { formatMoney } from '../../lib/money';
 import { DashboardQueryProvider } from './query-provider';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -23,7 +25,14 @@ async function render(node: ReturnType<typeof createElement>) {
   const container = document.createElement('div');
   const root = createRoot(container);
   await act(async () => {
-    root.render(node);
+    root.render(
+      createElement(HotelMoneyProvider, {
+        tenantId: 't',
+        propertyId: 'p',
+        currency: 'EUR',
+        children: node,
+      }),
+    );
   });
   return { container, root };
 }
@@ -199,109 +208,124 @@ describe('AddReservation', () => {
     expect(container.textContent).not.toContain('Record a payment now');
     await act(async () => root.unmount());
   });
-  it('keeps a selected type visible while rules reload and checks only that type on demand', async () => {
-    window.history.replaceState({}, '', '/?start=2027-01-01&end=2027-01-03');
-    const offers: Array<Array<{ key: string; roomTypeId: string; roomId?: string }>> = [];
-    let finishRules: (() => void) | undefined;
-    vi.stubGlobal(
-      'fetch',
-      vi.fn((url: string, init?: RequestInit) => {
-        if (url.includes('/booking-rules/evaluate')) {
-          const result = {
-            today: '2026-10-21',
-            disabledDates: [],
-            minStayNights: 1,
-            maxStayNights: null,
-            booking: { valid: true, errors: [] },
-            block: { valid: true, errors: [] },
-          };
-          if (url.includes('roomTypeId=t1'))
-            return new Promise<Response>((resolve) => {
-              finishRules = () => resolve(Response.json(result));
+  it.each(['EUR', 'ALL'])(
+    'keeps selected type behavior and %s offer display while rules reload',
+    async (currency) => {
+      window.history.replaceState({}, '', '/?start=2027-01-01&end=2027-01-03');
+      const offers: Array<Array<{ key: string; roomTypeId: string; roomId?: string }>> = [];
+      let finishRules: (() => void) | undefined;
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((url: string, init?: RequestInit) => {
+          if (url.includes('/booking-rules/evaluate')) {
+            const result = {
+              today: '2026-10-21',
+              disabledDates: [],
+              minStayNights: 1,
+              maxStayNights: null,
+              booking: { valid: true, errors: [] },
+              block: { valid: true, errors: [] },
+            };
+            if (url.includes('roomTypeId=t1'))
+              return new Promise<Response>((resolve) => {
+                finishRules = () => resolve(Response.json(result));
+              });
+            return json(result);
+          }
+          if (url.includes('/public/exchange-rates'))
+            return json({ base: 'EUR', date: '2026-10-28', rates: { ALL: 100 } });
+          if (url.endsWith('/pms-connection-status')) return json({ provider: 'CLOCK_PMS' });
+          if (url.endsWith('/room-types'))
+            return json([
+              { id: 't1', name: 'Double', roomCount: 2 },
+              { id: 't2', name: 'Suite', roomCount: 1 },
+            ]);
+          if (url.endsWith('/rooms'))
+            return json([
+              { id: 'r1', name: '101', roomTypeId: 't1' },
+              { id: 'r2', name: '102', roomTypeId: 't1' },
+              { id: 'r3', name: '201', roomTypeId: 't2' },
+            ]);
+          if (url.endsWith('/rate-plans')) return json([]);
+          if (url.endsWith('/staff-bookings/rate-offers')) return json({ offers: [] });
+          if (url.endsWith('/staff-bookings/offers')) {
+            const body = JSON.parse(String(init?.body));
+            offers.push(body.items);
+            return json({
+              offers: Object.fromEntries(
+                body.items.map((i: { key: string }) => [
+                  i.key,
+                  i.key === 'r2'
+                    ? { ok: false, reason: 'Occupied' }
+                    : { ok: true, total: { amount: '100.00', currency } },
+                ]),
+              ),
             });
-          return json(result);
-        }
-        if (url.endsWith('/pms-connection-status')) return json({ provider: 'CLOCK_PMS' });
-        if (url.endsWith('/room-types'))
-          return json([
-            { id: 't1', name: 'Double', roomCount: 2 },
-            { id: 't2', name: 'Suite', roomCount: 1 },
-          ]);
-        if (url.endsWith('/rooms'))
-          return json([
-            { id: 'r1', name: '101', roomTypeId: 't1' },
-            { id: 'r2', name: '102', roomTypeId: 't1' },
-            { id: 'r3', name: '201', roomTypeId: 't2' },
-          ]);
-        if (url.endsWith('/rate-plans')) return json([]);
-        if (url.endsWith('/staff-bookings/offers')) {
-          const body = JSON.parse(String(init?.body));
-          offers.push(body.items);
-          return json({
-            offers: Object.fromEntries(
-              body.items.map((i: { key: string }) => [
-                i.key,
-                i.key === 'r2'
-                  ? { ok: false, reason: 'Occupied' }
-                  : { ok: true, total: { amount: '100.00', currency: 'EUR' } },
-              ]),
-            ),
-          });
-        }
-        return json([]);
-      }),
-    );
-    const { container, root } = await render(
-      createElement(
-        DashboardQueryProvider,
-        undefined,
-        createElement(AddReservation, { tenantId: 't', propertyId: 'p', bookingMode: 'MIXED' }),
-      ),
-    );
-    const waitUntil = async (check: () => boolean) => {
-      for (let n = 0; n < 60; n++) {
-        await act(async () => {
-          await new Promise((r) => setTimeout(r, 50));
-        });
-        if (check()) return;
-      }
-      throw Error('The booking form did not finish loading');
-    };
-    await waitUntil(() => {
-      const radio = container.querySelector<HTMLButtonElement>('[role="radio"]');
-      return !!radio && !radio.disabled;
-    });
-    const radio = container.querySelector<HTMLButtonElement>('[role="radio"]')!;
-    await act(async () => radio.click());
-    expect(container.querySelector('[role="radiogroup"][aria-label="Room types"]')).not.toBeNull();
-    expect(radio.getAttribute('aria-checked')).toBe('true');
-    expect(offers).toHaveLength(1);
-    await act(async () => {
-      finishRules?.();
-      await Promise.resolve();
-    });
-    const byRoom = [...container.querySelectorAll('button')].find(
-      (b) => b.textContent === 'By specific room',
-    )!;
-    await act(async () => byRoom.click());
-    await act(async () => {
-      finishRules?.();
-    });
-    await waitUntil(
-      () =>
-        offers.length === 2 &&
-        [...container.querySelectorAll<HTMLButtonElement>('[role="radio"]')].some(
-          (b) => b.textContent?.includes('102') && b.disabled,
+          }
+          return json([]);
+        }),
+      );
+      const { container, root } = await render(
+        createElement(
+          DashboardQueryProvider,
+          undefined,
+          createElement(AddReservation, { tenantId: 't', propertyId: 'p', bookingMode: 'MIXED' }),
         ),
-    );
-    expect(offers[1].map((i) => i.roomId)).toEqual(['r1', 'r2']);
-    expect(offers[1].every((i) => i.roomTypeId === 't1')).toBe(true);
-    expect(
-      [...container.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((b) =>
-        b.textContent?.includes('102'),
-      )?.disabled,
-    ).toBe(true);
-    await act(async () => root.unmount());
-    window.history.replaceState({}, '', '/');
-  });
+      );
+      const waitUntil = async (check: () => boolean) => {
+        for (let n = 0; n < 60; n++) {
+          await act(async () => {
+            await new Promise((r) => setTimeout(r, 50));
+          });
+          if (check()) return;
+        }
+        throw Error('The booking form did not finish loading');
+      };
+      await waitUntil(() => {
+        const radio = container.querySelector<HTMLButtonElement>('[role="radio"]');
+        return !!radio && !radio.disabled;
+      });
+      const radio = container.querySelector<HTMLButtonElement>('[role="radio"]')!;
+      await act(async () => radio.click());
+      expect(
+        container.querySelector('[role="radiogroup"][aria-label="Room types"]'),
+      ).not.toBeNull();
+      expect(radio.getAttribute('aria-checked')).toBe('true');
+      expect(offers).toHaveLength(1);
+      await act(async () => {
+        finishRules?.();
+        await Promise.resolve();
+      });
+      const byRoom = [...container.querySelectorAll('button')].find(
+        (b) => b.textContent === 'By specific room',
+      )!;
+      await act(async () => byRoom.click());
+      await act(async () => {
+        finishRules?.();
+      });
+      await waitUntil(
+        () =>
+          offers.length === 2 &&
+          [...container.querySelectorAll<HTMLButtonElement>('[role="radio"]')].some(
+            (b) => b.textContent?.includes('102') && b.disabled,
+          ),
+      );
+      await waitUntil(() => currency === 'EUR' || !!container.textContent?.includes('estimate'));
+      expect(container.textContent).toContain(formatMoney('100.00', currency));
+      expect(container.textContent?.includes('(\u2248 ')).toBe(currency === 'ALL');
+      const rateCalls = vi
+        .mocked(globalThis.fetch)
+        .mock.calls.filter(([url]) => String(url).includes('/public/exchange-rates'));
+      expect(rateCalls).toHaveLength(currency === 'EUR' ? 0 : 1);
+      expect(offers[1].map((i) => i.roomId)).toEqual(['r1', 'r2']);
+      expect(offers[1].every((i) => i.roomTypeId === 't1')).toBe(true);
+      expect(
+        [...container.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((b) =>
+          b.textContent?.includes('102'),
+        )?.disabled,
+      ).toBe(true);
+      await act(async () => root.unmount());
+      window.history.replaceState({}, '', '/');
+    },
+  );
 });

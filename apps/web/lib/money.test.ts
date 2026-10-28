@@ -20,3 +20,7 @@ describe('money', () => {
     expect(convertAmount('33.333', 0.3)).toBe('10.00');
   });
 });
+
+it('preserves a report amount above the safe integer range without losing its cents', () => {
+  expect(formatMoney('9007199254740993.99', 'EUR')).toBe('\u20ac9,007,199,254,740,993.99');
+});

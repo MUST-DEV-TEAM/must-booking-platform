@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { mountMoneyScreen, expectHotelAmount } from '../../lib/money-test-utils';
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -291,3 +292,39 @@ describe('Clock rate compare-with control', () => {
     await act(async () => reactRoot.unmount());
   });
 });
+
+it.each(['EUR', 'ALL'])(
+  'Clock sample prices keep %s and share one rates query',
+  async (currency) => {
+    const view = await mountMoneyScreen(
+      createElement(ClockRatesOverview, {
+        root: '/api/tenants/t/properties/p',
+        types: [{ id: 'rt', name: 'Double' }],
+      }),
+      (url) =>
+        url.endsWith('/clock-website-rates/hidden')
+          ? { hiddenRateIds: [] }
+          : url.endsWith('/clock-sample-prices')
+            ? {
+                startsOn: '2026-11-04',
+                endsOn: '2026-11-06',
+                adults: 2,
+                nights: 2,
+                roomTypes: { rt: [{ rateId: '1', total: { amount: '5000.00', currency } }] },
+              }
+            : {
+                status: 'READY',
+                data: {
+                  roomTypes: {
+                    rt: [
+                      { externalRateId: '1', name: 'BB' },
+                      { externalRateId: '2', name: 'FB' },
+                    ],
+                  },
+                },
+              },
+    );
+    await expectHotelAmount(view, currency, '5000.00');
+    await act(async () => view.root.unmount());
+  },
+);

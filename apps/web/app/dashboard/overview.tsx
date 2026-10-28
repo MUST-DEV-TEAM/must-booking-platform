@@ -1,6 +1,7 @@
 'use client';
 import { ClockRoomsTile } from './clock-room-counts';
 
+import { MoneyList } from './approximate-money';
 import { reportValue } from '../../lib/report-presentation';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -344,9 +345,18 @@ export function DashboardOverview({
                   (
                     overview.balancesDueAtDesk ??
                     (overview.balanceDueAtDesk ? [overview.balanceDueAtDesk] : [])
+                  ).length ? (
+                    <MoneyList
+                      tenantId={tenantId}
+                      propertyId={propertyId}
+                      list={
+                        overview.balancesDueAtDesk ??
+                        (overview.balanceDueAtDesk ? [overview.balanceDueAtDesk] : [])
+                      }
+                    />
+                  ) : (
+                    'Nothing due today'
                   )
-                    .map(formatMoney)
-                    .join(' / ') || 'Nothing due today'
                 }
                 note="Confirmed pay-at-hotel arrivals today; net balances."
               />
@@ -363,9 +373,18 @@ export function DashboardOverview({
                   (
                     overview.revenue?.byCurrency ??
                     (overview.revenue?.today ? [overview.revenue.today] : [])
+                  ).length ? (
+                    <MoneyList
+                      tenantId={tenantId}
+                      propertyId={propertyId}
+                      list={
+                        overview.revenue?.byCurrency ??
+                        (overview.revenue?.today ? [overview.revenue.today] : [])
+                      }
+                    />
+                  ) : (
+                    'No payments today'
                   )
-                    .map(formatMoney)
-                    .join(' / ') || 'No payments today'
                 }
                 note="Successful charge postings today, per currency."
                 href={link('payments')}
@@ -550,10 +569,6 @@ function partySize(item: ArrivalDeparture): string {
   const children =
     item.children > 0 ? `, ${item.children} child${item.children === 1 ? '' : 'ren'}` : '';
   return `${item.adults} adult${item.adults === 1 ? '' : 's'}${children}`;
-}
-
-function formatMoney(value: { amount: string; currency: string }): string {
-  return reportValue(value.amount, 'money', value.currency);
 }
 
 function formatTime(value: string) {

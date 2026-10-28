@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { mountMoneyScreen, expectHotelAmount } from '../../lib/money-test-utils';
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -230,3 +231,16 @@ async function click(element: Element) {
     }
   });
 }
+
+it.each(['EUR', 'ALL'])(
+  'attention balance uses %s and only fetches rates when needed',
+  async (currency) => {
+    const view = await mountMoneyScreen(
+      createElement(NeedsAttentionTab, { tenantId: 't', propertyId: 'p' }),
+      () => ({ items: [row({ status: 'CONFIRMED', total: { amount: '5000.00', currency } })] }),
+    );
+    await expectHotelAmount(view, currency, '5000.00');
+    expect(view.host.textContent).toContain('Balance due');
+    await act(async () => view.root.unmount());
+  },
+);

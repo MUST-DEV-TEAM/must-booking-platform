@@ -1,4 +1,5 @@
 'use client';
+import { HotelMoney } from './approximate-money';
 
 import { Card, Heading, Stack, StatePanel, StatusBadge, Text } from '@must/ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -152,7 +153,9 @@ export function DashboardReservations({
         sortDescFirst: false,
         cell: ({ row }) => (
           <>
-            <strong>{formatMoney(row.original.total)}</strong>
+            <strong>
+              {<HotelMoney tenantId={tenantId} propertyId={propertyId} {...row.original.total} />}
+            </strong>
             <span>{formatPaymentMethod(row.original.paymentMethod)}</span>
           </>
         ),
@@ -168,7 +171,7 @@ export function DashboardReservations({
         ),
       },
     ],
-    [],
+    [tenantId, propertyId],
   );
   const table = useReactTable({
     data: filteredBookings,
@@ -474,7 +477,8 @@ function ReservationDetails({
           <div>
             <dt>Payment</dt>
             <dd>
-              {formatMoney(booking.total)} · {formatPaymentMethod(booking.paymentMethod)}
+              {<HotelMoney tenantId={tenantId} propertyId={propertyId} {...booking.total} />} ·{' '}
+              {formatPaymentMethod(booking.paymentMethod)}
             </dd>
           </div>
           <div>
@@ -485,10 +489,12 @@ function ReservationDetails({
             <div key={folio.id}>
               <dt>{folio.isDeposit ? 'Clock deposit folio' : 'Clock folio'}</dt>
               <dd>
-                {formatMoney({
-                  amount: folio.balance ?? '0',
-                  currency: booking.total.currency,
-                })}{' '}
+                <HotelMoney
+                  tenantId={tenantId}
+                  propertyId={propertyId}
+                  amount={folio.balance ?? '0'}
+                  currency={booking.total.currency}
+                />{' '}
                 balance · {folio.closedAt ? 'Closed' : 'Open'}
               </dd>
             </div>
@@ -614,9 +620,4 @@ export function pmsStayStatusBadge(value: string | null | undefined) {
 
 function formatPaymentMethod(value: string) {
   return value.toLocaleLowerCase().replaceAll('_', ' ');
-}
-function formatMoney(total: Reservation['total']) {
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency: total.currency }).format(
-    Number(total.amount),
-  );
 }

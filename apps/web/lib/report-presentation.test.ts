@@ -26,7 +26,7 @@ describe('Report presentation without recalculating metrics', () => {
     ]);
   });
   it('keeps exact monetary text and Unknown, without converting missing values to zero', () => {
-    expect(reportValue('9007199254740993.99', 'money', 'EUR')).toBe('EUR 9007199254740993.99');
+    expect(reportValue('9007199254740993.99', 'money', 'EUR')).toBe('€9,007,199,254,740,993.99');
     expect(reportValue(null, 'percent')).toBe('Unknown');
     expect(reportValue(0, 'percent')).toBe('0.0%');
     expect(reportValue(2.90384615)).toBe('2.90');

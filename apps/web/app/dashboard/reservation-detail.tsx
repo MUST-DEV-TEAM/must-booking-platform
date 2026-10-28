@@ -147,8 +147,6 @@ type LedgerEntry = {
   createdAt: string;
 };
 
-const money = (amount: string, currency: string) =>
-  new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(Number(amount));
 const longDate = (iso: string) =>
   new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(
     new Date(`${iso}T00:00:00`),
@@ -637,7 +635,7 @@ export function ReservationDetail({
         <Alert variant="warning">
           <AlertTitle>Refund due</AlertTitle>
           <AlertDescription>
-            {booking.total.currency} {decimalMoney(amendmentRefundDue)} is owed to the guest.{' '}
+            {hotelMoney(decimalMoney(amendmentRefundDue))} is owed to the guest.{' '}
             {canRefundPayment
               ? 'Use Refund to issue it separately.'
               : 'Ask someone with refund permission to issue it.'}{' '}
@@ -766,11 +764,25 @@ export function ReservationDetail({
                     { label: 'Code', value: booking.promo.code },
                     {
                       label: 'Price before the code',
-                      value: money(booking.promo.originalTotal.amount, currency),
+                      value: (
+                        <HotelMoney
+                          tenantId={tenantId}
+                          propertyId={propertyId}
+                          {...booking.promo.originalTotal}
+                        />
+                      ),
                     },
                     {
                       label: 'Discount',
-                      value: `-${money(booking.promo.discount.amount, currency)}`,
+                      value: (
+                        <HotelMoney
+                          tenantId={tenantId}
+                          propertyId={propertyId}
+                          amount={booking.promo.discount.amount}
+                          currency={booking.promo.discount.currency}
+                          negative
+                        />
+                      ),
                     },
                     { label: 'Guest pays', value: hotelMoney(booking.total.amount) },
                   ]}
@@ -793,7 +805,7 @@ export function ReservationDetail({
                   items={[
                     ...booking.nightlyRates.map((night) => ({
                       label: longDate(night.date),
-                      value: money(night.amount, currency),
+                      value: hotelMoney(night.amount),
                     })),
                     { label: 'Total', value: hotelMoney(booking.total.amount) },
                   ]}

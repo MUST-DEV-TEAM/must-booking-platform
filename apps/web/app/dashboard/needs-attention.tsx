@@ -75,8 +75,9 @@ const guestOf = (row: Row) =>
   [row.guestFirstName, row.guestLastName].filter(Boolean).join(' ') ||
   row.guestEmail ||
   'Unknown guest';
-const money = (amount: string, currency: string) =>
-  new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(Number(amount));
+const money = (amount: string, currency: string, tenantId: string, propertyId: string) => (
+  <HotelMoney tenantId={tenantId} propertyId={propertyId} amount={amount} currency={currency} />
+);
 const day = (iso: string) =>
   new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(
     new Date(`${iso}T00:00:00`),
@@ -495,6 +496,8 @@ export function NeedsAttentionTab({
                               }),
                             ),
                             selected.total.currency,
+                            tenantId,
+                            propertyId,
                           ),
                   },
                 ]}

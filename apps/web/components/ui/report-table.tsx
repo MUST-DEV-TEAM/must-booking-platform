@@ -1,4 +1,5 @@
 'use client';
+import { ScopedHotelMoney } from '../../app/dashboard/approximate-money';
 import { useEffect, useState } from 'react';
 import type { ReportColumn, ReportRow } from '../../lib/report-types';
 import { reportValue } from '../../lib/report-presentation';
@@ -56,11 +57,15 @@ export function ReportTable({
     [busy, setBusy] = useState(false),
     [error, setError] = useState('');
   const cell = (row: ReportRow, c: ReportColumn) =>
-    row[c.key] === null || row[c.key] === undefined
-      ? (missingReason?.(c.key) ?? 'Not recorded')
-      : row[c.key] === 'Unknown'
-        ? 'Not recorded'
-        : reportValue(row[c.key], c.type, String(row.currency ?? ''));
+    row[c.key] === null || row[c.key] === undefined ? (
+      (missingReason?.(c.key) ?? 'Not recorded')
+    ) : row[c.key] === 'Unknown' ? (
+      'Not recorded'
+    ) : c.type === 'money' && row.currency ? (
+      <ScopedHotelMoney amount={String(row[c.key])} currency={String(row.currency)} />
+    ) : (
+      reportValue(row[c.key], c.type, String(row.currency ?? ''))
+    );
   const shown = columns.filter((c, i) => i === 0 || prefs.columns[c.key]),
     ids = selected.filter((id) => rows.some((r) => r.id === id));
   const visibleSignature = JSON.stringify(shown.map((c) => c.key));

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { mountMoneyScreen, expectHotelAmount } from '../../lib/money-test-utils';
 
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -489,3 +490,19 @@ describe('Dashboard reservations', () => {
     container.remove();
   });
 });
+
+it.each(['EUR', 'ALL'])(
+  'legacy reservations money stays in %s and shares rate reads across rows',
+  async (currency) => {
+    const view = await mountMoneyScreen(
+      createElement(DashboardReservations, {
+        tenantId: 't',
+        propertyId: 'p',
+        initialBookings: bookings.map((b) => ({ ...b, total: { amount: '5000.00', currency } })),
+      }),
+      () => [],
+    );
+    await expectHotelAmount(view, currency, '5000.00');
+    await act(async () => view.root.unmount());
+  },
+);

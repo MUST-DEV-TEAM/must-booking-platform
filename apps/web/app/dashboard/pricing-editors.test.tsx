@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { mountMoneyScreen, expectHotelAmount } from '../../lib/money-test-utils';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
@@ -193,3 +194,25 @@ describe('Pricing editors', () => {
     ).toBe(false);
   });
 });
+
+it.each(['EUR', 'ALL'])(
+  'pricing preview displays %s totals and nightly values',
+  async (currency) => {
+    const view = await mountMoneyScreen(
+      createElement(PricingPreviewPanel, { base: '/pricing', data }),
+      () => ({
+        valid: true,
+        total: { amount: '5000.00', currency },
+        nightlyRates: [{ date: '2036-02-29', amount: '5000.00' }],
+        issues: [],
+      }),
+    );
+    const explain = [...view.host.querySelectorAll('button')].find(
+      (b) => b.textContent === 'Explain price',
+    );
+    if (!explain) throw Error('Price explainer missing');
+    await act(async () => explain.click());
+    await expectHotelAmount(view, currency, '5000.00');
+    await act(async () => view.root.unmount());
+  },
+);

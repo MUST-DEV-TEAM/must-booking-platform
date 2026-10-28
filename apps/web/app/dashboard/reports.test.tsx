@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { mountMoneyScreen, expectHotelAmount } from '../../lib/money-test-utils';
 import { pickDate } from '../../components/ui/date-field-test-utils';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -133,7 +134,7 @@ async function value(label: string, value: string) {
 describe('Reports workspace', () => {
   it('renders exact currencies, date basis, last-updated and tab-specific queries', async () => {
     const { fetch } = await mount();
-    await rendered('EUR 125.50');
+    await rendered('€125.50');
     expect(document.body.textContent).toContain('75.1%');
     expect(document.body.textContent).toContain('Europe/Tirane');
     expect(document.body.textContent).toContain('Last updated');
@@ -144,7 +145,7 @@ describe('Reports workspace', () => {
   });
   it('validates the date range then refetches the exact selected dates', async () => {
     const { fetch } = await mount();
-    await rendered('EUR 125.50');
+    await rendered('€125.50');
     await value('Report start date', '2026-11-01');
     await value('Report end date', '2026-10-01');
     await click('Apply range');
@@ -184,7 +185,7 @@ describe('Reports workspace', () => {
     expect(document.body.textContent).toContain('No matching activity for comparison');
     await click('Review data quality');
     await rendered('Data quality');
-    expect(document.body.textContent).not.toContain('EUR 125.50');
+    expect(document.body.textContent).not.toContain('€125.50');
   });
   it('uses full-width shared filter grids and keeps known zero metrics', async () => {
     const data = fixture();
@@ -194,7 +195,7 @@ describe('Reports workspace', () => {
       pace: { status: 'No history yet' },
     };
     await mount(data);
-    await rendered('EUR 125.50');
+    await rendered('€125.50');
     expect(document.querySelectorAll('[data-slot=filter-grid]').length).toBe(2);
     expect(document.body.textContent).toContain('Daily history is still accumulating');
     expect(document.body.textContent).not.toContain('Data basis & limits');
@@ -204,7 +205,7 @@ describe('Reports workspace', () => {
     await mount(fixture(), 403);
     await rendered('Report access unavailable');
     expect(document.body.textContent).toContain('test-report-ref');
-    expect(document.body.textContent).not.toContain('EUR 125.50');
+    expect(document.body.textContent).not.toContain('€125.50');
   });
   it('shows genuine empty reports and an empty saved-view directory', async () => {
     const data = fixture();
@@ -219,10 +220,33 @@ describe('Reports workspace', () => {
   });
   it('retains the report when an audited print request fails', async () => {
     await mount();
-    await rendered('EUR 125.50');
+    await rendered('€125.50');
     await click('Print report');
     await rendered('Action unavailable');
     expect(document.querySelector('[data-report-print]')).toBeNull();
-    expect(document.body.textContent).toContain('EUR 125.50');
+    expect(document.body.textContent).toContain('€125.50');
   });
+});
+
+it.each(['EUR', 'ALL'])('report tiles, table and evidence preserve %s', async (currency) => {
+  const data = fixture();
+  data.summary.financial = [
+    {
+      currency,
+      roomRevenue: '5000.00',
+      collected: '5000.00',
+      netCollected: '5000.00',
+      refunded: '0.00',
+      outstanding: '5000.00',
+    },
+  ];
+  data.columns = [{ key: 'total', label: 'Total', type: 'money', money: true }];
+  data.rows = [{ id: 'one', total: '5000.00', currency }];
+  const view = await mountMoneyScreen(
+    createElement(DashboardReports, { tenantId: 't', propertyId: 'p' }),
+    (url) =>
+      url.endsWith('/views') ? { views: [] } : url.endsWith('/exports') ? { exports: [] } : data,
+  );
+  await expectHotelAmount(view, currency, '5000.00');
+  await act(async () => view.root.unmount());
 });

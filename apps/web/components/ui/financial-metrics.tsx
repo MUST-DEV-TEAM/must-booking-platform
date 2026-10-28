@@ -1,5 +1,6 @@
+import { ScopedHotelMoney } from '../../app/dashboard/approximate-money';
 import { StatTile } from './stat-tile';
-import { reportLabel, reportValue } from '../../lib/report-presentation';
+import { reportLabel } from '../../lib/report-presentation';
 export type FinancialMetricRow = {
   currency: string;
   collected: string;
@@ -37,17 +38,31 @@ export function FinancialMetrics({
               <StatTile
                 key={`${row.currency}:${key}`}
                 label={`${reportLabel(key)} - ${row.currency}`}
-                value={reportValue(row[key], 'money', row.currency)}
+                value={<ScopedHotelMoney amount={String(row[key])} currency={row.currency} />}
                 note={
-                  key === 'outstanding'
-                    ? 'Still owed by stays that have started. Where Clock holds the bill, Clock’s balance is used.'
-                    : key === 'expectedOnArrival'
-                      ? `Balance of stays that have not started yet, normally paid at the hotel on arrival.${
-                          Number(row.expectedWithoutGuest ?? 0) > 0
-                            ? ` ${reportValue(row.expectedWithoutGuest, 'money', row.currency)} of it is for stays with no guest name, often room blocks or tests made in Clock.`
-                            : ''
-                        }`
-                      : 'Successful ledger postings in the selected period.'
+                  key === 'outstanding' ? (
+                    'Still owed by stays that have started. Where Clock holds the bill, Clock’s balance is used.'
+                  ) : key === 'expectedOnArrival' ? (
+                    <>
+                      Balance of stays that have not started yet, normally paid at the hotel on
+                      arrival.
+                      {Number(row.expectedWithoutGuest ?? 0) > 0 ? (
+                        <>
+                          {' '}
+                          <ScopedHotelMoney
+                            amount={String(row.expectedWithoutGuest)}
+                            currency={row.currency}
+                          />{' '}
+                          of it is for stays with no guest name, often room blocks or tests made in
+                          Clock.
+                        </>
+                      ) : (
+                        ''
+                      )}
+                    </>
+                  ) : (
+                    'Successful ledger postings in the selected period.'
+                  )
                 }
                 onClick={
                   onSelect && (!interactiveKeys || interactiveKeys.includes(key))
