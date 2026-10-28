@@ -4,7 +4,7 @@ Tags: hotel, booking, reservation, accommodation
 Requires at least: 5.0
 Tested up to: 6.0
 Requires PHP: 7.4
-Stable tag: 0.4.114
+Stable tag: 0.4.116
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -31,6 +31,10 @@ Main features include:
 5. When updating, upload the new release ZIP or use the configured updater, then review **Diagnostics & Maintenance** after the update completes.
 
 == Changelog ==
+
+= 0.4.116 =
+* Checkout: a rate that includes a discount shows the price before the discount crossed out, in the list of rates and in the price summary.
+* Checkout: the coupon box also accepts a code that unlocks a special rate. The rate then appears in the list marked "Special rate" and the guest simply chooses it.
 
 = 0.4.114 =
 * Search: for hotels connected to a hotel system, one request now answers every room type. Room types that cannot be booked stay on the page, greyed out with the reason (sold out, minimum stay, no arrivals, too many guests). When only 1-3 rooms are left the card says so, and bookable rooms are listed first. When nothing is available, the page suggests the nearest dates (up to 3 days either side, same number of nights) that are, with a link and the lowest price.

@@ -202,6 +202,8 @@ export type ClockStayOffer = {
   total: Money;
   /** The price before the discount, for a crossed-out price. Only present when the rate says it includes a discount. */
   originalTotal?: Money;
+  /** The rate is hidden behind a promo code (a guest sees it only after entering the code; staff always see it). */
+  requiresCode?: boolean;
 };
 
 /**
@@ -1303,6 +1305,7 @@ export class ClockAvailabilityService {
           mealNames: info?.mealNames ?? [],
           total,
           ...(original ? { originalTotal: original } : {}),
+          ...(rates.value.codeProtected?.[rateId] ? { requiresCode: true } : {}),
         };
       }),
     };

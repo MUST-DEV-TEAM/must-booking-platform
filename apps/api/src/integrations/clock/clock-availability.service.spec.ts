@@ -2357,6 +2357,15 @@ describe('rates switched off for the website', () => {
       expect(await guest(undefined)).toEqual(['546549']);
     });
 
+    it('is marked as needing a code, so a screen can label it a special rate', async () => {
+      const staff = await run('staff');
+      const byId = Object.fromEntries(
+        (staff.result.ok ? staff.result.value : []).map((entry) => [entry.rateId, entry]),
+      );
+      expect(byId['615688']).toMatchObject({ requiresCode: true });
+      expect(byId['546549']).not.toHaveProperty('requiresCode');
+    });
+
     it('can be priced by a guest who has the code, and not without it', async () => {
       const quote = async (code: string | undefined) => {
         const request = vi
