@@ -7,9 +7,12 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
+import { MailDeliveryService } from '../src/mail/mail-delivery.service';
+import { isolatedMailDelivery } from './helpers/isolated-mail-delivery';
 import { PropertyRoleTemplatesService } from '../src/tenancy/property-role-templates.service';
 import { cleanupTenant } from './helpers/cleanup-tenant';
 import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
+import { withoutExternalWorkers } from './helpers/without-external-workers';
 
 const migrationPrisma = new PrismaClient({
   datasources: {
@@ -61,10 +64,13 @@ describe('self-serve onboarding', () => {
     process.env.WEB_APP_URL = 'http://localhost:3001';
     await clearSignupRateLimits();
     const { AppModule } = await import('../src/app.module');
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
-      .overrideProvider(MAIL_PROVIDER)
-      .useValue(mail)
-      .compile();
+    const moduleRef = await withoutExternalWorkers(
+      Test.createTestingModule({ imports: [AppModule] })
+        .overrideProvider(MAIL_PROVIDER)
+        .useValue(mail)
+        .overrideProvider(MailDeliveryService)
+        .useFactory(isolatedMailDelivery),
+    ).compile();
     app = moduleRef.createNestApplication();
     await app.init();
     templates = moduleRef.get(PropertyRoleTemplatesService);
