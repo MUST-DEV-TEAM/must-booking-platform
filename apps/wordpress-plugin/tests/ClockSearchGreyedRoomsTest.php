@@ -163,6 +163,8 @@ namespace MustHotelBooking\Frontend {
     \MustHotelBooking\Core\MustApiClient::$displayAnswers['rt-open'] = ['available' => false, 'reason' => 'closed'];
     $view = get_accommodation_page_view_data();
     if (empty($view['all_unavailable']) || count($view['rooms']) !== 3) $fail('All greyed: the page must say nothing is available and list the rooms.');
+    $closedLabels = array_values(array_filter(array_map(static fn (array $room): string => $room['name'] === 'Open Double' ? (string) $room['unavailable_reason'] : '', $view['rooms'])));
+    if ($closedLabels !== ['Closed for these dates']) $fail('A room the hotel is not selling must say it is closed, not just "not available": ' . json_encode($closedLabels));
     if (count($view['alternative_dates'] ?? []) !== 1) $fail('When nothing is available, nearby dates that work are offered.');
     ob_start();
     include __DIR__ . '/../frontend/templates/booking-accommodation.php';

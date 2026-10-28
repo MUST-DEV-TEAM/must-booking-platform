@@ -1,5 +1,7 @@
 'use client';
 
+import type { ReactNode } from 'react';
+import { HotelMoney } from './approximate-money';
 import { Badge } from '../../components/ui/badge';
 import { ListCard, ListRow } from '../../components/ui/list-card';
 import { bookingStatusDisplay } from '../../lib/reservation-display';
@@ -15,9 +17,6 @@ import {
 import { guestName, type Reservation } from './reservations';
 
 const SHOWN = 5;
-
-const money = (amount: string, currency: string) =>
-  new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(Number(amount));
 
 /** Why a booking is on the attention list, in words staff can act on. */
 function attentionReason(booking: Reservation): string {
@@ -41,7 +40,10 @@ export function PaymentsOverview({
   propertyId: string;
 }) {
   const href = (booking: Reservation) => paymentHref(tenantId, propertyId, booking.id);
-  const row = (booking: Reservation, subtitle: string, trailing: string) => (
+  const money = (amount: string, currency: string) => (
+    <HotelMoney tenantId={tenantId} propertyId={propertyId} amount={amount} currency={currency} />
+  );
+  const row = (booking: Reservation, subtitle: string, trailing: ReactNode) => (
     <ListRow
       key={booking.id}
       href={href(booking)}

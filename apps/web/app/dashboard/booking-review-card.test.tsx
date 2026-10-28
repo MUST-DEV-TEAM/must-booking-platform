@@ -208,4 +208,59 @@ describe('booking review card', () => {
       'Clock could not be reached.',
     );
   });
+
+  it('tells staff how to fix a cancelled reservation with an open Clock bill and lets them close the note with a reason', async () => {
+    const fetcher = vi.fn(async (url: string, init?: RequestInit) =>
+      Response.json(
+        url.endsWith('/acknowledge-open-bill')
+          ? { ok: true }
+          : init?.method === 'POST'
+            ? { result: 'found', clockBookingId: '1', linked: true }
+            : {
+                needsReview: true,
+                canCheck: true,
+                canAcknowledge: true,
+                reasons: [
+                  {
+                    text: "This reservation is cancelled, but Clock's bill still shows 170.00 EUR to collect. In Clock, correct the bill, then press Run check.",
+                    openedAt: '2026-10-27T10:00:00Z',
+                    kind: 'CANCELLED_WITH_OPEN_CLOCK_BILL',
+                  },
+                ],
+              },
+      ),
+    );
+    vi.stubGlobal('fetch', fetcher);
+    await mount();
+    expect(document.body.textContent).toContain("Clock's bill still shows 170.00 EUR");
+    await act(async () => {
+      [...document.querySelectorAll('button')].find((b) => b.textContent === 'Run check')!.click();
+      await settle();
+    });
+    // The generic "link this reservation" advice would be wrong here.
+    expect(document.body.textContent).toContain(
+      'Checked Clock again: the bill still shows money to collect.',
+    );
+    expect(document.body.textContent).not.toContain('Link and synchronize');
+
+    const close = [...document.querySelectorAll('button')].find(
+      (b) => b.textContent === 'Close this note',
+    )!;
+    expect(close.disabled).toBe(true);
+    await act(async () => {
+      const input = document.querySelector('input[aria-label="Reason the bill stays open"]')!;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+        input,
+        'Cancellation fee kept',
+      );
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await settle();
+    });
+    await act(async () => {
+      close.click();
+      await settle();
+    });
+    const call = fetcher.mock.calls.find(([url]) => url.endsWith('/acknowledge-open-bill'))!;
+    expect(JSON.parse(String(call[1]?.body))).toEqual({ note: 'Cancellation fee kept' });
+  });
 });

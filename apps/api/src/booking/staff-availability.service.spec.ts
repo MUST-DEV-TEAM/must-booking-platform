@@ -81,10 +81,15 @@ describe('bounded staff availability', () => {
     expect(pms.unavailableRoomsForBooking).not.toHaveBeenCalled();
   });
   it('filters wrong room/type selections and occupancy before quoting', async () => {
-    const { service, quotes } = setup();
+    const { service, quotes } = setup(false);
     const result = await service.search(scope, { ...input, adults: 3 });
     expect(Object.values(result.offers).every((o) => !o.ok)).toBe(true);
     expect(quotes.displayPrices).not.toHaveBeenCalled();
+  });
+  it('leaves guest limits to Clock instead of the local room-type capacity', async () => {
+    const { service, quotes } = setup();
+    await service.search(scope, { ...input, adults: 3 });
+    expect(quotes.displayPrices).toHaveBeenCalledTimes(1);
   });
   it('does not turn a failed physical-room read into available rooms', async () => {
     const { service, pms } = setup();

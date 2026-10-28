@@ -67,11 +67,17 @@ export class StaffAvailabilityService {
           Array<{ id: string; max: number; rooms: string[] }>
         >`SELECT t.id,t.max_occupancy AS max,ARRAY(SELECT r.id::text FROM rooms r WHERE r.tenant_id=t.tenant_id AND r.property_id=t.property_id AND r.room_type_id=t.id AND r.is_active=true) AS rooms FROM room_types t WHERE t.tenant_id=${scope.tenantId}::uuid AND t.property_id=${scope.propertyId}::uuid AND t.status='PUBLISHED' AND t.id=ANY(${items.map((i) => i.roomTypeId)}::uuid[])`,
     );
+    const connection = await this.connections.activePmsConnectionCredentials(
+      scope.tenantId,
+      scope.propertyId,
+    );
+    // Clock has no room-type capacity; its rates enforce guest limits when priced.
+    const clockManaged = connection?.provider === 'CLOCK_PMS';
     const eligible = items.filter((i) =>
       types.some(
         (t) =>
           t.id === i.roomTypeId &&
-          t.max >= input.adults + input.children &&
+          (clockManaged || t.max >= input.adults + input.children) &&
           (!i.roomId || t.rooms.includes(i.roomId)),
       ),
     );
@@ -82,11 +88,7 @@ export class StaffAvailabilityService {
       ]),
     );
     if (!eligible.length) return { offers };
-    const connection = await this.connections.activePmsConnectionCredentials(
-      scope.tenantId,
-      scope.propertyId,
-    );
-    if (connection?.provider === 'CLOCK_PMS') {
+    if (clockManaged) {
       const prices = await this.quotes.displayPrices(
         scope.tenantId,
         scope.propertyId,
