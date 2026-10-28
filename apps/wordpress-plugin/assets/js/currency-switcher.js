@@ -200,8 +200,14 @@
 
     render();
 
+    // Source currencies are needed for conversion even if the hotel hides them from the menu.
+    var requestedCurrencies = currencies.slice();
+    Array.prototype.forEach.call(document.querySelectorAll('.must-price[data-amount]'), function (node) {
+        var code = node.getAttribute('data-currency');
+        if (/^[A-Z]{3}$/.test(code) && requestedCurrencies.indexOf(code) === -1) requestedCurrencies.push(code);
+    });
     var url = window.mustCurrencyConfig.ajaxUrl +
-        '?action=must_hotel_booking_exchange_rates&currencies=' + encodeURIComponent(currencies.join(','));
+        '?action=must_hotel_booking_exchange_rates&currencies=' + encodeURIComponent(requestedCurrencies.join(','));
     window.fetch(url, { credentials: 'same-origin' })
         .then(function (response) { return response.json(); })
         .then(function (payload) {

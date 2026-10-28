@@ -76,8 +76,9 @@ function ajax_get_currency_switcher_rates(): void
         if (\is_array($payload)) \set_transient($cacheKey, $payload, 10 * MINUTE_IN_SECONDS);
     }
     if (!\is_array($payload)) \wp_send_json_error(['message' => 'Rates are not available right now.'], 502);
+    // Requested source-currency legs may be hidden from the hotel-selected menu.
     $allowed = isset($payload['displayCurrencies']) && \is_array($payload['displayCurrencies'])
-        ? \array_merge([(string) $payload['base']], $payload['displayCurrencies']) : $currencies;
+        ? \array_merge([(string) $payload['base']], $payload['displayCurrencies'], $currencies) : $currencies;
     $payload['rates'] = \array_intersect_key((array) $payload['rates'], \array_flip($allowed));
     if (isset($payload['sources'])) $payload['sources'] = \array_intersect_key((array) $payload['sources'], \array_flip($allowed));
     unset($payload['_etag'], $payload['_scope']);

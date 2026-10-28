@@ -25,10 +25,10 @@ function element(attributes, text) {
     };
 }
 
-async function run(storedCurrency, payload, amount = '330.00', currency = 'EUR') {
+async function run(storedCurrency, payload, amount = '330.00', currency = 'EUR', menuCurrencies = 'EUR,ALL,USD,GBP,XYZ') {
     const original = amount + (currency === 'EUR' ? ' \u20ac' : ' ' + currency);
     const price = element({ 'data-amount': amount, 'data-currency': currency }, original);
-    const switcher = element({ 'data-currencies': 'EUR,ALL,USD,GBP,XYZ', 'data-default': 'EUR', 'data-note': 'Approximate prices.' });
+    const switcher = element({ 'data-currencies': menuCurrencies, 'data-default': 'EUR', 'data-note': 'Approximate prices.' });
     const options = [];
     function option() {
         const node = element({});
@@ -46,13 +46,17 @@ async function run(storedCurrency, payload, amount = '330.00', currency = 'EUR')
     menu.contains = (node) => options.includes(node);
     switcher.querySelector = (selector) => selector === '.must-currency-menu' ? menu : selector === '.must-currency-trigger' ? trigger : null;
     switcher.querySelectorAll = () => options;
+    let requestedUrl;
     const context = {
         window: {
             mustCurrencyConfig: { ajaxUrl: '/ajax', currencyNames: { EUR: 'Euro', ALL: 'Albanian Lek' } },
             localStorage: { getItem: () => storedCurrency, setItem() {} },
-            fetch: () => Promise.resolve({
-                json: () => Promise.resolve({ success: true, data: payload || { base: 'EUR', rates: { ALL: 100 }, displayCurrencies: ['ALL', 'XYZ'] } })
-            })
+            fetch: (url) => {
+                requestedUrl = url;
+                return Promise.resolve({
+                    json: () => Promise.resolve({ success: true, data: payload || { base: 'EUR', rates: { ALL: 100 }, displayCurrencies: ['ALL', 'XYZ'] } })
+                });
+            }
         },
         document: {
             documentElement: { lang: 'en' },
@@ -70,7 +74,7 @@ async function run(storedCurrency, payload, amount = '330.00', currency = 'EUR')
     context.window.document = context.document;
     vm.runInNewContext(source, context);
     await new Promise((resolve) => setTimeout(resolve, 10));
-    return { price, options, choose(code) {
+    return { price, options, requestedUrl, choose(code) {
         const chosen = options.find((node) => node.getAttribute('data-value') === code);
         assert.ok(chosen, 'the chosen currency exists in the rebuilt menu');
         menu.listeners.click({ target: chosen });
@@ -101,6 +105,11 @@ async function run(storedCurrency, payload, amount = '330.00', currency = 'EUR')
     assert.equal(cross.price.hasAttribute('data-converted'), false, 'returning to the original currency removes the conversion marker');
     assert.equal(cross.price.getAttribute('data-amount'), '411.12', 'conversion never mutates the original amount');
     assert.equal(cross.price.getAttribute('data-currency'), 'EUR', 'conversion never mutates the original currency');
+
+    const hiddenSource = await run('USD', Object.assign({}, hotelRates, { displayCurrencies: ['USD'] }), '411.12', 'EUR', 'ALL,USD');
+    assert.ok(new URL(hiddenSource.requestedUrl, 'https://example.test').searchParams.get('currencies').split(',').includes('EUR'), 'request the original price currency even when it is absent from the menu');
+    assert.deepEqual(hiddenSource.options.map((node) => node.getAttribute('data-value')), ['ALL', 'USD'], 'the original price currency is not added to the hotel-selected menu');
+    assert.equal(hiddenSource.price.textContent, expected(454.56, 'USD'), 'a hidden original currency still supplies the conversion leg');
 
     const basePrice = await run('USD', hotelRates, '37000.80', 'ALL');
     assert.equal(basePrice.price.textContent, expected(454.56, 'USD', '37000.80 ALL'), 'a price already in the lek base still converts normally');
