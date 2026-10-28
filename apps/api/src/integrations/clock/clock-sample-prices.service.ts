@@ -43,10 +43,9 @@ export class ClockSamplePricesService {
     const roomTypes = await this.database.withTenantTransaction({ tenantId, propertyId }, (tx) =>
       tx.$queryRawUnsafe<Array<{ id: string }>>(
         `SELECT id FROM room_types
-         WHERE tenant_id = $1::uuid AND property_id = $2::uuid AND status = 'PUBLISHED' AND max_occupancy >= $3`,
+         WHERE tenant_id = $1::uuid AND property_id = $2::uuid AND status = 'PUBLISHED'`,
         tenantId,
         propertyId,
-        SAMPLE_ADULTS,
       ),
     );
     const empty: ClockSamplePrices = {

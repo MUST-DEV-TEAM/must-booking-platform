@@ -4,7 +4,7 @@ Tags: hotel, booking, reservation, accommodation
 Requires at least: 5.0
 Tested up to: 6.0
 Requires PHP: 7.4
-Stable tag: 0.4.114
+Stable tag: 0.4.115
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -31,6 +31,10 @@ Main features include:
 5. When updating, upload the new release ZIP or use the configured updater, then review **Diagnostics & Maintenance** after the update completes.
 
 == Changelog ==
+
+= 0.4.115 =
+* Search: dates the hotel is not selling now say "Closed for these dates" instead of the general "Not available".
+* Currency switcher: a converted price keeps what the guest really pays in brackets beside it, for example "≈ ALL 33,000 (330.00 €)".
 
 = 0.4.114 =
 * Search: for hotels connected to a hotel system, one request now answers every room type. Room types that cannot be booked stay on the page, greyed out with the reason (sold out, minimum stay, no arrivals, too many guests). When only 1-3 rooms are left the card says so, and bookable rooms are listed first. When nothing is available, the page suggests the nearest dates (up to 3 days either side, same number of nights) that are, with a link and the lowest price.

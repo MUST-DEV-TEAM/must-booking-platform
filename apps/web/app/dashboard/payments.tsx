@@ -1,5 +1,5 @@
 'use client';
-import { ConvertedMoney } from './approximate-money';
+import { ConvertedMoney, HotelMoney } from './approximate-money';
 import { useQuery } from '@tanstack/react-query';
 import { Download, MoreHorizontal, UserRound } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -43,6 +43,7 @@ import { PaymentsOverview } from './payments-overview';
 import { fetchPropertyBookings, guestName, type Reservation } from './reservations';
 import {
   PAYMENT_BADGE_TONE,
+  hasOpenBillAfterCancel,
   hasRefundableBalance,
   isDead,
   isHiddenFromPayments,
@@ -174,8 +175,9 @@ export function DashboardPayments({
   function openRefundDialog(booking: Reservation) {
     setRefundBooking(booking);
   }
-  const money = (amount: string, currency: string) =>
-    new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(Number(amount));
+  const money = (amount: string, currency: string) => (
+    <HotelMoney tenantId={tenantId} propertyId={propertyId} amount={amount} currency={currency} />
+  );
   type SortKey = 'created' | 'guest' | 'stay' | 'total';
   const [sort, setSort] = useState<{ key: SortKey; direction: 'asc' | 'desc' }>({
     key: 'created',
@@ -470,6 +472,17 @@ export function DashboardPayments({
                                       : money(owed, currency)}
                                 </span>
                               ) : null}
+                              {hasOpenBillAfterCancel(booking) && booking.clockBalance ? (
+                                <span className="block font-semibold">
+                                  Cancelled, but Clock still shows{' '}
+                                  {money(
+                                    booking.clockBalance.amount,
+                                    booking.clockBalance.currency,
+                                  )}{' '}
+                                  on its bill. Correct the bill in Clock; see Needs attention on the
+                                  reservation.
+                                </span>
+                              ) : null}
                             </TooltipContent>
                           </Tooltip>
                         </TableCell>
@@ -484,7 +497,7 @@ export function DashboardPayments({
                               : 'text-muted-foreground',
                           )}
                         >
-                          {booking.balanceBasis === 'CLOCK' ? (
+                          {booking.balanceBasis === 'CLOCK' && !isDead(booking) ? (
                             booking.clockBalance ? (
                               <ConvertedMoney
                                 tenantId={tenantId}

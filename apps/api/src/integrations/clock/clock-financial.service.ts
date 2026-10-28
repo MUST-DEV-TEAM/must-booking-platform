@@ -141,6 +141,9 @@ export function financialSnapshot(
     folios,
   };
 }
+/** The kind of review note raised for a cancelled reservation whose Clock bill is still open. */
+export const CANCELLED_OPEN_BILL = 'CANCELLED_WITH_OPEN_CLOCK_BILL';
+
 @Injectable()
 export class ClockFinancialService {
   constructor(
@@ -201,9 +204,52 @@ export class ClockFinancialService {
         bookingId,
         snapshot.balance.currency,
       );
+      await this.checkCancelledBill(tx, scope, connection.connectionId, bookingId, snapshot);
     });
     return snapshot;
   }
+  /**
+   * A cancelled reservation should not keep money to collect on its Clock bill. When it does (a charge left on the
+   * bill, or a deposit that was never moved or refunded), MUST cannot change a Clock bill, so it raises a note that
+   * tells staff what to correct in Clock. The note closes by itself when the bill is settled, or staff can close it
+   * with a short reason when the bill is meant to stay as it is.
+   */
+  private async checkCancelledBill(
+    tx: TenantTransaction,
+    scope: Scope,
+    connectionId: string,
+    bookingId: string,
+    snapshot: ClockFinancialSnapshot,
+  ): Promise<void> {
+    const rows = await tx.$queryRaw<Array<{ status: string; reference: string }>>`
+      SELECT b.status::text AS status, b.external_reference AS reference FROM bookings b
+      WHERE b.tenant_id = ${scope.tenantId}::uuid AND b.property_id = ${scope.propertyId}::uuid AND b.id = ${bookingId}::uuid`;
+    const booking = rows[0];
+    if (!booking) return;
+    const owed = Number(snapshot.balance.amount);
+    if (!['CANCELLED', 'EXPIRED'].includes(booking.status) || !(owed > 0)) {
+      await tx.$executeRaw`UPDATE manual_review_items SET status = 'RESOLVED', resolved_at = now(), updated_at = now()
+        WHERE tenant_id = ${scope.tenantId}::uuid AND property_id = ${scope.propertyId}::uuid
+          AND category = 'PAYMENT_BOOKING_MISMATCH' AND reference_type = 'booking' AND reference_id = ${bookingId}
+          AND status = 'OPEN' AND context->>'kind' = ${CANCELLED_OPEN_BILL}`;
+      return;
+    }
+    const amount = `${snapshot.balance.amount} ${snapshot.balance.currency}`;
+    const held =
+      Number(snapshot.paid.amount) > 0
+        ? ` Clock holds ${snapshot.paid.amount} ${snapshot.paid.currency} in payments on it.`
+        : '';
+    const message = `Reservation ${booking.reference} is cancelled, but Clock's bill still shows ${amount} to collect.${held}`;
+    const staffMessage = `This reservation is cancelled, but Clock's bill still shows ${amount} to collect.${held} MUST cannot change a Clock bill. In Clock, open the reservation's bill and correct it according to the hotel's cancellation terms: remove the charge, move the deposit onto it, or refund the deposit. Then press "Run check" here and this note closes by itself. If the bill is meant to stay as it is, close this note with a short reason.`;
+    await tx.$executeRaw`INSERT INTO manual_review_items (tenant_id, property_id, connection_id, category, reference_type, reference_id, message, context)
+      SELECT ${scope.tenantId}::uuid, ${scope.propertyId}::uuid, ${connectionId}::uuid, 'PAYMENT_BOOKING_MISMATCH'::"ManualReviewCategory", 'booking', ${bookingId},
+        ${message}, ${JSON.stringify({ kind: CANCELLED_OPEN_BILL, staffMessage, balance: snapshot.balance })}::jsonb
+      WHERE NOT EXISTS (
+        SELECT 1 FROM manual_review_items WHERE tenant_id = ${scope.tenantId}::uuid AND property_id = ${scope.propertyId}::uuid
+          AND category = 'PAYMENT_BOOKING_MISMATCH' AND reference_type = 'booking' AND reference_id = ${bookingId}
+          AND status = 'OPEN' AND context->>'kind' = ${CANCELLED_OPEN_BILL})`;
+  }
+
   /**
    * The bill's currency must be the one the booking is stored in. A difference is never accepted quietly: it is
    * raised once for review, and closed again by itself when the two agree.

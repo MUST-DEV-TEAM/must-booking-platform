@@ -39,6 +39,7 @@ import { ClockBookingHydrationService } from './clock-booking-hydration.service'
 import { ClockGuestImportService } from './clock-guest-import.service';
 import { ClockRateRankingService } from './clock-rate-ranking.service';
 import { parseClockCredentials } from './clock-credentials';
+import { occupancyFromRates } from './clock-rate-occupancy';
 
 type Scope = { tenantId: string; propertyId: string; connectionId: string };
 type Job = {
@@ -304,6 +305,23 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
    * How long to leave a reservation's bill alone. Bills of guests arriving or staying are checked often;
    * far-off and finished stays rarely, so a large hotel does not spend Clock's request allowance on them.
    */
+  /** Clock has no room-type capacity, so the shown "up to N guests" follows what its website rates allow. */
+  private async refreshDisplayedOccupancy(
+    scope: Scope,
+    ratesByRoomType: Map<string, Parameters<typeof occupancyFromRates>[0]>,
+  ): Promise<void> {
+    const derived = [...ratesByRoomType]
+      .map(([id, rates]) => ({ id, occupancy: occupancyFromRates(rates) }))
+      .filter((item): item is { id: string; occupancy: number } => item.occupancy !== null);
+    if (!derived.length) return;
+    await this.db.withTenantTransaction(scope, async (tx) => {
+      for (const item of derived)
+        await tx.$executeRaw`UPDATE room_types SET max_occupancy=${item.occupancy}, updated_at=now()
+          WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid
+            AND id=${item.id}::uuid AND max_occupancy<>${item.occupancy}`;
+    });
+  }
+
   private async billDelay(scope: Scope, bookingId: string): Promise<number> {
     const rows = await this.db.withTenantTransaction(
       scope,
@@ -376,6 +394,7 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
           ...result.error,
           category: result.error.retryable ? 'provider_unavailable' : 'configuration',
         });
+      await this.refreshDisplayedOccupancy(scope, result.value);
       await this.save(scope, job, {}, true, { roomTypes: Object.fromEntries(result.value) });
       return;
     }

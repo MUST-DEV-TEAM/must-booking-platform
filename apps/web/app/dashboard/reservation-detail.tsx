@@ -1,5 +1,5 @@
 'use client';
-import { LedgerAmount } from './approximate-money';
+import { HotelMoney, LedgerAmount } from './approximate-money';
 import { toast } from 'sonner';
 import { MoveRoomDialog } from './move-room-dialog';
 import {
@@ -342,6 +342,9 @@ export function ReservationDetail({
     );
 
   const currency = booking.total.currency;
+  const hotelMoney = (amount: string) => (
+    <HotelMoney tenantId={tenantId} propertyId={propertyId} amount={amount} currency={currency} />
+  );
   const due = balanceDue({
     status: booking.status,
     total: booking.total.amount,
@@ -675,7 +678,7 @@ export function ReservationDetail({
           size="sm"
           label="Total & payment"
           icon={CreditCard}
-          value={money(booking.total.amount, currency)}
+          value={hotelMoney(booking.total.amount)}
           note={`${methodTitle} · ${paymentLabel}`}
         />
       </div>
@@ -769,7 +772,7 @@ export function ReservationDetail({
                       label: 'Discount',
                       value: `-${money(booking.promo.discount.amount, currency)}`,
                     },
-                    { label: 'Guest pays', value: money(booking.total.amount, currency) },
+                    { label: 'Guest pays', value: hotelMoney(booking.total.amount) },
                   ]}
                 />
                 <p className="m-0 mt-3 text-xs text-muted-foreground">
@@ -792,7 +795,7 @@ export function ReservationDetail({
                       label: longDate(night.date),
                       value: money(night.amount, currency),
                     })),
-                    { label: 'Total', value: money(booking.total.amount, currency) },
+                    { label: 'Total', value: hotelMoney(booking.total.amount) },
                   ]}
                 />
               </CardContent>
@@ -823,15 +826,15 @@ export function ReservationDetail({
                     : 'Payment transaction',
                   firstCharge?.externalPaymentId ?? 'No online payment',
                 )}
-                {field('Amount received', money(String(received), currency))}
+                {field('Amount received', hotelMoney(String(received)))}
                 {field(
                   'Balance due',
                   bookingWasNotCreated(booking.status)
                     ? NO_BOOKING_BALANCE
-                    : money(String(due), currency),
+                    : hotelMoney(String(due)),
                 )}
                 {Number(booking.refundedAmount) > 0
-                  ? field('Refunded', money(booking.refundedAmount, currency))
+                  ? field('Refunded', hotelMoney(booking.refundedAmount))
                   : null}
               </div>
               {ledger.data && ledger.data.length > 0 ? (

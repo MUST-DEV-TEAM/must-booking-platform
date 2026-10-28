@@ -237,6 +237,12 @@ describe('Shared report components', () => {
     expect(document.body.textContent).toContain('USD 2.02');
     expect(document.body.textContent).not.toContain('3.03');
     expect(document.querySelectorAll('button')).toHaveLength(2);
+    // Each currency is its own row of cards, so lek and euro are never mixed in one row.
+    const rowsOfCards = [...document.querySelectorAll('[data-currency]')];
+    expect(rowsOfCards.map((row) => row.getAttribute('data-currency'))).toEqual(['EUR', 'USD']);
+    expect(rowsOfCards[0]!.textContent).toContain('EUR 1.01');
+    expect(rowsOfCards[0]!.textContent).not.toContain('USD');
+    expect(rowsOfCards[1]!.textContent).not.toContain('EUR');
     await click(document.querySelector('button')!);
     expect(onSelect).toHaveBeenCalledWith('outstanding', 'EUR');
   });

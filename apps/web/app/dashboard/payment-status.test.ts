@@ -253,3 +253,41 @@ describe('refundPreview', () => {
     expect(refundPreview(booking({ refundedAmount: '250.00' }), 'fixed', '', '')).toBeNull();
   });
 });
+
+describe('a cancelled booking whose Clock bill is still open', () => {
+  const cancelled = (clockAmount: string) =>
+    booking({
+      status: 'CANCELLED',
+      paymentMethod: 'PAY_AT_HOTEL',
+      total: { amount: '170.00', currency: 'EUR' },
+      balanceBasis: 'CLOCK',
+      clockBalance: { amount: clockAmount, currency: 'EUR' },
+    });
+
+  it('owes nothing, is not in Outstanding, but is flagged so someone fixes the bill in Clock', () => {
+    const open = cancelled('170.00');
+    expect(outstandingAmount(open)).toBe('0.00');
+    expect(matchesFilter(open, 'outstanding')).toBe(false);
+    expect(needsAction(open)).toBe(true);
+    expect(matchesFilter(open, 'needs-action')).toBe(true);
+    expect(paymentStatus(open).label).toBe('Cancelled, Clock bill open');
+  });
+
+  it('is left alone once Clock settles the bill or holds a credit', () => {
+    for (const amount of ['0.00', '-20.00']) {
+      const settled = cancelled(amount);
+      expect(outstandingAmount(settled)).toBe('0.00');
+      expect(needsAction(settled)).toBe(false);
+      expect(paymentStatus(settled).label).not.toBe('Cancelled, Clock bill open');
+    }
+  });
+
+  it('does not change a live Clock booking, which still owes what Clock says', () => {
+    const live = booking({
+      balanceBasis: 'CLOCK',
+      clockBalance: { amount: '80.00', currency: 'EUR' },
+    });
+    expect(outstandingAmount(live)).toBe('80.00');
+    expect(paymentStatus(live).label).toBe('Balance due');
+  });
+});

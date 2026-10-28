@@ -101,6 +101,34 @@ export function LedgerAmount({
   );
 }
 
+/**
+ * An amount in its own currency; when that is not the hotel's own currency, an estimate in the hotel's currency
+ * follows in brackets. The hotel's currency and today's rates come from one small, remembered request.
+ */
+export function HotelMoney({
+  tenantId,
+  propertyId,
+  amount,
+  currency,
+  negative = false,
+}: {
+  tenantId: string;
+  propertyId: string;
+  amount: string;
+  currency: string;
+  negative?: boolean;
+}) {
+  const today = useTodayRates(tenantId, propertyId, [currency]);
+  const base = today.data?.base;
+  const approximate =
+    base && currency.toUpperCase() !== base.toUpperCase()
+      ? estimate(today.data, amount, currency, base)
+      : null;
+  return (
+    <Money amount={amount} currency={currency} approximate={approximate} negative={negative} />
+  );
+}
+
 /** An amount that Clock keeps in another currency than the booking, with the booking-currency estimate beside it. */
 export function ConvertedMoney({
   tenantId,
