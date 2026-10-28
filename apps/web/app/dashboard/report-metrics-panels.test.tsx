@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { formatMoney } from '../../lib/money';
 import { pickDate } from '../../components/ui/date-field-test-utils';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -68,8 +69,10 @@ describe('Shared report metrics on existing screens', () => {
         onOutstanding: vi.fn(),
       }),
     );
-    await rendered('USD 2.02');
-    expect(document.body.textContent).toContain('EUR 1.01');
+    await rendered(formatMoney('2.02', 'USD'));
+    expect(document.body.textContent).toContain(formatMoney('1.01', 'EUR'));
+    expect(document.body.textContent).toContain('Collected - EUR');
+    expect(document.body.textContent).toContain('Collected - USD');
     expect(document.body.textContent).not.toContain('3.03');
     await input('Payment totals from', '2026-09-01');
     await input('Payment totals to', '2026-09-30');
@@ -100,7 +103,7 @@ describe('Shared report metrics on existing screens', () => {
       }),
     );
     await rendered('summary-denied');
-    expect(document.body.textContent).not.toContain('EUR 1.01');
+    expect(document.body.textContent).not.toContain(formatMoney('1.01', 'EUR'));
   });
   it('shows completed audit metadata and opens its exact filters without a fake file download', async () => {
     vi.stubGlobal(
