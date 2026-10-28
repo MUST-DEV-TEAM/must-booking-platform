@@ -2294,4 +2294,54 @@ describe('rates switched off for the website', () => {
       value: { amount: '310.00', currency: 'EUR' },
     });
   });
+
+  describe('a rate that needs a promo code', () => {
+    const withCode = ratesBody.map((rate) =>
+      rate.id === fullBoard.id ? { ...rate, bonus_codes: ['testcode'] } : rate,
+    );
+    const offers = [{ id: 42023, rates: { '615688': [offer(31000)], '546549': [offer(21000)] } }];
+    const run = async (channel: 'website' | 'staff', rates = withCode) => {
+      const request = vi
+        .fn()
+        .mockResolvedValueOnce({ status: 200, body: rates })
+        .mockResolvedValueOnce({ status: 200, body: offers });
+      const { service } = makeService({ client: { request } });
+      const result = await service.listOffersForStay('t1', 'p1', { ...query, channel });
+      return { result, request };
+    };
+
+    it('is not offered to the website, which would otherwise sell it to everyone, but staff still see it', async () => {
+      const guest = await run('website');
+      expect(guest.result.ok && guest.result.value.map((entry) => entry.rateId)).toEqual([
+        '546549',
+      ]);
+      expect(guest.request).toHaveBeenLastCalledWith(
+        credentials,
+        expect.objectContaining({ query: expect.objectContaining({ rates: ['546549'] }) }),
+      );
+      const staff = await run('staff');
+      expect(staff.result.ok && staff.result.value.map((entry) => entry.rateId)).toEqual([
+        '546549',
+        '615688',
+      ]);
+    });
+
+    it('cannot be priced by a guest who names it', async () => {
+      const request = vi.fn().mockResolvedValueOnce({ status: 200, body: withCode });
+      const { service } = makeService({ client: { request } });
+      const refused = await service.getQuote('t1', 'p1', {
+        ...query,
+        clockRateId: '615688',
+        channel: 'website',
+      });
+      expect(!refused.ok && refused.error.code).toBe('clock_rate_unavailable');
+    });
+
+    it('says so when every rate of a room type needs a code', async () => {
+      const allCoded = ratesBody.map((rate) => ({ ...rate, bonus_codes: ['VIP'] }));
+      const guest = await run('website', allCoded as never);
+      expect(guest.result.ok).toBe(false);
+      expect(!guest.result.ok && guest.result.error.message).toMatch(/needs a promo code/);
+    });
+  });
 });

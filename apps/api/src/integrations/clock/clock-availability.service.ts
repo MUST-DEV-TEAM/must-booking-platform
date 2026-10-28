@@ -172,6 +172,10 @@ type RoomTypeRates = {
   excludedForWbe: number;
   /** Published rates that staff switched off for the website, and so are left out of `ids`. */
   hiddenForWebsite?: number;
+  /** Published rates that need a promo code, by rate id. The website leaves them out unless the guest has the code. */
+  codeProtected?: Record<string, string[]>;
+  /** How many published rates were left out of `ids` because they need a promo code. */
+  needCodeForWebsite?: number;
   /** Display facts per published rate id (name and meals), from the same `/rates/` call. */
   info: Record<string, ClockRateInfo>;
 };
@@ -284,7 +288,25 @@ type ClockRateRow = {
   name?: string;
   currency?: string;
   meals?: Array<{ name?: string }>;
+  /** Promo codes that unlock this rate. A rate with codes is hidden from everyone who does not enter one. */
+  bonus_codes?: unknown;
 };
+
+/** The promo codes on a Clock rate, upper-case. Clock sends plain strings; an object with a `code` is accepted too. */
+function rateBonusCodes(rate: { bonus_codes?: unknown }): string[] {
+  if (!Array.isArray(rate.bonus_codes)) return [];
+  const codes: string[] = [];
+  for (const entry of rate.bonus_codes) {
+    const code =
+      typeof entry === 'string'
+        ? entry
+        : typeof (entry as { code?: unknown })?.code === 'string'
+          ? (entry as { code: string }).code
+          : '';
+    if (code.trim()) codes.push(code.trim().toUpperCase());
+  }
+  return codes;
+}
 
 @Injectable()
 export class ClockAvailabilityService {
@@ -1137,17 +1159,7 @@ export class ClockAvailabilityService {
     if (!catalogue.ok) return [];
     const codes = new Set<string>();
     for (const rate of catalogue.value) {
-      const list = (rate as { bonus_codes?: unknown }).bonus_codes;
-      if (!Array.isArray(list)) continue;
-      for (const entry of list) {
-        const code =
-          typeof entry === 'string'
-            ? entry
-            : typeof (entry as { code?: unknown })?.code === 'string'
-              ? (entry as { code: string }).code
-              : '';
-        if (code.trim()) codes.add(code.trim().toUpperCase());
-      }
+      for (const code of rateBonusCodes(rate)) codes.add(code);
     }
     return [...codes].sort();
   }
@@ -1288,7 +1300,7 @@ export class ClockAvailabilityService {
       hidden,
     );
     if (!rateIds.ok) return failure(rateIds.error);
-    if (query.clockRateId && hidden?.has(query.clockRateId))
+    if (hidden && query.clockRateId && !rateIds.value.ids.includes(query.clockRateId))
       return failure({
         category: 'validation',
         code: 'clock_rate_unavailable',
@@ -1657,9 +1669,11 @@ export class ClockAvailabilityService {
     propertyId: string,
     channel?: ClockChannel,
   ): Promise<Set<string> | undefined> {
-    if (channel !== 'website' || !this.websiteRates) return undefined;
-    const hidden = await this.websiteRates.hiddenRateIds(tenantId, propertyId);
-    return hidden.size > 0 ? hidden : undefined;
+    if (channel !== 'website') return undefined;
+    // An empty set still means "this is the website": rates that need a promo code are left out of it.
+    return this.websiteRates
+      ? await this.websiteRates.hiddenRateIds(tenantId, propertyId)
+      : new Set();
   }
 
   private async ratesForRoomType(
@@ -1671,13 +1685,20 @@ export class ClockAvailabilityService {
   ): Promise<ClockOutcome<RoomTypeRates>> {
     const all = await this.allRatesForRoomType(credentials, externalRoomTypeId, loadRates, fresh);
     if (!all.ok || !hidden) return all;
-    const ids = all.value.ids.filter((id) => !hidden.has(id));
-    const info = Object.fromEntries(
-      Object.entries(all.value.info).filter(([id]) => !hidden.has(id)),
-    );
+    const protectedIds = new Set(Object.keys(all.value.codeProtected ?? {}));
+    const offered = (id: string) => !hidden.has(id) && !protectedIds.has(id);
+    const ids = all.value.ids.filter(offered);
+    const info = Object.fromEntries(Object.entries(all.value.info).filter(([id]) => offered(id)));
     return {
       ok: true,
-      value: { ...all.value, ids, info, hiddenForWebsite: all.value.ids.length - ids.length },
+      value: {
+        ...all.value,
+        ids,
+        info,
+        hiddenForWebsite: all.value.ids.filter((id) => hidden.has(id)).length,
+        needCodeForWebsite: all.value.ids.filter((id) => !hidden.has(id) && protectedIds.has(id))
+          .length,
+      },
     };
   }
 
@@ -1699,7 +1720,10 @@ export class ClockAvailabilityService {
     );
     const published = forRoomType.filter((rate) => rate.wbe);
     const info: Record<string, ClockRateInfo> = {};
+    const codeProtected: Record<string, string[]> = {};
     for (const rate of published) {
+      const codes = rateBonusCodes(rate);
+      if (codes.length > 0) codeProtected[String(rate.id)] = codes;
       const mealNames = (rate.meals ?? []).map((meal) => String(meal.name ?? '')).filter(Boolean);
       info[String(rate.id)] = {
         rateId: String(rate.id),
@@ -1713,6 +1737,7 @@ export class ClockAvailabilityService {
       ids: published.map((rate) => String(rate.id)),
       excludedForWbe: forRoomType.length - published.length,
       info,
+      codeProtected,
     };
     this.ratesCache.set(cacheKey, { value, expiresAt: Date.now() + CACHE_TTL_MS });
     return { ok: true, value };
@@ -1989,9 +2014,11 @@ function noRatesError(rates: RoomTypeRates): ClockClassifiedError {
   return classifyConfigurationError(
     (rates.hiddenForWebsite ?? 0) > 0
       ? 'Every rate for this room type is switched off for the website.'
-      : rates.excludedForWbe > 0
-        ? "This room type has Clock rates configured, but none are published to the booking engine (wbe) — check Clock's rate configuration."
-        : 'This room type has no rate configured in Clock yet.',
+      : (rates.needCodeForWebsite ?? 0) > 0
+        ? 'Every rate for this room type needs a promo code.'
+        : rates.excludedForWbe > 0
+          ? "This room type has Clock rates configured, but none are published to the booking engine (wbe) — check Clock's rate configuration."
+          : 'This room type has no rate configured in Clock yet.',
   );
 }
 
