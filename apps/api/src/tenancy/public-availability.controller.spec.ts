@@ -82,6 +82,8 @@ describe('PublicAvailabilityController.getCalendar', () => {
       month: '2026-09',
       adultCount: 2,
       childrenCount: 1,
+      // Guests only see dates they could book with a rate that is on for the website.
+      channel: 'website',
     });
   });
 
@@ -156,6 +158,7 @@ describe('PublicAvailabilityController.checkAvailability', () => {
         endsOn: '2026-09-22',
         adultCount: 2,
         childrenCount: 1,
+        channel: 'website',
       },
       { cache: true },
     );

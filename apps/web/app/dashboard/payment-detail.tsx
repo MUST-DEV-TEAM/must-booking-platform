@@ -1,6 +1,6 @@
 'use client';
-import { LedgerAmount } from './approximate-money';
-import { ClockFinancialCard, useClockFinancial, moneyText } from './clock-financial';
+import { HotelMoney, LedgerAmount } from './approximate-money';
+import { ClockFinancialCard, useClockFinancial } from './clock-financial';
 import { CancellationDialog } from './cancellation-dialog';
 import { BookingReviewCard } from './booking-review-card';
 import { CollectPaymentActions } from './collect-payment-actions';
@@ -218,8 +218,9 @@ export function PaymentDetail({
   const ledger = ledgerQuery.data;
   const status = paymentStatus(booking);
   const currency = booking.total.currency;
-  const money = (amount: string, code = currency) =>
-    new Intl.NumberFormat(undefined, { style: 'currency', currency: code }).format(Number(amount));
+  const hotelMoney = (amount: string, code = currency) => (
+    <HotelMoney tenantId={tenantId} propertyId={propertyId} amount={amount} currency={code} />
+  );
   const canRefund = (capabilitiesQuery.data ?? []).includes('payments.refund');
   const canCancel = (capabilitiesQuery.data ?? []).includes('bookings.cancel');
   const clockMoney = financial.data?.data;
@@ -308,6 +309,8 @@ export function PaymentDetail({
           status={financial.data?.status}
           error={financial.error?.message || financial.data?.lastError}
           localPaid={booking.paidAmount}
+          tenantId={tenantId}
+          propertyId={propertyId}
         />
       ) : null}
       {['AVAILABILITY_FAILED', 'PMS_REJECTED', 'PAYMENT_FAILED'].includes(booking.status) ? (
@@ -348,10 +351,10 @@ export function PaymentDetail({
         className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5"
         role="group"
       >
-        <StatTile label="Total" size="sm" value={money(booking.total.amount)} />
-        <StatTile label="Paid" size="sm" value={money(booking.paidAmount)} />
-        <StatTile label="Refunded" size="sm" value={money(booking.refundedAmount)} />
-        <StatTile label="Refundable" size="sm" value={money(refundable.amount)} />
+        <StatTile label="Total" size="sm" value={hotelMoney(booking.total.amount)} />
+        <StatTile label="Paid" size="sm" value={hotelMoney(booking.paidAmount)} />
+        <StatTile label="Refunded" size="sm" value={hotelMoney(booking.refundedAmount)} />
+        <StatTile label="Refundable" size="sm" value={hotelMoney(refundable.amount)} />
         <StatTile
           label={
             clockMoney?.balance.amount.startsWith('-') ? 'Guest credit in Clock' : 'Outstanding'
@@ -360,10 +363,10 @@ export function PaymentDetail({
           value={
             booking.balanceBasis === 'CLOCK' || clockMoney
               ? clockMoney
-                ? moneyText({
-                    ...clockMoney.balance,
-                    amount: clockMoney.balance.amount.replace(/^-/, ''),
-                  })
+                ? hotelMoney(
+                    clockMoney.balance.amount.replace(/^-/, ''),
+                    clockMoney.balance.currency,
+                  )
                 : 'Verifying Clock balance'
               : [
                     'PMS_UNKNOWN_RESULT',
@@ -374,7 +377,7 @@ export function PaymentDetail({
                 ? 'Balance not confirmed'
                 : ['AVAILABILITY_FAILED', 'PMS_REJECTED', 'PAYMENT_FAILED'].includes(booking.status)
                   ? 'No balance - booking was not created'
-                  : money(outstandingAmount(booking))
+                  : hotelMoney(outstandingAmount(booking))
           }
           tone={Number(outstandingAmount(booking)) > 0 ? 'warning' : 'default'}
         />

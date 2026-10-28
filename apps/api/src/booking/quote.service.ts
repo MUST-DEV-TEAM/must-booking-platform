@@ -22,6 +22,7 @@ import {
   type PromoSummary,
 } from './promo-code.service';
 import { evaluateBookingRules, sameDayBookingViolation, rangeViolation } from './booking-rules';
+import { isClockManagedProperty } from './clock-managed-property';
 export { propertyClock, isSameDayBookingClosed } from './booking-rules';
 
 export type QuoteInput = {
@@ -586,10 +587,11 @@ export class QuoteService {
       `;
       if (!properties[0]) throw new NotFoundException('Property was not found.');
       const restrictions = await applicableRestrictions(tx, tenantId, propertyId, input.roomTypeId);
+      const clockManaged = await isClockManagedProperty(tx, tenantId, propertyId);
       this.validateBookingRules(input, {
         restrictions,
         ...properties[0],
-        maxOccupancy: catalog[0].maxOccupancy,
+        maxOccupancy: clockManaged ? undefined : catalog[0].maxOccupancy,
         roomTypeStatus: catalog[0].status,
         roomActive: room?.isActive,
       });

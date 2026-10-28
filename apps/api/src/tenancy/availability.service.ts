@@ -234,6 +234,8 @@ export class AvailabilityService {
       adultCount?: number;
       childrenCount?: number;
       roomCount?: number;
+      /** 'website' leaves out Clock rates staff switched off; staff screens see every rate. */
+      channel?: 'website' | 'staff';
     },
   ): Promise<{ days: CalendarDay[] }> {
     const { start, end } = this.monthRange(query.month);
@@ -255,6 +257,7 @@ export class AvailabilityService {
             adultCount: query.adultCount,
             childrenCount: query.childrenCount,
             roomCount: query.roomCount,
+            channel: query.channel,
           },
         );
         if (!calendar.ok) throw new BadRequestException(calendar.error.message);

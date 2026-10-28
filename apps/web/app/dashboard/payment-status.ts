@@ -76,10 +76,28 @@ export function remainingRefundable(
   return { amount: money(remaining > 0n ? remaining : 0n), currency: booking.total.currency };
 }
 
-/** Still to collect. Only a live booking owes money; refunds never create a debt. */
+/** The Clock bill of a booking that will never be a stay still shows money to collect. */
+export function hasOpenBillAfterCancel(
+  booking: Pick<Reservation, 'status' | 'balanceBasis' | 'clockBalance'>,
+): boolean {
+  return (
+    booking.balanceBasis === 'CLOCK' &&
+    isDead(booking) &&
+    !!booking.clockBalance &&
+    !booking.clockBalance.amount.startsWith('-') &&
+    minorUnits(booking.clockBalance.amount) > 0n
+  );
+}
+
+/**
+ * Still to collect. Only a live booking owes money; refunds never create a debt. A cancelled booking owes nothing
+ * even when Clock's bill is still open: that is a bookkeeping problem to fix in Clock (see `hasOpenBillAfterCancel`),
+ * not money to collect from the guest.
+ */
 export function outstandingAmount(
   booking: Pick<Reservation, 'status' | 'balanceBasis' | 'clockBalance' | 'paidAmount' | 'total'>,
 ): string {
+  if (booking.balanceBasis === 'CLOCK' && isDead(booking)) return '0.00';
   if (booking.balanceBasis === 'CLOCK')
     return booking.clockBalance && !booking.clockBalance.amount.startsWith('-')
       ? booking.clockBalance.amount
@@ -107,6 +125,8 @@ export function paymentStatus(
     | 'refundedAmount'
   >,
 ): PaymentStatus {
+  if (hasOpenBillAfterCancel(booking))
+    return { label: 'Cancelled, Clock bill open', state: 'pending' };
   if (booking.balanceBasis === 'CLOCK')
     return !booking.clockBalance
       ? { label: 'Verifying Clock balance', state: 'pending' }
@@ -140,9 +160,11 @@ export function paymentStatus(
 
 /** Money is held against a booking that will not happen, or the booking is stuck. */
 export function needsAction(
-  booking: Pick<Reservation, 'status' | 'paidAmount' | 'refundedAmount'>,
+  booking: Pick<Reservation, 'status' | 'paidAmount' | 'refundedAmount'> &
+    Partial<Pick<Reservation, 'balanceBasis' | 'clockBalance'>>,
 ): boolean {
   if (ATTENTION_STATUSES.has(booking.status)) return true;
+  if (hasOpenBillAfterCancel(booking)) return true;
   return isDead(booking) && hasRefundableBalance(booking);
 }
 

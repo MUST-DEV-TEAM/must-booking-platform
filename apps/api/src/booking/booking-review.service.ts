@@ -25,6 +25,10 @@ import {
 import { AuditLogService } from '../tenancy/audit-log.service';
 import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator';
 import { ClockBookingService } from '../integrations/clock/clock-booking.service';
+import {
+  CANCELLED_OPEN_BILL,
+  ClockFinancialService,
+} from '../integrations/clock/clock-financial.service';
 import { RequiresCapability } from '../tenancy/capabilities.decorator';
 import { Role, Roles } from '../tenancy/roles.decorator';
 import { TenantScoped } from '../tenancy/tenant-context.decorator';
@@ -58,6 +62,7 @@ export class BookingReviewService {
     @Inject(IntegrationConnectionsService)
     private readonly connections: IntegrationConnectionsService,
     @Inject(BookingStateMachine) private readonly states: BookingStateMachine,
+    @Inject(ClockFinancialService) private readonly financial: ClockFinancialService,
   ) {}
 
   async get(tenantId: string, propertyId: string, bookingId: string, userId?: string) {
@@ -76,9 +81,12 @@ export class BookingReviewService {
           createdAt: Date;
           clockDepositAdjustment: boolean;
           operationKey: string | null;
+          kind: string | null;
+          staffMessage: string | null;
         }>
       >`
         SELECT category::text AS category, created_at AS "createdAt",context->>'operationKey' AS "operationKey",
+          context->>'kind' AS kind, context->>'staffMessage' AS "staffMessage",
           (category = 'PAYMENT_BOOKING_MISMATCH' AND context->>'message' =
             'Clock refund payment was posted. In Clock, issue the Deposit Adjustment to create the required correction document.') AS "clockDepositAdjustment"
           FROM manual_review_items
@@ -108,6 +116,10 @@ export class BookingReviewService {
         canResolve: canResolve && booking[0].status === 'PMS_UNKNOWN_RESULT' && !pendingChange,
         pendingChange,
         canCheck: pms[0]?.provider === 'CLOCK_PMS',
+        /** An open Clock bill on a cancelled reservation can be closed by staff with a reason. */
+        canAcknowledge:
+          grants.includes('bookings.edit') &&
+          items.some((item) => item.kind === CANCELLED_OPEN_BILL),
         reasons: items.map((item) => ({
           text: item.operationKey?.startsWith('clock-stay-amend:')
             ? 'The stay change is awaiting confirmation from Clock. Verify the saved change; do not submit it again.'
@@ -115,8 +127,10 @@ export class BookingReviewService {
               ? 'The room move is awaiting confirmation from Clock. Verify the saved move; do not submit it again.'
               : item.clockDepositAdjustment
                 ? 'Refund posted to Clock. Complete the Deposit Adjustment document in Clock.'
-                : (CATEGORY_TEXT[item.category] ?? 'The booking needs a manual review.'),
+                : item.staffMessage?.trim() ||
+                  (CATEGORY_TEXT[item.category] ?? 'The booking needs a manual review.'),
           openedAt: item.createdAt,
+          kind: item.kind,
         })),
       };
     });
@@ -323,7 +337,45 @@ export class BookingReviewService {
         HttpStatus.TOO_MANY_REQUESTS,
       );
     this.lastCheck.set(key, now);
-    return this.clock.checkRemoteBooking({ tenantId, propertyId }, bookingId);
+    const result = await this.clock.checkRemoteBooking({ tenantId, propertyId }, bookingId);
+    // Reading the bill again is what closes a note about an open bill once it was corrected in Clock.
+    await this.financial.refresh({ tenantId, propertyId }, bookingId).catch(() => null);
+    return result;
+  }
+
+  /** Staff close the note about an open Clock bill on a cancelled reservation, saying why it stays as it is. */
+  async acknowledgeOpenBill(
+    scope: { tenantId: string; propertyId: string; userId: string },
+    bookingId: string,
+    body: Record<string, unknown>,
+  ) {
+    if (
+      typeof body.note !== 'string' ||
+      body.note.trim().length < 3 ||
+      body.note.trim().length > 300
+    )
+      throw new BadRequestException(
+        'Add a note of 3-300 characters saying why the bill stays open.',
+      );
+    const note = body.note.trim();
+    return this.db.withTenantTransaction(scope, async (tx) => {
+      const closed = await tx.$executeRaw`UPDATE manual_review_items
+        SET status = 'RESOLVED', resolved_at = now(), resolved_by_user_id = ${scope.userId}::uuid, updated_at = now()
+        WHERE tenant_id = ${scope.tenantId}::uuid AND property_id = ${scope.propertyId}::uuid
+          AND category = 'PAYMENT_BOOKING_MISMATCH' AND reference_type = 'booking' AND reference_id = ${bookingId}
+          AND status = 'OPEN' AND context->>'kind' = ${CANCELLED_OPEN_BILL}`;
+      if (closed === 0)
+        throw new ConflictException('There is no open bill note to close for this booking.');
+      await this.audit.recordInTransaction(tx, {
+        ...scope,
+        actorUserId: scope.userId,
+        action: 'booking.clock_bill_note_closed',
+        targetType: 'booking',
+        targetId: bookingId,
+        details: { note },
+      });
+      return { ok: true };
+    });
   }
 }
 
@@ -372,6 +424,20 @@ export class BookingReviewController {
     @Body() body: Record<string, unknown>,
   ) {
     return this.review.dismiss(r.tenantContext, id, body ?? {});
+  }
+
+  @Post('acknowledge-open-bill')
+  @HttpCode(200)
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('bookings.edit')
+  @RequiresVerifiedEmail()
+  acknowledgeOpenBill(
+    @Param('bookingId') id: string,
+    @Req() r: Request,
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.review.acknowledgeOpenBill(r.tenantContext, id, body ?? {});
   }
 
   @Post('check')

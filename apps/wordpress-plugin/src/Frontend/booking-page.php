@@ -217,6 +217,9 @@ function get_must_unavailable_reason_label(string $reason, array $roomType = [])
             return \__('Needs a longer stay on these dates', 'must-hotel-booking');
         case 'max_stay':
             return \__('Stay is longer than we allow', 'must-hotel-booking');
+        case 'closed':
+            // Clock's own wording is "Rate restriction stop from sale": the hotel is not selling these dates.
+            return \__('Closed for these dates', 'must-hotel-booking');
         case 'no_arrival':
             return \__('No arrivals on this date', 'must-hotel-booking');
         case 'no_departure':

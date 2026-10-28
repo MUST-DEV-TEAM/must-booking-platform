@@ -64,7 +64,9 @@
                 node.textContent = node.getAttribute('data-original');
                 return;
             }
-            node.textContent = '≈ ' + format(amount * rates.rates[current], current);
+            // The converted amount is for reading only; what the guest really pays stays visible beside it.
+            node.textContent = '≈ ' + format(amount * rates.rates[current], current) +
+                ' (' + node.getAttribute('data-original') + ')';
             node.setAttribute('data-converted', 'true');
         });
         var anyConverted = document.querySelector('.must-price[data-converted]');
