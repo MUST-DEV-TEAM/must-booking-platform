@@ -77,7 +77,7 @@ describe('Shared report components', () => {
     await click(document.querySelector('[aria-label="Next page"]')!);
     expect(onPage).toHaveBeenCalledWith(2);
     await click([...document.querySelectorAll('button')].find((b) => b.textContent === 'One')!);
-    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('EUR 1.01');
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('€1.01');
   });
   it('shows export errors and keeps the table available', async () => {
     await mount(
@@ -150,7 +150,7 @@ describe('Shared report components', () => {
       rows,
     } as unknown as PrintReport;
     await mount(createElement(ReportPrint, { model, onClose: vi.fn() }));
-    expect(document.querySelector('[data-report-print]')?.textContent).toContain('EUR 1.01');
+    expect(document.querySelector('[data-report-print]')?.textContent).toContain('€1.01');
     await click(
       [...document.querySelectorAll('button')].find(
         (b) => b.textContent === 'Print / Save as PDF',
@@ -233,14 +233,14 @@ describe('Shared report components', () => {
         interactiveKeys: ['outstanding'],
       }),
     );
-    expect(document.body.textContent).toContain('EUR 1.01');
-    expect(document.body.textContent).toContain('USD 2.02');
+    expect(document.body.textContent).toContain('€1.01');
+    expect(document.body.textContent).toContain('$2.02');
     expect(document.body.textContent).not.toContain('3.03');
     expect(document.querySelectorAll('button')).toHaveLength(2);
     // Each currency is its own row of cards, so lek and euro are never mixed in one row.
     const rowsOfCards = [...document.querySelectorAll('[data-currency]')];
     expect(rowsOfCards.map((row) => row.getAttribute('data-currency'))).toEqual(['EUR', 'USD']);
-    expect(rowsOfCards[0]!.textContent).toContain('EUR 1.01');
+    expect(rowsOfCards[0]!.textContent).toContain('€1.01');
     expect(rowsOfCards[0]!.textContent).not.toContain('USD');
     expect(rowsOfCards[1]!.textContent).not.toContain('EUR');
     await click(document.querySelector('button')!);

@@ -1,4 +1,5 @@
 'use client';
+import { formatMoney } from '../../lib/money';
 import { HotelMoney } from './approximate-money';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/card';
@@ -28,10 +29,6 @@ export type ClockFinancial = {
     payments: Array<{ id: string; amount: Money; type: string; reference: string | null }>;
   }>;
 };
-export const moneyText = (money: Money) =>
-  new Intl.NumberFormat(undefined, { style: 'currency', currency: money.currency }).format(
-    Number(money.amount),
-  );
 export function useClockFinancial(
   tenantId: string,
   propertyId: string,
@@ -82,7 +79,7 @@ export function ClockFinancialCard({
         currency={value.currency}
       />
     ) : (
-      moneyText(value)
+      formatMoney(value.amount, value.currency)
     );
   if (status === 'NOT_CONNECTED' || status === 'NOT_LINKED') return null;
   return (

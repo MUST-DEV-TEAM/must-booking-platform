@@ -1,4 +1,5 @@
 'use client';
+import { ScopedHotelMoney } from './approximate-money';
 import { useRef, useState } from 'react';
 import { Button } from '../../components/ui/button';
 import { FormField } from '../../components/ui/form-field';
@@ -33,10 +34,7 @@ type RateOffer = {
   total: { amount: string; currency: string };
 };
 
-const money = (value: { amount: string; currency: string }) =>
-  new Intl.NumberFormat('en-GB', { style: 'currency', currency: value.currency }).format(
-    Number(value.amount),
-  );
+const money = (value: { amount: string; currency: string }) => <ScopedHotelMoney {...value} />;
 
 /** The server's saved-state price explainer; provider results are labeled separately and never synthesized locally. */
 export function PricingPreviewPanel({

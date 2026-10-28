@@ -1,4 +1,5 @@
 'use client';
+import { MoneyList } from './approximate-money';
 
 import { Mail, Phone } from 'lucide-react';
 
@@ -7,7 +8,7 @@ import { Button } from '../../components/ui/button';
 import { DetailList, SectionLabel } from '../../components/ui/detail-list';
 import { QuickPeek } from '../../components/ui/quick-peek';
 import { BookingStatusBadge } from '../../components/ui/status-badge';
-import { formatMoneyList, type GuestStats } from './guest-stats';
+import { type GuestStats } from './guest-stats';
 import { guestHref, paymentHref } from './payment-detail';
 import { guestName as bookingGuestName, type Reservation } from './reservations';
 
@@ -152,8 +153,20 @@ export function GuestSheet({
                   label: 'Reservations',
                   value: `${stats.bookings}${stats.cancelled ? ` (${stats.cancelled} cancelled)` : ''}`,
                 },
-                { label: 'Net paid', value: formatMoneyList(stats.net) },
-                { label: 'Still owed', value: formatMoneyList(stats.outstanding) },
+                {
+                  label: 'Net paid',
+                  value: <MoneyList tenantId={tenantId} propertyId={propertyId} list={stats.net} />,
+                },
+                {
+                  label: 'Still owed',
+                  value: (
+                    <MoneyList
+                      tenantId={tenantId}
+                      propertyId={propertyId}
+                      list={stats.outstanding}
+                    />
+                  ),
+                },
                 { label: 'Staying now', value: stayLabel(stats.current) },
                 { label: 'Next stay', value: stayLabel(stats.next) },
                 { label: 'Last stay', value: stayLabel(stats.last) },

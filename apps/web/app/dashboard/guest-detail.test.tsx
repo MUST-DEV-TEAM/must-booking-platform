@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { mountMoneyScreen, expectHotelAmount } from '../../lib/money-test-utils';
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -190,4 +191,23 @@ describe('GuestDetail', () => {
     expect(c.textContent).toContain('Guest not found');
     await unmount();
   });
+});
+
+it.each(['EUR', 'ALL'])('guest detail booking and payment rows preserve %s', async (currency) => {
+  const view = await mountMoneyScreen(
+    createElement(GuestDetail, {
+      tenantId: 't',
+      propertyId: 'p',
+      guestId: 'g1',
+    }),
+    () => [{ ...bookings[0]!, total: { amount: '5000.00', currency }, paidAmount: '0.00' }],
+  );
+  await expectHotelAmount(view, currency, '5000.00');
+  const payments = [...view.host.querySelectorAll('button')].find((b) =>
+    b.textContent?.includes('Payments'),
+  );
+  if (!payments) throw Error('Guest payments tab missing');
+  await act(async () => payments.click());
+  await expectHotelAmount(view, currency, '5000.00');
+  await act(async () => view.root.unmount());
 });

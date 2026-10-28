@@ -1,3 +1,4 @@
+import { formatMoney } from '../../lib/money';
 import { isDead, minorUnits, outstandingAmount, summarize } from './payment-status';
 import type { Reservation } from './reservations';
 
@@ -82,11 +83,7 @@ export function guestStatsById(bookings: Reservation[], today: string): Map<stri
 /** "€10.00 · $5.00" for a list of per-currency amounts, or a dash when there is nothing. */
 export function formatMoneyList(list: MoneyByCurrency): string {
   if (list.length === 0) return '—';
-  return list
-    .map(({ currency, amount }) =>
-      new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(Number(amount)),
-    )
-    .join(' · ');
+  return list.map(({ currency, amount }) => formatMoney(amount, currency)).join(' · ');
 }
 
 // Names and emails are free text: a cell that starts with one of these would be run as a formula

@@ -1,3 +1,5 @@
+import { ScopedHotelMoney } from '../../app/dashboard/approximate-money';
+import type { ReactNode } from 'react';
 import { FormSection } from './form-section';
 import { Alert, AlertDescription } from './alert';
 export type StayChangePreviewData = {
@@ -28,7 +30,7 @@ export type StayChangePreviewData = {
 };
 export function StayChangePreview({ preview: p }: { preview: StayChangePreviewData }) {
   const amount = (value: string | null) =>
-    value === null ? 'Unavailable' : `${p.currency} ${value}`;
+    value === null ? 'Unavailable' : <ScopedHotelMoney amount={value} currency={p.currency} />;
   return (
     <FormSection
       title={p.roomTypeName ? 'Review stay change' : 'Review date change'}
@@ -41,20 +43,22 @@ export function StayChangePreview({ preview: p }: { preview: StayChangePreviewDa
       }
     >
       <dl className="m-0 grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
-        {[
-          ['Nights', String(p.nights)],
-          ['Current total', amount(p.oldTotal)],
-          ['New price', amount(p.newTotal)],
-          ['Total after change', amount(p.recordedTotal ?? p.newTotal)],
-          ['Refund to issue', amount(p.refundToIssue ?? '0.00')],
-          ['Price change', amount(p.difference)],
-          ['Already paid', amount(p.paid)],
-          ['Already refunded', amount(p.refunded)],
+        {(
           [
-            p.balanceState === 'refund_due' ? 'Refund due' : 'Balance due',
-            amount(p.balance?.replace(/^-/, '') ?? null),
-          ],
-        ].map(([label, value]) => (
+            ['Nights', String(p.nights)],
+            ['Current total', amount(p.oldTotal)],
+            ['New price', amount(p.newTotal)],
+            ['Total after change', amount(p.recordedTotal ?? p.newTotal)],
+            ['Refund to issue', amount(p.refundToIssue ?? '0.00')],
+            ['Price change', amount(p.difference)],
+            ['Already paid', amount(p.paid)],
+            ['Already refunded', amount(p.refunded)],
+            [
+              p.balanceState === 'refund_due' ? 'Refund due' : 'Balance due',
+              amount(p.balance?.replace(/^-/, '') ?? null),
+            ],
+          ] as Array<[string, ReactNode]>
+        ).map(([label, value]) => (
           <div key={label}>
             <dt className="text-muted-foreground">{label}</dt>
             <dd className="m-0 font-semibold">{value}</dd>

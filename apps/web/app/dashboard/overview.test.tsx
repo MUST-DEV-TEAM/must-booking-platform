@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
+import { mountMoneyScreen, expectHotelAmount } from '../../lib/money-test-utils';
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { DashboardOverview, type Overview } from './overview';
+import { HotelMoneyProvider } from '../../lib/hotel-money-scope';
 import { DashboardQueryProvider } from './query-provider';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -183,8 +185,8 @@ describe('DashboardOverview', () => {
     expect(container.textContent).toContain('2 adults');
     expect(container.textContent).toContain('Special request');
     expect(container.textContent).toContain('MB-1001');
-    expect(container.textContent).toContain('EUR 350.00');
-    expect(container.textContent).toContain('EUR 120.00');
+    expect(container.textContent).toContain('€350.00');
+    expect(container.textContent).toContain('€120.00');
     expect(container.textContent).toContain('Uma Upcoming');
     expect(container.textContent).toContain('1 adult, 1 child');
     expect(container.textContent).toContain('Sold out tonight');
@@ -274,7 +276,7 @@ describe('DashboardOverview', () => {
         soldOutRooms: [],
       },
     });
-    expect(container.textContent).toContain('EUR 1.01 / USD 2.02');
+    expect(container.textContent).toContain('€1.01 · $2.02');
     expect(container.textContent).not.toContain('3.03');
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
@@ -295,7 +297,7 @@ describe('DashboardOverview', () => {
     });
     expect(container.textContent).not.toContain('Collected today');
     expect(container.textContent).not.toContain('Due at the desk');
-    expect(container.textContent).not.toContain('EUR 350.00');
+    expect(container.textContent).not.toContain('€350.00');
     await act(async () => root.unmount());
   });
 });
@@ -316,13 +318,18 @@ async function mount({
       createElement(
         DashboardQueryProvider,
         undefined,
-        createElement(DashboardOverview, {
+        createElement(HotelMoneyProvider, {
           tenantId: 'tenant-1',
           propertyId: 'property-1',
-          role: 'OWNER',
-          initialOverview,
-          canOpen,
-          ...(canManageQuickBooking === undefined ? {} : { canManageQuickBooking }),
+          currency: 'EUR',
+          children: createElement(DashboardOverview, {
+            tenantId: 'tenant-1',
+            propertyId: 'property-1',
+            role: 'OWNER',
+            initialOverview,
+            canOpen,
+            ...(canManageQuickBooking === undefined ? {} : { canManageQuickBooking }),
+          }),
         }),
       ),
     );
@@ -346,3 +353,24 @@ async function settle() {
     await Promise.resolve();
   }
 }
+
+it.each(['EUR', 'ALL'])(
+  'overview money stays in %s with only necessary rate requests',
+  async (currency) => {
+    const view = await mountMoneyScreen(
+      createElement(DashboardOverview, {
+        tenantId: 't',
+        propertyId: 'p',
+        role: 'OWNER',
+        initialOverview: {
+          ...overview,
+          revenue: { today: { amount: '5000.00', currency } },
+          balanceDueAtDesk: { amount: '5000.00', currency },
+        } as Overview,
+      }),
+      () => ({ provider: 'LOCAL', enabled: false, jobs: [] }),
+    );
+    await expectHotelAmount(view, currency, '5000.00');
+    await act(async () => view.root.unmount());
+  },
+);

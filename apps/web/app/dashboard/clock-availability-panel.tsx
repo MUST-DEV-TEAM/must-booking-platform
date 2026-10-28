@@ -1,4 +1,6 @@
 'use client';
+import { ScopedHotelMoney } from './approximate-money';
+import { formatMoney } from '../../lib/money';
 import { useState } from 'react';
 import { useClockSnapshot, ClockSyncStatus, type ClockMonth } from './clock-sync';
 import { Input } from '../../components/ui/input';
@@ -85,7 +87,7 @@ export function ClockAvailabilityPanel({
                           <TableCell
                             key={day.date}
                             className="text-center"
-                            title={`${day.date}: ${day.status}; ${day.availableUnits ?? 'unknown'} rooms; ${day.referencePrice ? day.referencePrice.amount + ' ' + day.referencePrice.currency : 'price not supplied'}`}
+                            title={`${day.date}: ${day.status}; ${day.availableUnits ?? 'unknown'} rooms; ${day.referencePrice ? formatMoney(day.referencePrice.amount, day.referencePrice.currency) : 'price not supplied'}`}
                           >
                             <span
                               className={
@@ -136,9 +138,11 @@ export function ClockAvailabilityPanel({
                             <TableCell>{day.date}</TableCell>
                             <TableCell>{day.availableUnits ?? 'Not supplied'}</TableCell>
                             <TableCell>
-                              {day.referencePrice
-                                ? `${day.referencePrice.amount} ${day.referencePrice.currency}`
-                                : 'Not supplied'}
+                              {day.referencePrice ? (
+                                <ScopedHotelMoney {...day.referencePrice} />
+                              ) : (
+                                'Not supplied'
+                              )}
                             </TableCell>
                             <TableCell>
                               {(

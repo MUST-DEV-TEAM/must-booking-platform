@@ -1,4 +1,5 @@
 'use client';
+import { ScopedHotelMoney } from './approximate-money';
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
@@ -199,9 +200,14 @@ export function CancellationDialog({
           value={refundValue}
           onChange={setRefundValue}
           policyNote={
-            clockTerms
-              ? 'Clock has not supplied machine-readable cancellation terms. An authorized reviewer must choose the refund.'
-              : `Policy refund: ${e.eligible} ${e.currency}. Changes beyond the policy require review.`
+            clockTerms ? (
+              'Clock has not supplied machine-readable cancellation terms. An authorized reviewer must choose the refund.'
+            ) : (
+              <>
+                Policy refund: <ScopedHotelMoney amount={e.eligible} currency={e.currency} />.
+                Changes beyond the policy require review.
+              </>
+            )
           }
         />
       ) : null}

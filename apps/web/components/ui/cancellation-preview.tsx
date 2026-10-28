@@ -1,3 +1,4 @@
+import { ScopedHotelMoney } from '../../app/dashboard/approximate-money';
 import { DetailList } from './detail-list';
 import { Alert, AlertDescription, AlertTitle } from './alert';
 export type CancellationEvidence = {
@@ -33,7 +34,7 @@ export function CancellationPreview({
   evidence: CancellationEvidence;
   refundAmount: string;
 }) {
-  const amount = (n: string) => `${n} ${e.currency}`;
+  const amount = (n: string) => <ScopedHotelMoney amount={n} currency={e.currency} />;
   return (
     <div className="space-y-3">
       <Alert variant={e.isFree || e.policySource === 'CLOCK_PMS' ? 'info' : 'warning'}>

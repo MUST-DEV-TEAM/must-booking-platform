@@ -1,4 +1,5 @@
 'use client';
+import { ScopedHotelMoney } from './approximate-money';
 import { CountrySelect } from '../../components/ui/country-select';
 
 import { useBookingRulesEvaluation } from './booking-rules';
@@ -146,10 +147,7 @@ const gatewayLabels: Record<GatewayMethod, { title: string; description: string 
   },
 };
 
-const money = (value: Money) =>
-  new Intl.NumberFormat(undefined, { style: 'currency', currency: value.currency }).format(
-    Number(value.amount),
-  );
+const money = (value: Money) => <ScopedHotelMoney {...value} />;
 const longDate = (iso: string) =>
   new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(
     new Date(`${iso}T00:00:00`),
@@ -698,7 +696,7 @@ export function AddReservation({
                   { label: 'Promo code', value: appliedPromo.code },
                   {
                     label: 'Discount',
-                    value: `-${money(appliedPromo.promo.discount)}`,
+                    value: <ScopedHotelMoney {...appliedPromo.promo.discount} negative />,
                   },
                 ]
               : []),
@@ -1547,7 +1545,9 @@ export function AddReservation({
                               { label: 'Promo code', value: appliedPromo.code },
                               {
                                 label: 'Discount',
-                                value: `-${money(appliedPromo.promo.discount)}`,
+                                value: (
+                                  <ScopedHotelMoney {...appliedPromo.promo.discount} negative />
+                                ),
                               },
                             ]
                           : []),

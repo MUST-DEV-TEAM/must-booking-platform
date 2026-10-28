@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { mountMoneyScreen, expectHotelAmount } from '../../lib/money-test-utils';
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -403,3 +404,27 @@ async function settleQueries() {
     await Promise.resolve();
   }
 }
+
+it.each(['EUR', 'ALL'])('guest list and peek keep %s totals per currency', async (currency) => {
+  const view = await mountMoneyScreen(
+    createElement(DashboardGuests, { tenantId: 't', propertyId: 'p' }),
+    (url) =>
+      url.endsWith('/guests')
+        ? guests
+        : url.includes('suspected-duplicates')
+          ? []
+          : bookings.map((b) => ({
+              ...b,
+              total: { amount: '5000.00', currency },
+              paidAmount: '2500.00',
+            })),
+  );
+  await expectHotelAmount(view, currency, '5000.00');
+  const row = view.host.querySelector('tbody tr');
+  if (!row) throw Error('Guest row missing');
+  await act(async () => (row as HTMLElement).click());
+  await view.settle();
+  expect(document.body.textContent).toContain('Net paid');
+  await expectHotelAmount(view, currency, '5000.00');
+  await act(async () => view.root.unmount());
+});

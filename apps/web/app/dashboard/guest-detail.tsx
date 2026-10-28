@@ -1,6 +1,7 @@
 'use client';
+import { formatMoney as formattedMoney } from '../../lib/money';
 
-import { MoneyList } from './approximate-money';
+import { HotelMoney, MoneyList } from './approximate-money';
 import { useQuery } from '@tanstack/react-query';
 import { Ban, CalendarPlus, Mail, Pencil, Phone } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
@@ -80,10 +81,6 @@ function BackToGuests({ tenantId, propertyId }: { tenantId: string; propertyId: 
       <a href={backToGuestsHref(tenantId, propertyId)}>← All guests</a>
     </Button>
   );
-}
-
-function formattedMoney(amount: string, currency: string) {
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(Number(amount));
 }
 
 /** One guest profile, built from the property's existing booking and payment data. */
@@ -403,7 +400,11 @@ export function GuestDetail({
                           <BookingStatusBadge status={booking.status} />
                         </TableCell>
                         <TableCell className="px-2 py-2 text-right font-semibold tabular-nums">
-                          {formattedMoney(booking.total.amount, booking.total.currency)}
+                          <HotelMoney
+                            tenantId={tenantId}
+                            propertyId={propertyId}
+                            {...booking.total}
+                          />
                         </TableCell>
                       </TableRow>
                     );
@@ -429,7 +430,14 @@ export function GuestDetail({
                 <TableBody>
                   {pageBookings.map((booking) => {
                     const status = paymentStatus(booking);
-                    const amount = (value: string) => formattedMoney(value, booking.total.currency);
+                    const amount = (value: string) => (
+                      <HotelMoney
+                        tenantId={tenantId}
+                        propertyId={propertyId}
+                        amount={value}
+                        currency={booking.total.currency}
+                      />
+                    );
                     return (
                       <TableRow key={booking.id} className="h-12">
                         <TableCell className="px-3 py-2">

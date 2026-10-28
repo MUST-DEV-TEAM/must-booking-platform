@@ -1,4 +1,5 @@
 'use client';
+import { HotelMoney } from './approximate-money';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useClockSnapshot } from './clock-sync';
@@ -62,10 +63,6 @@ function useClockRates(root: string) {
   return { snapshot, hidden, off: new Set(hidden.data?.hiddenRateIds ?? []) };
 }
 
-const sampleMoney = (value: { amount: string; currency: string }) =>
-  new Intl.NumberFormat(undefined, { style: 'currency', currency: value.currency }).format(
-    Number(value.amount),
-  );
 const sampleDate = (iso: string) =>
   new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' }).format(
     new Date(`${iso}T00:00:00`),
@@ -268,13 +265,19 @@ export function ClockRatesOverview({
                               {limit(rate.maxChildren, 'children')}
                             </TableCell>
                             <TableCell>
-                              {sample.isPending
-                                ? '…'
-                                : samplePrice
-                                  ? sampleMoney(samplePrice)
-                                  : sample.data?.startsOn
-                                    ? 'Not bookable then'
-                                    : '—'}
+                              {sample.isPending ? (
+                                '…'
+                              ) : samplePrice ? (
+                                <HotelMoney
+                                  tenantId={tenantId}
+                                  propertyId={propertyId}
+                                  {...samplePrice}
+                                />
+                              ) : sample.data?.startsOn ? (
+                                'Not bookable then'
+                              ) : (
+                                '—'
+                              )}
                             </TableCell>
                             <TableCell>
                               <div className="flex items-center gap-2">

@@ -1,4 +1,5 @@
 'use client';
+import { ScopedHotelMoney } from './approximate-money';
 
 import { Button } from '../../components/ui/button';
 import { FormField } from '../../components/ui/form-field';
@@ -19,8 +20,9 @@ type Paid = {
   total: { amount: string; currency: string };
 };
 
-const formatMoney = (amount: string, currency: string) =>
-  new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(Number(amount));
+const money = (amount: string, currency: string) => (
+  <ScopedHotelMoney amount={amount} currency={currency} />
+);
 
 /** What would be refunded, as text like "220.00", or null when nothing valid is chosen. */
 export function refundAmountText(choice: RefundChoiceValue, booking: Paid): string | null {
@@ -89,7 +91,7 @@ export function RefundChoice({
   value: RefundChoiceValue;
   onChange: (value: RefundChoiceValue) => void;
   /** One line about the cancellation policy, shown under the choices. */
-  policyNote?: string;
+  policyNote?: import('react').ReactNode;
   /** False when the person has already decided to refund (the Refund button), so "No refund" is not offered. */
   allowNone?: boolean;
   heading?: string;
@@ -103,7 +105,7 @@ export function RefundChoice({
     <div className="space-y-3 rounded-xl border p-4">
       <SectionLabel>{heading}</SectionLabel>
       <p className="m-0 text-xs text-muted-foreground">
-        {formatMoney(remaining, currency)} was paid and can still be refunded.
+        {money(remaining, currency)} was paid and can still be refunded.
       </p>
       <SegmentedControl<RefundMode>
         label="Refund amount"
@@ -169,10 +171,16 @@ export function RefundChoice({
           </p>
         ) : (
           <p className="m-0 text-sm">
-            Refund: <strong>{preview ? formatMoney(preview, currency) : '—'}</strong>
-            {preview && Number(preview) < Number(remaining)
-              ? ` · ${formatMoney(String(Number(remaining) - Number(preview)), currency)} stays with the hotel`
-              : ''}
+            Refund: <strong>{preview ? money(preview, currency) : '—'}</strong>
+            {preview && Number(preview) < Number(remaining) ? (
+              <>
+                {' '}
+                · {money(String(Number(remaining) - Number(preview)), currency)} stays with the
+                hotel
+              </>
+            ) : (
+              ''
+            )}
           </p>
         )
       ) : (

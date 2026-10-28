@@ -1,4 +1,5 @@
 'use client';
+import { HotelMoneyProvider } from '../../lib/hotel-money-scope';
 import { HotelDateFormatProvider } from '../../lib/hotel-date-format';
 import { SectionAccess } from '../../components/ui/state-panel';
 import { ApprovalsQueue, useApprovals } from './approvals';
@@ -66,6 +67,7 @@ type Membership = { tenantId: string; role: TenantRole };
 type BookingMode = 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
 type PaymentGateways = { stripe: boolean; pokpay: boolean; payAtHotel: boolean };
 type Property = {
+  defaultCurrency?: string | null;
   timezone?: string;
   dateFormat?: string;
   id: string;
@@ -469,7 +471,7 @@ export function DashboardShell({
       ? 'overview'
       : tab;
 
-  return (
+  const content = (
     <HotelDateFormatProvider value={selectedProperty?.dateFormat}>
       <AppShell
         hotelBrand={
@@ -765,5 +767,14 @@ export function DashboardShell({
         ) : null}
       </AppShell>
     </HotelDateFormatProvider>
+  );
+  return (
+    <HotelMoneyProvider
+      tenantId={tenantId}
+      propertyId={selectedProperty?.id ?? ''}
+      currency={selectedProperty?.defaultCurrency}
+    >
+      {content}
+    </HotelMoneyProvider>
   );
 }
