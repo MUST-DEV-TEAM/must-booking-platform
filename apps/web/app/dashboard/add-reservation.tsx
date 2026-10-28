@@ -71,7 +71,17 @@ type RatePlan = { id: string; name: string; currency: string };
 type Money = { amount: string; currency: string };
 type Offer = { ok: true; total: Money } | { ok: false; reason: string; transient?: boolean };
 type AppliedPromo = { code: string; discount: Money; originalTotal: Money; source: string };
-type RateOffer = { rateId: string; name: string; label: string; mealNames: string[]; total: Money };
+type RateOffer = {
+  rateId: string;
+  name: string;
+  label: string;
+  mealNames: string[];
+  total: Money;
+  /** The price before the discount the rate includes, for a crossed-out price. */
+  originalTotal?: Money;
+  /** Guests only see this rate after entering its promo code; staff always see it. */
+  requiresCode?: boolean;
+};
 type Guest = {
   firstName: string;
   lastName: string;
@@ -1096,7 +1106,9 @@ export function AddReservation({
                       {rateOptions.map((option) => (
                         <OptionCard
                           key={option.rateId}
-                          title={option.label}
+                          title={
+                            option.requiresCode ? `${option.label} · Special rate` : option.label
+                          }
                           description={`${
                             rateOptions.filter((other) => other.label === option.label).length > 1
                               ? `${option.name} · `
@@ -1104,6 +1116,11 @@ export function AddReservation({
                           }${nights} night${nights === 1 ? '' : 's'} · ${adults} adult${adults === 1 ? '' : 's'}${children ? ` · ${children} child${children === 1 ? '' : 'ren'}` : ''}`}
                           aside={
                             <span className="block">
+                              {option.originalTotal ? (
+                                <s className="block text-xs text-muted-foreground">
+                                  {money(option.originalTotal)}
+                                </s>
+                              ) : null}
                               <span className="block text-base font-extrabold">
                                 {money(option.total)}
                               </span>

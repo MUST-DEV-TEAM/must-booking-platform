@@ -226,6 +226,8 @@ $render_checkout_price_breakdown_rows = static function (array $pricing, string 
                             $offer_name = (string) ($rate_offer['name'] ?? '');
                             $offer_total = isset($rate_offer['total']['amount']) ? (float) $rate_offer['total']['amount'] : 0.0;
                             $offer_currency = isset($rate_offer['total']['currency']) ? (string) $rate_offer['total']['currency'] : '';
+                            $offer_original = isset($rate_offer['originalTotal']['amount']) ? (float) $rate_offer['originalTotal']['amount'] : 0.0;
+                            $offer_needs_code = !empty($rate_offer['requiresCode']);
                             $label_is_shared = \count(\array_filter($rate_offers, static fn ($other) => (string) ($other['label'] ?? '') === $offer_label)) > 1;
                             ?>
                             <label class="must-checkout-rate<?php echo $offer_id === $selected_rate_id ? ' is-selected' : ''; ?>">
@@ -241,8 +243,14 @@ $render_checkout_price_breakdown_rows = static function (array $pricing, string 
                                     <?php if ($label_is_shared && $offer_name !== '') : ?>
                                         <small><?php echo \esc_html($offer_name); ?></small>
                                     <?php endif; ?>
+                                    <?php if ($offer_needs_code) : ?>
+                                        <small class="must-checkout-rate-special"><?php echo \esc_html__('Special rate', 'must-hotel-booking'); ?></small>
+                                    <?php endif; ?>
                                 </span>
                                 <span class="must-checkout-rate-price">
+                                    <?php if ($offer_original > $offer_total) : ?>
+                                        <del class="must-checkout-rate-original"><?php echo \MustHotelBooking\Frontend\format_frontend_money_html($offer_original, $offer_currency !== "" ? $offer_currency : $summary_currency); ?></del>
+                                    <?php endif; ?>
                                     <?php echo \MustHotelBooking\Frontend\format_frontend_money_html($offer_total, $offer_currency !== "" ? $offer_currency : $summary_currency); ?>
                                 </span>
                             </label>

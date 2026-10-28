@@ -189,6 +189,8 @@ export type ClockRateInfo = {
   label: string;
   mealNames: string[];
   currency: string | null;
+  /** The rate's "included discount" (0.12 = 12%), when the hotel set one. */
+  includedDiscountRate: number | null;
 };
 
 /** One bookable offer for a stay: a published rate with its real total from `/products`. */
@@ -198,6 +200,10 @@ export type ClockStayOffer = {
   label: string;
   mealNames: string[];
   total: Money;
+  /** The price before the discount, for a crossed-out price. Only present when the rate says it includes a discount. */
+  originalTotal?: Money;
+  /** The rate is hidden behind a promo code (a guest sees it only after entering the code; staff always see it). */
+  requiresCode?: boolean;
 };
 
 /**
@@ -290,6 +296,8 @@ type ClockRateRow = {
   meals?: Array<{ name?: string }>;
   /** Promo codes that unlock this rate. A rate with codes is hidden from everyone who does not enter one. */
   bonus_codes?: unknown;
+  /** Share of the price that is a discount, for drawing a crossed-out price (0.12 = 12%). Changes no price. */
+  included_discount_rate?: number | string | null;
 };
 
 /** The promo codes on a Clock rate, upper-case. Clock sends plain strings; an object with a `code` is accepted too. */
@@ -306,6 +314,34 @@ function rateBonusCodes(rate: { bonus_codes?: unknown }): string[] {
     if (code.trim()) codes.push(code.trim().toUpperCase());
   }
   return codes;
+}
+
+/** A rate's included discount as a fraction, or null when it is missing or not a sensible discount. */
+function includedDiscountOf(rate: {
+  included_discount_rate?: number | string | null;
+}): number | null {
+  const value = Number(rate.included_discount_rate);
+  return Number.isFinite(value) && value > 0 && value < 0.9 ? value : null;
+}
+
+/**
+ * The price before a discount, from the discounted price and the rate's included discount: 264 at 12% gives 300.
+ * Clock stores no original price; this is only a picture of the discount the hotel says is included.
+ */
+export function originalPrice(
+  total: Money,
+  includedDiscountRate: number | null,
+): Money | undefined {
+  if (!includedDiscountRate) return undefined;
+  const cents = Math.round((Number(total.amount) * 100) / (1 - includedDiscountRate));
+  if (!(cents > Math.round(Number(total.amount) * 100))) return undefined;
+  return { amount: (cents / 100).toFixed(2), currency: total.currency };
+}
+
+/** What a guest typed as a promo code, comparable with a rate's codes. */
+function normalizeCode(code: string | undefined): string | undefined {
+  const value = code?.trim().toUpperCase();
+  return value ? value : undefined;
 }
 
 @Injectable()
@@ -610,6 +646,7 @@ export class ClockAvailabilityService {
       childrenAges?: number[];
       clockRateId?: string;
       channel?: ClockChannel;
+      code?: string;
     },
   ): Promise<Result<Money>> {
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
@@ -644,6 +681,7 @@ export class ClockAvailabilityService {
       childrenAges: query.childrenAges,
       chosenRateId: query.clockRateId,
       channel: query.channel,
+      code: query.code,
     });
     if (!selection.ok) return selection;
     return { ok: true, value: selection.value.total };
@@ -1039,6 +1077,7 @@ export class ClockAvailabilityService {
       /** The rate the guest chose from the offers; only that rate may win. */
       chosenRateId?: string;
       channel?: ClockChannel;
+      code?: string;
     },
   ): Promise<Result<ClockRateSelection>> {
     const hidden = await this.hiddenRatesFor(query.tenantId, query.propertyId, query.channel);
@@ -1048,6 +1087,7 @@ export class ClockAvailabilityService {
       undefined,
       false,
       hidden,
+      query.code,
     );
     if (!rateIds.ok) return failure(rateIds.error);
     if (rateIds.value.ids.length === 0) return failure(noRatesError(rateIds.value));
@@ -1158,6 +1198,30 @@ export class ClockAvailabilityService {
     return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
   }
 
+  /** Whether a promo code the guest entered is one of the codes that unlock this Clock rate. */
+  async rateUnlockedByCode(
+    tenantId: string,
+    propertyId: string,
+    roomTypeId: string,
+    rateId: string,
+    code: string,
+  ): Promise<boolean> {
+    const wanted = normalizeCode(code);
+    if (!wanted) return false;
+    const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
+    if (!connection || connection.provider !== 'CLOCK_PMS') return false;
+    const parsed = parseClockCredentials(connection.credentials);
+    if (!parsed.ok) return false;
+    const externalRoomTypeId = await this.mappedExternalRoomTypeId(
+      tenantId,
+      propertyId,
+      roomTypeId,
+    );
+    if (!externalRoomTypeId) return false;
+    const all = await this.allRatesForRoomType(parsed.value, externalRoomTypeId);
+    return all.ok && (all.value.codeProtected?.[rateId] ?? []).includes(wanted);
+  }
+
   /** The bonus codes the hotel has set up on its rates in Clock (upper-case). Empty when not on Clock. */
   async clockBonusCodes(tenantId: string, propertyId: string): Promise<string[]> {
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
@@ -1184,6 +1248,8 @@ export class ClockAvailabilityService {
       childrenCount?: number;
       childrenAges?: number[];
       channel?: ClockChannel;
+      /** A promo code the guest entered; it reveals the rates that need it. */
+      code?: string;
     },
   ): Promise<Result<ClockStayOffer[]>> {
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
@@ -1209,6 +1275,7 @@ export class ClockAvailabilityService {
       undefined,
       false,
       hidden,
+      query.code,
     );
     if (!rates.ok) return failure(rates.error);
     if (rates.value.ids.length === 0) return failure(noRatesError(rates.value));
@@ -1235,15 +1302,19 @@ export class ClockAvailabilityService {
       ok: true,
       value: orderOffers(offers).map(({ rateId, offer }) => {
         const info = rates.value.info[rateId];
+        const total = {
+          amount: (offer.price.cents / 100).toFixed(2),
+          currency: offer.price.currency,
+        };
+        const original = originalPrice(total, info?.includedDiscountRate ?? null);
         return {
           rateId,
           name: info?.name ?? '',
           label: info?.label ?? rateOfferLabel([], info?.name ?? ''),
           mealNames: info?.mealNames ?? [],
-          total: {
-            amount: (offer.price.cents / 100).toFixed(2),
-            currency: offer.price.currency,
-          },
+          total,
+          ...(original ? { originalTotal: original } : {}),
+          ...(rates.value.codeProtected?.[rateId] ? { requiresCode: true } : {}),
         };
       }),
     };
@@ -1277,6 +1348,7 @@ export class ClockAvailabilityService {
       childrenAges?: number[];
       clockRateId?: string;
       channel?: ClockChannel;
+      code?: string;
     },
   ): Promise<Result<ClockQuote>> {
     const total = await this.getQuote(tenantId, propertyId, query);
@@ -1307,6 +1379,7 @@ export class ClockAvailabilityService {
       undefined,
       false,
       hidden,
+      query.code,
     );
     if (!rateIds.ok) return failure(rateIds.error);
     if (hidden && query.clockRateId && !rateIds.value.ids.includes(query.clockRateId))
@@ -1691,10 +1764,16 @@ export class ClockAvailabilityService {
     loadRates?: () => Promise<ClockOutcome<ClockRateRow[]>>,
     fresh = false,
     hidden?: Set<string>,
+    unlockCode?: string,
   ): Promise<ClockOutcome<RoomTypeRates>> {
     const all = await this.allRatesForRoomType(credentials, externalRoomTypeId, loadRates, fresh);
     if (!all.ok || !hidden) return all;
-    const protectedIds = new Set(Object.keys(all.value.codeProtected ?? {}));
+    const code = normalizeCode(unlockCode);
+    const protectedIds = new Set(
+      Object.entries(all.value.codeProtected ?? {})
+        .filter(([, codes]) => !code || !codes.includes(code))
+        .map(([id]) => id),
+    );
     const offered = (id: string) => !hidden.has(id) && !protectedIds.has(id);
     const ids = all.value.ids.filter(offered);
     const info = Object.fromEntries(Object.entries(all.value.info).filter(([id]) => offered(id)));
@@ -1740,6 +1819,7 @@ export class ClockAvailabilityService {
         label: rateOfferLabel(mealNames, rate.name ?? ''),
         mealNames,
         currency: rate.currency ?? null,
+        includedDiscountRate: includedDiscountOf(rate),
       };
     }
     const value: RoomTypeRates = {
