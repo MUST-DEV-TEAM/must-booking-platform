@@ -4,6 +4,7 @@ export type AuditSource =
 type Definition = { title: string; result?: AuditResult; source?: AuditSource; routine?: boolean };
 /** Reviewed producer meanings. Defaults apply at INSERT only, never to historical reads. */
 export const AUDIT_EVENTS: Record<string, Definition> = {
+  'rates.pair_changed': { title: 'Rate comparison changed', result: 'completed' },
   'rates.website_visibility_changed': {
     title: 'Rate switched on or off for the website',
     result: 'completed',

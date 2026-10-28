@@ -20,6 +20,7 @@ function makeService(
     hasActiveRoomConflict?: boolean;
     displayPriceStore?: unknown;
     hiddenRateIds?: string[];
+    pairs?: Record<string, string>;
   } = {},
 ) {
   const database = {
@@ -33,6 +34,12 @@ function makeService(
             : overrides.mappedExternalId === undefined
               ? '42023'
               : overrides.mappedExternalId;
+          if (sql.includes('AS "localRoomTypeId"'))
+            return Promise.resolve(
+              mapped === null
+                ? []
+                : [{ localRoomTypeId: query.roomTypeId, externalRoomTypeId: mapped }],
+            );
           return Promise.resolve(mapped === null ? [] : [{ externalEntityId: mapped }]);
         }),
       }),
@@ -64,6 +71,7 @@ function makeService(
     bookingConsistency as never,
     overrides.displayPriceStore as never,
     { hiddenRateIds: vi.fn().mockResolvedValue(new Set(overrides.hiddenRateIds ?? [])) } as never,
+    { pairs: vi.fn().mockImplementation(async () => overrides.pairs ?? {}) } as never,
   );
   return { service, client, connections, rateRankings, bookingConsistency, rateLimiter };
 }
@@ -2516,5 +2524,149 @@ describe('the crossed-out price', () => {
       originalTotal: { amount: '300.00', currency: 'EUR' },
     });
     expect(byId['615688']).not.toHaveProperty('originalTotal');
+  });
+});
+
+describe('public comparison rate pricing', () => {
+  it('marks code-protected rates in the current detailed catalogue used by validation and selects', async () => {
+    const request = vi.fn().mockResolvedValue({
+      status: 200,
+      body: ratesBody.map((r) => ({ ...r, bonus_codes: r.id === fullBoard.id ? ['VIP'] : [] })),
+    });
+    const { service } = makeService({ client: { request } });
+    const result = await service.ratesForAllRoomTypesDetailed('t1', 'p1');
+    expect(
+      result.ok &&
+        result.value.get(query.roomTypeId)?.find((r) => r.externalRateId === String(fullBoard.id)),
+    ).toHaveProperty('requiresCode', true);
+    expect(
+      result.ok &&
+        result.value
+          .get(query.roomTypeId)
+          ?.find((r) => r.externalRateId === String(bedAndBreakfast.id)),
+    ).not.toHaveProperty('requiresCode');
+  });
+
+  const pairedQuery = { ...query, channel: 'website' as const };
+  function setup(
+    options: {
+      discount?: number;
+      hidden?: boolean;
+      coded?: boolean;
+      unpublished?: boolean;
+      mismatch?: boolean;
+      unavailable?: boolean;
+      errors?: boolean;
+      currency?: string;
+      compareCents?: number;
+    } = {},
+  ) {
+    const rates = ratesBody.map((rate) =>
+      rate.id === bedAndBreakfast.id
+        ? { ...rate, included_discount_rate: options.discount }
+        : {
+            ...rate,
+            wbe: !options.unpublished,
+            bonus_codes: options.coded ? ['VIP'] : [],
+            ...(options.mismatch ? { bookable_id: 999 } : {}),
+          },
+    );
+    const compared = {
+      ...offer(options.compareCents ?? 32000),
+      available: !options.unavailable,
+      errors: options.errors ? { base: ['closed'] } : {},
+      price: { cents: options.compareCents ?? 32000, currency: options.currency ?? 'EUR' },
+    };
+    const request = vi.fn().mockImplementation(async (_credentials, input) => ({
+      status: 200,
+      body:
+        input.path === '/rates/'
+          ? rates
+          : [{ id: 42023, rates: { '546549': [offer(26400)], '615688': [compared] } }],
+    }));
+    const overrides = {
+      client: { request },
+      pairs: { '546549': '615688' },
+      hiddenRateIds: options.hidden ? ['615688'] : [],
+    };
+    return { ...makeService(overrides), request, overrides };
+  }
+
+  it.each(['website', 'staff'] as const)(
+    'uses the real paired total ahead of included discount on %s, with no extra products request',
+    async (channel) => {
+      const { service, request } = setup({ discount: 0.12 });
+      const offers = await service.listOffersForStay('t1', 'p1', { ...pairedQuery, channel });
+      expect(offers.ok && offers.value.find((o) => o.rateId === '546549')?.originalTotal).toEqual({
+        amount: '320.00',
+        currency: 'EUR',
+      });
+      expect(request).toHaveBeenCalledTimes(2);
+      expect(request.mock.calls[1][1].query.rates).toEqual(
+        expect.arrayContaining(['546549', '615688']),
+      );
+    },
+  );
+
+  it.each([
+    { hidden: true },
+    { coded: true },
+    { unpublished: true },
+    { mismatch: true },
+    { unavailable: true },
+    { errors: true },
+    { currency: 'ALL' },
+    { compareCents: 26400 },
+    { compareCents: 25000 },
+  ])(
+    'ignores an invalid comparison %j, with included discount as the only fallback',
+    async (options) => {
+      for (const channel of ['website', 'staff'] as const) {
+        for (const discount of [undefined, 0.12]) {
+          const { service } = setup({ ...options, discount });
+          const offers = await service.listOffersForStay('t1', 'p1', { ...pairedQuery, channel });
+          const promo = offers.ok && offers.value.find((o) => o.rateId === '546549');
+          expect(promo).toBeTruthy();
+          if (discount)
+            expect(promo).toHaveProperty('originalTotal', { amount: '300.00', currency: 'EUR' });
+          else expect(promo).not.toHaveProperty('originalTotal');
+        }
+      }
+    },
+  );
+
+  it('uses pairs for room-card search, changes cache identity on clear, and never adds an unavailable comparison to offers', async () => {
+    const { service, request, overrides } = setup({ discount: 0.12 });
+    const first = await service.getStaySearch('t1', 'p1', [pairedQuery]);
+    expect(first.details[query.roomTypeId]).toHaveProperty('originalTotal', {
+      amount: '320.00',
+      currency: 'EUR',
+    });
+    const cached = await service.getStaySearch('t1', 'p1', [pairedQuery]);
+    expect(cached.details).toEqual(first.details);
+    expect(request).toHaveBeenCalledTimes(2);
+    overrides.pairs = {} as typeof overrides.pairs;
+    const cleared = await service.getStaySearch('t1', 'p1', [pairedQuery]);
+    expect(cleared.details[query.roomTypeId]).toHaveProperty('originalTotal', {
+      amount: '300.00',
+      currency: 'EUR',
+    });
+    expect(request).toHaveBeenCalledTimes(3);
+    const unavailable = setup({ unavailable: true });
+    const offers = await unavailable.service.listOffersForStay('t1', 'p1', pairedQuery);
+    expect(offers.ok && offers.value.map((o) => o.rateId)).toEqual(['546549']);
+  });
+
+  it.each([
+    { hidden: true },
+    { coded: true },
+    { unpublished: true },
+    { unavailable: true },
+    { currency: 'ALL' },
+    { compareCents: 26400 },
+  ])('room-card search also ignores invalid references %j', async (options) => {
+    const { service } = setup(options);
+    const found = await service.getStaySearch('t1', 'p1', [pairedQuery]);
+    expect(found.details[query.roomTypeId]).not.toHaveProperty('originalTotal');
   });
 });
