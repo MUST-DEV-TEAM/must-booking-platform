@@ -14,9 +14,9 @@ final class MustApiClient
     private const WP_GUEST_COOKIE = 'must_wp_guest_session';
 
     /** @param array<string, mixed> $query @return array{ok: bool, status: int, body: array<string, mixed>|null} */
-    public static function get(string $path, array $query = []): array
+    public static function get(string $path, array $query = [], array $headers = []): array
     {
-        return self::request('GET', $path, $query);
+        return self::request('GET', $path, $query, null, null, $headers);
     }
 
     /** @param array<string, mixed> $body @return array{ok: bool, status: int, body: array<string, mixed>|null} */
@@ -105,7 +105,7 @@ final class MustApiClient
      * @param array<string, mixed>|null $body
      * @return array{ok: bool, status: int, body: array<string, mixed>|null}
      */
-    private static function request(string $method, string $path, array $query = [], ?array $body = null, ?string $idempotencyKey = null): array
+    private static function request(string $method, string $path, array $query = [], ?array $body = null, ?string $idempotencyKey = null, array $extraHeaders = []): array
     {
         $baseUrl = MustBookingConfig::get_must_api_base_url();
         if ($baseUrl === '') {
@@ -117,7 +117,7 @@ final class MustApiClient
             $url .= (\strpos($path, '?') === false ? '?' : '&') . \http_build_query($query);
         }
 
-        $headers = ['Content-Type' => 'application/json'];
+        $headers = \array_merge(['Content-Type' => 'application/json'], $extraHeaders);
         $guestSession = self::guestCookieValue();
         if ($guestSession !== null) {
             $headers['Cookie'] = 'must_guest_session=' . $guestSession;
@@ -165,6 +165,7 @@ final class MustApiClient
             [
                 'ok' => $status >= 200 && $status < 300,
                 'status' => $status,
+                'etag' => (string) \wp_remote_retrieve_header($response, 'etag'),
                 'body' => \is_array($decoded) ? $decoded : null,
             ],
             $response,

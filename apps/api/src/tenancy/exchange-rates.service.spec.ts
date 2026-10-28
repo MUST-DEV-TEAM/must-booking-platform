@@ -64,3 +64,64 @@ describe('ExchangeRatesService', () => {
     await expect(service.ratesFor('EUR', ['USD'])).resolves.toBeNull();
   });
 });
+
+describe('hotel exchange rates', () => {
+  it('prefers the hotel rate per currency and uses the feed for the rest', async () => {
+    const { db } = make(
+      stored([
+        { code: 'ALL', rate: '110' },
+        { code: 'USD', rate: '1.25' },
+        { code: 'EUR', rate: '1' },
+      ]),
+    );
+    const hotel = {
+      snapshot: vi.fn().mockResolvedValue({
+        base: 'ALL',
+        version: '7',
+        displayCurrencies: null,
+        rates: [{ currency: 'EUR', rate: '100.00000000' }],
+      }),
+    };
+    const service = new ExchangeRatesService(db as never, hotel as never);
+    const result = await service.ratesFor('ALL', ['EUR', 'USD'], {
+      tenantId: 't',
+      propertyId: 'p',
+    });
+    expect(result).toMatchObject({
+      base: 'ALL',
+      rates: { EUR: 0.01, USD: 0.011364 },
+      sources: { EUR: 'hotel', USD: 'feed' },
+      version: '7',
+    });
+    expect(hotel.snapshot).toHaveBeenCalledWith('t', 'p');
+    hotel.snapshot.mockResolvedValueOnce({
+      base: 'ALL',
+      version: '8',
+      displayCurrencies: null,
+      rates: [],
+    });
+    expect(
+      await service.ratesFor('ALL', ['EUR'], { tenantId: 't', propertyId: 'p' }),
+    ).toMatchObject({ rates: { EUR: 0.009091 }, sources: { EUR: 'feed' } });
+  });
+  it('serves hotel rates without a feed and includes the hotel-selected display currencies', async () => {
+    const { db } = make([]);
+    const hotel = {
+      snapshot: vi.fn().mockResolvedValue({
+        base: 'ALL',
+        version: '1',
+        displayCurrencies: ['EUR'],
+        rates: [{ currency: 'EUR', rate: '100.00000000' }],
+      }),
+    };
+    const service = new ExchangeRatesService(db as never, hotel as never);
+    expect(
+      await service.ratesFor('ALL', ['ALL'], { tenantId: 't', propertyId: 'p' }),
+    ).toMatchObject({
+      rates: { ALL: 1, EUR: 0.01 },
+      sources: { EUR: 'hotel' },
+      displayCurrencies: ['EUR'],
+    });
+    expect(db.$queryRaw).not.toHaveBeenCalled();
+  });
+});

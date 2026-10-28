@@ -190,6 +190,8 @@ import { PropertyCurrencyService } from './tenancy/property-currency.service';
 import { PromoCodeService } from './booking/promo-code.service';
 import { PromoCodeAdminService } from './booking/promo-code-admin.service';
 import { PromoCodesController } from './booking/promo-codes.controller';
+import { PropertyExchangeRatesService } from './tenancy/property-exchange-rates.service';
+import { PropertyExchangeRatesController } from './tenancy/property-exchange-rates.controller';
 import { ExchangeRatesService } from './tenancy/exchange-rates.service';
 import { PublicCatalogController } from './tenancy/public-catalog.controller';
 import { PublicCatalogService } from './tenancy/public-catalog.service';
@@ -356,6 +358,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     CapabilitiesController,
     PublicAvailabilityController,
     PublicExchangeRatesController,
+    PropertyExchangeRatesController,
     PropertyCurrencyController,
     PromoCodesController,
     PublicCatalogController,
@@ -399,6 +402,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
   providers: [
     TenantDatabaseService,
     ExchangeRatesService,
+    PropertyExchangeRatesService,
     PropertyCurrencyService,
     PromoCodeService,
     PromoCodeAdminService,

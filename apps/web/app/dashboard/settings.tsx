@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { type ReactNode, useState } from 'react';
 import { BrandingSettings, PaymentSettings, WebsiteSettings } from './settings-connection-forms';
 import { UnsavedChangesBoundary } from '../../components/ui/unsaved-changes';
+import { DisplayCurrenciesSettings } from './display-currencies-settings';
 import { IntegrationSettings } from './integration-settings';
 import { toast } from 'sonner';
 import { CheckInOutSettings, BookingRulesSettings, GeneralSettings } from './settings-forms';
@@ -239,6 +240,12 @@ export function DashboardSettings({
             property={property}
             saving={saveMutation.isPending}
             onSave={(update) => void save(update)}
+          />
+          <DisplayCurrenciesSettings
+            tenantId={tenantId}
+            propertyId={propertyId}
+            canWrite={canWrite}
+            refreshKey={property.defaultCurrency}
           />
         </SettingsAreaPanel>
         <SettingsAreaPanel activeArea={settingsArea} area="booking-rules">

@@ -1,10 +1,12 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 
 import { TenantDatabaseService } from './tenant-database.service';
+import { Prisma } from '@prisma/client';
+import { PropertyExchangeRatesService } from './property-exchange-rates.service';
 
 /**
- * Daily euro-based exchange rates, for showing approximate prices in other currencies only.
- * Guests are always charged in the hotel's own currency; nothing here is used for a payment.
+ * Approximate display rates: hotel overrides win, with a daily euro-based feed as fallback.
+ * Payment-ledger annotations may snapshot these rates; they never determine a charging amount.
  */
 const REFRESH_AFTER_MS = 12 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 8_000;
@@ -54,6 +56,9 @@ export type ExchangeRates = {
   date: string;
   /** How many units of each currency one unit of `base` buys. */
   rates: Record<string, number>;
+  sources?: Record<string, 'hotel' | 'feed'>;
+  version?: string;
+  displayCurrencies?: string[] | null;
 };
 
 @Injectable()
@@ -61,32 +66,77 @@ export class ExchangeRatesService {
   private readonly logger = new Logger(ExchangeRatesService.name);
   private refreshing: Promise<void> | null = null;
 
-  constructor(@Inject(TenantDatabaseService) private readonly db: TenantDatabaseService) {}
+  constructor(
+    @Inject(TenantDatabaseService) private readonly db: TenantDatabaseService,
+    @Inject(PropertyExchangeRatesService)
+    private readonly hotelRates?: PropertyExchangeRatesService,
+  ) {}
 
   /**
    * Rates for `currencies`, expressed against `base` (the hotel's currency). Refreshes from the
    * feed at most twice a day and keeps serving the stored rates when the feed is down.
    */
-  async ratesFor(base: string, currencies: string[]): Promise<ExchangeRates | null> {
-    const wanted = Array.from(
+  async ratesFor(
+    base: string,
+    currencies: string[],
+    scope?: { tenantId: string; propertyId: string },
+  ): Promise<ExchangeRates | null> {
+    let wanted = Array.from(
       new Set(
         currencies.map((code) => code.toUpperCase()).filter((code) => /^[A-Z]{3}$/.test(code)),
       ),
     );
-    const pivot = Array.from(new Set([base.toUpperCase(), ...wanted]));
-    let stored = await this.stored(pivot);
+    const hotel =
+      scope && this.hotelRates
+        ? await this.hotelRates.snapshot(scope.tenantId, scope.propertyId)
+        : null;
+    if (hotel?.displayCurrencies)
+      wanted = [...new Set([...wanted, ...hotel.displayCurrencies, base.toUpperCase()])].sort();
+    const overrides = new Map(
+      (hotel?.base === base.toUpperCase() ? hotel.rates : []).map((row) => [row.currency, row]),
+    );
+    const missing = wanted.filter((code) => code !== base.toUpperCase() && !overrides.has(code));
+    const pivot = Array.from(new Set([base.toUpperCase(), ...missing]));
+    let stored = missing.length
+      ? await this.stored(pivot)
+      : {
+          rates: { [base.toUpperCase()]: 1 },
+          date:
+            [...overrides.values()]
+              .map((row) => row.updatedAt?.toISOString().slice(0, 10))
+              .filter(Boolean)
+              .sort()[0] ?? new Date().toISOString().slice(0, 10),
+          stale: false,
+        };
     if (stored.stale) {
       await this.refresh();
       stored = await this.stored(pivot);
     }
     const baseRate = stored.rates[base.toUpperCase()];
-    if (!baseRate || !stored.date) return null;
     const rates: Record<string, number> = {};
+    const sources: Record<string, 'hotel' | 'feed'> = {};
     for (const code of wanted) {
-      const quote = stored.rates[code];
-      if (quote) rates[code] = round(quote / baseRate);
+      const override = overrides.get(code);
+      if (code === base.toUpperCase()) {
+        rates[code] = 1;
+        sources[code] = 'feed';
+      } else if (override) {
+        rates[code] = new Prisma.Decimal(1).dividedBy(override.rate).toNumber();
+        sources[code] = 'hotel';
+      } else if (baseRate && stored.rates[code]) {
+        rates[code] = round(stored.rates[code] / baseRate);
+        sources[code] = 'feed';
+      }
     }
-    return { base: base.toUpperCase(), date: stored.date, rates };
+    if (!Object.keys(rates).length && !stored.date) return null;
+    return {
+      base: base.toUpperCase(),
+      date: stored.date || new Date().toISOString().slice(0, 10),
+      rates,
+      ...(hotel
+        ? { sources, version: hotel.version, displayCurrencies: hotel.displayCurrencies }
+        : {}),
+    };
   }
 
   private async stored(codes: string[]) {
