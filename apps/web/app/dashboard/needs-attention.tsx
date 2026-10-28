@@ -1,5 +1,6 @@
 'use client';
 
+import { HotelMoney } from './approximate-money';
 import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, CalendarClock, CreditCard, TriangleAlert, Zap } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -469,7 +470,14 @@ export function NeedsAttentionTab({
                   },
                   {
                     label: 'Booking total',
-                    value: money(selected.total.amount, selected.total.currency),
+                    value: (
+                      <HotelMoney
+                        tenantId={tenantId}
+                        propertyId={propertyId}
+                        amount={selected.total.amount}
+                        currency={selected.total.currency}
+                      />
+                    ),
                   },
                   {
                     label: 'Balance due',

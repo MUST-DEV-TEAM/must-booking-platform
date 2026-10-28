@@ -186,7 +186,7 @@ describe('ClockPmsProvider.getAvailability', () => {
     expect(availability.getAvailability).toHaveBeenCalledWith(
       context.tenantId,
       context.propertyId,
-      query,
+      { ...query, channel: 'website' },
     );
     expect(result).toEqual(availabilityResult);
   });

@@ -1,4 +1,5 @@
 'use client';
+import { HotelMoney } from './approximate-money';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/card';
 import { StatTile } from '../../components/ui/stat-tile';
@@ -61,12 +62,28 @@ export function ClockFinancialCard({
   status,
   error,
   localPaid,
+  tenantId,
+  propertyId,
 }: {
   data?: ClockFinancial | null;
   status?: string;
   error?: string | null;
   localPaid: string;
+  /** When given, an amount in another currency than the hotel's gets an estimate in brackets. */
+  tenantId?: string;
+  propertyId?: string;
 }) {
+  const show = (value: Money) =>
+    tenantId && propertyId ? (
+      <HotelMoney
+        tenantId={tenantId}
+        propertyId={propertyId}
+        amount={value.amount}
+        currency={value.currency}
+      />
+    ) : (
+      moneyText(value)
+    );
   if (status === 'NOT_CONNECTED' || status === 'NOT_LINKED') return null;
   return (
     <Card>
@@ -88,15 +105,15 @@ export function ClockFinancialCard({
         ) : (
           <>
             <div className="grid gap-3 sm:grid-cols-3">
-              <StatTile label="Payments in Clock" value={moneyText(data.paid)} />
-              <StatTile label="Refunds in Clock" value={moneyText(data.refunded)} />
+              <StatTile label="Payments in Clock" value={show(data.paid)} />
+              <StatTile label="Refunds in Clock" value={show(data.refunded)} />
               <StatTile
                 label={
                   data.balance.amount.startsWith('-')
                     ? 'Guest credit in Clock'
                     : 'Outstanding in Clock'
                 }
-                value={moneyText({
+                value={show({
                   ...data.balance,
                   amount: data.balance.amount.replace(/^-/, ''),
                 })}
@@ -138,7 +155,7 @@ export function ClockFinancialCard({
                               ? 'Internal transfer'
                               : 'Payment'}
                         </TableCell>
-                        <TableCell>{moneyText(p.amount)}</TableCell>
+                        <TableCell>{show(p.amount)}</TableCell>
                         <TableCell>{p.type.replaceAll('_', ' ')}</TableCell>
                         <TableCell className="max-w-64 break-words">
                           {p.reference || 'No reference supplied'}
