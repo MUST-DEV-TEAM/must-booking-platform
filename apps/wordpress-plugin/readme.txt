@@ -4,7 +4,7 @@ Tags: hotel, booking, reservation, accommodation
 Requires at least: 5.0
 Tested up to: 6.0
 Requires PHP: 7.4
-Stable tag: 0.4.118
+Stable tag: 0.4.119
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -31,6 +31,9 @@ Main features include:
 5. When updating, upload the new release ZIP or use the configured updater, then review **Diagnostics & Maintenance** after the update completes.
 
 == Changelog ==
+
+= 0.4.119 =
+* Currency switcher: convert room prices correctly when their original currency differs from the hotel exchange-rate base; keep the original payable price visible.
 
 = 0.4.118 =
 * Use hotel-managed display exchange rates from MUST, revalidate every ten minutes, and keep the last good rates during API outages.

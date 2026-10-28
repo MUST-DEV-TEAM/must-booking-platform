@@ -52,21 +52,25 @@
             if (!node.hasAttribute('data-original')) {
                 node.setAttribute('data-original', node.textContent);
             }
-            var hotelCurrency = node.getAttribute('data-currency');
+            var priceCurrency = node.getAttribute('data-currency');
             var amount = parseFloat(node.getAttribute('data-amount'));
-            if (!rates || current === hotelCurrency || !isFinite(amount)) {
+            if (!rates || current === priceCurrency || !isFinite(amount)) {
                 node.textContent = node.getAttribute('data-original');
                 node.removeAttribute('data-converted');
                 return;
             }
-            // Rates are expressed from the hotel currency; a price in another currency is left alone.
-            if (rates.base !== hotelCurrency || !rates.rates[current]) {
+            // Both currencies use the same hotel base, even when Clock prices the room in euros.
+            var sourceRate = priceCurrency === rates.base ? 1 : rates.rates[priceCurrency];
+            var targetRate = current === rates.base ? 1 : rates.rates[current];
+            var converted = amount / sourceRate * targetRate;
+            if (typeof sourceRate !== 'number' || !isFinite(sourceRate) || sourceRate <= 0 ||
+                typeof targetRate !== 'number' || !isFinite(targetRate) || targetRate <= 0 || !isFinite(converted)) {
                 node.removeAttribute('data-converted');
                 node.textContent = node.getAttribute('data-original');
                 return;
             }
             // The converted amount is for reading only; what the guest really pays stays visible beside it.
-            node.textContent = '≈ ' + format(amount * rates.rates[current], current) +
+            node.textContent = '≈ ' + format(converted, current) +
                 ' (' + node.getAttribute('data-original') + ')';
             node.setAttribute('data-converted', 'true');
         });
@@ -196,8 +200,14 @@
 
     render();
 
+    // Source currencies are needed for conversion even if the hotel hides them from the menu.
+    var requestedCurrencies = currencies.slice();
+    Array.prototype.forEach.call(document.querySelectorAll('.must-price[data-amount]'), function (node) {
+        var code = node.getAttribute('data-currency');
+        if (/^[A-Z]{3}$/.test(code) && requestedCurrencies.indexOf(code) === -1) requestedCurrencies.push(code);
+    });
     var url = window.mustCurrencyConfig.ajaxUrl +
-        '?action=must_hotel_booking_exchange_rates&currencies=' + encodeURIComponent(currencies.join(','));
+        '?action=must_hotel_booking_exchange_rates&currencies=' + encodeURIComponent(requestedCurrencies.join(','));
     window.fetch(url, { credentials: 'same-origin' })
         .then(function (response) { return response.json(); })
         .then(function (payload) {
