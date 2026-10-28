@@ -22,6 +22,7 @@ import {
   ruleNights,
   type BookingRulePolicy,
 } from './booking-rules';
+import { isClockManagedProperty } from './clock-managed-property';
 import { BookingUpdateNotificationService } from '../mail/booking-update-notification.service';
 import { NOTIFICATION_UUID } from '../tenancy/notification-registry';
 type Context = { tenantId: string; propertyId: string; userId: string };
@@ -296,7 +297,9 @@ export class BookingAmendService {
       restrictions,
       adults: row.adults,
       children: row.children,
-      maxOccupancy: row.maxOccupancy,
+      maxOccupancy: (await isClockManagedProperty(tx, c.tenantId, c.propertyId))
+        ? undefined
+        : row.maxOccupancy,
       roomTypeStatus: row.roomTypeStatus,
       roomActive: row.roomId ? row.roomActive === true : undefined,
     });
