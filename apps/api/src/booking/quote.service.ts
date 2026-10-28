@@ -80,6 +80,7 @@ export type DisplayPrice = {
   roomTypeId: string;
   available: boolean;
   total?: Money;
+  originalTotal?: Money;
   /** How many rooms of this type are left, when the hotel system says. */
   freeRooms?: number | null;
   /** Why this room type cannot be sold for the stay, when that is known. Absent when it could not be checked. */
@@ -498,6 +499,9 @@ export class QuoteService {
           ...base,
           total: quote.value,
           ...(detail?.available ? { freeRooms: detail.freeRooms } : {}),
+          ...(detail?.available && detail.originalTotal
+            ? { originalTotal: detail.originalTotal }
+            : {}),
         };
       });
     }

@@ -443,6 +443,9 @@ $continue_label = \function_exists('\must_hotel_booking\get_accommodation_contin
                                                 <?php elseif ($display_price_available) : ?>
                                                     <p class="must-booking-room-from-price">
                                                         <span><?php echo \esc_html__('From', 'must-hotel-booking'); ?></span>
+                                                        <?php if (isset($display_price['originalTotal']) && \is_array($display_price['originalTotal']) && ($display_price['originalTotal']['currency'] ?? '') === $display_price_currency && (float) ($display_price['originalTotal']['amount'] ?? 0) > (float) ($display_price['total']['amount'] ?? 0)) : ?>
+                                                            <del class="must-booking-room-original-price"><?php echo \MustHotelBooking\Frontend\format_frontend_money_html((float) $display_price['originalTotal']['amount'], $display_price_currency); ?></del>
+                                                        <?php endif; ?>
                                                         <strong><?php echo $display_price_html; ?></strong>
                                                         <?php if ($display_nights > 0) : ?>
                                                             <small>

@@ -6241,3 +6241,8 @@ div.must-confirmation-picker:nth-child(1) > div:nth-child(3) > div:nth-child(1) 
     margin-left: 0.4rem;
     opacity: 0.75;
 }
+
+.must-booking-room-original-price {
+    opacity: 0.6;
+    font-size: 0.9em;
+}

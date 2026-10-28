@@ -120,7 +120,7 @@ export type UnavailableReason =
 
 /** What a search learns about one room type for one stay, from a single Clock product request. */
 export type StaySearchDetail =
-  | { available: true; price: Money; freeRooms: number | null }
+  | { available: true; price: Money; originalTotal?: Money; freeRooms: number | null }
   | { available: false; reason: UnavailableReason };
 
 /** Said when a property is not connected to Clock; callers that only apply to Clock hotels match it. */
@@ -846,6 +846,7 @@ export class ClockAvailabilityService {
         details[entry.query.roomTypeId] = {
           available: true,
           price: stored.value,
+          ...(stored.originalTotal ? { originalTotal: stored.originalTotal } : {}),
           freeRooms: stored.freeRooms ?? null,
         };
       } else if (stored?.value && age < DISPLAY_PRICE_STALE_MS) {
@@ -853,6 +854,7 @@ export class ClockAvailabilityService {
         details[entry.query.roomTypeId] = {
           available: true,
           price: stored.value,
+          ...(stored.originalTotal ? { originalTotal: stored.originalTotal } : {}),
           freeRooms: stored.freeRooms ?? null,
         };
         stale.push(item);
@@ -991,9 +993,12 @@ export class ClockAvailabilityService {
       const freeRooms = Number.isFinite(winner.offer.room_type_free_rooms)
         ? winner.offer.room_type_free_rooms
         : null;
-      await this.rememberDisplayPrice(cacheKey, value, { freeRooms });
+      const info = entry.rates.ok ? entry.rates.value.info[winner.rateId] : undefined;
+      const originalTotal = originalPrice(value, info?.includedDiscountRate ?? null);
+      const original = originalTotal ? { originalTotal } : {};
+      await this.rememberDisplayPrice(cacheKey, value, { freeRooms, ...original });
       results[entry.query.roomTypeId] = { ok: true, value };
-      details[entry.query.roomTypeId] = { available: true, price: value, freeRooms };
+      details[entry.query.roomTypeId] = { available: true, price: value, freeRooms, ...original };
     }
   }
 
@@ -1009,7 +1014,7 @@ export class ClockAvailabilityService {
   private async rememberDisplayPrice(
     key: string,
     value: Money | null,
-    extra: { freeRooms?: number | null; reason?: UnavailableReason } = {},
+    extra: { freeRooms?: number | null; reason?: UnavailableReason; originalTotal?: Money } = {},
   ): Promise<void> {
     const entry: StoredDisplayPrice = { value, storedAt: Date.now(), ...extra };
     this.keepDisplayPriceInMemory(key, entry);

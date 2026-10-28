@@ -4,7 +4,7 @@ Tags: hotel, booking, reservation, accommodation
 Requires at least: 5.0
 Tested up to: 6.0
 Requires PHP: 7.4
-Stable tag: 0.4.116
+Stable tag: 0.4.117
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -31,6 +31,9 @@ Main features include:
 5. When updating, upload the new release ZIP or use the configured updater, then review **Diagnostics & Maintenance** after the update completes.
 
 == Changelog ==
+
+= 0.4.117 =
+* Show the crossed-out original price on room cards when the lowest offered rate includes a discount.
 
 = 0.4.116 =
 * Checkout: a rate that includes a discount shows the price before the discount crossed out, in the list of rates and in the price summary.

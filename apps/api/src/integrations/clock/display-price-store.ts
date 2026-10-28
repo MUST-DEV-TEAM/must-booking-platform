@@ -7,6 +7,8 @@ import IORedis from 'ioredis';
 export type StoredDisplayPrice = {
   /** The lowest available price Clock gave, or null when Clock had nothing available for the stay. */
   value: { amount: string; currency: string } | null;
+  /** The winning rate's price before its included discount; absent in older entries. */
+  originalTotal?: { amount: string; currency: string };
   /** When Clock last answered, in milliseconds since 1970. */
   storedAt: number;
   /** How many rooms of this type were free, when Clock said. */
