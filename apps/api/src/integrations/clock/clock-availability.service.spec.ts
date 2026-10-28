@@ -2156,6 +2156,73 @@ describe('classifyUnavailable', () => {
 });
 
 describe('ClockAvailabilityService.getStaySearch', () => {
+  it.each([0.12, null, 0])(
+    'carries only the winning rate discount (%s) through both price memories',
+    async (discount) => {
+      const rates = ratesBody.map((rate) => ({
+        ...rate,
+        included_discount_rate: rate.id === bedAndBreakfast.id ? discount : 0.5,
+      }));
+      const request = vi
+        .fn()
+        .mockResolvedValueOnce({ status: 200, body: rates })
+        .mockResolvedValueOnce({
+          status: 200,
+          body: [{ id: 42023, rates: { '615688': [offer(31000)], '546549': [offer(26400)] } }],
+        });
+      const shared = new Map<string, unknown>();
+      const store = {
+        get: async (key: string) => shared.get(key) ?? null,
+        set: async (key: string, value: unknown) => {
+          shared.set(key, value);
+        },
+      };
+      const { service } = makeService({ client: { request }, displayPriceStore: store });
+      const stay = [{ ...query, channel: 'website' as const }];
+      const fresh = await service.getStaySearch('t1', 'p1', stay);
+      const near = await service.getStaySearch('t1', 'p1', stay);
+      const restartedRequest = vi.fn().mockResolvedValueOnce({ status: 200, body: rates });
+      const restarted = makeService({
+        client: { request: restartedRequest },
+        displayPriceStore: store,
+      });
+      const far = await restarted.service.getStaySearch('t1', 'p1', stay);
+      for (const search of [fresh, near, far]) {
+        expect(search.details[query.roomTypeId]).toMatchObject({
+          available: true,
+          price: { amount: '264.00', currency: 'EUR' },
+        });
+        if (discount)
+          expect(search.details[query.roomTypeId]).toHaveProperty('originalTotal', {
+            amount: '300.00',
+            currency: 'EUR',
+          });
+        else expect(search.details[query.roomTypeId]).not.toHaveProperty('originalTotal');
+      }
+      expect(request).toHaveBeenCalledTimes(2);
+      expect(restartedRequest).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('reads an old shared price entry without originalTotal', async () => {
+    const request = vi.fn().mockResolvedValueOnce({ status: 200, body: ratesBody });
+    const store = {
+      get: async () => ({
+        value: { amount: '264.00', currency: 'EUR' },
+        storedAt: Date.now(),
+        freeRooms: 2,
+      }),
+    };
+    const { service } = makeService({ client: { request }, displayPriceStore: store });
+    const search = await service.getStaySearch('t1', 'p1', [{ ...query, channel: 'website' }]);
+    expect(search.details[query.roomTypeId]).toEqual({
+      available: true,
+      price: { amount: '264.00', currency: 'EUR' },
+      freeRooms: 2,
+    });
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
   it('answers every room type from one product request: price and rooms left, or why not', async () => {
     const request = vi
       .fn()

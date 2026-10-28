@@ -191,5 +191,25 @@ namespace MustHotelBooking\Frontend {
     if (strpos($html, 'must-booking-alternative-dates') !== false) $fail('Nearby dates are only offered when nothing is available.');
     if (strpos($html, 'Only 9 left') !== false) $fail('Nine free rooms is not scarce and must not be announced as scarce.');
 
+    if (strpos($html, 'must-booking-room-original-price') !== false) $fail('A room without an included discount has no crossed-out price.');
+
+    foreach (['300.00' => true, '264.00' => false, '250.00' => false] as $originalAmount => $expected) {
+        \MustHotelBooking\Core\MustApiClient::$displayAnswers['rt-open'] = ['available' => true, 'total' => ['amount' => '264.00', 'currency' => 'EUR'], 'originalTotal' => ['amount' => $originalAmount, 'currency' => 'EUR']];
+        $view = get_accommodation_page_view_data();
+        if (($view['rooms'][0]['display_price']['originalTotal']['amount'] ?? '') !== $originalAmount) $fail('The search answer must keep originalTotal.');
+        ob_start();
+        include __DIR__ . '/../frontend/templates/booking-accommodation.php';
+        $discountHtml = (string) ob_get_clean();
+        if ((substr_count($discountHtml, '<del class="must-booking-room-original-price">') === 1) !== $expected) $fail('Only a higher original total gets crossed out.');
+        if ($expected && strpos($discountHtml, '300') === false) $fail('The original amount must be visible.');
+    }
+    // Even a stale discounted answer cannot put a price on a greyed-out card.
+    $view['rooms'][0]['is_unavailable'] = true;
+    $view['rooms'][0]['display_price']['originalTotal']['amount'] = '300.00';
+    ob_start();
+    include __DIR__ . '/../frontend/templates/booking-accommodation.php';
+    $unavailableHtml = (string) ob_get_clean();
+    if (strpos($unavailableHtml, 'must-booking-room-original-price') !== false) $fail('Greyed rooms keep their existing appearance.');
+
     fwrite(STDOUT, "Clock search greyed rooms test passed.\n");
 }
