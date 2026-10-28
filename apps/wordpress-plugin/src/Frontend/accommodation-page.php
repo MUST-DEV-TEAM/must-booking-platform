@@ -237,28 +237,18 @@ function get_room_type_rate_plans_view_data(array $roomType, int $index): array
 /** @param array<string, mixed> $roomType @return array<int, array<string, mixed>> */
 function get_room_type_amenities_view_data(array $roomType): array
 {
-    $iconUrls = [
-        'WIFI' => \must_hotel_booking_asset_url('assets/img/wifi.svg'),
-        'BREAKFAST' => \must_hotel_booking_asset_url('assets/img/breakfast.svg'),
-        'POOL' => \must_hotel_booking_asset_url('assets/img/pool.svg'),
-        'PARKING' => \must_hotel_booking_asset_url('assets/img/parking.svg'),
-        'AIR_CONDITIONING' => \must_hotel_booking_asset_url('assets/img/airconditioning.svg'),
-        'BEACH' => \must_hotel_booking_asset_url('assets/img/beach.svg'),
-        'CABLE_CHANNELS' => \must_hotel_booking_asset_url('assets/img/cablechannels.svg'),
-        'REFRIGERATOR' => \must_hotel_booking_asset_url('assets/img/refrigerator.svg'),
-        'FLAT_SCREEN_TV' => \must_hotel_booking_asset_url('assets/img/flatscreentv.svg'),
-        'LINEN' => \must_hotel_booking_asset_url('assets/img/linen.svg'),
-        'TELEPHONE' => \must_hotel_booking_asset_url('assets/img/telephone.svg'),
-        'DRYER' => \must_hotel_booking_asset_url('assets/img/dryer.svg'),
-        'STREAMING' => \must_hotel_booking_asset_url('assets/img/streaming.svg'),
-        'SAFETY_DEPOSIT_BOX' => \must_hotel_booking_asset_url('assets/img/safetydepositbox.svg'),
-    ];
+    // Every amenity key the system stores has its own icon in assets/img/amenities/, generated from the
+    // dashboard's amenity catalog (apps/web/scripts/generate-plugin-amenity-icons.mjs). An amenity with no
+    // icon chosen gets a neutral tick instead of an empty square.
     $amenities = [];
     foreach ((array) ($roomType['amenities'] ?? []) as $amenity) {
         $icon = (string) ($amenity['icon'] ?? '');
+        $file = \preg_match('/^[A-Z][A-Z_]*$/', $icon) === 1
+            ? 'amenities/' . \strtolower($icon) . '.svg'
+            : 'check.svg';
         $amenities[] = [
             'label' => (string) ($amenity['name'] ?? ''),
-            'icon' => $iconUrls[$icon] ?? '',
+            'icon' => \must_hotel_booking_asset_url('assets/img/' . $file),
         ];
     }
     return $amenities;
