@@ -18,6 +18,16 @@ Every Clock rate with `wbe: true` is sold on the hotel's website by default. Sta
 - **Rates that need a promo code (2026-10-28).** A Clock rate with `bonus_codes` is meant to be hidden from everyone without the code, but the price search returns it whenever its id is listed (verified in the sandbox: "Standard - Members" with code TESTCODE was priced without any code). The website therefore leaves out every published rate that has bonus codes (`codeProtected` in `RoomTypeRates`), and a guest who names such a rate is refused. Staff still see and can book it. Letting a guest unlock it by entering the code is a separate step (send `product_search[bonus_code]`).
 - **All rates off.** A room type whose every rate is off is not bookable on the website; the staff screen says so.
 
+## Setting up promotional rates in Clock (verified in the sandbox, 2026-10-28)
+
+How a hotel makes a discount that MUST can sell and show. Verified with real price searches, not assumed.
+
+1. **The discount lives in the rate.** Create a separate rate for the room type, derived from the regular rate with the percentage set so the price is lower (88% of Normal for 12% off; a +10 instead of -10 makes it dearer). Tick "Publish in WBE". Fill in **Included Discount %** with the same percentage: it changes no price, it only says how much of the price is a discount, which is what a crossed-out price is drawn from (original = price / (1 - rate)).
+2. **When guests can book it** (a booking window): the rate's "Active from date" / "Active to date" on its Restrictions tab. These are **booking dates, not stay dates**. A rate active 1 Oct 2026 to 31 Dec 2027 sells stays in any month, including after 2027.
+3. **Which stay dates it covers:** a stay is offered only if every night is open. To open the rate only for some months, stop it on the other days in **Rates Management / Rate Plan Restrictions** (daily STOP per rate). Do **not** use season STOPs: a STOP in a season carries forward to every later season and the STOP switch has no explicit "open". Do not rely on the Days view alone: a rate can show no STOP there while the API still reports `stop_from_sale: true` from the Rate Plan Restrictions level. A stay that crosses into a stopped day is not offered; a stay whose departure day is stopped is.
+4. **A code-only rate:** put the code in the rate's WBE tab ("Book with Bonus Code"). Clock's own booking page hides it; the price search returns it anyway when its id is listed, so MUST hides it from guests (see "Rates that need a promo code").
+5. **Check with the API:** `/rates/` shows the rate's `bonus_codes`, `included_discount_rate`, `rate_restriction` (`active_from_date`, `active_to_date`, `min_days_before_arrival`) and `/rates_availability` shows `stop_from_sale` per day.
+
 ## Booking fields
 
 | MUST | Clock | Current handling |
