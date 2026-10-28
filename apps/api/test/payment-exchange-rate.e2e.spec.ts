@@ -3,7 +3,13 @@ import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { ClockBackgroundSyncService } from '../src/integrations/clock/clock-background-sync.service';
+import { ClockPermissionsMonitorService } from '../src/integrations/clock/clock-permissions-monitor.service';
+import { MailDeliveryService } from '../src/mail/mail-delivery.service';
+import { AlertEmailService } from '../src/mail/alert-email.service';
+import { ScheduledEmailService } from '../src/mail/scheduled-email.service';
+import { PropertyExchangeRatesService } from '../src/tenancy/property-exchange-rates.service';
 import { cleanupTenant } from './helpers/cleanup-tenant';
 import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
 import { withoutExternalWorkers } from './helpers/without-external-workers';
@@ -24,8 +30,13 @@ describe('the exchange rate kept on a payment in another currency', () => {
   let tenantId = '';
   let propertyId = '';
   let userId = '';
-  let savedRates: Array<{ quote_currency: string; rate: string; rate_date: Date; source: string }> =
-    [];
+  let savedRates: Array<{
+    quote_currency: string;
+    rate: string;
+    rate_date: Date;
+    source: string;
+    fetched_at: Date;
+  }> = [];
 
   beforeAll(async () => {
     process.env.APP_PORT = '3000';
@@ -35,9 +46,18 @@ describe('the exchange rate kept on a payment in another currency', () => {
     process.env.WEB_APP_URL = 'http://localhost:3001';
     await clearSignupRateLimits();
     const { AppModule } = await import('../src/app.module');
-    app = (
-      await withoutExternalWorkers(Test.createTestingModule({ imports: [AppModule] })).compile()
-    ).createNestApplication();
+    let builder = withoutExternalWorkers(Test.createTestingModule({ imports: [AppModule] }));
+    for (const provider of [
+      ClockBackgroundSyncService,
+      ClockPermissionsMonitorService,
+      AlertEmailService,
+      ScheduledEmailService,
+    ])
+      builder = builder.overrideProvider(provider).useValue({});
+    builder = builder
+      .overrideProvider(MailDeliveryService)
+      .useValue({ dispatch: vi.fn().mockResolvedValue(undefined) });
+    app = (await builder.compile()).createNestApplication();
     await app.init();
     const signup = await request(app.getHttpServer())
       .post('/auth/signup')
@@ -58,14 +78,14 @@ describe('the exchange rate kept on a payment in another currency', () => {
     await admin.$executeRaw`INSERT INTO bookings(id,tenant_id,property_id,room_type_id,rate_plan_id,external_reference,status,starts_on,ends_on,total_amount) VALUES(${booking}::uuid,${tenantId}::uuid,${propertyId}::uuid,${roomType}::uuid,${ratePlan}::uuid,'FX-1','CONFIRMED'::"BookingStatus",'2027-03-01','2027-03-03',100)`;
     // The rates table is shared platform data: remember what is there and put it back afterwards.
     savedRates =
-      await admin.$queryRaw`SELECT quote_currency, rate::text, rate_date, source FROM exchange_rates WHERE base_currency='EUR' AND quote_currency IN ('ALL','USD')`;
+      await admin.$queryRaw`SELECT quote_currency, rate::text, rate_date, source, fetched_at FROM exchange_rates WHERE base_currency='EUR' AND quote_currency IN ('ALL','USD')`;
     await admin.$executeRaw`INSERT INTO exchange_rates(base_currency,quote_currency,rate,rate_date,source) VALUES('EUR','ALL',100,'2026-10-27','test'),('EUR','USD',1.25,'2026-10-26','test') ON CONFLICT (base_currency,quote_currency) DO UPDATE SET rate=EXCLUDED.rate, rate_date=EXCLUDED.rate_date, source=EXCLUDED.source`;
   });
 
   afterAll(async () => {
     await admin.$executeRaw`DELETE FROM exchange_rates WHERE base_currency='EUR' AND quote_currency IN ('ALL','USD')`;
     for (const row of savedRates)
-      await admin.$executeRaw`INSERT INTO exchange_rates(base_currency,quote_currency,rate,rate_date,source) VALUES('EUR',${row.quote_currency},${row.rate}::numeric,${row.rate_date},${row.source})`;
+      await admin.$executeRaw`INSERT INTO exchange_rates(base_currency,quote_currency,rate,rate_date,source,fetched_at) VALUES('EUR',${row.quote_currency},${row.rate}::numeric,${row.rate_date},${row.source},${row.fetched_at})`;
     if (app) await app.close();
     if (tenantId) await cleanupTenant(admin, tenantId);
     if (userId) await admin.$executeRaw`DELETE FROM users WHERE id=${userId}::uuid`;
@@ -103,5 +123,35 @@ describe('the exchange rate kept on a payment in another currency', () => {
     expect(by['fx-usd']).toMatchObject({ currency: 'USD', fxRateDate: '2026-10-26' });
     expect(Number(by['fx-usd']!.fxRate)).toBeCloseTo(0.8, 8);
     expect(by['fx-same']).toMatchObject({ currency: 'EUR', fxRate: null });
+  });
+
+  it('prefers hotel rates for new payment snapshots, falls back after deletion, and never rewrites old rows', async () => {
+    await admin.$executeRaw`UPDATE properties SET default_currency='ALL' WHERE tenant_id=${tenantId}::uuid AND id=${propertyId}::uuid`;
+    const rates = app.get(PropertyExchangeRatesService);
+    await rates.set(tenantId, propertyId, userId, 'EUR', '100');
+    await rates.set(tenantId, propertyId, userId, 'USD', '90');
+    await pay('hotel-usd', 'USD', 10);
+    await rates.set(tenantId, propertyId, userId, 'USD', '95');
+    await pay('hotel-usd-new', 'USD', 10);
+    await rates.set(tenantId, propertyId, userId, 'USD', null);
+    await pay('hotel-usd-feed', 'USD', 10);
+    const rows = await admin.$queryRaw<
+      Array<{ external_payment_id: string; fx: string | null; amount: string; currency: string }>
+    >`SELECT external_payment_id,fx_rate_to_booking::text AS fx,amount::text,currency FROM payments WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND booking_id=${booking}::uuid`;
+    const by = Object.fromEntries(rows.map((r) => [r.external_payment_id, r]));
+    expect(Number(by['hotel-usd'].fx)).toBeCloseTo(0.9, 8);
+    expect(Number(by['hotel-usd-new'].fx)).toBeCloseTo(0.95, 8);
+    // Restore a known feed leg: the preceding test deliberately removed ALL.
+    // Without that base feed rate the deleted USD override cannot be converted through ALL.
+    expect(by['hotel-usd-feed'].fx).toBeNull();
+    await admin.$executeRaw`INSERT INTO exchange_rates(base_currency,quote_currency,rate,rate_date,source) VALUES('EUR','ALL',100,'2026-10-27','test') ON CONFLICT(base_currency,quote_currency) DO UPDATE SET rate=EXCLUDED.rate`;
+    await pay('hotel-usd-feed-known', 'USD', 10);
+    const fallback = await admin.$queryRaw<
+      Array<{ fx: string }>
+    >`SELECT fx_rate_to_booking::text AS fx FROM payments WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND external_payment_id='hotel-usd-feed-known'`;
+    expect(Number(fallback[0].fx)).toBeCloseTo(0.8, 8);
+    expect(by['hotel-usd']).toMatchObject({ amount: '10.00', currency: 'USD' });
+    expect(Number(by['fx-usd'].fx)).toBeCloseTo(0.8, 8);
+    expect(by['fx-unknown'].fx).toBeNull();
   });
 });

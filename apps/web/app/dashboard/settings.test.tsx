@@ -37,6 +37,8 @@ describe('DashboardSettings', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
+        if (url.endsWith('/exchange-rates'))
+          return Response.json({ base: 'EUR', version: '0', displayCurrencies: null, rates: [] });
         if (url.endsWith('/properties')) return new Response(JSON.stringify([property]));
         if (url.endsWith('/plan-usage'))
           return new Response(JSON.stringify({ plan: { name: 'Free' }, usage: {} }));
@@ -111,6 +113,8 @@ describe('DashboardSettings', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
+        if (url.endsWith('/exchange-rates'))
+          return Response.json({ base: 'EUR', version: '0', displayCurrencies: null, rates: [] });
         if (url.endsWith('/properties')) return new Response(JSON.stringify([property]));
         if (url.endsWith('/plan-usage'))
           return new Response(JSON.stringify({ plan: { name: 'Free' }, usage: {} }));
@@ -136,6 +140,8 @@ describe('DashboardSettings', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
+        if (url.endsWith('/exchange-rates'))
+          return Response.json({ base: 'EUR', version: '0', displayCurrencies: null, rates: [] });
         if (url.endsWith('/properties')) return new Response(JSON.stringify([property]));
         if (url.endsWith('/plan-usage'))
           return new Response(JSON.stringify({ plan: { name: 'Free' }, usage: {} }));
@@ -170,6 +176,8 @@ describe('DashboardSettings', () => {
       vi.stubGlobal(
         'fetch',
         vi.fn(async (url: string) => {
+          if (url.endsWith('/exchange-rates'))
+            return Response.json({ base: 'EUR', version: '0', displayCurrencies: null, rates: [] });
           if (url.endsWith('/properties')) return new Response(JSON.stringify([property]));
           if (url.endsWith('/plan-usage'))
             return new Response(JSON.stringify({ plan: { name: 'Free' }, usage: {} }));
@@ -212,6 +220,8 @@ describe('DashboardSettings', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
+        if (url.endsWith('/exchange-rates'))
+          return Response.json({ base: 'EUR', version: '0', displayCurrencies: null, rates: [] });
         if (url.endsWith('/properties')) return new Response(JSON.stringify([property]));
         if (url.endsWith('/plan-usage'))
           return new Response(JSON.stringify({ plan: { name: 'Free' }, usage: {} }));
@@ -235,6 +245,8 @@ describe('DashboardSettings', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
+        if (url.endsWith('/exchange-rates'))
+          return Response.json({ base: 'EUR', version: '0', displayCurrencies: null, rates: [] });
         if (url.endsWith('/properties')) return new Response(JSON.stringify([property]));
         if (url.endsWith('/plan-usage'))
           return new Response(JSON.stringify({ plan: { name: 'Free' }, usage: {} }));
@@ -265,6 +277,8 @@ describe('DashboardSettings', () => {
         };
         return new Response(JSON.stringify(property));
       }
+      if (url.endsWith('/exchange-rates'))
+        return Response.json({ base: 'EUR', version: '0', displayCurrencies: null, rates: [] });
       if (url.endsWith('/properties')) return new Response(JSON.stringify([property]));
       if (url.endsWith('/plan-usage'))
         return new Response(
@@ -280,9 +294,11 @@ describe('DashboardSettings', () => {
     expect(container.textContent).toContain('do not block or validate bookings');
     expect(container.textContent).not.toContain('Manage properties');
     expect(container.textContent).not.toContain('Add property');
-    expect(container.querySelector('button[disabled]')?.textContent).toContain(
-      'Platform billing is not available yet',
-    );
+    expect(
+      [...container.querySelectorAll<HTMLButtonElement>('button')].find((button) =>
+        button.textContent?.includes('Platform billing is not available yet'),
+      )?.disabled,
+    ).toBe(true);
 
     await value(container.querySelector('#settings-name')!, 'Grand Hotel Tirana');
     await saveChanges(container);
@@ -468,6 +484,8 @@ describe('DashboardSettings', () => {
         delete response.wordpressConnectedAt;
         return new Response(JSON.stringify(response));
       }
+      if (url.endsWith('/exchange-rates'))
+        return Response.json({ base: 'EUR', version: '0', displayCurrencies: null, rates: [] });
       if (url.endsWith('/properties')) return new Response(JSON.stringify([property]));
       if (url.endsWith('/properties/p/integration-connections'))
         return new Response(JSON.stringify([{ connectionId: 'clock', enabled: true }]));
@@ -511,6 +529,8 @@ describe('DashboardSettings', () => {
       vi.fn(async (url: string, init?: RequestInit) => {
         if (init?.method === 'PATCH')
           return new Response(JSON.stringify({ ...property, ...JSON.parse(init.body as string) }));
+        if (url.endsWith('/exchange-rates'))
+          return Response.json({ base: 'EUR', version: '0', displayCurrencies: null, rates: [] });
         if (url.endsWith('/properties')) return new Response(JSON.stringify([property]));
         if (url.endsWith('/plan-usage'))
           return new Response(JSON.stringify({ plan: { name: 'Free' } }));
@@ -560,6 +580,8 @@ describe('DashboardSettings', () => {
       paymentGateways: { stripe: false, pokpay: true, payAtHotel: true },
     };
     const fetch = vi.fn(async (url: string) => {
+      if (url.endsWith('/exchange-rates'))
+        return Response.json({ base: 'EUR', version: '0', displayCurrencies: null, rates: [] });
       if (url.endsWith('/properties')) return new Response(JSON.stringify([property]));
       if (url.endsWith('/plan-usage'))
         return new Response(

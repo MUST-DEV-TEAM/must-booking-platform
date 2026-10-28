@@ -43,6 +43,8 @@ Index of durable, cross-cutting, or hard-to-reverse decisions. Routine implement
 
 | [ADR-0037](ADR-0037-audit-event-evidence.md) | Explicit audit metadata, operation links and application append-only history | Accepted owner direction 2026-10-24 |
 
+| [ADR-0038](ADR-0038-hotel-display-exchange-rates.md) | Hotel display rates override the feed | Accepted owner direction 2026-10-28; display only, new payment annotations snapshot the applicable rate |
+
 ## Interpretation and unresolved implementation details
 
 Accepted ADRs record intent, not a claim that every consequence is implemented. Current behavior belongs to [architecture](../architecture/overview.md). ADR-0001's widget choice is superseded by ADR-0016; ADR-0015 is superseded by ADR-0030. ADR-0023/0025 sequencing was amended by ADR-0028. Bodies remain historical reasoning.

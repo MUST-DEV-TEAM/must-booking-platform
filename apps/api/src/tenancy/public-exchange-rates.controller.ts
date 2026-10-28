@@ -5,8 +5,11 @@ import {
   Inject,
   Query,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+
+import { createHash } from 'node:crypto';
 
 import { ExchangeRatesService } from './exchange-rates.service';
 import { PublicRateLimitGuard } from './public-rate-limit.guard';
@@ -14,7 +17,14 @@ import { PUBLIC_READ_RATE_LIMIT, PublicRateLimit } from './public-rate-limit.dec
 import { PublicTenantScoped } from './tenant-context.decorator';
 import { PropertyCurrencyService } from './property-currency.service';
 
-type TenantPropertyRequest = { tenantContext: { tenantId: string; propertyId: string } };
+type TenantPropertyRequest = {
+  tenantContext: { tenantId: string; propertyId: string };
+  headers?: { 'if-none-match'?: string };
+};
+type Response = {
+  setHeader(name: string, value: string): unknown;
+  status(code: number): unknown;
+};
 
 @Controller('tenants/:tenantId/properties/:propertyId/public')
 export class PublicExchangeRatesController {
@@ -31,7 +41,11 @@ export class PublicExchangeRatesController {
   @PublicTenantScoped({ propertyParam: 'propertyId' })
   @UseGuards(PublicRateLimitGuard)
   @PublicRateLimit(PUBLIC_READ_RATE_LIMIT)
-  async getExchangeRates(@Query() query: unknown, @Req() request: TenantPropertyRequest) {
+  async getExchangeRates(
+    @Query() query: unknown,
+    @Req() request: TenantPropertyRequest,
+    @Res({ passthrough: true }) response: Response,
+  ) {
     const raw = (query as { currencies?: unknown } | null)?.currencies;
     const currencies = typeof raw === 'string' ? raw.split(',').map((code) => code.trim()) : [];
     if (
@@ -46,9 +60,25 @@ export class PublicExchangeRatesController {
       request.tenantContext.tenantId,
       request.tenantContext.propertyId,
     );
-    const result = await this.rates.ratesFor(base, currencies);
-    return result
+    const result = await this.rates.ratesFor(
+      base,
+      [...new Set(currencies.map((c) => c.toUpperCase()))].sort(),
+      request.tenantContext,
+    );
+    const payload = result
       ? { ...result, approximate: true }
-      : { base, date: null, rates: {}, approximate: true };
+      : { base, date: null, rates: {}, sources: {}, version: '0', approximate: true };
+    const etag = '"' + createHash('sha256').update(JSON.stringify(payload)).digest('hex') + '"';
+    response.setHeader('ETag', etag);
+    response.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
+    if (
+      request.headers?.['if-none-match']
+        ?.split(',')
+        .some((value) => value.trim().replace(/^W\//, '') === etag || value.trim() === '*')
+    ) {
+      response.status(304);
+      return;
+    }
+    return payload;
   }
 }
