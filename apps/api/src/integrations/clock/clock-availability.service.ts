@@ -334,6 +334,7 @@ export class ClockAvailabilityService {
       adultCount?: number;
       childrenCount?: number;
       childrenAges?: number[];
+      channel?: ClockChannel;
     },
     options: { cache?: boolean } = {},
   ): Promise<Result<boolean>> {
@@ -345,6 +346,7 @@ export class ClockAvailabilityService {
     const parsed = parseClockCredentials(connection.credentials);
     if (!parsed.ok) return failure(classifyConfigurationError(parsed.message));
 
+    const hidden = await this.hiddenRatesFor(tenantId, propertyId, query.channel);
     const cacheKey = JSON.stringify([
       'clock-booking-availability-v1',
       tenantId,
@@ -357,6 +359,7 @@ export class ClockAvailabilityService {
       query.adultCount ?? 1,
       query.childrenCount ?? 0,
       query.childrenAges ?? [],
+      hiddenKeyPart(hidden),
     ]);
     if (options.cache) {
       const cached = this.bookingAvailabilityCache.get(cacheKey);
@@ -402,7 +405,13 @@ export class ClockAvailabilityService {
         ),
       );
 
-    const rateIds = await this.ratesForRoomType(parsed.value, externalRoomTypeId);
+    const rateIds = await this.ratesForRoomType(
+      parsed.value,
+      externalRoomTypeId,
+      undefined,
+      false,
+      hidden,
+    );
     if (!rateIds.ok) return failure(rateIds.error);
     if (rateIds.value.ids.length === 0) return failure(noRatesError(rateIds.value));
     const nights = nightsBetween(query.startsOn, query.endsOn);

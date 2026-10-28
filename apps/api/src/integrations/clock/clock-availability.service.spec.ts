@@ -2294,4 +2294,22 @@ describe('rates switched off for the website', () => {
       value: { amount: '310.00', currency: 'EUR' },
     });
   });
+
+  it('are also left out of the guest-facing availability checks, and kept for staff', async () => {
+    const asked = async (call: 'availability' | 'booking', channel: 'website' | 'staff') => {
+      const request = vi
+        .fn()
+        .mockResolvedValueOnce({ status: 200, body: ratesBody })
+        .mockResolvedValue({ status: 200, body: [] });
+      const { service } = makeService({ client: { request }, hiddenRateIds: ['615688'] });
+      if (call === 'availability') await service.getAvailability('t1', 'p1', { ...query, channel });
+      else await service.isAvailableForBooking('t1', 'p1', { ...query, channel });
+      const search = request.mock.calls.find(([, options]) => options?.query?.rates)!;
+      return search[1].query.rates;
+    };
+    expect(await asked('availability', 'website')).toEqual(['546549']);
+    expect(await asked('availability', 'staff')).toEqual(['546549', '615688']);
+    expect(await asked('booking', 'website')).toEqual(['546549']);
+    expect(await asked('booking', 'staff')).toEqual(['546549', '615688']);
+  });
 });

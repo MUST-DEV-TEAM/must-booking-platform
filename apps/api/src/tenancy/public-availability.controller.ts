@@ -112,7 +112,7 @@ export class PublicAvailabilityController {
       const result = await this.clockAvailability.isAvailableForBooking(
         request.tenantContext.tenantId,
         request.tenantContext.propertyId,
-        parsed,
+        { ...parsed, channel: 'website' },
         { cache: true },
       );
       if (!result.ok) return { isAvailable: true, checked: false };
@@ -149,6 +149,8 @@ export class PublicAvailabilityController {
         adultCount: parsed.adultCount,
         childrenCount: parsed.childrenCount,
         roomCount: parsed.roomCount,
+        // Guests are only shown dates they could really book with a rate that is on for the website.
+        channel: 'website',
       },
     );
   }
