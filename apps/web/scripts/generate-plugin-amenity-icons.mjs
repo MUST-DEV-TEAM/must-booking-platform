@@ -4,6 +4,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
+import { stdout } from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
@@ -29,4 +30,5 @@ for (const [, key, name] of catalog.matchAll(/^\s+([A-Z_]+): \{ label: .*?, icon
   writeFileSync(join(out, `${key.toLowerCase()}.svg`), `${svg}\n`);
   written += 1;
 }
-console.log(`Wrote ${written} amenity icons to ${out}`);
+stdout.write(`Wrote ${written} amenity icons to ${out}
+`);
