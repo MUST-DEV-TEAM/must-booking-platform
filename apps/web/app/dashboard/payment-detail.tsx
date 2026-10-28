@@ -1,6 +1,5 @@
 'use client';
 import { HotelMoney, LedgerAmount } from './approximate-money';
-import { formatMoney } from '../../lib/money';
 import { ClockFinancialCard, useClockFinancial } from './clock-financial';
 import { CancellationDialog } from './cancellation-dialog';
 import { BookingReviewCard } from './booking-review-card';
@@ -222,7 +221,6 @@ export function PaymentDetail({
   const hotelMoney = (amount: string, code = currency) => (
     <HotelMoney tenantId={tenantId} propertyId={propertyId} amount={amount} currency={code} />
   );
-  const money = (amount: string, code = currency) => formatMoney(amount, code);
   const canRefund = (capabilitiesQuery.data ?? []).includes('payments.refund');
   const canCancel = (capabilitiesQuery.data ?? []).includes('bookings.cancel');
   const clockMoney = financial.data?.data;
