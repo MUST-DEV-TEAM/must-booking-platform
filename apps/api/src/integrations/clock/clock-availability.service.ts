@@ -28,6 +28,7 @@ import { ClockRateLimiterService } from './clock-rate-limiter';
 import { DisplayPriceStore, type StoredDisplayPrice } from './display-price-store';
 import { ClockRateRankingService } from './clock-rate-ranking.service';
 import { ClockWebsiteRatesService } from './clock-website-rates.service';
+import { ClockRatePairsService, type ClockRatePairs } from './clock-rate-pairs.service';
 import {
   ClockBookingConsistencyService,
   ClockBookingReadError,
@@ -200,7 +201,7 @@ export type ClockStayOffer = {
   label: string;
   mealNames: string[];
   total: Money;
-  /** The price before the discount, for a crossed-out price. Only present when the rate says it includes a discount. */
+  /** A higher public comparison price for the same stay, or the rate's included-discount fallback. */
   originalTotal?: Money;
   /** The rate is hidden behind a promo code (a guest sees it only after entering the code; staff always see it). */
   requiresCode?: boolean;
@@ -225,6 +226,7 @@ export function rateOfferLabel(mealNames: string[], fallbackName: string): strin
  * needs a ranking). Never persisted; MUST only stores the rank order. */
 export type ClockRateSummary = {
   externalRateId: string;
+  requiresCode?: boolean;
   /** Clock's own name for the rate, for example "BB". */
   name: string;
   /** What a guest reads: "Bed & breakfast", "Half board", "Room only". */
@@ -284,6 +286,7 @@ type StayQuoteItem = {
     rates: ClockOutcome<RoomTypeRates>;
   };
   rankOrder: string[];
+  pairs: ClockRatePairs;
 };
 
 type ClockRateRow = {
@@ -371,6 +374,7 @@ export class ClockAvailabilityService {
     @Optional()
     @Inject(ClockWebsiteRatesService)
     private readonly websiteRates?: ClockWebsiteRatesService,
+    @Optional() @Inject(ClockRatePairsService) private readonly ratePairs?: ClockRatePairsService,
   ) {}
 
   /**
@@ -763,6 +767,10 @@ export class ClockAvailabilityService {
     }
 
     const hidden = await this.hiddenRatesFor(tenantId, propertyId, uniqueQueries[0]?.channel);
+    const [configuredPairs, publicHidden] = await Promise.all([
+      this.ratePairs?.pairs(tenantId, propertyId) ?? {},
+      this.websiteRates?.hiddenRateIds(tenantId, propertyId) ?? new Set<string>(),
+    ]);
     // /rates/ returns the entire catalogue. Share one cold-cache fetch within
     // this tenant/property request, leaving allowance for the products query.
     let batchRates: Promise<ClockOutcome<ClockRateRow[]>> | undefined;
@@ -815,6 +823,9 @@ export class ClockAvailabilityService {
       usable.map(async (entry) => ({
         entry,
         rankOrder: await this.rateRankings.rankOrder(tenantId, propertyId, entry.query.roomTypeId),
+        pairs: entry.rates.ok
+          ? publicRatePairs(configuredPairs, entry.rates.value, publicHidden)
+          : {},
       })),
     );
     // What the two memories already know. A recent price is used as it is; an older one (up to a day) is shown
@@ -822,7 +833,7 @@ export class ClockAvailabilityService {
     const stale: typeof ranked = [];
     const misses: typeof ranked = [];
     for (const item of ranked) {
-      const { entry, rankOrder } = item;
+      const { entry, rankOrder, pairs } = item;
       const stored = await this.readDisplayPrice(
         this.displayPriceCacheKey(
           tenantId,
@@ -832,6 +843,7 @@ export class ClockAvailabilityService {
           String(entry.externalRoomTypeId),
           entry.rates.ok ? entry.rates.value.ids : [],
           rankOrder,
+          pairs,
         ),
       );
       const age = stored ? Date.now() - stored.storedAt : Number.POSITIVE_INFINITY;
@@ -900,7 +912,7 @@ export class ClockAvailabilityService {
       first.endsOn,
       first.adultCount ?? 1,
       first.childrenCount ?? 0,
-      items.map(({ entry }) => entry.query.roomTypeId).sort(),
+      items.map(({ entry, pairs }) => [entry.query.roomTypeId, Object.entries(pairs).sort()]),
     ]);
     if (this.displayPriceRefreshing.has(guard)) return;
     this.displayPriceRefreshing.add(guard);
@@ -952,7 +964,7 @@ export class ClockAvailabilityService {
       return;
     }
 
-    for (const { entry, rankOrder } of misses) {
+    for (const { entry, rankOrder, pairs } of misses) {
       const roomType = response.value.find((item) => String(item.id) === entry.externalRoomTypeId);
       const winner = roomType
         ? selectBestOffer(
@@ -968,6 +980,7 @@ export class ClockAvailabilityService {
         String(entry.externalRoomTypeId),
         entry.rates.ok ? entry.rates.value.ids : [],
         rankOrder,
+        pairs,
       );
       if (!winner) {
         this.logger.warn(
@@ -994,7 +1007,9 @@ export class ClockAvailabilityService {
         ? winner.offer.room_type_free_rooms
         : null;
       const info = entry.rates.ok ? entry.rates.value.info[winner.rateId] : undefined;
-      const originalTotal = originalPrice(value, info?.includedDiscountRate ?? null);
+      const originalTotal =
+        comparedOriginal(value, winner.rateId, roomType?.rates ?? {}, pairs) ??
+        originalPrice(value, info?.includedDiscountRate ?? null);
       const original = originalTotal ? { originalTotal } : {};
       await this.rememberDisplayPrice(cacheKey, value, { freeRooms, ...original });
       results[entry.query.roomTypeId] = { ok: true, value };
@@ -1037,6 +1052,7 @@ export class ClockAvailabilityService {
     externalRoomTypeId: string,
     rateIds: string[],
     rankOrder: string[],
+    pairs: ClockRatePairs,
   ): string {
     return JSON.stringify([
       'clock-display-price-v1',
@@ -1054,6 +1070,7 @@ export class ClockAvailabilityService {
       query.currency ?? '',
       rateIds,
       rankOrder,
+      ...(Object.keys(pairs).length ? [Object.entries(pairs).sort()] : []),
     ]);
   }
 
@@ -1274,6 +1291,10 @@ export class ClockAvailabilityService {
         ),
       );
     const hidden = await this.hiddenRatesFor(tenantId, propertyId, query.channel);
+    const [configuredPairs, publicHidden] = await Promise.all([
+      this.ratePairs?.pairs(tenantId, propertyId) ?? {},
+      this.websiteRates?.hiddenRateIds(tenantId, propertyId) ?? new Set<string>(),
+    ]);
     const rates = await this.ratesForRoomType(
       parsed.value,
       externalRoomTypeId,
@@ -1303,6 +1324,7 @@ export class ClockAvailabilityService {
 
     const roomType = response.value.find((item) => String(item.id) === externalRoomTypeId);
     const offers = roomType ? collectValidOffers(ratesAmong(roomType.rates, rates.value.ids)) : [];
+    const pairs = publicRatePairs(configuredPairs, rates.value, publicHidden);
     return {
       ok: true,
       value: orderOffers(offers).map(({ rateId, offer }) => {
@@ -1311,7 +1333,9 @@ export class ClockAvailabilityService {
           amount: (offer.price.cents / 100).toFixed(2),
           currency: offer.price.currency,
         };
-        const original = originalPrice(total, info?.includedDiscountRate ?? null);
+        const original =
+          comparedOriginal(total, rateId, roomType?.rates ?? {}, pairs) ??
+          originalPrice(total, info?.includedDiscountRate ?? null);
         return {
           rateId,
           name: info?.name ?? '',
@@ -1875,6 +1899,7 @@ export class ClockAvailabilityService {
         wbe: boolean;
         name?: string;
         meals?: Array<{ name?: string }>;
+        bonus_codes?: unknown;
         rate_restriction?: { max_adults?: number | null; max_children?: number | null };
       }>
     >(parsed.value, undefined, '/rates/');
@@ -1892,6 +1917,7 @@ export class ClockAvailabilityService {
         const mealNames = (rate.meals ?? []).map((meal) => String(meal.name ?? '')).filter(Boolean);
         return {
           externalRateId: String(rate.id),
+          ...(rateBonusCodes(rate).length ? { requiresCode: true } : {}),
           name: rateName,
           label: rateOfferLabel(mealNames, rateName),
           mealNames,
@@ -1944,6 +1970,7 @@ export class ClockAvailabilityService {
         wbe: boolean;
         name?: string;
         meals?: Array<{ name?: string }>;
+        bonus_codes?: unknown;
         rate_restriction?: { max_adults?: number | null; max_children?: number | null };
       }>
     >(parsed.value, undefined, '/rates/');
@@ -1957,6 +1984,7 @@ export class ClockAvailabilityService {
       const mealNames = (rate.meals ?? []).map((meal) => String(meal.name ?? '')).filter(Boolean);
       const summary: ClockRateSummary = {
         externalRateId: String(rate.id),
+        ...(rateBonusCodes(rate).length ? { requiresCode: true } : {}),
         name: rateName,
         label: rateOfferLabel(mealNames, rateName),
         mealNames,
@@ -2291,4 +2319,44 @@ function summarizeAvailability(
     isAvailable,
     availableUnits: Number.isFinite(availableUnits) ? availableUnits : 0,
   };
+}
+
+/** Never expand the offered rates for a pairing. Both ids must belong to this room type; the reference must
+ * still be public even on the staff channel, which itself continues to offer hidden and code-only rates. */
+function publicRatePairs(
+  pairs: ClockRatePairs,
+  rates: RoomTypeRates,
+  hidden: Set<string>,
+): ClockRatePairs {
+  return Object.fromEntries(
+    Object.entries(pairs).filter(
+      ([promo, compare]) =>
+        promo !== compare &&
+        rates.ids.includes(promo) &&
+        rates.ids.includes(compare) &&
+        !hidden.has(compare) &&
+        !rates.codeProtected?.[compare]?.length,
+    ),
+  );
+}
+
+/** Uses only the same response/stay/occupancy as the promoted offer. Errors and unavailable offers are ignored. */
+function comparedOriginal(
+  total: Money,
+  promoRateId: string,
+  offers: Record<string, ClockProductOffer[]>,
+  pairs: ClockRatePairs,
+): Money | undefined {
+  const compareRateId = pairs[promoRateId];
+  if (!compareRateId) return undefined;
+  const compared = selectBestOffer(ratesAmong(offers, [compareRateId]), []);
+  const price = compared?.offer.price;
+  if (
+    !price ||
+    price.currency !== total.currency ||
+    !Number.isFinite(price.cents) ||
+    price.cents <= Math.round(Number(total.amount) * 100)
+  )
+    return undefined;
+  return { amount: (price.cents / 100).toFixed(2), currency: price.currency };
 }
