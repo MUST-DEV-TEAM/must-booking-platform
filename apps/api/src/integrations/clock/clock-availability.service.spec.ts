@@ -5,6 +5,7 @@ import {
   ClockAvailabilityService,
   rateOfferLabel,
   classifyUnavailable,
+  originalPrice,
 } from './clock-availability.service';
 
 const credentials = { host: 'h', accountId: '1', subscriptionId: '2', apiUser: 'u', apiKey: 'k' };
@@ -2337,11 +2338,107 @@ describe('rates switched off for the website', () => {
       expect(!refused.ok && refused.error.code).toBe('clock_rate_unavailable');
     });
 
+    it('is offered to a guest who enters its code, in any letter case, and not for a wrong code', async () => {
+      const guest = async (code: string | undefined) => {
+        const request = vi
+          .fn()
+          .mockResolvedValueOnce({ status: 200, body: withCode })
+          .mockResolvedValueOnce({ status: 200, body: offers });
+        const { service } = makeService({ client: { request } });
+        const result = await service.listOffersForStay('t1', 'p1', {
+          ...query,
+          channel: 'website',
+          code,
+        });
+        return result.ok ? result.value.map((entry) => entry.rateId) : [];
+      };
+      expect(await guest('TestCode')).toEqual(['546549', '615688']);
+      expect(await guest('WRONG')).toEqual(['546549']);
+      expect(await guest(undefined)).toEqual(['546549']);
+    });
+
+    it('can be priced by a guest who has the code, and not without it', async () => {
+      const quote = async (code: string | undefined) => {
+        const request = vi
+          .fn()
+          .mockResolvedValueOnce({ status: 200, body: withCode })
+          .mockResolvedValue({ status: 200, body: [] });
+        const { service } = makeService({ client: { request } });
+        return service.getQuote('t1', 'p1', {
+          ...query,
+          clockRateId: '615688',
+          channel: 'website',
+          code,
+        });
+      };
+      // Without the code the rate is refused outright; with it the request goes on to Clock (which answers empty here).
+      const refused = await quote(undefined);
+      expect(!refused.ok && refused.error.message).toBe(
+        'The selected rate is not available for this room type.',
+      );
+      const allowed = await quote('testcode');
+      expect(!allowed.ok && allowed.error.message).not.toBe(
+        'The selected rate is not available for this room type.',
+      );
+    });
+
+    it('is recognised by its code for a quote that must not apply a second discount', async () => {
+      const request = vi.fn().mockResolvedValue({ status: 200, body: withCode });
+      const { service } = makeService({ client: { request } });
+      expect(await service.rateUnlockedByCode('t1', 'p1', 'rt-1', '615688', 'TESTCODE')).toBe(true);
+      expect(await service.rateUnlockedByCode('t1', 'p1', 'rt-1', '615688', 'nope')).toBe(false);
+      expect(await service.rateUnlockedByCode('t1', 'p1', 'rt-1', '546549', 'TESTCODE')).toBe(
+        false,
+      );
+    });
+
     it('says so when every rate of a room type needs a code', async () => {
       const allCoded = ratesBody.map((rate) => ({ ...rate, bonus_codes: ['VIP'] }));
       const guest = await run('website', allCoded as never);
       expect(guest.result.ok).toBe(false);
       expect(!guest.result.ok && guest.result.error.message).toMatch(/needs a promo code/);
     });
+  });
+});
+
+describe('the crossed-out price', () => {
+  it('is worked out from the discount the rate says it includes: 264 at 12% was 300', () => {
+    expect(originalPrice({ amount: '264.00', currency: 'EUR' }, 0.12)).toEqual({
+      amount: '300.00',
+      currency: 'EUR',
+    });
+    expect(originalPrice({ amount: '210.00', currency: 'EUR' }, 0.12)).toEqual({
+      amount: '238.64',
+      currency: 'EUR',
+    });
+  });
+
+  it('is left out when the rate has no included discount or it makes no sense', () => {
+    const total = { amount: '264.00', currency: 'EUR' };
+    expect(originalPrice(total, null)).toBeUndefined();
+    expect(originalPrice(total, 0)).toBeUndefined();
+  });
+
+  it('comes with the offers of a rate whose included discount is set, and not with the others', async () => {
+    const rates = ratesBody.map((rate) =>
+      rate.id === bedAndBreakfast.id ? { ...rate, included_discount_rate: 0.12 } : rate,
+    );
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 200, body: rates })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [{ id: 42023, rates: { '615688': [offer(31000)], '546549': [offer(26400)] } }],
+      });
+    const { service } = makeService({ client: { request } });
+    const result = await service.listOffersForStay('t1', 'p1', query);
+    const byId = Object.fromEntries(
+      (result.ok ? result.value : []).map((entry) => [entry.rateId, entry]),
+    );
+    expect(byId['546549']).toMatchObject({
+      total: { amount: '264.00', currency: 'EUR' },
+      originalTotal: { amount: '300.00', currency: 'EUR' },
+    });
+    expect(byId['615688']).not.toHaveProperty('originalTotal');
   });
 });
