@@ -17,6 +17,16 @@ Every Clock rate with `wbe: true` is sold on the hotel's website by default. Sta
 - **Calendar and quick check (2026-10-28).** The date-picker calendar and the advisory availability check on the website also leave out switched-off rates (`channel: 'website'` through `getAvailabilityCalendar` and `isAvailableForBooking`; their caches include the switched-off rate ids). Staff screens are unchanged.
 - **All rates off.** A room type whose every rate is off is not bookable on the website; the staff screen says so.
 
+## Clock's answers on discounts, promo codes, policies, guests and refunds (2026-10-28)
+
+Clock support answered our written questions. These replace the guesses made earlier.
+
+- **Discounts and a crossed-out price.** Clock recommends a **separate promotional rate** that the hotel configures (it may be a derived rate with the discount set as the derivation), limited by the rate's dates or days before arrival. The crossed-out price is only a **visual setting**: the real discount lives in the rate's final price, and Clock stores no "original price". `included_discount_rate` is the setting for that cross-out display and carries no amount. Rate derivation is a way to calculate one rate from another; it is **not** a discount, so a derived rate is not always cheaper than its base. Consequence: MUST must not infer a crossed-out price from the base rate (Empire's "Website" rates derive from "Reception" rates and would look like a permanent sale). A crossed-out price needs an explicit pairing chosen by staff: "show this promotional rate against that regular rate".
+- **Promo codes.** A Clock promo code (`bonus_code`) only **hides a rate** so that only people who have the code can book it. There is no promo-code field when creating a booking: picking that rate's id is enough. MUST's own promo codes (a discount applied by MUST) are a different thing.
+- **Cancellation and guarantee policies.** Not exposed through the API, and Clock plans to expose guarantee policies later. Stop looking: the hotel's cancellation rules stay on MUST's side.
+- **Existing guests.** Duplicate guest profiles come from hotels not managing them; Clock offers a merge option and automatic merging. Searching by email is acceptable.
+- **Refunds and Deposit Adjustment.** No API for a Deposit Adjustment. Posting the refund as a negative payment on the original deposit folio and asking the hotel to do the Deposit Adjustment by hand is the correct approach.
+
 ## Booking fields
 
 | MUST | Clock | Current handling |
@@ -80,7 +90,7 @@ Rate fields relevant to discounts (rate 546549, Website BB): `derived_rate_type:
 ### Sandbox comparison (read-only, 2026-10-24, account 172528 / subscription 16307)
 
 - The sandbox API user **has** the rate-plans right (`GET /rate_plans` returns `[70813, 69242]`, ids only) but still lacks `pms_api_rate_packages_index`. Live Empire lacks the rate-plans rights.
-- A `/products` offer carries only `available`, `price.cents`, `price.currency`, `room_type_free_rooms` and `errors`. It has **no original/"was" price and no discount field**. A struck-through price therefore has to be computed by also pricing the derived rate's `base_rate_id` for the same stay (sandbox example: "Normal" 784161 = 1050.00 EUR against derived "FAM - Summer" rates; derived types seen: `DerivedAmountPrice`, `DerivedPercentPrice`, `Pms::RateCalculation::DerivedPrice`).
+- A `/products` offer carries only `available`, `price.cents`, `price.currency`, `room_type_free_rooms` and `errors`. It has **no original/"was" price and no discount field**. Clock confirmed (2026-10-28) that it stores no original price and that a derived rate is not a discount, so a struck-through price must come from an explicit staff pairing, not from the base rate.
 - Occupancy is enforced per rate (`errors` text "Maximum adults allowed - 1" makes `available: false`), so a multi-rate picker must hide or disable unavailable offers.
 
 ## Currency of Clock reservations (finding and fix, 2026-10-26/27)
