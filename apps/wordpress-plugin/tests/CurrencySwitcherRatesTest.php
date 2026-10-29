@@ -46,6 +46,14 @@ namespace {
         if (($data['sources']['EUR'] ?? null) !== 'hotel') throw new RuntimeException('Preserve source metadata for the original currency.');
         if (isset($data['rates']['GBP']) || isset($data['sources']['GBP'])) throw new RuntimeException('Unrequested rates should remain filtered.');
         if (isset($data['_etag']) || isset($data['_scope'])) throw new RuntimeException('Private cache fields must not escape.');
+        // The same fixture is the input of the JavaScript converter test, so what PHP emits and what the
+        // browser code consumes cannot drift apart unnoticed.
+        $fixture = json_decode((string) file_get_contents(__DIR__ . '/fixtures/currency-switcher-ajax.json'), true);
+        foreach (['base', 'version', 'displayCurrencies', 'sources'] as $field)
+            if (($data[$field] ?? null) !== $fixture[$field]) throw new RuntimeException('The AJAX ' . $field . ' differs from the shared fixture.');
+        if (array_keys($data['rates']) !== array_keys($fixture['rates'])) throw new RuntimeException('The AJAX rate currencies differ from the shared fixture.');
+        foreach ($fixture['rates'] as $code => $rate)
+            if (abs($data['rates'][$code] - $rate) > 1e-12) throw new RuntimeException('The AJAX ' . $code . ' rate differs from the shared fixture.');
     }
     echo "Currency switcher rate-leg test passed.\n";
 }

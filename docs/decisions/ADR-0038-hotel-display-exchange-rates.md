@@ -14,3 +14,7 @@ The public API supplies the base, sources, a monotonic property configuration ve
 ## Consequences
 
 The default currency must be explicitly chosen before entering overrides and cannot change while overrides exist. The additive migration runs before API rollout; rollback may retain the new settings/audit tables and restore the preceding payment trigger function. No backfill is performed. See [currency roadmap](../roadmap/milestones/29-currency.md) for implementation/review evidence.
+
+## Addendum 2026-10-29: guardrails
+
+A hotel rate is typed in the direction opposite to how people think ("100 ALL = ? EUR"), and the first live entry was reversed. Manual FX needs a market reference, not trust: the screen shows the feed rate and a worked example, asks for a deliberate second click above 10% distance, and the API refuses above 50% unless confirmed (`confirmOutlier`). Rates stay hotel-controlled; the guard only prevents accidents. The change history is exposed read-only to staff. Public reads no longer depend on Clock or take a row lock.

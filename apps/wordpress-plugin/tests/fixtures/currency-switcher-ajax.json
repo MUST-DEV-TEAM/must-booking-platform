@@ -1,0 +1,7 @@
+{
+  "base": "ALL",
+  "version": "8",
+  "displayCurrencies": ["USD"],
+  "rates": { "ALL": 1, "EUR": 0.011111111111111112, "USD": 0.012285012285012284 },
+  "sources": { "ALL": "feed", "EUR": "hotel", "USD": "hotel" }
+}

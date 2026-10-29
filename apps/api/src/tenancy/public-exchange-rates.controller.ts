@@ -59,6 +59,7 @@ export class PublicExchangeRatesController {
     const { currency: base } = await this.currencies.resolve(
       request.tenantContext.tenantId,
       request.tenantContext.propertyId,
+      { checkClock: false },
     );
     const result = await this.rates.ratesFor(
       base,

@@ -65,6 +65,32 @@ describe('ExchangeRatesService', () => {
   });
 });
 
+describe('feed reference', () => {
+  it('quotes hotel-currency units per one unit of each currency, from the feed alone', async () => {
+    const { service } = make(
+      stored([
+        { code: 'ALL', rate: '100' },
+        { code: 'USD', rate: '1.25' },
+        { code: 'EUR', rate: '1' },
+      ]),
+    );
+    const result = await service.feedReference('ALL', ['usd', 'EUR', 'ALL', 'bad!']);
+    expect(result.perUnit).toEqual({ USD: 80, EUR: 100 });
+    expect(result.date).toBe('2026-10-25');
+  });
+
+  it('has nothing to compare with when the feed never produced the hotel currency', async () => {
+    const { service } = make(
+      stored([
+        { code: 'USD', rate: '1.25' },
+        { code: 'EUR', rate: '1' },
+      ]),
+    );
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+    await expect(service.feedReference('ALL', ['USD'])).resolves.toMatchObject({ perUnit: {} });
+  });
+});
+
 describe('hotel exchange rates', () => {
   it('prefers the hotel rate per currency and uses the feed for the rest', async () => {
     const { db } = make(
@@ -89,7 +115,7 @@ describe('hotel exchange rates', () => {
     });
     expect(result).toMatchObject({
       base: 'ALL',
-      rates: { EUR: 0.01, USD: 0.011364 },
+      rates: { EUR: 0.01, USD: 0.011363636364 },
       sources: { EUR: 'hotel', USD: 'feed' },
       version: '7',
     });
@@ -102,7 +128,7 @@ describe('hotel exchange rates', () => {
     });
     expect(
       await service.ratesFor('ALL', ['EUR'], { tenantId: 't', propertyId: 'p' }),
-    ).toMatchObject({ rates: { EUR: 0.009091 }, sources: { EUR: 'feed' } });
+    ).toMatchObject({ rates: { EUR: 0.009090909091 }, sources: { EUR: 'feed' } });
   });
   it('serves hotel rates without a feed and includes the hotel-selected display currencies', async () => {
     const { db } = make([]);

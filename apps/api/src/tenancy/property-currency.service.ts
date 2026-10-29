@@ -23,8 +23,18 @@ export class PropertyCurrencyService {
     @Inject(ClockAvailabilityService) private readonly clock: ClockAvailabilityService,
   ) {}
 
-  /** The owner's setting wins; otherwise a Clock hotel uses the currency of its Clock rates. */
-  async resolve(tenantId: string, propertyId: string): Promise<PropertyCurrency> {
+  /**
+   * The owner's setting wins; otherwise a Clock hotel uses the currency of its Clock rates.
+   *
+   * `checkClock: false` is for public, high-traffic reads: when the owner has set a currency the answer
+   * needs no third party, so Clock is not asked (and `clock` / `mismatch` are left unknown). Only the
+   * staff warning needs the comparison.
+   */
+  async resolve(
+    tenantId: string,
+    propertyId: string,
+    options: { checkClock?: boolean } = {},
+  ): Promise<PropertyCurrency> {
     const rows = await this.db.withTenantTransaction(
       { tenantId, propertyId },
       (tx) =>
@@ -34,7 +44,10 @@ export class PropertyCurrencyService {
         `,
     );
     const setting = rows[0]?.currency?.toUpperCase() || null;
-    const clock = await this.clock.publishedRateCurrency(tenantId, propertyId).catch(() => null);
+    const skipClock = options.checkClock === false && setting !== null;
+    const clock = skipClock
+      ? null
+      : await this.clock.publishedRateCurrency(tenantId, propertyId).catch(() => null);
     const currency = setting ?? clock ?? FALLBACK_CURRENCY;
     return {
       currency,

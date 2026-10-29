@@ -139,6 +139,37 @@ export class ExchangeRatesService {
     };
   }
 
+  /**
+   * What the daily feed alone says: hotel-currency units per one unit of each currency. Staff see it as a
+   * reference next to the rate they type, and the API uses it to reject a rate that is far off the market.
+   */
+  async feedReference(
+    base: string,
+    currencies: string[],
+  ): Promise<{ date: string | null; perUnit: Record<string, number> }> {
+    const hotel = base.toUpperCase();
+    const wanted = Array.from(
+      new Set(
+        currencies.map((code) => code.toUpperCase()).filter((code) => /^[A-Z]{3}$/.test(code)),
+      ),
+    ).filter((code) => code !== hotel);
+    if (!wanted.length) return { date: null, perUnit: {} };
+    const pivot = [hotel, ...wanted];
+    let stored = await this.stored(pivot);
+    if (stored.stale) {
+      await this.refresh();
+      stored = await this.stored(pivot);
+    }
+    const baseRate = stored.rates[hotel];
+    const perUnit: Record<string, number> = {};
+    if (baseRate)
+      for (const code of wanted) {
+        const quote = stored.rates[code];
+        if (quote) perUnit[code] = round(baseRate / quote);
+      }
+    return { date: stored.date || null, perUnit };
+  }
+
   private async stored(codes: string[]) {
     const rows = await this.db.$queryRaw<
       Array<{ code: string; rate: string; rateDate: Date; fetchedAt: Date }>
@@ -193,6 +224,10 @@ export class ExchangeRatesService {
   }
 }
 
+/**
+ * Twelve decimals, not six: a hotel whose currency is worth about a hundredth of a euro (the lek) would keep only
+ * four significant digits at six decimals, which skews every cross rate the website derives from these numbers.
+ */
 function round(value: number): number {
-  return Math.round(value * 1e6) / 1e6;
+  return Math.round(value * 1e12) / 1e12;
 }
