@@ -4,7 +4,7 @@ Tags: hotel, booking, reservation, accommodation
 Requires at least: 5.0
 Tested up to: 6.0
 Requires PHP: 7.4
-Stable tag: 0.4.115
+Stable tag: 0.4.119
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -31,6 +31,20 @@ Main features include:
 5. When updating, upload the new release ZIP or use the configured updater, then review **Diagnostics & Maintenance** after the update completes.
 
 == Changelog ==
+
+= 0.4.119 =
+* Currency switcher: convert room prices correctly when their original currency differs from the hotel exchange-rate base; keep the original payable price visible.
+
+= 0.4.118 =
+* Use hotel-managed display exchange rates from MUST, revalidate every ten minutes, and keep the last good rates during API outages.
+* Keep readable currency names when hotel display currencies rebuild the menu.
+
+= 0.4.117 =
+* Show the crossed-out original price on room cards when the lowest offered rate includes a discount.
+
+= 0.4.116 =
+* Checkout: a rate that includes a discount shows the price before the discount crossed out, in the list of rates and in the price summary.
+* Checkout: the coupon box also accepts a code that unlocks a special rate. The rate then appears in the list marked "Special rate" and the guest simply chooses it.
 
 = 0.4.115 =
 * Search: dates the hotel is not selling now say "Closed for these dates" instead of the general "Not available".

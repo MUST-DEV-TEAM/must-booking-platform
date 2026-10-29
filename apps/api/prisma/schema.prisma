@@ -190,6 +190,9 @@ model User {
 }
 
 model Property {
+  ratesVersion                      BigInt                          @default(0) @map("rates_version")
+  displayCurrencies                 String[]                        @default([]) @map("display_currencies")
+  displayCurrenciesConfigured       Boolean                         @default(false) @map("display_currencies_configured")
   dateFormat                        String                          @default("DD/MM/YYYY") @map("date_format") @db.VarChar(20)
   legalName                         String?                         @map("legal_name") @db.VarChar(200)
   taxNumber                         String?                         @map("tax_number") @db.VarChar(100)
@@ -1241,6 +1244,19 @@ model ClockWebsiteHiddenRate {
   @@map("clock_website_hidden_rates")
 }
 
+// Display-only reference for a Clock rate, scoped to one hotel.
+model ClockRatePair {
+  tenantId        String   @map("tenant_id") @db.Uuid
+  propertyId      String   @map("property_id") @db.Uuid
+  promoRateId     String   @map("promo_rate_id")
+  compareRateId   String   @map("compare_rate_id")
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@id([tenantId, propertyId, promoRateId])
+  @@map("clock_rate_pairs")
+}
+
 enum ManualReviewCategory {
   UNKNOWN_RESULT
   DUPLICATE
@@ -1985,6 +2001,33 @@ model ServerMediaUpload {
   property      Property  @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
 
   @@map("server_media_uploads")
+}
+
+/// Hotel overrides: one display unit equals rate hotel-default-currency units.
+model PropertyExchangeRate {
+  tenantId      String   @map("tenant_id") @db.Uuid
+  propertyId    String   @map("property_id") @db.Uuid
+  quoteCurrency String   @map("quote_currency") @db.VarChar(3)
+  rate          Decimal  @db.Decimal(20, 8)
+  updatedAt     DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy     String   @map("updated_by") @db.Uuid
+
+  @@id([tenantId, propertyId, quoteCurrency])
+  @@map("property_exchange_rates")
+}
+
+model PropertyExchangeRateChange {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  propertyId    String   @map("property_id") @db.Uuid
+  quoteCurrency String   @map("quote_currency") @db.VarChar(3)
+  oldRate       Decimal? @map("old_rate") @db.Decimal(20, 8)
+  newRate       Decimal? @map("new_rate") @db.Decimal(20, 8)
+  updatedAt     DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy     String   @map("updated_by") @db.Uuid
+
+  @@index([tenantId, propertyId, updatedAt], map: "property_exchange_rate_changes_scope")
+  @@map("property_exchange_rate_changes")
 }
 
 /// Daily euro-based exchange rates for approximate price display only (never for charging).

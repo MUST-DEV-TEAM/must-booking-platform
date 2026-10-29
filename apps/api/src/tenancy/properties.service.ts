@@ -79,7 +79,7 @@ export class PropertiesService {
             JOIN integration_connections ic ON ic.tenant_id=pic.tenant_id AND ic.id=pic.connection_id
             WHERE pic.tenant_id=p.tenant_id AND pic.property_id=p.id AND pic.enabled AND ic.status='CONNECTED'
             ORDER BY ic.provider::text) AS "connectedProviders",
-          EXISTS(SELECT 1 FROM rate_rules rr WHERE rr.tenant_id=p.tenant_id AND rr.property_id=p.id UNION ALL SELECT 1 FROM pricing_daily_prices dp WHERE dp.tenant_id=p.tenant_id AND dp.property_id=p.id UNION ALL SELECT 1 FROM room_price_overrides ro WHERE ro.tenant_id=p.tenant_id AND ro.property_id=p.id) AS "defaultCurrencyLocked",
+          EXISTS(SELECT 1 FROM rate_rules rr WHERE rr.tenant_id=p.tenant_id AND rr.property_id=p.id UNION ALL SELECT 1 FROM pricing_daily_prices dp WHERE dp.tenant_id=p.tenant_id AND dp.property_id=p.id UNION ALL SELECT 1 FROM room_price_overrides ro WHERE ro.tenant_id=p.tenant_id AND ro.property_id=p.id UNION ALL SELECT 1 FROM property_exchange_rates fx WHERE fx.tenant_id=p.tenant_id AND fx.property_id=p.id) AS "defaultCurrencyLocked",
           online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
@@ -190,10 +190,10 @@ export class PropertiesService {
       ) {
         const prices = await tx.$queryRaw<
           { locked: boolean }[]
-        >`SELECT EXISTS(SELECT 1 FROM rate_rules WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid UNION ALL SELECT 1 FROM pricing_daily_prices WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid UNION ALL SELECT 1 FROM room_price_overrides WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid) AS locked`;
+        >`SELECT EXISTS(SELECT 1 FROM rate_rules WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid UNION ALL SELECT 1 FROM pricing_daily_prices WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid UNION ALL SELECT 1 FROM room_price_overrides WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid UNION ALL SELECT 1 FROM property_exchange_rates WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid) AS locked`;
         if (prices[0]?.locked)
           throw new ConflictException(
-            'Prices already exist. Their currency cannot be changed here.',
+            'Prices or hotel exchange rates already exist. Their currency cannot be changed here.',
           );
       }
       const nextMinStayNights =

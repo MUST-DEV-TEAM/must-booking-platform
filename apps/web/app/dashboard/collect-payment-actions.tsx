@@ -1,4 +1,5 @@
 'use client';
+import { HotelMoney } from './approximate-money';
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '../../components/ui/button';
@@ -289,9 +290,16 @@ export function CollectPaymentActions({
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-sm">
-          Balance to collect: {booking.total.currency}{' '}
-          {verifiedClock?.balance.amount ??
-            decimalMoney(minorUnits(booking.total.amount) - minorUnits(booking.paidAmount))}
+          Balance to collect:{' '}
+          <HotelMoney
+            tenantId={tenantId}
+            propertyId={propertyId}
+            currency={verifiedClock?.balance.currency ?? booking.total.currency}
+            amount={
+              verifiedClock?.balance.amount ??
+              decimalMoney(minorUnits(booking.total.amount) - minorUnits(booking.paidAmount))
+            }
+          />
           . A recorded cash, card or bank payment means you have already received the money.
         </p>
         <div className="flex flex-wrap gap-2">

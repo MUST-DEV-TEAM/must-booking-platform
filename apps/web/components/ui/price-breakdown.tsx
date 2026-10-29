@@ -1,3 +1,4 @@
+import { ScopedHotelMoney } from '../../app/dashboard/approximate-money';
 import { Card, CardHeader, CardTitle, CardContent } from './card';
 import { Table, TableHeader, TableHead, TableRow, TableBody, TableCell } from './table';
 export type PriceBreakdownData = {
@@ -21,8 +22,7 @@ export function PriceBreakdown({ value }: { value: PriceBreakdownData }) {
     <Card>
       <CardHeader>
         <CardTitle>
-          Customer total:{' '}
-          {value.total ? `${value.total.currency} ${value.total.amount}` : 'Unknown'}
+          Customer total: {value.total ? <ScopedHotelMoney {...value.total} /> : 'Unknown'}
         </CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
@@ -38,7 +38,13 @@ export function PriceBreakdown({ value }: { value: PriceBreakdownData }) {
             {value.nightlyRates.flatMap((n) => [
               <TableRow key={n.date}>
                 <TableCell className="font-semibold">{n.date}</TableCell>
-                <TableCell className="font-semibold">{n.amount}</TableCell>
+                <TableCell className="font-semibold">
+                  {value.total ? (
+                    <ScopedHotelMoney amount={n.amount} currency={value.total.currency} />
+                  ) : (
+                    n.amount
+                  )}
+                </TableCell>
                 <TableCell>Nightly total</TableCell>
               </TableRow>,
               ...(n.components ?? []).map((c, i) => (
@@ -47,7 +53,13 @@ export function PriceBreakdown({ value }: { value: PriceBreakdownData }) {
                     {c.name}
                     {c.display ? ` (${c.display})` : ''}
                   </TableCell>
-                  <TableCell>{c.amount}</TableCell>
+                  <TableCell>
+                    {value.total ? (
+                      <ScopedHotelMoney amount={c.amount} currency={value.total.currency} />
+                    ) : (
+                      c.amount
+                    )}
+                  </TableCell>
                   <TableCell>
                     {c.kind} / v{c.version}
                   </TableCell>

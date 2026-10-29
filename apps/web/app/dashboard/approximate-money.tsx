@@ -1,4 +1,5 @@
 'use client';
+import { useHotelMoneyScope } from '../../lib/hotel-money-scope';
 import { useQuery } from '@tanstack/react-query';
 
 import { Money } from '../../components/ui/money';
@@ -118,8 +119,17 @@ export function HotelMoney({
   currency: string;
   negative?: boolean;
 }) {
-  const today = useTodayRates(tenantId, propertyId, [currency]);
-  const base = today.data?.base;
+  const scope = useHotelMoneyScope();
+  const hotelCurrency =
+    scope?.tenantId === tenantId && scope.propertyId === propertyId ? scope.currency : null;
+  const today = useTodayRates(
+    tenantId,
+    propertyId,
+    hotelCurrency?.toUpperCase() === currency.toUpperCase()
+      ? []
+      : [currency, ...(hotelCurrency ? [hotelCurrency] : [])],
+  );
+  const base = hotelCurrency ?? today.data?.base;
   const approximate =
     base && currency.toUpperCase() !== base.toUpperCase()
       ? estimate(today.data, amount, currency, base)
@@ -167,13 +177,19 @@ export function MoneyList({
   propertyId: string;
   list: Array<{ currency: string; amount: string }>;
 }) {
+  const scope = useHotelMoneyScope();
+  const hotelCurrency =
+    scope?.tenantId === tenantId && scope.propertyId === propertyId ? scope.currency : null;
+  const foreign = list
+    .map((item) => item.currency)
+    .filter((currency) => currency.toUpperCase() !== hotelCurrency?.toUpperCase());
   const today = useTodayRates(
     tenantId,
     propertyId,
-    list.map((item) => item.currency),
+    foreign.length ? [...foreign, ...(hotelCurrency ? [hotelCurrency] : [])] : [],
   );
   if (list.length === 0) return <>—</>;
-  const base = today.data?.base;
+  const base = hotelCurrency ?? today.data?.base;
   return (
     <>
       {list.map((item, index) => (
@@ -191,5 +207,15 @@ export function MoneyList({
         </span>
       ))}
     </>
+  );
+}
+
+/** Shared UI uses the selected hotel scope; outside it, only the real amount is shown. */
+export function ScopedHotelMoney(props: { amount: string; currency: string; negative?: boolean }) {
+  const scope = useHotelMoneyScope();
+  return scope ? (
+    <HotelMoney tenantId={scope.tenantId} propertyId={scope.propertyId} {...props} />
+  ) : (
+    <Money {...props} />
   );
 }

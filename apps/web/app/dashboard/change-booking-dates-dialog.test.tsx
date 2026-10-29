@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { formatMoney } from '../../lib/money';
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
@@ -129,7 +130,7 @@ it('uses a single stay-range calendar, auto-previews and preserves retry identit
     expect(fetch.mock.calls.filter(([url]) => url.includes('amend-preview'))).toHaveLength(0);
     await pause();
     expect(fetch.mock.calls.filter(([url]) => url.includes('amend-preview'))).toHaveLength(1);
-    expect(document.body.textContent).toContain('EUR 400.00');
+    expect(document.body.textContent).toContain(formatMoney('400.00', 'EUR'));
     expect(document.body.textContent).toContain('No card is charged automatically');
     expect(button('Check dates again')).toBeUndefined();
     expect(button('Confirm date change').disabled).toBe(true);

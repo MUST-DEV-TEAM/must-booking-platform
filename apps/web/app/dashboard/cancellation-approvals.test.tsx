@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { formatMoney } from '../../lib/money';
 import { act, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -78,7 +79,7 @@ describe('B1 confirmation, refund preview, queue and review panel', () => {
       'Penalty',
       'Already refunded',
       'Refund to issue',
-      '90.00 EUR',
+      formatMoney('90.00', 'EUR'),
       'Cancellation terms are taken from the current rate plan.',
     ])
       expect(document.body.textContent).toContain(text);
@@ -107,7 +108,7 @@ describe('B1 confirmation, refund preview, queue and review panel', () => {
     );
     expect(document.body.textContent).toContain('Normal');
     expect(button('Submit request').disabled).toBe(true);
-    expect(document.body.textContent).toContain('90.00 EUR');
+    expect(document.body.textContent).toContain(formatMoney('90.00', 'EUR'));
     await write('textarea', 'Guest called reception');
     await act(async () => button('Submit request').click());
     const sent = fetch.mock.calls.find((c) => c[1]?.method === 'POST');
@@ -267,7 +268,7 @@ it('keeps the selected percentage when entering combined cancellation from Refun
     await new Promise((r) => setTimeout(r, 40));
   });
   expect(document.body.textContent).toContain('Choose the refund and review the final outcome');
-  expect(document.body.textContent).toContain('22.50 EUR');
+  expect(document.body.textContent).toContain(formatMoney('22.50', 'EUR'));
   expect(fetch.mock.calls.every((c) => !String(c[0]).endsWith('/payments/refunds'))).toBe(true);
 });
 

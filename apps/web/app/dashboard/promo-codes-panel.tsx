@@ -1,4 +1,5 @@
 'use client';
+import { formatMoney } from '../../lib/money';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -134,7 +135,7 @@ export function promoSummary(code: PromoCode, roomTypes: RoomType[]): string {
   parts.push(
     code.kind === 'PERCENT'
       ? `${Number(code.value)}% off`
-      : `${code.value} ${code.currency ?? ''} off`,
+      : (code.currency ? formatMoney(code.value, code.currency) : String(code.value)) + ' off',
   );
   if (code.bookFrom || code.bookUntil)
     parts.push(`bookable ${code.bookFrom ?? 'any time'} to ${code.bookUntil ?? 'any time'}`);

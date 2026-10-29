@@ -190,6 +190,8 @@ import { PropertyCurrencyService } from './tenancy/property-currency.service';
 import { PromoCodeService } from './booking/promo-code.service';
 import { PromoCodeAdminService } from './booking/promo-code-admin.service';
 import { PromoCodesController } from './booking/promo-codes.controller';
+import { PropertyExchangeRatesService } from './tenancy/property-exchange-rates.service';
+import { PropertyExchangeRatesController } from './tenancy/property-exchange-rates.controller';
 import { ExchangeRatesService } from './tenancy/exchange-rates.service';
 import { PublicCatalogController } from './tenancy/public-catalog.controller';
 import { PublicCatalogService } from './tenancy/public-catalog.service';
@@ -257,6 +259,8 @@ import {
 import { ClockWebsiteRatesService } from './integrations/clock/clock-website-rates.service';
 import { ClockSamplePricesService } from './integrations/clock/clock-sample-prices.service';
 import { ClockSamplePricesController } from './integrations/clock/clock-sample-prices.controller';
+import { ClockRatePairsService } from './integrations/clock/clock-rate-pairs.service';
+import { ClockRatePairsController } from './integrations/clock/clock-rate-pairs.controller';
 import { ClockWebsiteRatesController } from './integrations/clock/clock-website-rates.controller';
 import { ClockBookingService } from './integrations/clock/clock-booking.service';
 import { BookingReviewController, BookingReviewService } from './booking/booking-review.service';
@@ -354,6 +358,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     CapabilitiesController,
     PublicAvailabilityController,
     PublicExchangeRatesController,
+    PropertyExchangeRatesController,
     PropertyCurrencyController,
     PromoCodesController,
     PublicCatalogController,
@@ -390,12 +395,14 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     ClockRateRankingController,
     ClockRateRankingBatchController,
     ClockWebsiteRatesController,
+    ClockRatePairsController,
     ClockSamplePricesController,
     ClockWebhookController,
   ],
   providers: [
     TenantDatabaseService,
     ExchangeRatesService,
+    PropertyExchangeRatesService,
     PropertyCurrencyService,
     PromoCodeService,
     PromoCodeAdminService,
@@ -520,6 +527,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     PrePaymentAvailabilityRegistry,
     ClockRateRankingService,
     ClockWebsiteRatesService,
+    ClockRatePairsService,
     ClockSamplePricesService,
     ClockBookingService,
     BookingReviewService,

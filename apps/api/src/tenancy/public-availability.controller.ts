@@ -83,6 +83,8 @@ export class PublicAvailabilityController {
         adultCount: parsed.adultCount,
         childrenCount: parsed.childrenCount,
         channel: 'website',
+        // A promo code the guest typed reveals the Clock rates that need it.
+        code: optionalCode((query as { code?: unknown } | null)?.code),
       },
     );
     if (!result.ok) {
@@ -170,6 +172,13 @@ function parseAvailabilityQuery(query: unknown): AvailabilityQuery {
     adultCount: optionalInteger(value.adults, 'adults', 1),
     childrenCount: optionalInteger(value.children, 'children', 0),
   };
+}
+
+/** A promo code from the query string: short, plain letters, digits, dashes and underscores. Anything else is ignored. */
+function optionalCode(value: unknown): string | undefined {
+  return typeof value === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(value.trim())
+    ? value.trim()
+    : undefined;
 }
 
 function isoDate(value: unknown, field: string): string {

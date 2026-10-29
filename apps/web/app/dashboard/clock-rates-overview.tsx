@@ -1,4 +1,5 @@
 'use client';
+import { HotelMoney } from './approximate-money';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useClockSnapshot } from './clock-sync';
@@ -16,6 +17,13 @@ import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import { StatTile } from '../../components/ui/stat-tile';
 import { Switch } from '../../components/ui/switch';
 import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '../../components/ui/select';
+import {
   Table,
   TableHeader,
   TableHead,
@@ -26,6 +34,8 @@ import {
 
 export type ClockRate = {
   externalRateId: string;
+  requiresCode?: boolean;
+  onWebsite?: boolean;
   /** Clock's own name, for example "BB". */
   name: string;
   /** What guests read, for example "Bed & breakfast". */
@@ -62,10 +72,6 @@ function useClockRates(root: string) {
   return { snapshot, hidden, off: new Set(hidden.data?.hiddenRateIds ?? []) };
 }
 
-const sampleMoney = (value: { amount: string; currency: string }) =>
-  new Intl.NumberFormat(undefined, { style: 'currency', currency: value.currency }).format(
-    Number(value.amount),
-  );
 const sampleDate = (iso: string) =>
   new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' }).format(
     new Date(`${iso}T00:00:00`),
@@ -160,6 +166,24 @@ export function ClockRatesOverview({
   const { tenantId, propertyId } = idsOf(root);
   const { snapshot, hidden, off } = useClockRates(root);
   const sample = useSamplePrices(root);
+  const caps = useQuery({
+    queryKey: ['dashboard', 'pricing-access', tenantId, propertyId],
+    queryFn: () => inventoryRequest<string[]>(`${root}/capabilities/mine`),
+  });
+  const canManage = Array.isArray(caps.data) && caps.data.includes('rates.manage');
+  const pairsKey = ['dashboard', 'clock-rate-pairs', tenantId, propertyId];
+  const pairs = useQuery({
+    queryKey: pairsKey,
+    queryFn: () => inventoryRequest<{ pairs: Record<string, string> }>(`${root}/clock-rate-pairs`),
+    enabled: canManage,
+  });
+  // Use the current catalogue for the select: older rate snapshots may lack code-protection metadata.
+  const currentRates = useQuery({
+    queryKey: ['dashboard', 'clock-pair-options', tenantId, propertyId],
+    queryFn: () =>
+      inventoryRequest<{ roomTypes: Record<string, ClockRate[]> }>(`${root}/clock-website-rates`),
+    enabled: canManage,
+  });
   const client = useQueryClient();
   const hiddenKey = ['dashboard', 'clock-website-rates', tenantId, propertyId];
   const [switchingOff, setSwitchingOff] = useState<{ id: string; label: string } | null>(null);
@@ -170,7 +194,22 @@ export function ClockRatesOverview({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ onWebsite }),
       }),
-    onSuccess: () => client.invalidateQueries({ queryKey: hiddenKey }),
+    onSuccess: () =>
+      Promise.all([
+        client.invalidateQueries({ queryKey: hiddenKey }),
+        client.invalidateQueries({
+          queryKey: ['dashboard', 'clock-pair-options', tenantId, propertyId],
+        }),
+      ]),
+  });
+  const pairChange = useMutation({
+    mutationFn: ({ id, compareRateId }: { id: string; compareRateId: string | null }) =>
+      inventoryRequest(`${root}/clock-rate-pairs/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ compareRateId }),
+      }),
+    onSuccess: () => client.invalidateQueries({ queryKey: pairsKey }),
   });
   const data = snapshot.data?.data?.roomTypes ?? null;
   return (
@@ -208,6 +247,16 @@ export function ClockRatesOverview({
             </AlertDescription>
           </Alert>
         ) : null}
+        {pairChange.isSuccess ? <p role="status">Comparison saved.</p> : null}
+        {pairChange.isError || pairs.isError || currentRates.isError ? (
+          <Alert variant="destructive">
+            <AlertDescription>
+              {pairChange.error instanceof Error
+                ? pairChange.error.message
+                : 'Rate comparisons could not be read. Try again.'}
+            </AlertDescription>
+          </Alert>
+        ) : null}
         {hidden.isError ? (
           <Alert variant="destructive">
             <AlertDescription>
@@ -241,6 +290,7 @@ export function ClockRatesOverview({
                         <TableHead>Guests allowed</TableHead>
                         <TableHead>Sample price</TableHead>
                         <TableHead>Sold on website</TableHead>
+                        <TableHead>Compare with</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -250,6 +300,27 @@ export function ClockRatesOverview({
                         const samplePrice = sample.data?.roomTypes?.[type.id]?.find(
                           (offer) => offer.rateId === rate.externalRateId,
                         )?.total;
+                        const compareId = pairs.data?.pairs[rate.externalRateId];
+                        const candidates = (currentRates.data?.roomTypes?.[type.id] ?? []).filter(
+                          (other) =>
+                            other.externalRateId !== rate.externalRateId &&
+                            other.onWebsite === true &&
+                            !off.has(other.externalRateId) &&
+                            !other.requiresCode,
+                        );
+                        const comparison = candidates.find(
+                          (other) => other.externalRateId === compareId,
+                        );
+                        const comparedPrice = comparison
+                          ? sample.data?.roomTypes?.[type.id]?.find(
+                              (offer) => offer.rateId === compareId,
+                            )?.total
+                          : undefined;
+                        const showCompared =
+                          samplePrice &&
+                          comparedPrice &&
+                          samplePrice.currency === comparedPrice.currency &&
+                          Number(comparedPrice.amount) > Number(samplePrice.amount);
                         return (
                           <TableRow key={rate.externalRateId}>
                             <TableCell>
@@ -268,13 +339,19 @@ export function ClockRatesOverview({
                               {limit(rate.maxChildren, 'children')}
                             </TableCell>
                             <TableCell>
-                              {sample.isPending
-                                ? '…'
-                                : samplePrice
-                                  ? sampleMoney(samplePrice)
-                                  : sample.data?.startsOn
-                                    ? 'Not bookable then'
-                                    : '—'}
+                              {sample.isPending ? (
+                                '…'
+                              ) : samplePrice ? (
+                                <HotelMoney
+                                  tenantId={tenantId}
+                                  propertyId={propertyId}
+                                  {...samplePrice}
+                                />
+                              ) : sample.data?.startsOn ? (
+                                'Not bookable then'
+                              ) : (
+                                '—'
+                              )}
                             </TableCell>
                             <TableCell>
                               <div className="flex items-center gap-2">
@@ -293,12 +370,77 @@ export function ClockRatesOverview({
                                 </span>
                               </div>
                             </TableCell>
+                            <TableCell>
+                              <Select
+                                value={compareId ?? 'none'}
+                                disabled={
+                                  !canManage ||
+                                  !pairs.data ||
+                                  !currentRates.data ||
+                                  pairs.isError ||
+                                  currentRates.isError ||
+                                  hidden.isPending ||
+                                  hidden.isError ||
+                                  pairChange.isPending
+                                }
+                                onValueChange={(value) => {
+                                  pairChange.reset();
+                                  pairChange.mutate({
+                                    id: rate.externalRateId,
+                                    compareRateId: value === 'none' ? null : value,
+                                  });
+                                }}
+                              >
+                                <SelectTrigger
+                                  aria-label={`Compare ${rate.name} (${type.name}) with`}
+                                >
+                                  <SelectValue>
+                                    {compareId
+                                      ? (comparison?.name ?? 'Comparison unavailable')
+                                      : 'None'}
+                                  </SelectValue>
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="none">None</SelectItem>
+                                  {candidates.map((other) => (
+                                    <SelectItem
+                                      key={other.externalRateId}
+                                      value={other.externalRateId}
+                                    >
+                                      {other.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              {compareId && samplePrice ? (
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  {showCompared ? (
+                                    <>
+                                      Guests will see{' '}
+                                      <HotelMoney
+                                        tenantId={tenantId}
+                                        propertyId={propertyId}
+                                        {...comparedPrice}
+                                      />{' '}
+                                      crossed out next to{' '}
+                                      <HotelMoney
+                                        tenantId={tenantId}
+                                        propertyId={propertyId}
+                                        {...samplePrice}
+                                      />
+                                    </>
+                                  ) : (
+                                    'No crossed-out price for the sample stay'
+                                  )}
+                                </p>
+                              ) : null}
+                            </TableCell>
                           </TableRow>
                         );
                       })}
                       {rates.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={5}>
+                          <TableCell colSpan={6}>
                             No published Clock rates returned for this room type. Check its rate
                             setup in Clock.
                           </TableCell>
@@ -306,6 +448,10 @@ export function ClockRatesOverview({
                       ) : null}
                     </TableBody>
                   </Table>
+                  <p className="m-0 text-xs text-muted-foreground">
+                    Compare with a public rate of the same room type to show its higher price
+                    crossed out for the same stay; otherwise the included discount is used.
+                  </p>
                 </div>
               );
             })

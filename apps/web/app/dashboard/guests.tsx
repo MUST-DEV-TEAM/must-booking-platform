@@ -1,4 +1,5 @@
 'use client';
+import { MoneyList } from './approximate-money';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Download, MoreHorizontal } from 'lucide-react';
@@ -42,7 +43,7 @@ import {
 } from '../../components/ui/table';
 import { useTablePreferences } from '../../lib/use-table-preferences';
 import { cn } from '../../lib/utils';
-import { formatMoneyList, guestStatsById, guestsCsv, type GuestStats } from './guest-stats';
+import { guestStatsById, guestsCsv, type GuestStats } from './guest-stats';
 import { GuestBadges, GuestSheet, stayLabel } from './guest-sheet';
 import { guestHref } from './payment-detail';
 import { fetchPropertyBookings } from './reservations';
@@ -764,7 +765,15 @@ export function DashboardGuests({
                       ) : null}
                       {columns.value ? (
                         <TableCell className="px-2 py-2 text-right whitespace-nowrap tabular-nums">
-                          {entry ? formatMoneyList(entry.net) : '—'}
+                          {entry ? (
+                            <MoneyList
+                              tenantId={tenantId}
+                              propertyId={propertyId}
+                              list={entry.net}
+                            />
+                          ) : (
+                            '—'
+                          )}
                         </TableCell>
                       ) : null}
                       {columns.owed ? (
@@ -776,7 +785,15 @@ export function DashboardGuests({
                               : 'text-muted-foreground',
                           )}
                         >
-                          {entry?.hasBalance ? formatMoneyList(entry.outstanding) : '—'}
+                          {entry?.hasBalance ? (
+                            <MoneyList
+                              tenantId={tenantId}
+                              propertyId={propertyId}
+                              list={entry.outstanding}
+                            />
+                          ) : (
+                            '—'
+                          )}
                         </TableCell>
                       ) : null}
                       <TableCell className="px-2 py-1 text-right">

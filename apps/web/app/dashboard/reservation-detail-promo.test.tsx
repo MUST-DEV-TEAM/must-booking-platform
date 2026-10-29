@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { mountMoneyScreen, expectHotelAmount } from '../../lib/money-test-utils';
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -110,4 +111,39 @@ describe('ReservationDetail promo code', () => {
 
     expect(text).not.toContain('Price before the code');
   });
+});
+
+it.each(['EUR', 'ALL'])('reservation promo and nightly amounts preserve %s', async (currency) => {
+  const detail = {
+    ...booking({
+      code: 'TEST',
+      discount: { amount: '5000.00', currency },
+      originalTotal: { amount: '10000.00', currency },
+    }),
+    total: { amount: '5000.00', currency },
+    nightlyRates: [{ date: '2027-05-10', amount: '5000.00' }],
+  };
+  const view = await mountMoneyScreen(
+    createElement(ReservationDetail, {
+      tenantId: 't',
+      propertyId: 'p',
+      bookingId: 'booking-1',
+    }),
+    (url) =>
+      url.endsWith('/capabilities/mine')
+        ? []
+        : url.includes('/payments/bookings/')
+          ? { entries: [] }
+          : url.endsWith('/bookings/unseen')
+            ? { count: 0, ids: [] }
+            : url.includes('/clock-sync/financial/')
+              ? { status: 'NOT_CONNECTED' }
+              : detail,
+  );
+  await expectHotelAmount(view, currency, '5000.00');
+  expect(view.host.textContent).toContain('Nightly rates');
+  expect(view.host.textContent).not.toContain('[object Object]');
+  if (currency === 'ALL')
+    expect(view.host.textContent).toContain('(\u2248 \u2212\u20ac50.00, estimate)');
+  await act(async () => view.root.unmount());
 });

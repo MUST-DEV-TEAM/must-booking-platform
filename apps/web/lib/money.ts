@@ -2,7 +2,10 @@
 export function formatMoney(amount: string | number, currency: string): string {
   const value = Number(amount);
   try {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(value);
+    return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(
+      // Intl accepts decimal strings exactly; TypeScript's format signature still only lists number/bigint.
+      amount as number,
+    );
   } catch {
     // An unknown currency code must never break a screen.
     return `${currency} ${Number.isFinite(value) ? value.toFixed(2) : String(amount)}`;

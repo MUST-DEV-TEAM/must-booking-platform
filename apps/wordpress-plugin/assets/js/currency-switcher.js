@@ -52,20 +52,25 @@
             if (!node.hasAttribute('data-original')) {
                 node.setAttribute('data-original', node.textContent);
             }
-            var hotelCurrency = node.getAttribute('data-currency');
+            var priceCurrency = node.getAttribute('data-currency');
             var amount = parseFloat(node.getAttribute('data-amount'));
-            if (!rates || current === hotelCurrency || !isFinite(amount)) {
+            if (!rates || current === priceCurrency || !isFinite(amount)) {
                 node.textContent = node.getAttribute('data-original');
                 node.removeAttribute('data-converted');
                 return;
             }
-            // Rates are expressed from the hotel currency; a price in another currency is left alone.
-            if (rates.base !== hotelCurrency || !rates.rates[current]) {
+            // Both currencies use the same hotel base, even when Clock prices the room in euros.
+            var sourceRate = priceCurrency === rates.base ? 1 : rates.rates[priceCurrency];
+            var targetRate = current === rates.base ? 1 : rates.rates[current];
+            var converted = amount / sourceRate * targetRate;
+            if (typeof sourceRate !== 'number' || !isFinite(sourceRate) || sourceRate <= 0 ||
+                typeof targetRate !== 'number' || !isFinite(targetRate) || targetRate <= 0 || !isFinite(converted)) {
+                node.removeAttribute('data-converted');
                 node.textContent = node.getAttribute('data-original');
                 return;
             }
             // The converted amount is for reading only; what the guest really pays stays visible beside it.
-            node.textContent = '≈ ' + format(amount * rates.rates[current], current) +
+            node.textContent = '≈ ' + format(converted, current) +
                 ' (' + node.getAttribute('data-original') + ')';
             node.setAttribute('data-converted', 'true');
         });
@@ -132,18 +137,18 @@
         if (!trigger || !menu) {
             return;
         }
-        var options = Array.prototype.slice.call(menu.querySelectorAll('.must-currency-option'));
+
 
         trigger.addEventListener('click', function () {
             setOpen(switcher, !switcher.classList.contains('is-open'));
         });
 
-        options.forEach(function (option) {
-            option.addEventListener('click', function () {
-                choose(option.getAttribute('data-value'));
-                setOpen(switcher, false);
-                trigger.focus();
-            });
+        menu.addEventListener('click', function (event) {
+            var option = event.target.closest('.must-currency-option');
+            if (!option || !menu.contains(option)) return;
+            choose(option.getAttribute('data-value'));
+            setOpen(switcher, false);
+            trigger.focus();
         });
 
         switcher.addEventListener('keydown', function (event) {
@@ -163,6 +168,7 @@
                 }
                 return;
             }
+            var options = Array.prototype.slice.call(menu.querySelectorAll('.must-currency-option'));
             var index = options.findIndex(function (option) { return option.classList.contains('is-active'); });
             if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
                 event.preventDefault();
@@ -194,13 +200,38 @@
 
     render();
 
+    // Source currencies are needed for conversion even if the hotel hides them from the menu.
+    var requestedCurrencies = currencies.slice();
+    Array.prototype.forEach.call(document.querySelectorAll('.must-price[data-amount]'), function (node) {
+        var code = node.getAttribute('data-currency');
+        if (/^[A-Z]{3}$/.test(code) && requestedCurrencies.indexOf(code) === -1) requestedCurrencies.push(code);
+    });
     var url = window.mustCurrencyConfig.ajaxUrl +
-        '?action=must_hotel_booking_exchange_rates&currencies=' + encodeURIComponent(currencies.join(','));
+        '?action=must_hotel_booking_exchange_rates&currencies=' + encodeURIComponent(requestedCurrencies.join(','));
     window.fetch(url, { credentials: 'same-origin' })
         .then(function (response) { return response.json(); })
         .then(function (payload) {
             if (payload && payload.success && payload.data && payload.data.rates) {
                 rates = payload.data;
+                if (Array.isArray(rates.displayCurrencies)) {
+                    currencies = [rates.base].concat(rates.displayCurrencies).filter(function (code, index, all) { return all.indexOf(code) === index; });
+                    if (currencies.indexOf(current) === -1) current = rates.base;
+                    switchers.forEach(function (switcher) {
+                        var menu = switcher.querySelector('.must-currency-menu');
+                        var template = menu && menu.querySelector('.must-currency-option');
+                        if (!template) return;
+                        var model = template.cloneNode(true);
+                        menu.textContent = '';
+                        currencies.forEach(function (code) {
+                            var option = model.cloneNode(true);
+                            option.setAttribute('data-value', code);
+                            option.classList.remove('is-active');
+                            option.querySelector('.must-currency-code').textContent = code;
+                            option.querySelector('.must-currency-name').textContent = (window.mustCurrencyConfig.currencyNames || {})[code] || code;
+                            menu.appendChild(option);
+                        });
+                    });
+                }
                 render();
             }
         })

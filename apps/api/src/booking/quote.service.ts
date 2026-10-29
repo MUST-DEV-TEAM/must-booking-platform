@@ -80,6 +80,7 @@ export type DisplayPrice = {
   roomTypeId: string;
   available: boolean;
   total?: Money;
+  originalTotal?: Money;
   /** How many rooms of this type are left, when the hotel system says. */
   freeRooms?: number | null;
   /** Why this room type cannot be sold for the stay, when that is known. Absent when it could not be checked. */
@@ -240,6 +241,19 @@ export class QuoteService {
     const base = await this.priceBase(tenantId, propertyId, input, pricingChannel, options);
     const code = normalizePromoCode(input.promoCode);
     if (!code) return base;
+    // The code of a Clock rate is not one of our own coupons: it unlocked the rate the guest chose, whose price
+    // already holds the discount, so there is nothing more to apply.
+    if (
+      input.clockRateId &&
+      (await this.clockAvailability.rateUnlockedByCode(
+        tenantId,
+        propertyId,
+        input.roomTypeId,
+        input.clockRateId,
+        code,
+      ))
+    )
+      return base;
     return this.applyPromo(tenantId, propertyId, code, input, base);
   }
 
@@ -296,6 +310,8 @@ export class QuoteService {
         childrenAges: normalizedInput.childrenAges,
         clockRateId: normalizedInput.clockRateId,
         channel: pricingChannel,
+        // A Clock promo code reveals the rate that needs it; the guest then simply picks that rate.
+        code: normalizePromoCode(input.promoCode) ?? undefined,
       });
       if (!quote.ok) throw new BadRequestException(quote.error.message);
       return quote.value;
@@ -483,6 +499,9 @@ export class QuoteService {
           ...base,
           total: quote.value,
           ...(detail?.available ? { freeRooms: detail.freeRooms } : {}),
+          ...(detail?.available && detail.originalTotal
+            ? { originalTotal: detail.originalTotal }
+            : {}),
         };
       });
     }

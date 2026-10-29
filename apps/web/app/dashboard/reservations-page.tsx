@@ -1,4 +1,5 @@
 'use client';
+import { ScopedHotelMoney } from './approximate-money';
 
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
@@ -290,8 +291,9 @@ function queryString(filters: Filters, search: string): string {
   return params.toString();
 }
 
-const money = (amount: string, currency: string) =>
-  new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(Number(amount));
+const money = (amount: string, currency: string) => (
+  <ScopedHotelMoney amount={amount} currency={currency} />
+);
 
 const shortDate = (iso: string) =>
   new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' }).format(

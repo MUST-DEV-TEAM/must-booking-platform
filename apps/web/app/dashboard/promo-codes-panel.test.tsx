@@ -77,7 +77,7 @@ describe('promoSummary', () => {
         }),
         [],
       ),
-    ).toBe('25.00 EUR off');
+    ).toBe('€25.00 off');
   });
 });
 

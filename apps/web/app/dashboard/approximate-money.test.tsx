@@ -3,7 +3,8 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { LedgerAmount, MoneyList } from './approximate-money';
+import { HotelMoneyProvider } from '../../lib/hotel-money-scope';
+import { HotelMoney, LedgerAmount, MoneyList } from './approximate-money';
 import { DashboardQueryProvider } from './query-provider';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -101,5 +102,52 @@ describe('MoneyList', () => {
   it('shows a dash for an empty list', async () => {
     const view = await render(createElement(MoneyList, { ...ids, list: [] }));
     expect(view.text()).toBe('—');
+  });
+});
+
+describe('HotelMoney with property currency already known', () => {
+  it.each(['EUR', 'ALL'])('shows %s without per-row rate reads', async (currency) => {
+    const view = await render(
+      createElement(HotelMoneyProvider, {
+        ...ids,
+        currency: 'EUR',
+        children: createElement(
+          'div',
+          null,
+          ...Array.from({ length: 30 }, (_, key) =>
+            createElement(HotelMoney, {
+              ...ids,
+              key,
+              amount: '5000.00',
+              currency,
+            }),
+          ),
+        ),
+      }),
+    );
+    expect(view.text()).toContain(currency === 'EUR' ? '\u20ac5,000.00' : 'ALL');
+    expect(view.text().includes('(\u2248 \u20ac50.00, estimate)')).toBe(currency === 'ALL');
+    expect(view.fetch).toHaveBeenCalledTimes(currency === 'EUR' ? 0 : 1);
+    await act(async () => view.root.unmount());
+  });
+  it('does not reuse another tenant or property currency scope', async () => {
+    const view = await render(
+      createElement(HotelMoneyProvider, {
+        ...ids,
+        currency: 'ALL',
+        children: createElement(HotelMoney, {
+          tenantId: 'other',
+          propertyId: 'other',
+          currency: 'ALL',
+          amount: '5000.00',
+        }),
+      }),
+    );
+    expect(view.text()).toContain('(\u2248 \u20ac50.00, estimate)');
+    expect(view.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/tenants/other/properties/other/'),
+      expect.anything(),
+    );
+    await act(async () => view.root.unmount());
   });
 });
