@@ -622,11 +622,19 @@ async function mount(settingsArea?: SettingsArea, canWrite = true) {
       ),
     );
   });
-  for (let iteration = 0; iteration < 8; iteration += 1) {
+  // Wait for the page to settle rather than for a fixed time: a busy machine (a full parallel run) can take
+  // far longer than 160ms to resolve the mocked requests. Settled = no "Loading" text and the same content
+  // for several consecutive ticks, with a hard cap so a genuine hang still fails loudly.
+  let previous = '';
+  let stable = 0;
+  for (let iteration = 0; iteration < 250 && stable < 4; iteration += 1) {
     await act(async () => {
       await new Promise((resolve) => window.setTimeout(resolve, 20));
       await Promise.resolve();
     });
+    const html = container.innerHTML;
+    stable = html === previous && !/Loading/.test(container.textContent ?? '') ? stable + 1 : 0;
+    previous = html;
   }
   return { container, root };
 }

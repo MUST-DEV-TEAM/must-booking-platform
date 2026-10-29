@@ -111,6 +111,13 @@ async function run(storedCurrency, payload, amount = '330.00', currency = 'EUR',
     assert.deepEqual(hiddenSource.options.map((node) => node.getAttribute('data-value')), ['ALL', 'USD'], 'the original price currency is not added to the hotel-selected menu');
     assert.equal(hiddenSource.price.textContent, expected(454.56, 'USD'), 'a hidden original currency still supplies the conversion leg');
 
+    // The payload PHP really emits (shared fixture, asserted in CurrencySwitcherRatesTest.php) converts a euro
+    // room price into dollars through the lek base, with only USD in the hotel-selected menu.
+    const emitted = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'currency-switcher-ajax.json'), 'utf8'));
+    const fromPhp = await run('USD', emitted, '411.12', 'EUR', 'ALL,USD');
+    assert.equal(fromPhp.price.textContent, expected(454.56, 'USD'), 'the payload emitted by the PHP handler drives the converter');
+    assert.deepEqual(fromPhp.options.map((node) => node.getAttribute('data-value')), ['ALL', 'USD'], 'the menu follows the emitted displayCurrencies');
+
     const basePrice = await run('USD', hotelRates, '37000.80', 'ALL');
     assert.equal(basePrice.price.textContent, expected(454.56, 'USD', '37000.80 ALL'), 'a price already in the lek base still converts normally');
     for (const missing of ['EUR', 'USD']) {

@@ -9,6 +9,7 @@ import { ClockPermissionsMonitorService } from '../src/integrations/clock/clock-
 import { MailDeliveryService } from '../src/mail/mail-delivery.service';
 import { AlertEmailService } from '../src/mail/alert-email.service';
 import { ScheduledEmailService } from '../src/mail/scheduled-email.service';
+import { ExchangeRatesService } from '../src/tenancy/exchange-rates.service';
 import { PropertyExchangeRatesService } from '../src/tenancy/property-exchange-rates.service';
 import { cleanupTenant } from './helpers/cleanup-tenant';
 import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
@@ -78,12 +79,12 @@ describe('the exchange rate kept on a payment in another currency', () => {
     await admin.$executeRaw`INSERT INTO bookings(id,tenant_id,property_id,room_type_id,rate_plan_id,external_reference,status,starts_on,ends_on,total_amount) VALUES(${booking}::uuid,${tenantId}::uuid,${propertyId}::uuid,${roomType}::uuid,${ratePlan}::uuid,'FX-1','CONFIRMED'::"BookingStatus",'2027-03-01','2027-03-03',100)`;
     // The rates table is shared platform data: remember what is there and put it back afterwards.
     savedRates =
-      await admin.$queryRaw`SELECT quote_currency, rate::text, rate_date, source, fetched_at FROM exchange_rates WHERE base_currency='EUR' AND quote_currency IN ('ALL','USD')`;
+      await admin.$queryRaw`SELECT quote_currency, rate::text, rate_date, source, fetched_at FROM exchange_rates WHERE base_currency='EUR' AND quote_currency IN ('ALL','USD','EUR')`;
     await admin.$executeRaw`INSERT INTO exchange_rates(base_currency,quote_currency,rate,rate_date,source) VALUES('EUR','ALL',100,'2026-10-27','test'),('EUR','USD',1.25,'2026-10-26','test') ON CONFLICT (base_currency,quote_currency) DO UPDATE SET rate=EXCLUDED.rate, rate_date=EXCLUDED.rate_date, source=EXCLUDED.source`;
   });
 
   afterAll(async () => {
-    await admin.$executeRaw`DELETE FROM exchange_rates WHERE base_currency='EUR' AND quote_currency IN ('ALL','USD')`;
+    await admin.$executeRaw`DELETE FROM exchange_rates WHERE base_currency='EUR' AND quote_currency IN ('ALL','USD','EUR')`;
     for (const row of savedRates)
       await admin.$executeRaw`INSERT INTO exchange_rates(base_currency,quote_currency,rate,rate_date,source,fetched_at) VALUES('EUR',${row.quote_currency},${row.rate}::numeric,${row.rate_date},${row.source},${row.fetched_at})`;
     if (app) await app.close();
@@ -153,5 +154,42 @@ describe('the exchange rate kept on a payment in another currency', () => {
     expect(by['hotel-usd']).toMatchObject({ amount: '10.00', currency: 'USD' });
     expect(Number(by['fx-usd'].fx)).toBeCloseTo(0.8, 8);
     expect(by['fx-unknown'].fx).toBeNull();
+  });
+
+  // The database trigger and the TypeScript resolver implement the same conversion twice. This keeps them
+  // from drifting apart: for the same hotel rates and feed, the rate stored on a payment must equal
+  // booking-units-per-payment-unit as the resolver computes it.
+  it('stores the same cross rate the display resolver computes, for hotel and feed legs alike', async () => {
+    const hotel = app.get(PropertyExchangeRatesService);
+    const resolver = app.get(ExchangeRatesService);
+    await admin.$executeRaw`UPDATE properties SET default_currency='ALL' WHERE tenant_id=${tenantId}::uuid AND id=${propertyId}::uuid`;
+    await hotel.set(tenantId, propertyId, userId, 'EUR', '100');
+    await hotel.set(tenantId, propertyId, userId, 'USD', null);
+    // A fresh EUR row too: a stale one would make the resolver call the live feed and overwrite these rates.
+    await admin.$executeRaw`INSERT INTO exchange_rates(base_currency,quote_currency,rate,rate_date,source) VALUES('EUR','EUR',1,'2026-10-27','test'),('EUR','ALL',100,'2026-10-27','test'),('EUR','USD',1.25,'2026-10-26','test') ON CONFLICT (base_currency,quote_currency) DO UPDATE SET rate=EXCLUDED.rate, rate_date=EXCLUDED.rate_date, source=EXCLUDED.source, fetched_at=now()`;
+    const shown = await resolver.ratesFor('ALL', ['EUR', 'USD', 'ALL'], { tenantId, propertyId });
+    expect(shown).not.toBeNull();
+    // The booking is in EUR. Units of EUR per one unit of the payment currency.
+    for (const currency of ['ALL', 'USD'] as const) {
+      const reference = `parity-${currency}`;
+      await pay(reference, currency, 10);
+      const stored = await admin.$queryRaw<
+        Array<{ fx: string }>
+      >`SELECT fx_rate_to_booking::text AS fx FROM payments WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND external_payment_id=${reference}`;
+      const expected = shown!.rates.EUR! / shown!.rates[currency]!;
+      expect(Number(stored[0]!.fx)).toBeCloseTo(expected, 6);
+    }
+  });
+
+  it('refuses to change the default currency while hotel rates exist, in the database itself', async () => {
+    const hotel = app.get(PropertyExchangeRatesService);
+    await hotel.set(tenantId, propertyId, userId, 'EUR', '100');
+    // Direct SQL as the table owner: only the trigger can stop this, not the service-level check.
+    await expect(
+      admin.$executeRaw`UPDATE properties SET default_currency='EUR' WHERE tenant_id=${tenantId}::uuid AND id=${propertyId}::uuid`,
+    ).rejects.toThrow(/Remove hotel exchange rates/);
+    await hotel.set(tenantId, propertyId, userId, 'EUR', null);
+    await hotel.set(tenantId, propertyId, userId, 'USD', null);
+    await admin.$executeRaw`UPDATE properties SET default_currency='EUR' WHERE tenant_id=${tenantId}::uuid AND id=${propertyId}::uuid`;
   });
 });

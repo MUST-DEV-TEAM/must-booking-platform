@@ -1,0 +1,99 @@
+name: Plugin version check
+
+# The release workflow publishes every plugin version, but the live site installs it on its own schedule
+# (WordPress checks for updates about twice a day). On 2026-10-28 Empire was found four versions behind
+# with nothing to say so. This compares the version on main with the version the live site serves and opens
+# one issue assigned to the owner when the site has lagged for more than 12 hours; it closes the issue once
+# the site catches up. It reads only the public readme.txt and needs no secrets.
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: plugin-version-check
+  cancel-in-progress: false
+
+env:
+  SITE_URL: https://new.empirebeachresort.al
+  ISSUE_LABEL: plugin-version-alert
+  ALERT_ASSIGNEE: Dejvis0001
+  GRACE_HOURS: 12
+
+jobs:
+  check:
+    name: Compare main with the live site
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 200
+
+      - name: Compare versions
+        id: compare
+        shell: bash
+        run: |
+          plugin_file='apps/wordpress-plugin/must-hotel-booking.php'
+          expected="$(sed -n 's/^[[:space:]]*\*[[:space:]]*Version:[[:space:]]*\([0-9][0-9.]*\).*/\1/p' "$plugin_file" | head -n1)"
+          if [ -z "$expected" ]; then echo 'Cannot read the version from main.'; exit 1; fi
+
+          live=''
+          for attempt in 1 2 3; do
+            live="$(curl -fsS --max-time 20 "$SITE_URL/wp-content/plugins/must-hotel-booking/readme.txt" | sed -n 's/^Stable tag:[[:space:]]*\([0-9][0-9.]*\).*/\1/p' | head -n1 || true)"
+            [ -n "$live" ] && break
+            sleep 15
+          done
+
+          # When the version header last changed on main: the site is only "late" after the grace period.
+          bumped="$(git log -1 --format=%ct -G'^[[:space:]]*\*[[:space:]]*Version:' -- "$plugin_file")"
+          age_hours=$(( ( $(date +%s) - ${bumped:-0} ) / 3600 ))
+
+          echo "expected=$expected" >>"$GITHUB_OUTPUT"
+          echo "live=${live:-unreadable}" >>"$GITHUB_OUTPUT"
+          echo "age_hours=$age_hours" >>"$GITHUB_OUTPUT"
+          if [ -z "$live" ]; then
+            echo "state=unreadable" >>"$GITHUB_OUTPUT"
+          elif [ "$live" = "$expected" ]; then
+            echo "state=current" >>"$GITHUB_OUTPUT"
+          elif [ "$age_hours" -lt "$GRACE_HOURS" ]; then
+            echo "state=within-grace" >>"$GITHUB_OUTPUT"
+          else
+            echo "state=late" >>"$GITHUB_OUTPUT"
+          fi
+          echo "main=$expected live=${live:-unreadable} released ${age_hours}h ago"
+
+      - name: Open or close the alert issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          STATE: ${{ steps.compare.outputs.state }}
+          EXPECTED: ${{ steps.compare.outputs.expected }}
+          LIVE: ${{ steps.compare.outputs.live }}
+          AGE: ${{ steps.compare.outputs.age_hours }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          open_issue="$(gh issue list --label "$ISSUE_LABEL" --state open --json number --jq '.[0].number // empty')"
+          now="$(date -u '+%Y-%m-%d %H:%M UTC')"
+          case "$STATE" in
+            late)
+              if [ -z "$open_issue" ]; then
+                gh label create "$ISSUE_LABEL" --color D93F0B --description 'The live site runs an older plugin than main' 2>/dev/null || true
+                gh issue create --title "Empire plugin is behind: live $LIVE, main $EXPECTED" --label "$ISSUE_LABEL" --assignee "$ALERT_ASSIGNEE" \
+                  --body "Checked $now. $SITE_URL serves plugin $LIVE but main is at $EXPECTED, released ${AGE}h ago. The release workflow may have failed (see the Publish WordPress Plugin Release runs), or the site is not picking up updates. Fallback: on the WordPress host run wp plugin install <release-zip-url> --force. Run: $RUN_URL"
+              else
+                gh issue comment "$open_issue" --body "Still behind at $now: live $LIVE, main $EXPECTED. Run: $RUN_URL"
+              fi ;;
+            current)
+              if [ -n "$open_issue" ]; then
+                gh issue close "$open_issue" --comment "Caught up at $now: live and main are both $EXPECTED."
+              fi ;;
+            *)
+              echo "State $STATE: nothing to change." ;;
+          esac

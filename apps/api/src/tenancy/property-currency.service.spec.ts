@@ -18,6 +18,27 @@ function make(setting: string | null, clock: string | null | Error) {
 }
 
 describe('PropertyCurrencyService', () => {
+  it('does not ask Clock on a public read when the owner has set a currency', async () => {
+    const service = make('ALL', 'EUR');
+    const clock = (
+      service as unknown as { clock: { publishedRateCurrency: ReturnType<typeof vi.fn> } }
+    ).clock;
+    await expect(service.resolve('t', 'p', { checkClock: false })).resolves.toEqual({
+      currency: 'ALL',
+      source: 'setting',
+      setting: 'ALL',
+      clock: null,
+      mismatch: false,
+    });
+    expect(clock.publishedRateCurrency).not.toHaveBeenCalled();
+  });
+
+  it('still falls back to Clock without a setting, even on a public read', async () => {
+    await expect(make(null, 'EUR').resolve('t', 'p', { checkClock: false })).resolves.toMatchObject(
+      { currency: 'EUR', source: 'clock' },
+    );
+  });
+
   it('uses the owner setting first', async () => {
     await expect(make('gbp', 'EUR').resolve('t', 'p')).resolves.toEqual({
       currency: 'GBP',
