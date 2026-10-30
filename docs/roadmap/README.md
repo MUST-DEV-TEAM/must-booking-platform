@@ -46,6 +46,7 @@ The **one-time documentation initialization** was explicitly authorized outside 
 | [28 - Release and cutover](milestones/28-release-and-cutover.md) | **Planned 2026-10-25.** Gates the cutover. Owner decisions, merge with `main` (on hold), rehearsal on Empire's data, deploy and rollback; holds the small fixes found during verification |
 | [25 - Native PMS](milestones/25-native-pms.md) | Planned 2026-10-16; MUST as source of truth for hotels without an external PMS; scope = front desk + stay money; no tasks yet |
 | [26 - Public API](milestones/26-public-api.md) | Planned 2026-10-16; per-hotel API keys so a hotel's own website can use our rooms, availability and booking; paid-plan feature; next release after the dashboard |
+| [31 - Delivery pipeline and website connector](milestones/31-pipeline-and-connector.md) | **Opened 2026-10-30.** Owner-approved plan: faster, safer pipeline (docs skip deploy, plugin release gated by tests, locked `main`, parallel tests, deploy window) and the WordPress plugin separated into a general connector; Phase 0 in progress. Empire's look unchanged |
 
 ## How work proceeds
 
