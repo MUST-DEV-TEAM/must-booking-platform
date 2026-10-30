@@ -25,7 +25,7 @@
     box-sizing: border-box;
     margin: 0 auto;
     padding: var(--must-single-room-gutter-y) var(--must-single-room-gutter-x);
-    color: #141414;
+    color: var(--must-ink,#141414);
     font-family: 'PP Neue Montreal', sans-serif;
 }
 
@@ -54,7 +54,7 @@
     line-height: 1;
     letter-spacing: -0.022em;
     font-weight: 500;
-    color: #1e1e1e;
+    color: var(--must-ink-soft,#1e1e1e);
 }
 
 .must-hotel-booking-single-room .must-hotel-booking-single-room-actions {
@@ -69,9 +69,9 @@
     display: inline-flex;
     align-items: center;
     gap: 9px;
-    color: #141414;
+    color: var(--must-ink,#141414);
     text-decoration: none;
-    border-bottom: 1.5px solid #141414;
+    border-bottom: 1.5px solid var(--must-ink,#141414);
     padding-bottom: 2px;
     font-size: 28px;
     line-height: 1;
@@ -114,7 +114,7 @@
 .must-hotel-booking-single-room .must-hotel-booking-single-room-action-link:hover,
 .must-hotel-booking-single-room .must-hotel-booking-single-room-terms-link:hover {
     opacity: 0.78;
-    border-bottom-color: #141414;
+    border-bottom-color: var(--must-ink,#141414);
 }
 
 .must-hotel-booking-single-room button.must-hotel-booking-single-room-action-link:hover,
@@ -123,9 +123,9 @@
 .must-hotel-booking-single-room button.must-hotel-booking-related-room-book:hover,
 .must-hotel-booking-single-room button.must-hotel-booking-related-room-book:focus,
 .must-hotel-booking-single-room button.must-hotel-booking-related-room-book:active {
-    color: #141414 !important;
+    color: var(--must-ink,#141414) !important;
     background: transparent !important;
-    border-bottom-color: #141414 !important;
+    border-bottom-color: var(--must-ink,#141414) !important;
     box-shadow: none !important;
     opacity: 1;
 }
@@ -134,7 +134,7 @@
 .must-hotel-booking-single-room .must-hotel-booking-single-room-terms-link:focus-visible,
 .must-hotel-booking-single-room .must-hotel-booking-related-room-book:focus-visible,
 .must-hotel-booking-single-room .must-hotel-booking-related-room-details:focus-visible {
-    outline: 2px solid #141414;
+    outline: 2px solid var(--must-ink,#141414);
     outline-offset: 4px;
 }
 
@@ -170,7 +170,7 @@
     font-size: 17px;
     line-height: 1.35;
     font-weight: 500;
-    color: #1e1e1e;
+    color: var(--must-ink-soft,#1e1e1e);
 }
 
 .must-hotel-booking-single-room .must-hotel-booking-single-room-price {
@@ -187,7 +187,7 @@
     font-size: 28px;
     line-height: 1;
     font-weight: 500;
-    color: #1e1e1e;
+    color: var(--must-ink-soft,#1e1e1e);
 }
 
 .must-hotel-booking-single-room .must-hotel-booking-single-room-section p {
@@ -241,7 +241,7 @@
     padding: 14px 16px;
     border: 1px solid #f2c078;
     background: #fff4e5;
-    color: #141414;
+    color: var(--must-ink,#141414);
 }
 
 .must-hotel-booking-single-room .must-hotel-booking-wbe-inline-warning p {
@@ -370,14 +370,14 @@
     line-height: 150%;
     letter-spacing: -0.011em;
     text-transform: uppercase;
-    color: #1e1e1e;
+    color: var(--must-ink-soft,#1e1e1e);
 }
 
 .must-hotel-booking-single-room .must-hotel-booking-related-rooms-kicker::after {
     content: '';
     flex: 1 1 auto;
     min-width: 0;
-    border-top: 1px solid #c2bfaf;
+    border-top: 1px solid var(--must-line-strong,#c2bfaf);
 }
 
 .must-hotel-booking-single-room .must-hotel-booking-related-rooms-grid {
@@ -478,7 +478,7 @@
     font-size: 24px;
     line-height: 1;
     font-weight: 500;
-    color: #1e1e1e;
+    color: var(--must-ink-soft,#1e1e1e);
     min-height: 53px;
 }
 
@@ -496,9 +496,9 @@
     display: inline-flex;
     align-items: center;
     gap: clamp(6px, 0.6vw, 10px);
-    color: #141414;
+    color: var(--must-ink,#141414);
     text-decoration: none;
-    border-bottom: 1.5px solid #141414;
+    border-bottom: 1.5px solid var(--must-ink,#141414);
     padding-bottom: 1px;
     font-family: 'PP Neue Montreal', sans-serif;
     font-style: normal;
@@ -531,9 +531,9 @@
     height: clamp(42px, 3.5vw, 50px);
     width: clamp(185px, 16vw, 225px);
     padding: clamp(8px, 0.6vw, 10px) clamp(16px, 2vw, 36px);
-    border: 1px solid #141414;
+    border: 1px solid var(--must-ink,#141414);
     background: transparent;
-    color: #141414;
+    color: var(--must-ink,#141414);
     text-decoration: none;
     font-family: 'PP Neue Montreal', sans-serif;
     font-style: normal;
@@ -558,7 +558,7 @@
 }
 
 .must-hotel-booking-single-room .must-hotel-booking-related-room-book:hover {
-    border-bottom-color: #141414;
+    border-bottom-color: var(--must-ink,#141414);
 }
 
 .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-section {
@@ -567,7 +567,7 @@
     margin-top: 60px;
     margin-left: calc(0px - var(--must-single-room-gutter-x));
     margin-right: calc(0px - var(--must-single-room-gutter-x));
-    background: #f5f3ec;
+    background: var(--must-paper,#f5f3ec);
 }
 
 .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-inner {
@@ -595,14 +595,14 @@
     line-height: 150%;
     letter-spacing: -0.011em;
     text-transform: uppercase;
-    color: #1e1e1e;
+    color: var(--must-ink-soft,#1e1e1e);
 }
 
 .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-kicker::after {
     content: '';
     flex: 1 1 auto;
     min-width: 0;
-    border-top: 1px solid #c2bfaf;
+    border-top: 1px solid var(--must-line-strong,#c2bfaf);
 }
 
 .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-title {
@@ -613,7 +613,7 @@
     font-size: clamp(42px, 3.1vw, 60px);
     line-height: 1;
     letter-spacing: -0.022em;
-    color: #1e1e1e;
+    color: var(--must-ink-soft,#1e1e1e);
 }
 
 .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-grid {
@@ -625,7 +625,7 @@
 .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-card {
     box-sizing: border-box;
     min-height: 218px;
-    border: 2px solid #141414;
+    border: 2px solid var(--must-ink,#141414);
     padding: 35px;
     display: flex;
     flex-direction: column;
@@ -636,7 +636,7 @@
 .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-icon-wrap {
     width: 55px;
     height: 55px;
-    background: #141414;
+    background: var(--must-ink,#141414);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -649,7 +649,7 @@
     object-fit: contain;
     /* Amenity icon assets are drawn dark-on-transparent for the light
        Amenities box above; invert them here so they read as light-on-dark
-       against this section's #141414 icon-wrap background. */
+       against this section's var(--must-ink,#141414) icon-wrap background. */
     filter: invert(1);
 }
 
@@ -660,7 +660,7 @@
     font-weight: 400;
     font-size: 32px;
     line-height: 1.05;
-    color: #141414;
+    color: var(--must-ink,#141414);
 }
 
 body.must-hotel-booking-single-room-lightbox-open {

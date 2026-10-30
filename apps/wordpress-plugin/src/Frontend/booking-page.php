@@ -18,12 +18,29 @@ function get_booking_page_url(): string { return ManagedPages::getBookingPageUrl
 function get_booking_accommodation_page_url(): string { return ManagedPages::getBookingAccommodationPageUrl(); }
 function get_checkout_page_url(): string { return ManagedPages::getCheckoutPageUrl(); }
 
+/**
+ * Lets the active theme (or child theme) replace a guest-facing template by
+ * shipping `must-booking/<file>.php`, the same convention WooCommerce uses. The
+ * plugin template remains the fallback, so a site without a skin is unchanged.
+ */
+function locate_skin_template(string $file): string
+{
+    if (!\preg_match('/^[a-z0-9-]+\.php$/', $file)) return '';
+    $located = \locate_template(['must-booking/' . $file], false, false);
+    /** @var string $filtered */
+    $filtered = \apply_filters('must_hotel_booking_template', $located, $file);
+    return $filtered !== '' && \is_file($filtered) ? $filtered : '';
+}
+
 function maybe_load_frontend_template(string $template): string
 {
     if (\is_admin()) return $template;
     foreach (get_frontend_pages_config() as $key => $config) {
         if (!ManagedPages::isCurrentPage($key, (string) ($config['slug'] ?? ''))) continue;
-        $candidate = MUST_HOTEL_BOOKING_PATH . (string) ($config['template'] ?? '');
+        $relative = (string) ($config['template'] ?? '');
+        $themeTemplate = $relative !== '' ? locate_skin_template(\basename($relative)) : '';
+        if ($themeTemplate !== '') return $themeTemplate;
+        $candidate = MUST_HOTEL_BOOKING_PATH . $relative;
         if (\is_file($candidate)) return $candidate;
     }
     return $template;

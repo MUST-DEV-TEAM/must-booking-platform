@@ -689,7 +689,11 @@ $render_checkout_price_breakdown_rows = static function (array $pricing, string 
                         <div class="must-checkout-payment-section">
                             <label class="must-checkout-consent">
                                 <input type="checkbox" name="marketing_opt_in" value="1"<?php checked(!empty($guest_form['marketing_opt_in'])); ?> />
-                                <span><?php echo \esc_html__('I consent to receive updates about Empire Beach Residence', 'must-hotel-booking'); ?></span>
+                                <span><?php echo \esc_html(\sprintf(
+                                    /* translators: %s: hotel name. */
+                                    \__('I consent to receive updates about %s', 'must-hotel-booking'),
+                                    \MustHotelBooking\Core\MustBookingConfig::get_hotel_name()
+                                )); ?></span>
                             </label>
 
                             <label class="must-checkout-field must-checkout-field-full must-checkout-field-textarea">

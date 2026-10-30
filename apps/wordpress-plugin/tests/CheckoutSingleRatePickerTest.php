@@ -48,6 +48,7 @@ namespace MustHotelBooking\Core {
     {
         public static function get_checkout_price_breakdown_mode(): string { return 'summary'; }
         public static function get_setting(string $k, $d = null) { return $d; }
+        public static function get_hotel_name(): string { return 'Test Hotel'; }
     }
 }
 
