@@ -5,9 +5,21 @@ on:
   push:
     branches:
       - main
+    # Documentation and workflow-only changes cannot change what runs in production, so merging them neither
+    # re-runs the tests nor redeploys (the deploy follows this workflow). Pull requests are always tested in full.
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - '.github/**'
 
 permissions:
   contents: read
+
+# A new push to the same pull request makes the previous, now outdated, run pointless. Runs on main are never
+# cancelled: every merge keeps its own result, and the deploy depends on it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   APP_PORT: 3000
@@ -124,6 +136,12 @@ jobs:
 
       - name: Build workspace
         run: pnpm -w build
+
+      - name: Cache the test browser
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
       - name: Install the test browser
         run: pnpm --filter web exec playwright install --with-deps chromium

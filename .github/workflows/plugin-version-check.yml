@@ -3,8 +3,8 @@ name: Plugin version check
 # The release workflow publishes every plugin version, but the live site installs it on its own schedule
 # (WordPress checks for updates about twice a day). On 2026-10-28 Empire was found four versions behind
 # with nothing to say so. This compares the version on main with the version the live site serves and opens
-# one issue assigned to the owner when the site has lagged for more than 12 hours; it closes the issue once
-# the site catches up. It reads only the public readme.txt and needs no secrets.
+# one issue (not assigned, no mentions) when the site has lagged for more than 12 hours; it closes the issue
+# once the site catches up. It reads only the public readme.txt and needs no secrets.
 
 on:
   schedule:
@@ -22,7 +22,6 @@ concurrency:
 env:
   SITE_URL: https://new.empirebeachresort.al
   ISSUE_LABEL: plugin-version-alert
-  ALERT_ASSIGNEE: Dejvis0001
   GRACE_HOURS: 12
 
 jobs:
@@ -85,7 +84,7 @@ jobs:
             late)
               if [ -z "$open_issue" ]; then
                 gh label create "$ISSUE_LABEL" --color D93F0B --description 'The live site runs an older plugin than main' 2>/dev/null || true
-                gh issue create --title "Empire plugin is behind: live $LIVE, main $EXPECTED" --label "$ISSUE_LABEL" --assignee "$ALERT_ASSIGNEE" \
+                gh issue create --title "Empire plugin is behind: live $LIVE, main $EXPECTED" --label "$ISSUE_LABEL" \
                   --body "Checked $now. $SITE_URL serves plugin $LIVE but main is at $EXPECTED, released ${AGE}h ago. The release workflow may have failed (see the Publish WordPress Plugin Release runs), or the site is not picking up updates. Fallback: on the WordPress host run wp plugin install <release-zip-url> --force. Run: $RUN_URL"
               else
                 gh issue comment "$open_issue" --body "Still behind at $now: live $LIVE, main $EXPECTED. Run: $RUN_URL"

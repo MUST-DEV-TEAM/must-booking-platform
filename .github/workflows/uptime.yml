@@ -1,8 +1,8 @@
 name: Uptime
 
 # Checks booking.must.al from outside every 5 minutes. When the site stays down
-# for three tries in a row, it opens one "site is down" issue assigned to the
-# owner (GitHub emails the assignee). When the site is back, it closes that issue.
+# for three tries in a row, it opens one "site is down" issue (label uptime-alert; it is not assigned
+# and mentions nobody, so no email goes out: look in the repository's Issues). When the site is back, it closes it.
 # GitHub may start scheduled runs late or skip some under load; this is a smoke
 # alarm, not a precise stopwatch. Running at minutes 3, 8, 13, ... keeps it away
 # from the busy top of the hour, which GitHub's docs say is when runs get dropped.
@@ -23,7 +23,6 @@ concurrency:
 env:
   SITE_URL: https://booking.must.al/api/health
   ISSUE_LABEL: uptime-alert
-  ALERT_ASSIGNEE: Dejvis0001
 
 jobs:
   check:
@@ -70,8 +69,7 @@ jobs:
             gh issue create \
               --title 'booking.must.al is down' \
               --label "$ISSUE_LABEL" \
-              --assignee "$ALERT_ASSIGNEE" \
-              --body "@$ALERT_ASSIGNEE The booking platform stopped answering at $now (HTTP $CODE from $SITE_URL, 3 tries over about a minute).
+              --body "The booking platform stopped answering at $now (HTTP $CODE from $SITE_URL, 3 tries over about a minute).
 
           Guests may not be able to book. This issue closes by itself when the site is back.
 

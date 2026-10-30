@@ -3,8 +3,8 @@ name: Live booking check
 # Makes one real booking for the Must Hotel test property on booking.must.al
 # after every successful deploy and once a day, and checks it reaches Clock
 # (demo account 16307). Never Empire Beach Resort. Test bookings are kept.
-# When it fails, it opens one "live booking check failed" issue assigned to the
-# owner (GitHub emails the assignee); the next passing run closes it.
+# When it fails, it opens one "live booking check failed" issue (not assigned, no mentions, so no email;
+# look in the repository's Issues); the next passing run closes it.
 
 on:
   workflow_run:
@@ -24,7 +24,6 @@ concurrency:
 
 env:
   ISSUE_LABEL: live-booking-alert
-  ALERT_ASSIGNEE: Dejvis0001
 
 jobs:
   check:
@@ -68,8 +67,7 @@ jobs:
             gh issue create \
               --title 'Live booking check failed on booking.must.al' \
               --label "$ISSUE_LABEL" \
-              --assignee "$ALERT_ASSIGNEE" \
-              --body "@$ALERT_ASSIGNEE A real test booking for Must Hotel on booking.must.al failed at $now.
+              --body "A real test booking for Must Hotel on booking.must.al failed at $now.
 
           Guests may not be able to book, or bookings may not be reaching Clock. The run's summary says which step failed.
 
