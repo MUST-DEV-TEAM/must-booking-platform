@@ -4,7 +4,7 @@ Tags: hotel, booking, reservation, accommodation
 Requires at least: 5.0
 Tested up to: 6.0
 Requires PHP: 7.4
-Stable tag: 0.4.120
+Stable tag: 0.4.121
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -31,6 +31,9 @@ Main features include:
 5. When updating, upload the new release ZIP or use the configured updater, then review **Diagnostics & Maintenance** after the update completes.
 
 == Changelog ==
+
+= 0.4.121 =
+* Guest booking pages can now be skinned by the active theme: place `must-booking/<file>.php` in the theme to replace a page template, and set the `--must-*` CSS variables for colours. The plugin default palette is neutral; the checkout consent line uses the configured hotel name.
 
 = 0.4.120 =
 * Room card: every amenity now has its own icon (the same set as the dashboard); an amenity without one shows a neutral tick instead of an empty square.
