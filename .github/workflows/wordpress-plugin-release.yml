@@ -1,23 +1,26 @@
 name: Publish WordPress Plugin Release
 
+# A plugin version is published only after the CI run for the same commit on main has passed, so a version
+# that fails the tests can never reach a live site's update check. (It used to start at merge, in parallel.)
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - apps/wordpress-plugin/must-hotel-booking.php
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
 
 permissions:
   contents: read
 
 jobs:
   publish:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
 
     steps:
       - name: Check out source
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 2
 
       - name: Read and validate the release version
@@ -38,7 +41,7 @@ jobs:
             exit 1
           fi
 
-          previous_version="$(git show "${{ github.event.before }}:$plugin_file" 2>/dev/null | php -r '$contents = stream_get_contents(STDIN); preg_match("#^[[:space:]]*\\*[[:space:]]Version:\\s*([0-9]+\\.[0-9]+\\.[0-9]+)#m", $contents, $matches); echo $matches[1] ?? "";' || true)"
+          previous_version="$(git show "HEAD^1:$plugin_file" 2>/dev/null | php -r '$contents = stream_get_contents(STDIN); preg_match("#^[[:space:]]*\\*[[:space:]]Version:\\s*([0-9]+\\.[0-9]+\\.[0-9]+)#m", $contents, $matches); echo $matches[1] ?? "";' || true)"
 
           if [[ "$version" == "$previous_version" ]]; then
             echo "The Version header did not change; no release will be published."
