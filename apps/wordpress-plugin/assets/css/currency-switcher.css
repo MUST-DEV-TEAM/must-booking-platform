@@ -1,8 +1,8 @@
 /* Currency switcher: a quiet, editorial control that sits next to the header menu. */
 .must-currency-switcher {
-    --must-cs-ink: #f5f3ec;
-    --must-cs-panel: #f5f3ec;
-    --must-cs-panel-ink: #141414;
+    --must-cs-ink: var(--must-paper,#f5f3ec);
+    --must-cs-panel: var(--must-paper,#f5f3ec);
+    --must-cs-panel-ink: var(--must-ink,#141414);
     --must-cs-line: rgba(245, 243, 236, 0.28);
     position: relative;
     display: inline-block;

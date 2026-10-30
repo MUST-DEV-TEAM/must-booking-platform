@@ -10,7 +10,7 @@
 
 .must-hotel-booking-rooms-list-widget .must-hotel-booking-rooms-list-heading {
     margin: 0;
-    color: #141414;
+    color: var(--must-ink,#141414);
     font-size: 14px;
     line-height: 1.4;
     letter-spacing: 0.08em;
@@ -22,7 +22,7 @@
     padding: 8px 16px;
     border: 1px solid #d5d8dd;
     background: #ffffff;
-    color: #141414;
+    color: var(--must-ink,#141414);
 }
 
 .must-hotel-booking-rooms-list-widget .must-hotel-booking-rooms-list-card {
@@ -74,7 +74,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #141414;
+    color: var(--must-ink,#141414);
     font-size: 14px;
     background: linear-gradient(135deg, #f0f0f0 0%, #ffffff 100%);
 }
@@ -104,13 +104,13 @@
     font-size: 32px;
     line-height: 1.1;
     font-weight: 500;
-    color: #141414;
+    color: var(--must-ink,#141414);
     font-family: 'PP Neue Montreal';
 }
 
 .must-hotel-booking-rooms-list-widget .must-hotel-booking-rooms-list-description {
     margin: 0;
-    color: #141414;
+    color: var(--must-ink,#141414);
     font-size: 16px;
     line-height: 1.5;
     font-weight: 500;
@@ -159,9 +159,9 @@
     align-items: center;
     justify-content: center;
     gap: 9px;
-    color: #141414;
+    color: var(--must-ink,#141414);
     text-decoration: none;
-    border-bottom: 1.5px solid #141414;
+    border-bottom: 1.5px solid var(--must-ink,#141414);
     font-size: 20px;
     line-height: 1.2;
     font-weight: 400;
@@ -192,7 +192,7 @@
 }
 
 .must-hotel-booking-rooms-list-widget .must-hotel-booking-rooms-list-book:hover {
-    border-bottom-color: #141414;
+    border-bottom-color: var(--must-ink,#141414);
 }
 
 .must-hotel-booking-rooms-list-widget .must-hotel-booking-rooms-list-book-icon {
@@ -212,8 +212,8 @@
     width: 260px;
     height: 50px;
     padding: 12px 20px;
-    border: 1px solid #141414;
-    color: #141414;
+    border: 1px solid var(--must-ink,#141414);
+    color: var(--must-ink,#141414);
     text-decoration: none;
     font-size: 16px;
     line-height: 1.4;
@@ -228,7 +228,7 @@
 .must-hotel-booking-rooms-list-widget .must-hotel-booking-rooms-list-details:focus-visible,
 .must-hotel-booking-lightbox .must-hotel-booking-lightbox-close:focus-visible,
 .must-hotel-booking-lightbox .must-hotel-booking-lightbox-nav:focus-visible {
-    outline: 2px solid #f5f3ec;
+    outline: 2px solid var(--must-paper,#f5f3ec);
     outline-offset: 4px;
 }
 
@@ -237,7 +237,7 @@
     padding: 12px 14px;
     border: 1px solid #f2c078;
     background: #fff4e5;
-    color: #141414;
+    color: var(--must-ink,#141414);
 }
 
 .must-hotel-booking-rooms-list-widget .must-hotel-booking-wbe-inline-warning p {
