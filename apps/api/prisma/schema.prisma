@@ -239,7 +239,7 @@ model Property {
   logoUrl                           String?                         @map("logo_url") @db.VarChar(2048)
   phone                             String?                         @db.VarChar(100)
   supportEmail                      String?                         @map("support_email") @db.VarChar(320)
-  bookingMode                       PropertyBookingMode             @default(ROOM_TYPE_ONLY) @map("booking_mode")
+  bookingMode                       PropertyBookingMode             @default(MIXED) @map("booking_mode")
   minStayNights                     Int?                            @map("min_stay_nights")
   maxStayNights                     Int?                            @map("max_stay_nights")
   checkInTime                       String?                         @map("check_in_time")
