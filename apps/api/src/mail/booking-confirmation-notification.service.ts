@@ -38,7 +38,9 @@ type BookingEmailRow = {
 };
 
 /** The hotel's own website address for the manage link, only when no WordPress plugin is connected to it. */
-function customSiteOrigin(row: Pick<BookingEmailRow, 'publicWebsiteOrigin' | 'wordpressConnectedAt'>) {
+function customSiteOrigin(
+  row: Pick<BookingEmailRow, 'publicWebsiteOrigin' | 'wordpressConnectedAt'>,
+) {
   return row.publicWebsiteOrigin && !row.wordpressConnectedAt ? row.publicWebsiteOrigin : null;
 }
 
@@ -145,7 +147,13 @@ export class BookingConfirmationNotificationService {
         rooms,
         specialRequests: row.specialRequests,
         cancellationUrl: row.guestSessionId
-          ? this.manageUrl(context, bookingId, row.guestSessionId, row.endsOn, customSiteOrigin(row))
+          ? this.manageUrl(
+              context,
+              bookingId,
+              row.guestSessionId,
+              row.endsOn,
+              customSiteOrigin(row),
+            )
           : undefined,
       },
       context,
@@ -196,7 +204,10 @@ export class BookingConfirmationNotificationService {
     siteOrigin: string | null,
   ) {
     // A custom website (no WordPress plugin) hosts its own manage page and already knows the hotel.
-    const url = new URL('/booking/manage', siteOrigin ?? (process.env.WEB_APP_URL || 'http://localhost:3001'));
+    const url = new URL(
+      '/booking/manage',
+      siteOrigin ?? (process.env.WEB_APP_URL || 'http://localhost:3001'),
+    );
     if (!siteOrigin) {
       url.searchParams.set('tenant', context.tenantId);
       url.searchParams.set('property', context.propertyId);
