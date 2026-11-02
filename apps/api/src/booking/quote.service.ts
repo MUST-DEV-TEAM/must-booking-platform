@@ -81,6 +81,9 @@ export type DisplayPrice = {
   available: boolean;
   total?: Money;
   originalTotal?: Money;
+  /** How many different rates can be booked for the stay, and the biggest discount among them in whole percent. */
+  rateCount?: number;
+  maxDiscountPercent?: number;
   /** How many rooms of this type are left, when the hotel system says. */
   freeRooms?: number | null;
   /** Why this room type cannot be sold for the stay, when that is known. Absent when it could not be checked. */
@@ -501,6 +504,10 @@ export class QuoteService {
           ...(detail?.available ? { freeRooms: detail.freeRooms } : {}),
           ...(detail?.available && detail.originalTotal
             ? { originalTotal: detail.originalTotal }
+            : {}),
+          ...(detail?.available && detail.rateCount ? { rateCount: detail.rateCount } : {}),
+          ...(detail?.available && detail.maxDiscountPercent
+            ? { maxDiscountPercent: detail.maxDiscountPercent }
             : {}),
         };
       });

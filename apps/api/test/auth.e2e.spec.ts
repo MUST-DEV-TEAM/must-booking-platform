@@ -150,6 +150,7 @@ describe('authentication endpoints', () => {
         maxStaffSeats: 3,
         pmsEnabled: false,
         maxPmsConnectionsPerProperty: 0,
+        readOnly: false,
       },
       usage: { properties: 1, staffSeats: 1 },
     });

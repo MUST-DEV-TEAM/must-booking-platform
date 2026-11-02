@@ -1,6 +1,6 @@
 # Milestone 31: Delivery pipeline and website connector
 
-Status: **Opened 2026-10-30.** Owner-approved plan; Phase 0 started the same day. Evidence is recorded per row; nothing here changes Empire's website look.
+Status: **Opened 2026-10-30.** Owner-approved plan; Phase 0 done the same day except task 3 (to be proven on the next plugin bump) and task 6a (vulnerable libraries). Evidence is recorded per row; nothing here changes Empire's website look.
 
 ## Goal
 
@@ -29,6 +29,7 @@ Two linked improvements, agreed with the owner on 2026-10-30:
 - The repository is public. On 2026-10-30 `main` had no branch protection, secret scanning was off, and dependency alerts were off.
 - The plugin release started at merge, in parallel with the tests, and was not gated by them.
 - Every push to `main` ran the full tests and a deploy, including documentation-only pushes.
+- **2026-10-30, after enabling Dependabot alerts:** open advisories on libraries we use: `undici` (several high and medium, fixed in 8.12.2: cache poisoning, TLS certificate validation bypass, denial of service), `multer` (high, fixed in 2.5.0), `qs` (medium, 6.16.1), `fast-uri` (medium and low, 3.1.9). Dependabot opened PR #401 for `undici`; its updates for `multer` and `qs` failed, which usually means they are indirect dependencies that need an override in the lockfile. Not yet assessed for real exposure; `undici` is used for the API's outgoing requests.
 - The test run takes about 11-12 minutes in one job; the browser and Clock jobs take about 3 minutes each.
 
 ## Tasks (in order)
@@ -37,12 +38,13 @@ Phase 0 (this week): small, safe, no behaviour change.
 
 | # | Task | Status |
 | --- | --- | --- |
-| 1 | Documentation, markdown and workflow-only pushes to `main` skip the tests and the deploy | In review (PR #399) |
+| 1 | Documentation, markdown and workflow-only pushes to `main` skip the tests and the deploy | **Done 2026-10-30** (PR #399; verified: merging #399 and #400 started no CI run and no deploy) |
 | 2 | Secret scanning with push protection, dependency alerts and automatic security updates | **Done 2026-10-30** (settings applied and read back through the GitHub API) |
-| 3 | Plugin release starts only after the CI run for the same commit passes | In review (PR #399) |
-| 4 | Lock `main`: pull request and required checks, merge limited to the owner and Denis, no force-pushes | Planned (applied after PR #399 merges) |
-| 5 | Alerts without assignment or mentions | In review (PR #399) |
-| 6 | Cancel outdated pull-request runs; cache the test browser | In review (PR #399) |
+| 3 | Plugin release starts only after the CI run for the same commit passes | Merged 2026-10-30 (PR #399). **Not yet proven live:** it acts only on the next plugin version bump; the version watchdog flags a missed release within 12 hours |
+| 4 | Lock `main`: pull request and required checks, merge limited to the owner and Denis, no force-pushes | **Done 2026-10-30** (branch protection applied and read back: pull request, the three test jobs required, no force-pushes or deletions, merge limited to the owner and `zoidenis`, owner override kept) |
+| 5 | Alerts without assignment or mentions | **Done 2026-10-30** (PR #399) |
+| 6 | Cancel outdated pull-request runs; cache the test browser | **Done 2026-10-30** (PR #399) |
+| 6a | Fix the known vulnerable libraries the new alerts found (see Findings) | In progress: Dependabot PR #401 (`undici`); `multer`, `qs` and `fast-uri` need a manual fix because Dependabot could not update them |
 
 Phase 1 (next 1-2 weeks): faster and more trustworthy.
 

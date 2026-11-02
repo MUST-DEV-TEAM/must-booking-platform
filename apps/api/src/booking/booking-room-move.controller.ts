@@ -13,7 +13,7 @@ import {
   Req,
 } from '@nestjs/common';
 import type { MoveBookingRoomCommand } from '@must/domain-contracts';
-import { TenantScoped } from '../tenancy/tenant-context.decorator';
+import { AllowOnReadOnlyPlan, TenantScoped } from '../tenancy/tenant-context.decorator';
 import { RequiresCapability } from '../tenancy/capabilities.decorator';
 import { Role, Roles } from '../tenancy/roles.decorator';
 import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator';
@@ -132,6 +132,7 @@ export class BookingRoomMoveController {
     });
   }
   @Post(':bookingId/room-move/check')
+  @AllowOnReadOnlyPlan()
   @TenantScoped({ propertyParam: 'propertyId' })
   @RequiresVerifiedEmail()
   async check(@Req() req: Request, @Param('bookingId') id: string) {

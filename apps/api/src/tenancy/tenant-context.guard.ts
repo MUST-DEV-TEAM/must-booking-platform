@@ -10,6 +10,7 @@ import { Reflector } from '@nestjs/core';
 
 import { AuthService } from '../auth/auth.service';
 import {
+  ALLOW_ON_READ_ONLY_PLAN,
   PUBLIC_ROUTE,
   PUBLIC_TENANT_SCOPE,
   TENANT_SCOPE,
@@ -117,10 +118,17 @@ export class TenantContextGuard implements CanActivate {
       `;
           if (properties.length !== 1) return null;
         }
-        const organization = await tx.$queryRaw<Array<{ state: LifecycleState }>>`
-          SELECT "lifecycle_state"::text AS "state" FROM "organizations" WHERE "id" = ${tenantId}::uuid
+        const organization = await tx.$queryRaw<
+          Array<{ state: LifecycleState; readOnlyPlan: boolean }>
+        >`
+          SELECT o."lifecycle_state"::text AS "state", COALESCE(p."read_only", false) AS "readOnlyPlan"
+          FROM "organizations" o LEFT JOIN "plans" p ON p."id" = o."plan_id"
+          WHERE o."id" = ${tenantId}::uuid
         `;
-        return { state: organization[0]?.state ?? ('ACTIVE' as LifecycleState) };
+        return {
+          state: organization[0]?.state ?? ('ACTIVE' as LifecycleState),
+          readOnlyPlan: organization[0]?.readOnlyPlan ?? false,
+        };
       },
     );
     if (!access) {
@@ -147,6 +155,21 @@ export class TenantContextGuard implements CanActivate {
       throw new ForbiddenException({
         message: 'This hotel is archived and read-only.',
         code: 'HOTEL_ARCHIVED',
+      });
+
+    // A read-only plan (Free) lets the member view every page but refuses dashboard writes. Support
+    // sessions authorise separately above, so MUST staff can still help a Free hotel.
+    if (
+      access.readOnlyPlan &&
+      !SAFE_METHODS.has(request.method.toUpperCase()) &&
+      !this.reflector.getAllAndOverride<boolean>(ALLOW_ON_READ_ONLY_PLAN, [
+        context.getHandler(),
+        context.getClass(),
+      ])
+    )
+      throw new ForbiddenException({
+        message: 'Your plan is read-only. Upgrade your plan to make changes.',
+        code: 'PLAN_READ_ONLY',
       });
 
     request.tenantContext = { userId, tenantId, propertyId };

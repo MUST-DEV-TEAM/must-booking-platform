@@ -148,6 +148,7 @@ export function ConfirmDialog({
           </Button>
           <Button
             variant={destructive ? 'destructive' : 'default'}
+            mutates
             onClick={() => void confirm()}
             disabled={!canConfirm}
             loading={busy}
