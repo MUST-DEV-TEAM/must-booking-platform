@@ -1017,14 +1017,12 @@ export class ClockAvailabilityService {
       const freeRooms = Number.isFinite(winner.offer.room_type_free_rooms)
         ? winner.offer.room_type_free_rooms
         : null;
-      const info = entry.rates.ok ? entry.rates.value.info[winner.rateId] : undefined;
-      const originalTotal =
-        comparedOriginal(value, winner.rateId, roomType?.rates ?? {}, pairs) ??
-        originalPrice(value, info?.includedDiscountRate ?? null);
+      // Only a staff-paired regular rate gives a "was" price: Clock stores no original price, and its
+      // included-discount setting is a display flag, not a lower price (both rates can cost the same).
+      const originalTotal = comparedOriginal(value, winner.rateId, roomType?.rates ?? {}, pairs);
       const original = originalTotal ? { originalTotal } : {};
       const spread = rateDiscountSpread(
         ratesAmong(roomType?.rates ?? {}, entry.rates.ok ? entry.rates.value.ids : []),
-        entry.rates.ok ? entry.rates.value.info : {},
         roomType?.rates ?? {},
         pairs,
       );
@@ -1372,9 +1370,7 @@ export class ClockAvailabilityService {
           amount: (offer.price.cents / 100).toFixed(2),
           currency: offer.price.currency,
         };
-        const original =
-          comparedOriginal(total, rateId, roomType?.rates ?? {}, pairs) ??
-          originalPrice(total, info?.includedDiscountRate ?? null);
+        const original = comparedOriginal(total, rateId, roomType?.rates ?? {}, pairs);
         return {
           rateId,
           name: info?.name ?? '',
@@ -2229,7 +2225,6 @@ function ratesAmong(
  */
 function rateDiscountSpread(
   rateOffers: Record<string, ClockProductOffer[]>,
-  info: Record<string, ClockRateInfo>,
   allRateOffers: Record<string, ClockProductOffer[]>,
   pairs: ClockRatePairs,
 ): { rateCount: number; maxDiscountPercent: number } {
@@ -2242,9 +2237,7 @@ function rateDiscountSpread(
   let maxDiscountPercent = 0;
   for (const [rateId, { cents, currency }] of cheapestByRate) {
     const total = { amount: (cents / 100).toFixed(2), currency };
-    const original =
-      comparedOriginal(total, rateId, allRateOffers, pairs) ??
-      originalPrice(total, info[rateId]?.includedDiscountRate ?? null);
+    const original = comparedOriginal(total, rateId, allRateOffers, pairs);
     if (!original) continue;
     const before = Number(original.amount);
     if (!(before > 0)) continue;
