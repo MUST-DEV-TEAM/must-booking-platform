@@ -96,7 +96,9 @@ export function PaymentReportSummary({
               onChange={(date) => setTo(date)}
             />
           </FormField>
-          <Button type="submit">Apply totals period</Button>
+          <Button type="submit" mutates={false}>
+            Apply totals period
+          </Button>
         </form>
         {error ? (
           <p role="alert" className="m-0 text-sm text-destructive">

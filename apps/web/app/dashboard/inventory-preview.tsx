@@ -190,6 +190,7 @@ export function InventoryPreview({
           </div>
           <Button
             type="submit"
+            mutates={false}
             className="self-start"
             disabled={busy || !roomTypeId || (bookingMode === 'INDIVIDUAL_ROOM_ONLY' && !roomId)}
           >

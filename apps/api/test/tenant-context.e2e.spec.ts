@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { Controller, Get, Req } from '@nestjs/common';
+import { Controller, Get, Post, Req } from '@nestjs/common';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import * as bcrypt from 'bcrypt';
@@ -8,7 +8,7 @@ import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { TenantScoped } from '../src/tenancy/tenant-context.decorator';
+import { AllowOnReadOnlyPlan, TenantScoped } from '../src/tenancy/tenant-context.decorator';
 
 let handlerCalls = 0;
 
@@ -19,6 +19,21 @@ class TenantContextTestController {
   getContext(@Req() request: { tenantContext: unknown }): unknown {
     handlerCalls += 1;
     return request.tenantContext;
+  }
+
+  @Post(':tenantId/properties/:propertyId/write')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  write(): unknown {
+    handlerCalls += 1;
+    return { ok: true };
+  }
+
+  @Post(':tenantId/properties/:propertyId/personal-write')
+  @AllowOnReadOnlyPlan()
+  @TenantScoped({ propertyParam: 'propertyId' })
+  personalWrite(): unknown {
+    handlerCalls += 1;
+    return { ok: true };
   }
 }
 
@@ -37,6 +52,7 @@ describe('tenant request context', () => {
   const propertyA = randomUUID();
   const propertyB = randomUUID();
   const userId = randomUUID();
+  const readOnlyPlan = randomUUID();
   const email = `tenant-context-${randomUUID()}@example.test`;
   let cookie: string;
 
@@ -81,6 +97,7 @@ describe('tenant request context', () => {
     await migrationPrisma.$executeRaw`DELETE FROM "properties" WHERE "id" IN (${propertyA}::uuid, ${propertyB}::uuid)`;
     await migrationPrisma.$executeRaw`DELETE FROM "users" WHERE "id" = ${userId}::uuid`;
     await migrationPrisma.$executeRaw`DELETE FROM "organizations" WHERE "id" IN (${tenantA}::uuid, ${tenantB}::uuid)`;
+    await migrationPrisma.$executeRaw`DELETE FROM "plans" WHERE "id" = ${readOnlyPlan}::uuid`;
     await app.close();
     await migrationPrisma.$disconnect();
   });
@@ -114,5 +131,26 @@ describe('tenant request context', () => {
       .expect(200);
     expect(response.body).toEqual({ userId, tenantId: tenantA, propertyId: propertyA });
     expect(handlerCalls).toBe(1);
+  });
+
+  it('lets a read-only plan read but refuses dashboard writes, except allow-listed ones', async () => {
+    await migrationPrisma.$executeRaw`
+      INSERT INTO "plans" ("id", "name", "max_properties", "max_staff_seats", "pms_enabled", "max_pms_connections_per_property", "read_only")
+      VALUES (${readOnlyPlan}::uuid, ${`Read-only ${readOnlyPlan}`}, 1, 1, false, 0, true)
+    `;
+    await migrationPrisma.$executeRaw`UPDATE "organizations" SET "plan_id" = ${readOnlyPlan}::uuid WHERE "id" = ${tenantA}::uuid`;
+    const base = `/tenant-context-test/${tenantA}/properties/${propertyA}`;
+    handlerCalls = 0;
+    await request(app.getHttpServer()).get(base).set('Cookie', cookie).expect(200);
+    const refused = await request(app.getHttpServer())
+      .post(`${base}/write`)
+      .set('Cookie', cookie)
+      .expect(403);
+    expect(refused.body.code).toBe('PLAN_READ_ONLY');
+    await request(app.getHttpServer())
+      .post(`${base}/personal-write`)
+      .set('Cookie', cookie)
+      .expect(201);
+    expect(handlerCalls).toBe(2);
   });
 });

@@ -11,5 +11,6 @@ export default defineConfig({
     // (mail, Clock), so files running in parallel steal each other's jobs.
     fileParallelism: false,
     hookTimeout: 45_000,
+    globalSetup: ['./test/global-setup.ts'],
   },
 });

@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Headers, Inject, Param, Patch, Query, Req } from '@nestjs/common';
 import { NotificationInboxService, type InboxContext } from './notification-inbox.service';
 import { Role, Roles } from './roles.decorator';
-import { TenantScoped } from './tenant-context.decorator';
+import { AllowOnReadOnlyPlan, TenantScoped } from './tenant-context.decorator';
 import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator';
 type Request = { tenantContext: InboxContext };
 @Controller('tenants/:tenantId/properties/:propertyId/notifications')
@@ -21,6 +21,7 @@ export class NotificationsController {
     return this.inbox.detail(req.tenantContext, id);
   }
   @TenantScoped({ propertyParam: 'propertyId' })
+  @AllowOnReadOnlyPlan()
   @Patch('mark-all-read')
   @RequiresVerifiedEmail()
   all(
@@ -31,6 +32,7 @@ export class NotificationsController {
     return this.inbox.mark(req.tenantContext, 'all', body, key);
   }
   @TenantScoped({ propertyParam: 'propertyId' })
+  @AllowOnReadOnlyPlan()
   @Patch('mark-visible-read')
   @RequiresVerifiedEmail()
   visible(
@@ -41,6 +43,7 @@ export class NotificationsController {
     return this.inbox.mark(req.tenantContext, 'visible', body, key);
   }
   @TenantScoped({ propertyParam: 'propertyId' })
+  @AllowOnReadOnlyPlan()
   @Patch(':notificationId')
   @RequiresVerifiedEmail()
   one(
