@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Alert, Badge, Button, Card, Heading, Text, TextInput } from '@must/ui';
 
 import { authAssets, AuthShell } from '../auth-shell';
+import { consoleRequest } from '../../lib/platform-api';
 import { authDestination, type LoginReason, type SessionUser } from '../auth-routing';
 import { AuthStatusView } from '../auth-status';
 import styles from './login.module.css';
@@ -81,6 +82,16 @@ export default function LoginPage() {
       }
 
       const body = (await response.json()) as { user: SessionUser };
+      if (body.user.isPlatformAdmin) {
+        // Platform staff use a separate console session; open it with the same credentials so
+        // they never see a second sign-in form. On failure /platform shows its own login.
+        await consoleRequest(
+          'POST',
+          '/auth/login',
+          { email: fields.email.trim(), password: fields.password },
+          { idempotencyKey: null },
+        ).catch(() => undefined);
+      }
       router.push(authDestination(body.user, returnTo));
     } catch {
       setError(genericError);
