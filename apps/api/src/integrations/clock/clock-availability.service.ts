@@ -121,7 +121,14 @@ export type UnavailableReason =
 
 /** What a search learns about one room type for one stay, from a single Clock product request. */
 export type StaySearchDetail =
-  | { available: true; price: Money; originalTotal?: Money; freeRooms: number | null }
+  | {
+      available: true;
+      price: Money;
+      originalTotal?: Money;
+      freeRooms: number | null;
+      rateCount?: number;
+      maxDiscountPercent?: number;
+    }
   | { available: false; reason: UnavailableReason };
 
 /** Said when a property is not connected to Clock; callers that only apply to Clock hotels match it. */
@@ -860,6 +867,8 @@ export class ClockAvailabilityService {
           price: stored.value,
           ...(stored.originalTotal ? { originalTotal: stored.originalTotal } : {}),
           freeRooms: stored.freeRooms ?? null,
+          ...(stored.rateCount ? { rateCount: stored.rateCount } : {}),
+          ...(stored.maxDiscountPercent ? { maxDiscountPercent: stored.maxDiscountPercent } : {}),
         };
       } else if (stored?.value && age < DISPLAY_PRICE_STALE_MS) {
         results[entry.query.roomTypeId] = { ok: true, value: stored.value };
@@ -868,6 +877,8 @@ export class ClockAvailabilityService {
           price: stored.value,
           ...(stored.originalTotal ? { originalTotal: stored.originalTotal } : {}),
           freeRooms: stored.freeRooms ?? null,
+          ...(stored.rateCount ? { rateCount: stored.rateCount } : {}),
+          ...(stored.maxDiscountPercent ? { maxDiscountPercent: stored.maxDiscountPercent } : {}),
         };
         stale.push(item);
       } else {
@@ -1011,9 +1022,31 @@ export class ClockAvailabilityService {
         comparedOriginal(value, winner.rateId, roomType?.rates ?? {}, pairs) ??
         originalPrice(value, info?.includedDiscountRate ?? null);
       const original = originalTotal ? { originalTotal } : {};
-      await this.rememberDisplayPrice(cacheKey, value, { freeRooms, ...original });
+      const spread = rateDiscountSpread(
+        ratesAmong(roomType?.rates ?? {}, entry.rates.ok ? entry.rates.value.ids : []),
+        entry.rates.ok ? entry.rates.value.info : {},
+        roomType?.rates ?? {},
+        pairs,
+      );
+      // Only a choice of rates matters to the card, so a single rate adds nothing to the answer.
+      const rates =
+        spread.rateCount >= 2
+          ? {
+              rateCount: spread.rateCount,
+              ...(spread.maxDiscountPercent
+                ? { maxDiscountPercent: spread.maxDiscountPercent }
+                : {}),
+            }
+          : {};
+      await this.rememberDisplayPrice(cacheKey, value, { freeRooms, ...original, ...rates });
       results[entry.query.roomTypeId] = { ok: true, value };
-      details[entry.query.roomTypeId] = { available: true, price: value, freeRooms, ...original };
+      details[entry.query.roomTypeId] = {
+        available: true,
+        price: value,
+        freeRooms,
+        ...original,
+        ...rates,
+      };
     }
   }
 
@@ -1029,7 +1062,13 @@ export class ClockAvailabilityService {
   private async rememberDisplayPrice(
     key: string,
     value: Money | null,
-    extra: { freeRooms?: number | null; reason?: UnavailableReason; originalTotal?: Money } = {},
+    extra: {
+      freeRooms?: number | null;
+      reason?: UnavailableReason;
+      originalTotal?: Money;
+      rateCount?: number;
+      maxDiscountPercent?: number;
+    } = {},
   ): Promise<void> {
     const entry: StoredDisplayPrice = { value, storedAt: Date.now(), ...extra };
     this.keepDisplayPriceInMemory(key, entry);
@@ -2181,6 +2220,38 @@ function ratesAmong(
   return Object.fromEntries(
     Object.entries(rateOffers ?? {}).filter(([rateId]) => allowed.has(rateId)),
   );
+}
+
+/**
+ * How many different rates a guest could book for a stay and the biggest discount among them, in whole percent
+ * (the same included-discount picture the room card already uses). The card says "discounted rates available"
+ * only when there is a choice of rates and at least one carries a discount.
+ */
+function rateDiscountSpread(
+  rateOffers: Record<string, ClockProductOffer[]>,
+  info: Record<string, ClockRateInfo>,
+  allRateOffers: Record<string, ClockProductOffer[]>,
+  pairs: ClockRatePairs,
+): { rateCount: number; maxDiscountPercent: number } {
+  const cheapestByRate = new Map<string, { cents: number; currency: string }>();
+  for (const { rateId, offer } of collectValidOffers(rateOffers)) {
+    const known = cheapestByRate.get(rateId);
+    if (known === undefined || offer.price.cents < known.cents)
+      cheapestByRate.set(rateId, { cents: offer.price.cents, currency: offer.price.currency });
+  }
+  let maxDiscountPercent = 0;
+  for (const [rateId, { cents, currency }] of cheapestByRate) {
+    const total = { amount: (cents / 100).toFixed(2), currency };
+    const original =
+      comparedOriginal(total, rateId, allRateOffers, pairs) ??
+      originalPrice(total, info[rateId]?.includedDiscountRate ?? null);
+    if (!original) continue;
+    const before = Number(original.amount);
+    if (!(before > 0)) continue;
+    const percent = Math.round((1 - cents / 100 / before) * 100);
+    if (percent > maxDiscountPercent) maxDiscountPercent = percent;
+  }
+  return { rateCount: cheapestByRate.size, maxDiscountPercent };
 }
 
 function collectValidOffers(
