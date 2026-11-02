@@ -20,6 +20,17 @@ export class PublicCatalogController {
     );
   }
 
+  @Get('property')
+  @PublicTenantScoped({ propertyParam: 'propertyId' })
+  @UseGuards(PublicRateLimitGuard)
+  @PublicRateLimit(PUBLIC_READ_RATE_LIMIT)
+  getProfile(@Req() request: { tenantContext: { tenantId: string; propertyId: string } }) {
+    return this.catalog.getProfile(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+    );
+  }
+
   @Get('catalog')
   @PublicTenantScoped({ propertyParam: 'propertyId' })
   @UseGuards(PublicRateLimitGuard)

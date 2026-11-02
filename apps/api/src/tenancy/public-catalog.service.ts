@@ -94,6 +94,44 @@ export class PublicCatalogService {
     });
   }
 
+  /** The hotel facts a custom website needs next to a booking (contact, times, rules, cancellation, currency). */
+  async getProfile(tenantId: string, propertyId: string) {
+    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      const rows = await tx.$queryRaw<
+        Array<{
+          name: string;
+          address: string | null;
+          phone: string | null;
+          supportEmail: string | null;
+          checkInTime: string | null;
+          checkOutTime: string | null;
+          houseRules: string | null;
+          termsUrl: string | null;
+          freeCancellationDays: number | null;
+          currency: string | null;
+          timezone: string;
+        }>
+      >`
+        SELECT p.name, p.address, p.phone, p.support_email AS "supportEmail",
+          p.check_in_time AS "checkInTime", p.check_out_time AS "checkOutTime",
+          p.rules AS "houseRules", p.terms_url AS "termsUrl",
+          p.free_cancellation_days_before_arrival AS "freeCancellationDays",
+          COALESCE(p.default_currency, (SELECT rp.currency FROM rate_plans rp WHERE rp.tenant_id=p.tenant_id AND rp.property_id=p.id ORDER BY rp.created_at LIMIT 1)) AS currency,
+          p.timezone
+        FROM properties p WHERE p.tenant_id=${tenantId}::uuid AND p.id=${propertyId}::uuid`;
+      const row = rows[0];
+      if (!row) throw new NotFoundException('Hotel not found.');
+      const days = row.freeCancellationDays;
+      return {
+        ...row,
+        cancellationText:
+          days && days > 0
+            ? `Free cancellation up to ${days} days before arrival. Inside ${days} days, contact the hotel.`
+            : null,
+      };
+    });
+  }
+
   async getCatalog(tenantId: string, propertyId: string, query: unknown): Promise<PublicCatalog> {
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       const properties = await tx.$queryRaw<
