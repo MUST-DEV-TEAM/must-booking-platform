@@ -2654,8 +2654,9 @@ describe('LocalPmsProvider', () => {
       }),
     ]);
 
-    const expiryStartsOn = '2026-11-01';
-    const expiryEndsOn = '2026-11-03';
+    // Relative to today so the stay never falls into the past as the calendar moves on.
+    const expiryStartsOn = new Date(Date.now() + 400 * 86_400_000).toISOString().slice(0, 10);
+    const expiryEndsOn = new Date(Date.now() + 402 * 86_400_000).toISOString().slice(0, 10);
     await request(app!.getHttpServer())
       .put(`${propertyUrl}/inventory-units`)
       .set('Idempotency-Key', crypto.randomUUID())
