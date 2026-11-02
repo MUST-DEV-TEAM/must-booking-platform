@@ -110,6 +110,7 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
   }
   onModuleDestroy() {
     if (this.timer) clearInterval(this.timer);
+    this.timer = undefined;
   }
   private allowed(propertyId: string) {
     const filter = process.env.CLOCK_SYNC_ALLOWED_PROPERTY_IDS?.split(',')
@@ -248,47 +249,53 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
   async tick() {
     if (this.busy || !enabled()) return;
     this.busy = true;
+    let worked = false;
     try {
       const properties = await this.db.$queryRaw<
         Scope[]
       >`SELECT * FROM clock_sync_properties(1000)`;
-      for (const scope of properties) {
-        if (!this.allowed(scope.propertyId)) continue;
-        await this.ensure(scope);
-        // Two lanes: the import and refresh of lists, and the bills. Bills used to be served first
-        // and, being many and always due, starved the reservation import.
-        await Promise.all(
-          (['lists', 'bills'] as const).map(async (lane) => {
-            const job = await this.claim(scope, lane);
-            if (!job) return;
-            try {
-              await withClockBackgroundWork(() => this.run(scope, job));
-            } catch (error) {
-              const retry =
-                error instanceof ClockFinancialCurrencyError
-                  ? true
-                  : error instanceof ClockBookingReadError
-                    ? error.classified.retryable
-                    : error instanceof Error &&
-                      /Clock read did not finish|Clock did not finish reading this guest batch|Booking changed during the financial check|Clock bills changed during the financial check/.test(
-                        error.message,
-                      );
-              const category =
-                error instanceof ClockBookingReadError
-                  ? error.classified.category
-                  : 'configuration';
-              this.logger.warn(
-                `Clock sync job ${job.resource} failed (${category}, ${retry ? 'will retry' : 'stopped'}): ${errorText(error)}`,
-              );
-              await this.db.withTenantTransaction(
-                scope,
-                (tx) =>
-                  tx.$executeRaw`UPDATE clock_sync_jobs SET status=${retry ? 'RETRY' : 'FAILED'},last_error=${error instanceof ClockFinancialDataError ? error.message : retry ? 'Clock is temporarily unavailable. Synchronization will retry automatically.' : 'Synchronization needs connection or room-mapping review (' + category + ').'},next_run_at=now()+interval '1 minute',lease_token=NULL,lease_until=NULL,updated_at=now() WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${job.id}::uuid AND lease_token=${job.leaseToken}::uuid`,
-              );
-            }
-          }),
-        );
-      }
+      // Hotels are independent (Clock limits requests per API user), so one hotel's import no longer waits
+      // for another's. Each hotel still runs one list job and one bill job at a time.
+      await Promise.all(
+        properties.map(async (scope) => {
+          if (!this.allowed(scope.propertyId)) return;
+          await this.ensure(scope);
+          // Two lanes: the import and refresh of lists, and the bills. Bills used to be served first
+          // and, being many and always due, starved the reservation import.
+          await Promise.all(
+            (['lists', 'bills'] as const).map(async (lane) => {
+              const job = await this.claim(scope, lane);
+              if (!job) return;
+              worked = true;
+              try {
+                await withClockBackgroundWork(() => this.run(scope, job));
+              } catch (error) {
+                const retry =
+                  error instanceof ClockFinancialCurrencyError
+                    ? true
+                    : error instanceof ClockBookingReadError
+                      ? error.classified.retryable
+                      : error instanceof Error &&
+                        /Clock read did not finish|Clock did not finish reading this guest batch|Booking changed during the financial check|Clock bills changed during the financial check/.test(
+                          error.message,
+                        );
+                const category =
+                  error instanceof ClockBookingReadError
+                    ? error.classified.category
+                    : 'configuration';
+                this.logger.warn(
+                  `Clock sync job ${job.resource} failed (${category}, ${retry ? 'will retry' : 'stopped'}): ${errorText(error)}`,
+                );
+                await this.db.withTenantTransaction(
+                  scope,
+                  (tx) =>
+                    tx.$executeRaw`UPDATE clock_sync_jobs SET status=${retry ? 'RETRY' : 'FAILED'},last_error=${error instanceof ClockFinancialDataError ? error.message : retry ? 'Clock is temporarily unavailable. Synchronization will retry automatically.' : 'Synchronization needs connection or room-mapping review (' + category + ').'},next_run_at=now()+interval '1 minute',lease_token=NULL,lease_until=NULL,updated_at=now() WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${job.id}::uuid AND lease_token=${job.leaseToken}::uuid`,
+                );
+              }
+            }),
+          );
+        }),
+      );
     } catch {
       this.logger.warn(
         'Clock background scheduling failed; it will retry. Inspect database connectivity.',
@@ -296,6 +303,8 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
     } finally {
       this.busy = false;
     }
+    // Work was done: look for the next step now instead of waiting for the next one-second beat.
+    if (worked && this.timer) setImmediate(() => void this.tick());
   }
   private async claim(scope: Scope, lane: 'lists' | 'bills'): Promise<Job | null> {
     const token = randomUUID();
@@ -350,7 +359,7 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
     complete: boolean,
     snapshot?: unknown,
     processed = job.processed,
-    delay = complete ? 900 : 1,
+    delay = complete ? 900 : 0,
   ) {
     await this.db.withTenantTransaction(
       scope,
@@ -439,7 +448,7 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
         collected.length,
         // A month finished: look again in half an hour. Clock asks for no more than one read of
         // availability every 15 minutes; the rest of the allowance goes to the import.
-        complete ? 1800 : 1,
+        complete ? 1800 : 0,
       );
       return;
     }
@@ -467,7 +476,7 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
           ? { highWater: progress.updatedUntil, total: result.total, initialComplete: true }
           : undefined,
         count,
-        result.completed ? 180 : 1,
+        result.completed ? 180 : 0,
       );
       return;
     }
@@ -543,7 +552,7 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
             }
           : undefined,
         index,
-        complete ? 120 : 1,
+        complete ? 120 : 0,
       );
       return;
     }
