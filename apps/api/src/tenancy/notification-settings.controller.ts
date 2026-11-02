@@ -3,7 +3,7 @@ import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator
 import { RequiresCapability } from './capabilities.decorator';
 import { NotificationSettingsService } from './notification-settings.service';
 import { Role, Roles } from './roles.decorator';
-import { TenantScoped } from './tenant-context.decorator';
+import { AllowOnReadOnlyPlan, TenantScoped } from './tenant-context.decorator';
 
 type RequestContext = { tenantContext: { tenantId: string; propertyId: string; userId: string } };
 
@@ -32,6 +32,7 @@ export class NotificationSettingsController {
   }
 
   @Post(':topic/preview')
+  @AllowOnReadOnlyPlan()
   @HttpCode(200)
   @TenantScoped({ propertyParam: 'propertyId' })
   @RequiresCapability('settings.manage')
@@ -56,6 +57,7 @@ export class EmailPreferencesController {
   }
 
   @Put()
+  @AllowOnReadOnlyPlan()
   @TenantScoped()
   update(
     @Body() body: object,

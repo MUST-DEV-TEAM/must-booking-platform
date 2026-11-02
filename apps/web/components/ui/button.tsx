@@ -1,9 +1,12 @@
+'use client';
+
 import { cva, type VariantProps } from 'class-variance-authority';
 import { Loader2 } from 'lucide-react';
 import { Slot } from 'radix-ui';
 import type { ComponentProps } from 'react';
 
 import { cn } from '../../lib/utils';
+import { PLAN_LOCK_MESSAGE, usePlanAccess } from './plan-access';
 
 export const buttonVariants = cva(
   "inline-flex shrink-0 items-center justify-center gap-2 rounded-md text-sm font-semibold whitespace-nowrap no-underline transition-all outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:ring-destructive/20 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
@@ -42,10 +45,29 @@ export function Button({
   asChild = false,
   loading = false,
   disabled,
+  mutates,
   children,
   ...props
 }: ComponentProps<'button'> &
-  VariantProps<typeof buttonVariants> & { asChild?: boolean; loading?: boolean }) {
+  VariantProps<typeof buttonVariants> & {
+    asChild?: boolean;
+    loading?: boolean;
+    /**
+     * Whether pressing this saves, deletes or sends something. On a read-only plan such buttons are
+     * locked. Unset, a submit, destructive or success button counts as a change; a button that only
+     * opens a dialog or filters should leave it unset or pass false.
+     */
+    mutates?: boolean;
+  }) {
+  const { readOnly } = usePlanAccess();
+  const locked =
+    readOnly &&
+    !asChild &&
+    mutates !== false &&
+    (mutates === true ||
+      props.type === 'submit' ||
+      variant === 'destructive' ||
+      variant === 'success');
   if (asChild) {
     return (
       <Slot.Root
@@ -61,9 +83,10 @@ export function Button({
     <button
       data-slot="button"
       className={cn(buttonVariants({ variant, size, className }))}
-      disabled={disabled || loading}
+      disabled={disabled || loading || locked}
       aria-busy={loading || undefined}
       {...props}
+      title={locked ? PLAN_LOCK_MESSAGE : props.title}
     >
       {loading ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
       {loading && (size === 'icon' || size === 'icon-sm') ? null : children}

@@ -496,7 +496,9 @@ function ReportsWorkspace({ tenantId, propertyId }: { tenantId: string; property
                       onChange={(date) => setTo(date)}
                     />
                   </FormField>
-                  <Button type="submit">Apply range</Button>
+                  <Button type="submit" mutates={false}>
+                    Apply range
+                  </Button>
                   {data
                     ? choose(
                         'Date preset',

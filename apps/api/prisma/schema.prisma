@@ -159,6 +159,7 @@ model Plan {
   pmsEnabled                   Boolean        @default(false) @map("pms_enabled")
   maxPmsConnectionsPerProperty Int            @map("max_pms_connections_per_property")
   isPublic                     Boolean        @default(true) @map("is_public")
+  readOnly                     Boolean        @default(false) @map("read_only")
   createdAt                    DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                    DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   organizations                Organization[]

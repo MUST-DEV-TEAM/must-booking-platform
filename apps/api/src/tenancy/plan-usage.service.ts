@@ -9,6 +9,7 @@ export interface PlanUsage {
     maxStaffSeats: number;
     pmsEnabled: boolean;
     maxPmsConnectionsPerProperty: number;
+    readOnly: boolean;
   };
   usage: { properties: number; staffSeats: number };
 }
@@ -28,6 +29,7 @@ export class PlanUsageService {
             maxStaffSeats: number;
             pmsEnabled: boolean;
             maxPmsConnectionsPerProperty: number;
+            readOnly: boolean;
             properties: number;
             staffSeats: number;
           }>
@@ -38,6 +40,7 @@ export class PlanUsageService {
             p."max_staff_seats" AS "maxStaffSeats",
             p."pms_enabled" AS "pmsEnabled",
             p."max_pms_connections_per_property" AS "maxPmsConnectionsPerProperty",
+            p."read_only" AS "readOnly",
             (SELECT COUNT(*)::integer FROM "properties" WHERE "tenant_id" = o."id") AS "properties",
             (SELECT COUNT(*)::integer FROM "tenant_memberships"
               WHERE "tenant_id" = o."id" AND NOT "is_auto_provisioned") AS "staffSeats"

@@ -3,6 +3,7 @@ import { HotelMoneyProvider } from '../../lib/hotel-money-scope';
 import { HotelDateFormatProvider } from '../../lib/hotel-date-format';
 import { SectionAccess } from '../../components/ui/state-panel';
 import { ApprovalsQueue, useApprovals } from './approvals';
+import { PlanAccessBoundary, usePlanUsage } from './plan-access';
 
 import { InventorySection } from './inventory';
 
@@ -462,6 +463,9 @@ export function DashboardShell({
   const canViewSection = role ? canAccessSection(role, capabilities ?? [], section) : false;
   const hasCapability = (capability: string) =>
     role !== 'STAFF' || capabilities?.includes(capability) === true;
+  // A read-only plan keeps every page visible but turns off the write controls.
+  const readOnlyPlan = usePlanUsage(tenantId).data?.plan?.readOnly === true;
+  const canChange = (capability: string) => !readOnlyPlan && hasCapability(capability);
   const canAccessQuickBooking = hasCapability('bookings.create');
   const canAccessSystemHealth = hasCapability('bookings.view');
   const visibleDashboardTab =
@@ -556,7 +560,7 @@ export function DashboardShell({
               currentTab={visibleDashboardTab}
               canAccessQuickBooking={canAccessQuickBooking}
               canAccessSystemHealth={canAccessSystemHealth}
-              canReviewRequests={hasCapability('requests.review')}
+              canReviewRequests={canChange('requests.review')}
               onSelectTab={(next) => {
                 setTab(next);
                 window.history.pushState(
@@ -582,7 +586,7 @@ export function DashboardShell({
               <NeedsAttentionTab
                 tenantId={tenantId}
                 propertyId={selectedProperty.id}
-                canEdit={hasCapability('bookings.edit')}
+                canEdit={canChange('bookings.edit')}
               />
             ) : visibleDashboardTab === 'system-health' ? (
               <SystemHealthTab
@@ -597,8 +601,8 @@ export function DashboardShell({
                 bookingMode={selectedProperty.bookingMode}
                 paymentGateways={selectedProperty.paymentGateways}
                 checkInTime={selectedProperty.checkInTime}
-                canRecordPayment={hasCapability('payments.record')}
-                canCheckPayment={hasCapability('bookings.edit')}
+                canRecordPayment={canChange('payments.record')}
+                canCheckPayment={canChange('bookings.edit')}
                 canViewBooking={hasCapability('bookings.view')}
               />
             ) : (
@@ -633,16 +637,16 @@ export function DashboardShell({
               checkInTime={selectedProperty.checkInTime}
               checkOutTime={selectedProperty.checkOutTime}
               bookingMode={selectedProperty.bookingMode}
-              canCancelBooking={hasCapability('bookings.cancel')}
-              canRefundPayment={hasCapability('payments.refund')}
-              canRefundLate={hasCapability('payments.refund_late')}
-              canEditBooking={hasCapability('bookings.edit')}
+              canCancelBooking={canChange('bookings.cancel')}
+              canRefundPayment={canChange('payments.refund')}
+              canRefundLate={canChange('payments.refund_late')}
+              canEditBooking={canChange('bookings.edit')}
             />
           ) : (
             <ReservationsPage
               tenantId={tenantId}
               propertyId={selectedProperty.id}
-              canCreateBooking={hasCapability('bookings.create')}
+              canCreateBooking={canChange('bookings.create')}
             />
           )
         ) : null}
@@ -651,8 +655,8 @@ export function DashboardShell({
             tenantId={tenantId}
             propertyId={selectedProperty.id}
             bookingMode={selectedProperty.bookingMode}
-            canManageAvailability={hasCapability('calendar.block')}
-            canCreateBooking={hasCapability('bookings.create')}
+            canManageAvailability={canChange('calendar.block')}
+            canCreateBooking={canChange('bookings.create')}
           />
         ) : null}
         {selectedProperty && role && canViewSection && section === 'payments' ? (
@@ -673,7 +677,7 @@ export function DashboardShell({
               propertyId={selectedProperty.id}
               guestId={guestId}
               canEditCountry={
-                hasCapability('bookings.edit') &&
+                canChange('bookings.edit') &&
                 hasCapability('guests.view') &&
                 user?.emailVerified === true
               }
@@ -682,7 +686,7 @@ export function DashboardShell({
             <DashboardGuests
               tenantId={tenantId}
               propertyId={selectedProperty.id}
-              canMergeGuests={hasCapability('guests.merge')}
+              canMergeGuests={canChange('guests.merge')}
             />
           )
         ) : null}
@@ -706,12 +710,12 @@ export function DashboardShell({
           <RoomManagement
             propertyId={selectedProperty.id}
             tenantId={tenantId}
-            canManageAccommodations={hasCapability('accommodations.manage')}
-            canManagePhotos={hasCapability('photos.manage')}
+            canManageAccommodations={canChange('accommodations.manage')}
+            canManagePhotos={canChange('photos.manage')}
             canViewCalendar={hasCapability('calendar.view')}
-            canBlockCalendar={hasCapability('calendar.block')}
-            canCreateBooking={hasCapability('bookings.create')}
-            canManageRates={hasCapability('rates.manage')}
+            canBlockCalendar={canChange('calendar.block')}
+            canCreateBooking={canChange('bookings.create')}
+            canManageRates={canChange('rates.manage')}
             canManageInventorySource={role === 'OWNER' || role === 'ADMIN'}
             onNavigateSection={setSection}
           />
@@ -732,7 +736,7 @@ export function DashboardShell({
             key={selectedProperty.id}
             tenantId={tenantId}
             propertyId={selectedProperty.id}
-            canWrite={user?.emailVerified === true && hasCapability('settings.manage')}
+            canWrite={user?.emailVerified === true && canChange('settings.manage')}
           />
         ) : null}
         {selectedProperty && role && canViewSection && section === 'reports' ? (
@@ -745,7 +749,7 @@ export function DashboardShell({
               tenantId={tenantId}
               propertyId={selectedProperty.id}
               initialTab={emailTab}
-              canWrite={user?.emailVerified === true && hasCapability('settings.manage')}
+              canWrite={user?.emailVerified === true && canChange('settings.manage')}
             />
           ) : settingsArea ? (
             <DashboardSettings
@@ -753,8 +757,8 @@ export function DashboardShell({
               tenantId={tenantId}
               propertyId={selectedProperty.id}
               settingsArea={settingsArea}
-              canWrite={user?.emailVerified === true && hasCapability('settings.manage')}
-              canManagePhotos={hasCapability('photos.manage')}
+              canWrite={user?.emailVerified === true && canChange('settings.manage')}
+              canManagePhotos={canChange('photos.manage')}
               onPropertySaved={(updated) =>
                 setProperties((current) =>
                   current?.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)),
@@ -774,7 +778,7 @@ export function DashboardShell({
       propertyId={selectedProperty?.id ?? ''}
       currency={selectedProperty?.defaultCurrency}
     >
-      {content}
+      <PlanAccessBoundary tenantId={tenantId}>{content}</PlanAccessBoundary>
     </HotelMoneyProvider>
   );
 }

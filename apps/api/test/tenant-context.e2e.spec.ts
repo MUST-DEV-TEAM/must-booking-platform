@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { Controller, Get, Req } from '@nestjs/common';
+import { Controller, Get, Post, Req } from '@nestjs/common';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import * as bcrypt from 'bcrypt';
@@ -8,7 +8,7 @@ import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { TenantScoped } from '../src/tenancy/tenant-context.decorator';
+import { AllowOnReadOnlyPlan, TenantScoped } from '../src/tenancy/tenant-context.decorator';
 
 let handlerCalls = 0;
 
@@ -19,6 +19,21 @@ class TenantContextTestController {
   getContext(@Req() request: { tenantContext: unknown }): unknown {
     handlerCalls += 1;
     return request.tenantContext;
+  }
+
+  @Post(':tenantId/properties/:propertyId/write')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  write(): unknown {
+    handlerCalls += 1;
+    return { ok: true };
+  }
+
+  @Post(':tenantId/properties/:propertyId/personal-write')
+  @AllowOnReadOnlyPlan()
+  @TenantScoped({ propertyParam: 'propertyId' })
+  personalWrite(): unknown {
+    handlerCalls += 1;
+    return { ok: true };
   }
 }
 
@@ -114,5 +129,23 @@ describe('tenant request context', () => {
       .expect(200);
     expect(response.body).toEqual({ userId, tenantId: tenantA, propertyId: propertyA });
     expect(handlerCalls).toBe(1);
+  });
+
+  it('lets a read-only plan read but refuses dashboard writes, except allow-listed ones', async () => {
+    const freePlan = '00000000-0000-0000-0000-000000000001';
+    await migrationPrisma.$executeRaw`UPDATE "organizations" SET "plan_id" = ${freePlan}::uuid WHERE "id" = ${tenantA}::uuid`;
+    const base = `/tenant-context-test/${tenantA}/properties/${propertyA}`;
+    handlerCalls = 0;
+    await request(app.getHttpServer()).get(base).set('Cookie', cookie).expect(200);
+    const refused = await request(app.getHttpServer())
+      .post(`${base}/write`)
+      .set('Cookie', cookie)
+      .expect(403);
+    expect(refused.body.code).toBe('PLAN_READ_ONLY');
+    await request(app.getHttpServer())
+      .post(`${base}/personal-write`)
+      .set('Cookie', cookie)
+      .expect(201);
+    expect(handlerCalls).toBe(2);
   });
 });
