@@ -52,6 +52,7 @@ describe('tenant request context', () => {
   const propertyA = randomUUID();
   const propertyB = randomUUID();
   const userId = randomUUID();
+  const readOnlyPlan = randomUUID();
   const email = `tenant-context-${randomUUID()}@example.test`;
   let cookie: string;
 
@@ -96,6 +97,7 @@ describe('tenant request context', () => {
     await migrationPrisma.$executeRaw`DELETE FROM "properties" WHERE "id" IN (${propertyA}::uuid, ${propertyB}::uuid)`;
     await migrationPrisma.$executeRaw`DELETE FROM "users" WHERE "id" = ${userId}::uuid`;
     await migrationPrisma.$executeRaw`DELETE FROM "organizations" WHERE "id" IN (${tenantA}::uuid, ${tenantB}::uuid)`;
+    await migrationPrisma.$executeRaw`DELETE FROM "plans" WHERE "id" = ${readOnlyPlan}::uuid`;
     await app.close();
     await migrationPrisma.$disconnect();
   });
@@ -132,8 +134,11 @@ describe('tenant request context', () => {
   });
 
   it('lets a read-only plan read but refuses dashboard writes, except allow-listed ones', async () => {
-    const freePlan = '00000000-0000-0000-0000-000000000001';
-    await migrationPrisma.$executeRaw`UPDATE "organizations" SET "plan_id" = ${freePlan}::uuid WHERE "id" = ${tenantA}::uuid`;
+    await migrationPrisma.$executeRaw`
+      INSERT INTO "plans" ("id", "name", "max_properties", "max_staff_seats", "pms_enabled", "max_pms_connections_per_property", "read_only")
+      VALUES (${readOnlyPlan}::uuid, ${`Read-only ${readOnlyPlan}`}, 1, 1, false, 0, true)
+    `;
+    await migrationPrisma.$executeRaw`UPDATE "organizations" SET "plan_id" = ${readOnlyPlan}::uuid WHERE "id" = ${tenantA}::uuid`;
     const base = `/tenant-context-test/${tenantA}/properties/${propertyA}`;
     handlerCalls = 0;
     await request(app.getHttpServer()).get(base).set('Cookie', cookie).expect(200);
