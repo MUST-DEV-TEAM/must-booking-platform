@@ -208,10 +208,9 @@ export class BookingConfirmationNotificationService {
       '/booking/manage',
       siteOrigin ?? (process.env.WEB_APP_URL || 'http://localhost:3001'),
     );
-    if (!siteOrigin) {
-      url.searchParams.set('tenant', context.tenantId);
-      url.searchParams.set('property', context.propertyId);
-    }
+    // The ids stay in the link: harmless for a custom site, and the dashboard's own manage page needs them.
+    url.searchParams.set('tenant', context.tenantId);
+    url.searchParams.set('property', context.propertyId);
     url.searchParams.set('booking', bookingId);
     url.searchParams.set(
       'token',
