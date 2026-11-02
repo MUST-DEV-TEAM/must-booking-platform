@@ -230,6 +230,11 @@ $render_checkout_price_breakdown_rows = static function (array $pricing, string 
                             $offer_needs_code = !empty($rate_offer['requiresCode']);
                             $label_is_shared = \count(\array_filter($rate_offers, static fn ($other) => (string) ($other['label'] ?? '') === $offer_label)) > 1;
                             ?>
+                            <?php
+                            $offer_money_currency = $offer_currency !== '' ? $offer_currency : $summary_currency;
+                            $offer_is_best = \count($rate_offers) > 1 && $offer_total > 0 && $offer_total <= \min(\array_map(static fn ($other) => (float) ($other['total']['amount'] ?? INF), $rate_offers));
+                            $offer_percent_off = $offer_original > $offer_total && $offer_original > 0 ? (int) \round((1 - $offer_total / $offer_original) * 100) : 0;
+                            ?>
                             <label class="must-checkout-rate<?php echo $offer_id === $selected_rate_id ? ' is-selected' : ''; ?>">
                                 <input
                                     type="radio"
@@ -238,29 +243,49 @@ $render_checkout_price_breakdown_rows = static function (array $pricing, string 
                                     <?php echo $offer_id === $selected_rate_id ? 'checked' : ''; ?>
                                     onchange="var b=this.form.querySelector('.must-checkout-rate-update');if(b){b.click();}"
                                 />
+                                <span class="must-checkout-rate-radio" aria-hidden="true"></span>
                                 <span class="must-checkout-rate-name">
                                     <?php echo \esc_html($offer_label); ?>
                                     <?php if ($label_is_shared && $offer_name !== '') : ?>
                                         <small><?php echo \esc_html($offer_name); ?></small>
+                                    <?php endif; ?>
+                                    <?php if ($offer_is_best) : ?>
+                                        <small class="must-checkout-rate-best"><?php echo \esc_html__('Best price', 'must-hotel-booking'); ?></small>
                                     <?php endif; ?>
                                     <?php if ($offer_needs_code) : ?>
                                         <small class="must-checkout-rate-special"><?php echo \esc_html__('Special rate', 'must-hotel-booking'); ?></small>
                                     <?php endif; ?>
                                 </span>
                                 <span class="must-checkout-rate-price">
-                                    <?php if ($offer_original > $offer_total) : ?>
-                                        <del class="must-checkout-rate-original"><?php echo \MustHotelBooking\Frontend\format_frontend_money_html($offer_original, $offer_currency !== "" ? $offer_currency : $summary_currency); ?></del>
+                                    <?php if ($offer_percent_off > 0) : ?>
+                                        <span class="must-checkout-rate-was">
+                                            <del class="must-checkout-rate-original"><?php echo \MustHotelBooking\Frontend\format_frontend_money_html($offer_original, $offer_money_currency); ?></del>
+                                            <em class="must-checkout-rate-off">-<?php echo \esc_html((string) $offer_percent_off); ?>%</em>
+                                        </span>
                                     <?php endif; ?>
-                                    <?php echo \MustHotelBooking\Frontend\format_frontend_money_html($offer_total, $offer_currency !== "" ? $offer_currency : $summary_currency); ?>
+                                    <strong><?php echo \MustHotelBooking\Frontend\format_frontend_money_html($offer_total, $offer_money_currency); ?></strong>
+                                    <?php if ($nights > 0) : ?>
+                                        <small class="must-checkout-rate-night">
+                                            <?php
+                                            echo \wp_kses_post(
+                                                \sprintf(
+                                                    /* translators: %s: price per night. */
+                                                    \__('From %s / night', 'must-hotel-booking'),
+                                                    \MustHotelBooking\Frontend\format_frontend_money_html($offer_total / $nights, $offer_money_currency)
+                                                )
+                                            );
+                                            ?>
+                                        </small>
+                                    <?php endif; ?>
                                 </span>
                             </label>
                         <?php endforeach; ?>
                         <noscript>
-                            <button type="submit" name="must_checkout_action" value="choose_rate" class="must-checkout-rate-update">
+                            <button type="submit" name="must_checkout_action" value="choose_rate" class="must-checkout-rate-update" formnovalidate>
                                 <?php echo \esc_html__('Update price', 'must-hotel-booking'); ?>
                             </button>
                         </noscript>
-                        <button type="submit" name="must_checkout_action" value="choose_rate" class="must-checkout-rate-update" hidden>
+                        <button type="submit" name="must_checkout_action" value="choose_rate" class="must-checkout-rate-update" formnovalidate hidden>
                             <?php echo \esc_html__('Update price', 'must-hotel-booking'); ?>
                         </button>
                     </fieldset>

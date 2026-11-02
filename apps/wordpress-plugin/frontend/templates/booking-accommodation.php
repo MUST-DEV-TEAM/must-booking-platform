@@ -461,6 +461,19 @@ $continue_label = \function_exists('\must_hotel_booking\get_accommodation_contin
                                                             </small>
                                                         <?php endif; ?>
                                                     </p>
+                                                    <?php if ((int) ($display_price['rateCount'] ?? 0) >= 2 && (int) ($display_price['maxDiscountPercent'] ?? 0) > 0) : ?>
+                                                        <p class="must-booking-room-discount-note">
+                                                            <?php
+                                                            echo \esc_html(
+                                                                \sprintf(
+                                                                    /* translators: %d: biggest discount, in percent. */
+                                                                    \__('Discounted rates available, up to %d%% off', 'must-hotel-booking'),
+                                                                    (int) $display_price['maxDiscountPercent']
+                                                                )
+                                                            );
+                                                            ?>
+                                                        </p>
+                                                    <?php endif; ?>
                                                 <?php endif; ?>
 
                                                 <?php

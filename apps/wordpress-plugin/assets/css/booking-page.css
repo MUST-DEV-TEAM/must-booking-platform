@@ -6140,24 +6140,61 @@ div.must-confirmation-picker:nth-child(1) > div:nth-child(3) > div:nth-child(1) 
 }
 
 .must-hotel-booking-page-checkout .must-checkout-rate {
+    position: relative;
     display: flex;
-    align-items: center;
-    gap: 16px;
-    padding: 18px 24px;
+    flex-direction: column;
+    gap: 10px;
+    padding: 20px 24px;
     border: 1px solid #d8d4c8;
     background: #ffffff;
     color: var(--must-ink,#1a1a1a);
     font-family: 'PP Neue Montreal', sans-serif;
     cursor: pointer;
+    transition: border-color .15s ease, box-shadow .15s ease;
 }
 
+.must-hotel-booking-page-checkout .must-checkout-rate:hover,
 .must-hotel-booking-page-checkout .must-checkout-rate.is-selected {
     border-color: var(--must-ink,#1a1a1a);
 }
 
+.must-hotel-booking-page-checkout .must-checkout-rate.is-selected {
+    box-shadow: inset 0 0 0 1px var(--must-ink,#1a1a1a);
+}
+
+.must-hotel-booking-page-checkout .must-checkout-rate input[type="radio"] {
+    position: absolute;
+    opacity: 0;
+    width: 1px;
+    height: 1px;
+    margin: 0;
+    pointer-events: none;
+}
+
+.must-hotel-booking-page-checkout .must-checkout-rate-radio {
+    position: absolute;
+    top: 20px;
+    right: 24px;
+    width: 22px;
+    height: 22px;
+    box-sizing: border-box;
+    border: 1.5px solid var(--must-ink,#1a1a1a);
+    border-radius: 50%;
+    background: #ffffff;
+}
+
+.must-hotel-booking-page-checkout .must-checkout-rate.is-selected .must-checkout-rate-radio {
+    background: radial-gradient(circle, var(--must-ink,#1a1a1a) 0 5px, #ffffff 6px);
+}
+
+.must-hotel-booking-page-checkout .must-checkout-rate input[type="radio"]:focus-visible + .must-checkout-rate-radio {
+    outline: 2px solid var(--must-ink,#1a1a1a);
+    outline-offset: 2px;
+}
+
 .must-hotel-booking-page-checkout .must-checkout-rate-name {
-    flex: 1;
-    font-size: 18px;
+    padding-right: 40px;
+    font-size: 20px;
 }
 
 .must-hotel-booking-page-checkout .must-checkout-rate-name small {
@@ -6167,8 +6204,49 @@ div.must-confirmation-picker:nth-child(1) > div:nth-child(3) > div:nth-child(1) 
     opacity: 0.65;
 }
 
+.must-hotel-booking-page-checkout .must-checkout-rate-name small.must-checkout-rate-best {
+    display: inline-block;
+    margin-top: 6px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: #1a1a1a;
+    color: #ffffff;
+    font-size: 12px;
+    opacity: 1;
+}
+
 .must-hotel-booking-page-checkout .must-checkout-rate-price {
-    font-size: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+}
+
+.must-hotel-booking-page-checkout .must-checkout-rate-was {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    font-size: 16px;
+}
+
+.must-hotel-booking-page-checkout .must-checkout-rate-original {
+    opacity: 0.55;
+}
+
+.must-hotel-booking-page-checkout .must-checkout-rate-off {
+    font-style: normal;
+    color: #d12f2f;
+}
+
+.must-hotel-booking-page-checkout .must-checkout-rate-price strong {
+    font-size: 28px;
+    font-weight: 600;
+    line-height: 1.15;
+}
+
+.must-hotel-booking-page-checkout .must-checkout-rate-night {
+    font-size: 14px;
+    opacity: 0.65;
 }
 
 /* Room card: lowest price and key facts, so a guest does not have to open the details. */
@@ -6245,4 +6323,11 @@ div.must-confirmation-picker:nth-child(1) > div:nth-child(3) > div:nth-child(1) 
 .must-booking-room-original-price {
     opacity: 0.6;
     font-size: 0.9em;
+}
+
+.must-booking-room-discount-note {
+    margin: 6px 0 0;
+    font-size: 14px;
+    font-weight: 500;
+    color: #8a4b00;
 }

@@ -4,7 +4,7 @@ Tags: hotel, booking, reservation, accommodation
 Requires at least: 5.0
 Tested up to: 6.0
 Requires PHP: 7.4
-Stable tag: 0.4.121
+Stable tag: 0.4.122
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -31,6 +31,10 @@ Main features include:
 5. When updating, upload the new release ZIP or use the configured updater, then review **Diagnostics & Maintenance** after the update completes.
 
 == Changelog ==
+
+= 0.4.122 =
+* Rate choice: new card layout (radio on the right, crossed-out price with the percent off, total and price per night, a "Best price" tag). Choosing a rate now re-prices the stay even before the guest details are filled in.
+* Room card: when a room has several rates and some are discounted, it says "Discounted rates available, up to N% off".
 
 = 0.4.121 =
 * Guest booking pages can now be skinned by the active theme: place `must-booking/<file>.php` in the theme to replace a page template, and set the `--must-*` CSS variables for colours. The plugin default palette is neutral; the checkout consent line uses the configured hotel name.
