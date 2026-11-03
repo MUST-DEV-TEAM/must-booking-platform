@@ -2662,6 +2662,60 @@ describe('public comparison rate pricing', () => {
     expect(offers.ok && offers.value.map((o) => o.rateId)).toEqual(['546549']);
   });
 
+  describe('automatic comparison with the regular rate of the same base', () => {
+    function automatic(
+      options: { baseOfRegular?: number | null; regularCents?: number; pairs?: Record<string, string> } = {},
+    ) {
+      const rates = ratesBody.map((rate) =>
+        rate.id === bedAndBreakfast.id
+          ? { ...rate, included_discount_rate: 0.12, base_rate_id: 777 }
+          : {
+              ...rate,
+              base_rate_id: options.baseOfRegular === undefined ? 777 : options.baseOfRegular,
+            },
+      );
+      const regular = { ...offer(options.regularCents ?? 32000) };
+      const request = vi.fn().mockImplementation(async (_credentials, input) => ({
+        status: 200,
+        body:
+          input.path === '/rates/'
+            ? rates
+            : [{ id: 42023, rates: { '546549': [offer(26400)], '615688': [regular] } }],
+      }));
+      return makeService({ client: { request }, pairs: options.pairs ?? {} }).service;
+    }
+
+    it('crosses out the regular rate it is derived from when that really costs more, without any pairing', async () => {
+      const service = automatic();
+      const offers = await service.listOffersForStay('t1', 'p1', pairedQuery);
+      expect(offers.ok && offers.value.find((o) => o.rateId === '546549')?.originalTotal).toEqual({
+        amount: '320.00',
+        currency: 'EUR',
+      });
+      expect(offers.ok && offers.value.find((o) => o.rateId === '615688')).not.toHaveProperty(
+        'originalTotal',
+      );
+      const search = await service.getStaySearch('t1', 'p1', [pairedQuery]);
+      expect(search.details[query.roomTypeId]).toHaveProperty('originalTotal', {
+        amount: '320.00',
+        currency: 'EUR',
+      });
+    });
+
+    it.each([
+      { regularCents: 26400 },
+      { regularCents: 25000 },
+      { baseOfRegular: 888 },
+      { baseOfRegular: null },
+    ])('shows no crossed-out price for %j', async (options) => {
+      const service = automatic(options);
+      const offers = await service.listOffersForStay('t1', 'p1', pairedQuery);
+      expect(offers.ok && offers.value.find((o) => o.rateId === '546549')).not.toHaveProperty(
+        'originalTotal',
+      );
+    });
+  });
+
   it.each([
     { hidden: true },
     { coded: true },
