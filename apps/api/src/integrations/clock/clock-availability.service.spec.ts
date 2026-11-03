@@ -2564,6 +2564,7 @@ describe('public comparison rate pricing', () => {
       mismatch?: boolean;
       unavailable?: boolean;
       errors?: boolean;
+      stopSale?: boolean;
       currency?: string;
       compareCents?: number;
     } = {},
@@ -2581,8 +2582,12 @@ describe('public comparison rate pricing', () => {
     );
     const compared = {
       ...offer(options.compareCents ?? 32000),
-      available: !options.unavailable,
-      errors: options.errors ? { base: ['closed'] } : {},
+      available: !options.unavailable && !options.stopSale,
+      errors: options.errors
+        ? { base: ['closed'] }
+        : options.stopSale
+          ? { base: ['Rate restriction stop from sale?  '] }
+          : {},
       price: { cents: options.compareCents ?? 32000, currency: options.currency ?? 'EUR' },
     };
     const request = vi.fn().mockImplementation(async (_credentials, input) => ({
@@ -2614,6 +2619,16 @@ describe('public comparison rate pricing', () => {
       );
     },
   );
+
+  it('crosses out a regular rate that is only stopped from sale, without offering it', async () => {
+    const { service } = setup({ stopSale: true });
+    const offers = await service.listOffersForStay('t1', 'p1', pairedQuery);
+    expect(offers.ok && offers.value.map((o) => o.rateId)).toEqual(['546549']);
+    expect(offers.ok && offers.value[0]).toHaveProperty('originalTotal', {
+      amount: '320.00',
+      currency: 'EUR',
+    });
+  });
 
   it.each([
     { hidden: true },

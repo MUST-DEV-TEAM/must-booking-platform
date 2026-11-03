@@ -2424,7 +2424,19 @@ function automaticRatePairs(
   return result;
 }
 
-/** Uses only the same response/stay/occupancy as the promoted offer. Errors and unavailable offers are ignored. */
+/** The offer's only problem is that the rate is stopped from sale: Clock still prices it as it would be sold. */
+function isStopSaleOnly(offer: ClockProductOffer): boolean {
+  const messages = Object.values(offer.errors ?? {})
+    .flatMap((value) => (Array.isArray(value) ? value : [value]))
+    .map((value) => String(value).toLowerCase());
+  return messages.length > 0 && messages.every((message) => /stop from sale/.test(message));
+}
+
+/**
+ * Uses only the same response/stay/occupancy as the promoted offer. Other errors and unavailable offers are
+ * ignored. A regular rate that is only stopped from sale still has its real price, so it can be crossed out:
+ * guests see what the stay would cost without the discount, and the stopped rate itself is never offered.
+ */
 function comparedOriginal(
   total: Money,
   promoRateId: string,
@@ -2434,7 +2446,10 @@ function comparedOriginal(
   const compareRateId = pairs[promoRateId];
   if (!compareRateId) return undefined;
   const compared = selectBestOffer(ratesAmong(offers, [compareRateId]), []);
-  const price = compared?.offer.price;
+  const stopped = (offers[compareRateId] ?? []).find(
+    (offer) => !offer.available && isStopSaleOnly(offer) && Number.isFinite(offer.price?.cents),
+  );
+  const price = compared?.offer.price ?? stopped?.price;
   if (
     !price ||
     price.currency !== total.currency ||
