@@ -4,7 +4,7 @@ Tags: hotel, booking, reservation, accommodation
 Requires at least: 5.0
 Tested up to: 6.0
 Requires PHP: 7.4
-Stable tag: 0.4.123
+Stable tag: 0.4.124
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -31,6 +31,9 @@ Main features include:
 5. When updating, upload the new release ZIP or use the configured updater, then review **Diagnostics & Maintenance** after the update completes.
 
 == Changelog ==
+
+= 0.4.124 =
+* Rate choice and room cards: the crossed-out price is drawn smaller, so the new price stands out.
 
 = 0.4.123 =
 * Rate choice: the rates now sit side by side as cards (stacked on small screens), prices line up along the bottom of each card, the selected card is highlighted, and the price updates with a short "Updating your price" note. The stray "Update price" button no longer shows.
