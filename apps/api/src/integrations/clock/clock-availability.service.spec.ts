@@ -20,7 +20,6 @@ function makeService(
     hasActiveRoomConflict?: boolean;
     displayPriceStore?: unknown;
     hiddenRateIds?: string[];
-    pairs?: Record<string, string>;
   } = {},
 ) {
   const database = {
@@ -71,7 +70,6 @@ function makeService(
     bookingConsistency as never,
     overrides.displayPriceStore as never,
     { hiddenRateIds: vi.fn().mockResolvedValue(new Set(overrides.hiddenRateIds ?? [])) } as never,
-    { pairs: vi.fn().mockImplementation(async () => overrides.pairs ?? {}) } as never,
   );
   return { service, client, connections, rateRankings, bookingConsistency, rateLimiter };
 }
@@ -2560,7 +2558,6 @@ describe('public comparison rate pricing', () => {
   const pairedQuery = { ...query, channel: 'website' as const };
   function setup(
     options: {
-      discount?: number;
       hidden?: boolean;
       coded?: boolean;
       unpublished?: boolean;
@@ -2573,9 +2570,10 @@ describe('public comparison rate pricing', () => {
   ) {
     const rates = ratesBody.map((rate) =>
       rate.id === bedAndBreakfast.id
-        ? { ...rate, included_discount_rate: options.discount }
+        ? { ...rate, included_discount_rate: 0.12, base_rate_id: 777 }
         : {
             ...rate,
+            base_rate_id: 777,
             wbe: !options.unpublished,
             bonus_codes: options.coded ? ['VIP'] : [],
             ...(options.mismatch ? { bookable_id: 999 } : {}),
@@ -2596,16 +2594,15 @@ describe('public comparison rate pricing', () => {
     }));
     const overrides = {
       client: { request },
-      pairs: { '546549': '615688' },
       hiddenRateIds: options.hidden ? ['615688'] : [],
     };
-    return { ...makeService(overrides), request, overrides };
+    return { ...makeService(overrides), request };
   }
 
   it.each(['website', 'staff'] as const)(
-    'uses the real paired total ahead of included discount on %s, with no extra products request',
+    'uses the real total of the regular rate it is derived from on %s, with no extra products request',
     async (channel) => {
-      const { service, request } = setup({ discount: 0.12 });
+      const { service, request } = setup();
       const offers = await service.listOffersForStay('t1', 'p1', { ...pairedQuery, channel });
       expect(offers.ok && offers.value.find((o) => o.rateId === '546549')?.originalTotal).toEqual({
         amount: '320.00',
@@ -2632,19 +2629,17 @@ describe('public comparison rate pricing', () => {
     'ignores an invalid comparison %j, and the included discount never fills in for it',
     async (options) => {
       for (const channel of ['website', 'staff'] as const) {
-        for (const discount of [undefined, 0.12]) {
-          const { service } = setup({ ...options, discount });
-          const offers = await service.listOffersForStay('t1', 'p1', { ...pairedQuery, channel });
-          const promo = offers.ok && offers.value.find((o) => o.rateId === '546549');
-          expect(promo).toBeTruthy();
-          expect(promo).not.toHaveProperty('originalTotal');
-        }
+        const { service } = setup(options);
+        const offers = await service.listOffersForStay('t1', 'p1', { ...pairedQuery, channel });
+        const promo = offers.ok && offers.value.find((o) => o.rateId === '546549');
+        expect(promo).toBeTruthy();
+        expect(promo).not.toHaveProperty('originalTotal');
       }
     },
   );
 
-  it('uses pairs for room-card search, changes cache identity on clear, and never adds an unavailable comparison to offers', async () => {
-    const { service, request, overrides } = setup({ discount: 0.12 });
+  it('uses the regular rate for room-card search, remembers it, and never adds an unavailable comparison to offers', async () => {
+    const { service, request } = setup();
     const first = await service.getStaySearch('t1', 'p1', [pairedQuery]);
     expect(first.details[query.roomTypeId]).toHaveProperty('originalTotal', {
       amount: '320.00',
@@ -2653,10 +2648,6 @@ describe('public comparison rate pricing', () => {
     const cached = await service.getStaySearch('t1', 'p1', [pairedQuery]);
     expect(cached.details).toEqual(first.details);
     expect(request).toHaveBeenCalledTimes(2);
-    overrides.pairs = {} as typeof overrides.pairs;
-    const cleared = await service.getStaySearch('t1', 'p1', [pairedQuery]);
-    expect(cleared.details[query.roomTypeId]).not.toHaveProperty('originalTotal');
-    expect(request).toHaveBeenCalledTimes(3);
     const unavailable = setup({ unavailable: true });
     const offers = await unavailable.service.listOffersForStay('t1', 'p1', pairedQuery);
     expect(offers.ok && offers.value.map((o) => o.rateId)).toEqual(['546549']);
@@ -2667,7 +2658,6 @@ describe('public comparison rate pricing', () => {
       options: {
         baseOfRegular?: number | null;
         regularCents?: number;
-        pairs?: Record<string, string>;
       } = {},
     ) {
       const rates = ratesBody.map((rate) =>
@@ -2686,7 +2676,7 @@ describe('public comparison rate pricing', () => {
             ? rates
             : [{ id: 42023, rates: { '546549': [offer(26400)], '615688': [regular] } }],
       }));
-      return makeService({ client: { request }, pairs: options.pairs ?? {} }).service;
+      return makeService({ client: { request } }).service;
     }
 
     it('crosses out the regular rate it is derived from when that really costs more, without any pairing', async () => {
