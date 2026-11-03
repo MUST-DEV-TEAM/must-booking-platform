@@ -199,6 +199,8 @@ export type ClockRateInfo = {
   currency: string | null;
   /** The rate's "included discount" (0.12 = 12%), when the hotel set one. */
   includedDiscountRate: number | null;
+  /** The regular rate this one is derived from, when Clock says so. */
+  baseRateId?: string | null;
 };
 
 /** One bookable offer for a stay: a published rate with its real total from `/products`. */
@@ -308,6 +310,8 @@ type ClockRateRow = {
   bonus_codes?: unknown;
   /** Share of the price that is a discount, for drawing a crossed-out price (0.12 = 12%). Changes no price. */
   included_discount_rate?: number | string | null;
+  /** The regular rate this one is derived from. Rates sharing it are variants of the same product. */
+  base_rate_id?: number | string | null;
 };
 
 /** The promo codes on a Clock rate, upper-case. Clock sends plain strings; an object with a `code` is accepted too. */
@@ -1017,8 +1021,9 @@ export class ClockAvailabilityService {
       const freeRooms = Number.isFinite(winner.offer.room_type_free_rooms)
         ? winner.offer.room_type_free_rooms
         : null;
-      // Only a staff-paired regular rate gives a "was" price: Clock stores no original price, and its
-      // included-discount setting is a display flag, not a lower price (both rates can cost the same).
+      // A "was" price comes from a regular rate (staff-paired, or the one a discounted rate is derived from)
+      // that really costs more: Clock stores no original price, and its included-discount setting is a
+      // display flag, not a lower price (both rates can cost the same, and then nothing is crossed out).
       const originalTotal = comparedOriginal(value, winner.rateId, roomType?.rates ?? {}, pairs);
       const original = originalTotal ? { originalTotal } : {};
       const spread = rateDiscountSpread(
@@ -1884,6 +1889,7 @@ export class ClockAvailabilityService {
         mealNames,
         currency: rate.currency ?? null,
         includedDiscountRate: includedDiscountOf(rate),
+        baseRateId: rate.base_rate_id ? String(rate.base_rate_id) : null,
       };
     }
     const value: RoomTypeRates = {
@@ -2392,16 +2398,44 @@ function publicRatePairs(
   rates: RoomTypeRates,
   hidden: Set<string>,
 ): ClockRatePairs {
-  return Object.fromEntries(
+  const usable = (compare: string) =>
+    rates.ids.includes(compare) && !hidden.has(compare) && !rates.codeProtected?.[compare]?.length;
+  const configured = Object.fromEntries(
     Object.entries(pairs).filter(
-      ([promo, compare]) =>
-        promo !== compare &&
-        rates.ids.includes(promo) &&
-        rates.ids.includes(compare) &&
-        !hidden.has(compare) &&
-        !rates.codeProtected?.[compare]?.length,
+      ([promo, compare]) => promo !== compare && rates.ids.includes(promo) && usable(compare),
     ),
   );
+  return { ...automaticRatePairs(rates, usable), ...configured };
+}
+
+/**
+ * A rate the hotel marked with an included discount is compared with the public rate of the same room type
+ * it is derived from (same Clock base rate, same currency, no discount of its own), so staff need not pair
+ * them by hand. A pairing staff did set wins. Nothing here changes a price: the crossed-out price is only
+ * drawn when that regular rate really costs more for the stay (see comparedOriginal).
+ */
+function automaticRatePairs(
+  rates: RoomTypeRates,
+  usable: (compare: string) => boolean,
+): ClockRatePairs {
+  const result: ClockRatePairs = {};
+  for (const promo of rates.ids) {
+    const info = rates.info[promo];
+    if (!info?.includedDiscountRate || !info.baseRateId) continue;
+    const regular = rates.ids
+      .filter((id) => id !== promo && usable(id))
+      .filter((id) => {
+        const other = rates.info[id];
+        return (
+          other?.baseRateId === info.baseRateId &&
+          !other.includedDiscountRate &&
+          other.currency === info.currency
+        );
+      })
+      .sort((a, b) => Number(a) - Number(b))[0];
+    if (regular) result[promo] = regular;
+  }
+  return result;
 }
 
 /** Uses only the same response/stay/occupancy as the promoted offer. Errors and unavailable offers are ignored. */
