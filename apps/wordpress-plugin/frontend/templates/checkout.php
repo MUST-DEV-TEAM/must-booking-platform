@@ -442,6 +442,7 @@ $render_checkout_price_breakdown_rows = static function (array $pricing, string 
                                     </div>
                                     <?php
                                     $room_original_total = $room_total + $room_discount_total;
+                                    $room_discount_rate_name = isset($pricing['discount_rate_name']) ? (string) $pricing['discount_rate_name'] : '';
                                     $room_percent_off = $room_discount_total > 0.0 && $room_original_total > 0.0 ? (int) \round(($room_discount_total / $room_original_total) * 100) : 0;
                                     ?>
                                     <div class="must-checkout-room-price">
@@ -449,6 +450,9 @@ $render_checkout_price_breakdown_rows = static function (array $pricing, string 
                                             <span class="must-checkout-rate-was">
                                                 <del class="must-checkout-rate-original"><?php echo \MustHotelBooking\Frontend\format_frontend_money_html($room_original_total, $room_currency); ?></del>
                                                 <em class="must-checkout-rate-off">-<?php echo \esc_html((string) $room_percent_off); ?>%</em>
+                                                <?php if ($room_discount_rate_name !== '') : ?>
+                                                    <span class="must-checkout-rate-name-tag"><?php echo \esc_html($room_discount_rate_name); ?></span>
+                                                <?php endif; ?>
                                             </span>
                                         <?php endif; ?>
                                         <strong><?php echo \MustHotelBooking\Frontend\format_frontend_money_html($room_total, $room_currency); ?></strong>
