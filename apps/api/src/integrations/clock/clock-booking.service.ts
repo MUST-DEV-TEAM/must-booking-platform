@@ -50,6 +50,7 @@ interface ClockBookingResource {
   id: number;
   lock_version: number;
   status: string;
+  reference_number?: string | null;
   arrival?: string;
   departure?: string;
   arrival_room_id?: number | string | null;
@@ -503,6 +504,8 @@ export class ClockBookingService {
             }
           }
 
+          // The sync may have imported this reservation first: merge that copy so the link cannot collide.
+          await this.absorbImportedDuplicate(tx, context, bookingId, String(response.value.id));
           await tx.$executeRaw`
           UPDATE bookings SET external_booking_id = ${String(response.value.id)}
           WHERE id = ${bookingId}::uuid
@@ -570,7 +573,27 @@ export class ClockBookingService {
       });
       return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
     }
-    if (row.externalBookingId) return { ok: true, value: this.toBooking(row)! };
+    if (row.externalBookingId) {
+      // The Clock sync can attach the reservation before this step finishes: complete the booking's own steps.
+      if (row.status === BookingStatus.PMS_CREATION_PENDING) {
+        await this.completeLink(tx, context, bookingId);
+        const done = await this.bookingById(tx, context, bookingId);
+        if (done) return { ok: true, value: this.toBooking(done)! };
+      }
+      return { ok: true, value: this.toBooking(row)! };
+    }
+
+    // An earlier attempt may already have created our reservation in Clock without its link being saved
+    // (for example a rolled-back transaction). Look it up by our own reference before creating anything:
+    // this also keeps a retry from finding its own room "occupied" or the room type "sold out".
+    const existingReservation = await this.linkIfClockHasIt(
+      tx,
+      context,
+      connection.value,
+      bookingId,
+      row.externalReference,
+    );
+    if (existingReservation) return { ok: true, value: existingReservation };
 
     const guestRows = await tx.$queryRaw<
       Array<{
@@ -732,16 +755,16 @@ export class ClockBookingService {
     });
 
     if (!response.ok) {
-      if (response.error.category === 'timeout' || response.error.category === 'network') {
-        const linked = await this.linkIfClockHasIt(
-          tx,
-          context,
-          connection.value,
-          bookingId,
-          row.externalReference,
-        );
-        if (linked) return { ok: true, value: linked };
-      }
+      // Whatever the error (timeout, "room occupied", validation), Clock may still hold our reservation:
+      // never declare failure for a paid booking before searching Clock by our own reference.
+      const linked = await this.linkIfClockHasIt(
+        tx,
+        context,
+        connection.value,
+        bookingId,
+        row.externalReference,
+      );
+      if (linked) return { ok: true, value: linked };
       await this.transition(
         tx,
         context,
@@ -795,6 +818,8 @@ export class ClockBookingService {
       }
     }
 
+    // The sync may have imported this reservation first: merge that copy so the link cannot collide.
+    await this.absorbImportedDuplicate(tx, context, bookingId, String(response.value.id));
     await tx.$executeRaw`
       UPDATE bookings SET external_booking_id = ${String(response.value.id)} WHERE id = ${bookingId}::uuid
     `;
@@ -2053,11 +2078,31 @@ export class ClockBookingService {
       path: '/bookings/',
       query: { reference_number: reference },
     });
-    if (!found.ok || found.value.length === 0) return null;
-    const match = found.value[0]!;
+    if (!found.ok || !Array.isArray(found.value)) return null;
+    // Clock's search is not guaranteed to be exact, and a cancelled reservation is not ours to confirm.
+    const match = found.value.find(
+      (candidate) =>
+        candidate.reference_number?.trim().toLowerCase() === reference.trim().toLowerCase() &&
+        !/^cancel/i.test(candidate.status ?? ''),
+    );
+    if (!match) return null;
+    // The sync may have imported this same reservation as a booking of its own a moment ago.
+    if (!(await this.absorbImportedDuplicate(tx, context, bookingId, String(match.id))))
+      return null;
     await tx.$executeRaw`
       UPDATE bookings SET external_booking_id = ${String(match.id)} WHERE id = ${bookingId}::uuid
     `;
+    await this.completeLink(tx, context, bookingId);
+    const row = await this.bookingById(tx, context, bookingId);
+    return row ? this.toBooking(row) : null;
+  }
+
+  /** The booking's own steps once its Clock reservation is known: pending creation to confirmed. */
+  private async completeLink(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    bookingId: string,
+  ): Promise<void> {
     await this.transition(
       tx,
       context,
@@ -2072,8 +2117,62 @@ export class ClockBookingService {
       BookingStatus.PMS_CONFIRMATION_PENDING,
       BookingStatus.CONFIRMED,
     );
-    const row = await this.bookingById(tx, context, bookingId);
-    return row ? this.toBooking(row) : null;
+  }
+
+  /**
+   * Merges a booking the Clock sync imported on its own (a "CLOCK-" reference) into the booking that really
+   * owns the reservation, so one stay is never two bookings. Returns false when the id is held by another
+   * MUST booking, which must never be touched.
+   */
+  private async absorbImportedDuplicate(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    keepBookingId: string,
+    externalBookingId: string,
+  ): Promise<boolean> {
+    const holders = await tx.$queryRaw<Array<{ id: string; externalReference: string }>>`
+      SELECT id, external_reference AS "externalReference" FROM bookings
+      WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+        AND external_booking_id = ${externalBookingId} AND id <> ${keepBookingId}::uuid
+      FOR UPDATE
+    `;
+    for (const holder of holders) {
+      if (
+        typeof holder.externalReference !== 'string' ||
+        !holder.externalReference.startsWith('CLOCK-')
+      )
+        return false;
+      await tx.$executeRaw`
+        UPDATE clock_folios SET booking_id = ${keepBookingId}::uuid
+        WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+          AND booking_id = ${holder.id}::uuid
+      `;
+      await tx.$executeRaw`
+        UPDATE booking_requests SET booking_id = ${keepBookingId}::uuid
+        WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+          AND booking_id = ${holder.id}::uuid
+      `;
+      await tx.$executeRaw`
+        UPDATE guest_reviews SET booking_id = ${keepBookingId}::uuid
+        WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+          AND booking_id = ${holder.id}::uuid
+      `;
+      await tx.$executeRaw`
+        DELETE FROM bookings
+        WHERE id = ${holder.id}::uuid AND tenant_id = ${context.tenantId}::uuid
+          AND property_id = ${context.propertyId}::uuid
+      `;
+      await this.audit.recordInTransaction(tx, {
+        tenantId: context.tenantId,
+        propertyId: context.propertyId,
+        actorUserId: null,
+        action: 'booking.import_merged',
+        targetType: 'booking',
+        targetId: keepBookingId,
+        details: { mergedImportedBookingId: holder.id, externalBookingId },
+      });
+    }
+    return true;
   }
 
   private async clockGuestForBooking(

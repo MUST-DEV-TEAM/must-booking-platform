@@ -39,7 +39,11 @@ function serviceWithClockResponses(...responses: ClockOutcome<unknown>[]) {
   const service = Object.create(ClockBookingService.prototype) as ClockBookingService;
   const fetch = vi.fn<ClockFetch>();
   fetch.mockImplementation(async () => responses.shift()!);
-  (service as unknown as { fetch: ClockFetch }).fetch = fetch;
+  // The reference lookup that runs before a create is not part of the call order these tests assert.
+  (service as unknown as { fetch: ClockFetch }).fetch = ((credentials, input) =>
+    input.method === 'GET' && input.path === '/bookings/' && input.query?.reference_number
+      ? Promise.resolve({ ok: true, value: [] })
+      : fetch(credentials, input)) as ClockFetch;
   // These tests are about guest matching and assert the exact Clock call order;
   // the guarantee-policy follow-up has its own spec (clock-booking-guarantee-policy.spec.ts).
   (
