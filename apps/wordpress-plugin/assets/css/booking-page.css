@@ -6126,9 +6126,36 @@ div.must-confirmation-picker:nth-child(1) > div:nth-child(3) > div:nth-child(1) 
     margin: 0 0 40px;
     padding: 0;
     border: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
+    min-width: 0;
+}
+
+/* The rates sit side by side and wrap to one column on a narrow screen. */
+.must-hotel-booking-page-checkout .must-checkout-rate-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+    gap: 16px;
+    transition: opacity .15s ease;
+}
+
+/* The theme's button rules override the hidden attribute, which showed a stray "Update price" bar. */
+.must-hotel-booking-page-checkout .must-checkout-rate-update[hidden] {
+    display: none !important;
+}
+
+.must-hotel-booking-page-checkout .must-checkout-rate-status {
+    display: none;
+    margin: 12px 0 0;
+    font-size: 14px;
+    opacity: 0.65;
+}
+
+.must-hotel-booking-page-checkout .must-checkout-rates.is-updating .must-checkout-rate-status {
+    display: block;
+}
+
+.must-hotel-booking-page-checkout .must-checkout-rates.is-updating .must-checkout-rate-list {
+    opacity: 0.55;
+    pointer-events: none;
 }
 
 .must-hotel-booking-page-checkout .must-checkout-rates legend {
@@ -6143,8 +6170,10 @@ div.must-confirmation-picker:nth-child(1) > div:nth-child(3) > div:nth-child(1) 
     position: relative;
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    padding: 20px 24px;
+    justify-content: space-between;
+    gap: 18px;
+    min-height: 170px;
+    padding: 22px 24px;
     border: 1px solid #d8d4c8;
     background: #ffffff;
     color: var(--must-ink,#1a1a1a);
@@ -6159,6 +6188,7 @@ div.must-confirmation-picker:nth-child(1) > div:nth-child(3) > div:nth-child(1) 
 }
 
 .must-hotel-booking-page-checkout .must-checkout-rate.is-selected {
+    background: #faf8f3;
     box-shadow: inset 0 0 0 1px var(--must-ink,#1a1a1a);
 }
 
@@ -6220,13 +6250,14 @@ div.must-confirmation-picker:nth-child(1) > div:nth-child(3) > div:nth-child(1) 
     flex-direction: column;
     align-items: flex-start;
     gap: 4px;
+    margin-top: auto;
 }
 
 .must-hotel-booking-page-checkout .must-checkout-rate-was {
     display: flex;
     align-items: baseline;
     gap: 10px;
-    font-size: 16px;
+    font-size: 13px;
 }
 
 .must-hotel-booking-page-checkout .must-checkout-rate-original {
@@ -6322,7 +6353,7 @@ div.must-confirmation-picker:nth-child(1) > div:nth-child(3) > div:nth-child(1) 
 
 .must-booking-room-original-price {
     opacity: 0.6;
-    font-size: 0.9em;
+    font-size: 0.8em;
 }
 
 .must-booking-room-discount-note {

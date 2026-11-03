@@ -219,6 +219,7 @@ $render_checkout_price_breakdown_rows = static function (array $pricing, string 
                     <?php $selected_rate_id = (string) ($view['selected_rate_id'] ?? ''); ?>
                     <fieldset class="must-checkout-rates">
                         <legend><?php echo \esc_html__('Choose your rate', 'must-hotel-booking'); ?></legend>
+                        <div class="must-checkout-rate-list">
                         <?php foreach ($rate_offers as $rate_offer) : ?>
                             <?php
                             $offer_id = (string) ($rate_offer['rateId'] ?? '');
@@ -241,7 +242,7 @@ $render_checkout_price_breakdown_rows = static function (array $pricing, string 
                                     name="clock_rate_id"
                                     value="<?php echo \esc_attr($offer_id); ?>"
                                     <?php echo $offer_id === $selected_rate_id ? 'checked' : ''; ?>
-                                    onchange="var b=this.form.querySelector('.must-checkout-rate-update');if(b){b.click();}"
+                                    onchange="var f=this.closest('.must-checkout-rates');if(f){f.classList.add('is-updating');}var b=this.form.querySelector('.must-checkout-rate-update');if(b){b.click();}"
                                 />
                                 <span class="must-checkout-rate-radio" aria-hidden="true"></span>
                                 <span class="must-checkout-rate-name">
@@ -280,6 +281,8 @@ $render_checkout_price_breakdown_rows = static function (array $pricing, string 
                                 </span>
                             </label>
                         <?php endforeach; ?>
+                        </div>
+                        <p class="must-checkout-rate-status" role="status" aria-live="polite"><?php echo \esc_html__('Updating your price…', 'must-hotel-booking'); ?></p>
                         <noscript>
                             <button type="submit" name="must_checkout_action" value="choose_rate" class="must-checkout-rate-update" formnovalidate>
                                 <?php echo \esc_html__('Update price', 'must-hotel-booking'); ?>
