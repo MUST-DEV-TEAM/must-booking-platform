@@ -2664,7 +2664,11 @@ describe('public comparison rate pricing', () => {
 
   describe('automatic comparison with the regular rate of the same base', () => {
     function automatic(
-      options: { baseOfRegular?: number | null; regularCents?: number; pairs?: Record<string, string> } = {},
+      options: {
+        baseOfRegular?: number | null;
+        regularCents?: number;
+        pairs?: Record<string, string>;
+      } = {},
     ) {
       const rates = ratesBody.map((rate) =>
         rate.id === bedAndBreakfast.id
