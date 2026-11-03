@@ -6268,12 +6268,72 @@ div.must-confirmation-picker:nth-child(1) > div:nth-child(3) > div:nth-child(1) 
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    gap: 4px;
+    gap: 6px;
+    min-width: 0;
+}
+
+.must-hotel-booking-page-checkout .must-checkout-room-price-tags {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 6px;
+}
+
+.must-hotel-booking-page-checkout .must-checkout-room-price-off,
+.must-hotel-booking-page-checkout .must-checkout-room-price-rate {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 11px;
+    border-radius: 999px;
+    font-family: 'PP Neue Montreal', sans-serif;
+    font-size: 13px;
+    font-style: normal;
+    font-weight: 600;
+    line-height: 1.2;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+
+.must-hotel-booking-page-checkout .must-checkout-room-price-off {
+    color: #fff;
+    background: #d12f2f;
+}
+
+/* The rate's own name, as the hotel wrote it: a soft badge with a small marker. */
+.must-hotel-booking-page-checkout .must-checkout-room-price-rate {
+    gap: 7px;
+    color: var(--must-ink-soft, #2b2b2b);
+    background: #f5f0e8;
+    border: 1px solid #ddd2bf;
+    text-transform: none;
+}
+
+.must-hotel-booking-page-checkout .must-checkout-room-price-rate::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #d12f2f;
+    flex: none;
+}
+
+.must-hotel-booking-page-checkout .must-checkout-room-price-was {
+    font-family: 'PP Neue Montreal', sans-serif;
+    font-size: 16px;
+    font-weight: 400;
+    line-height: 1;
+    white-space: nowrap;
+    opacity: 0.5;
 }
 
 @media (max-width: 720px) {
     .must-hotel-booking-page-checkout .must-checkout-room-price {
         align-items: flex-start;
+    }
+
+    .must-hotel-booking-page-checkout .must-checkout-room-price-tags {
+        justify-content: flex-start;
     }
 }
 

@@ -281,6 +281,7 @@ function get_checkout_page_view_data(): array
         $nights = \max(1, (int) $start->diff($end)->days);
         $total = (float) $quote['total']['amount'];
         $promo = \is_array($quote['promo'] ?? null) ? $quote['promo'] : null;
+        $discountRateName = '';
         $discount = $promo !== null ? (float) ($promo['discount']['amount'] ?? 0) : 0.0;
         $original = $promo !== null ? (float) ($promo['originalTotal']['amount'] ?? $total + $discount) : $total;
         if ($promo === null) {
@@ -291,6 +292,8 @@ function get_checkout_page_view_data(): array
             if ($before > $total && \abs($offerTotal - $total) < 0.01) {
                 $discount = $before - $total;
                 $original = $before;
+                // The rate's own name as the hotel wrote it in Clock ("early booker"), shown next to the percentage.
+                $discountRateName = \trim((string) ($chosenOffer['name'] ?? ''));
             }
         }
         $selectedRooms[] = [
@@ -300,6 +303,7 @@ function get_checkout_page_view_data(): array
                 'total_price' => $total, 'nights' => $nights, 'fees_total' => 0.0,
                 'discount_total' => $discount, 'taxes_total' => 0.0, 'room_subtotal' => $original,
                 'applied_coupon' => $promo !== null ? (string) ($promo['code'] ?? '') : '',
+                'discount_rate_name' => $discountRateName,
                 'nightly_rates' => isset($quote['nightlyRates']) && \is_array($quote['nightlyRates'])
                     ? $quote['nightlyRates']
                     : [],
