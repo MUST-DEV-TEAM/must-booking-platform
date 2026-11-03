@@ -155,7 +155,8 @@ describe('ClockBookingService.attachRealReservation Task 14 failure handling', (
       internals.transition = vi.fn().mockResolvedValue(BookingStatus.PMS_UNKNOWN_RESULT);
       internals.recordPostCommitFailure = vi.fn().mockResolvedValue(undefined);
 
-      internals.fetch = vi.fn();
+      // Clock is only asked whether our reservation already exists; nothing is created.
+      internals.fetch = vi.fn().mockResolvedValue({ ok: true, value: [] });
       const result = await service.attachRealReservation(tx as never, context, 'booking-1');
 
       expect(result).toEqual({
@@ -175,7 +176,10 @@ describe('ClockBookingService.attachRealReservation Task 14 failure handling', (
         // No rate was chosen for this booking, so the cheapest or staff-ranked one is used.
         undefined,
       );
-      expect(internals.fetch).not.toHaveBeenCalled();
+      expect(internals.fetch).not.toHaveBeenCalledWith(
+        credentials,
+        expect.objectContaining({ method: 'POST' }),
+      );
       if (code === 'clock_rate_unavailable') {
         expect(internals.transition).toHaveBeenCalledWith(
           tx,
