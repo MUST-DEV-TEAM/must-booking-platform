@@ -32,9 +32,15 @@ type BookingEmailRow = {
   supportEmail: string | null;
   propertyPhone: string | null;
   publicWebsiteOrigin: string | null;
+  wordpressConnectedAt: Date | null;
   propertyAddress: string | null;
   orderReference: string | null;
 };
+
+/** The hotel's own website address for the manage link, only when no WordPress plugin is connected to it. */
+function customSiteOrigin(row: Pick<BookingEmailRow, 'publicWebsiteOrigin' | 'wordpressConnectedAt'>) {
+  return row.publicWebsiteOrigin && !row.wordpressConnectedAt ? row.publicWebsiteOrigin : null;
+}
 
 type OrderRoomRow = { roomName: string; guestCount: number; amount: string; orderTotal: string };
 
@@ -61,7 +67,7 @@ export class BookingConfirmationNotificationService {
           (b.adults + b.children) AS "guestCount",
           b.nightly_rates AS "nightlyRates",
           p.name AS "propertyName", p.brand_colour AS "brandColour",p.email_footer_text AS "emailFooterText",p.terms_url AS "termsUrl",p.logo_url AS "logoUrl", p.support_email AS "supportEmail",
-          p.phone AS "propertyPhone", p.public_website_origin AS "publicWebsiteOrigin",
+          p.phone AS "propertyPhone", p.public_website_origin AS "publicWebsiteOrigin", p.wordpress_connected_at AS "wordpressConnectedAt",
           p.address AS "propertyAddress", b.order_reference AS "orderReference"
         FROM bookings b
         JOIN properties p ON p.tenant_id = b.tenant_id AND p.id = b.property_id
@@ -139,7 +145,7 @@ export class BookingConfirmationNotificationService {
         rooms,
         specialRequests: row.specialRequests,
         cancellationUrl: row.guestSessionId
-          ? this.manageUrl(context, bookingId, row.guestSessionId, row.endsOn)
+          ? this.manageUrl(context, bookingId, row.guestSessionId, row.endsOn, customSiteOrigin(row))
           : undefined,
       },
       context,
@@ -187,10 +193,14 @@ export class BookingConfirmationNotificationService {
     bookingId: string,
     guestSessionId: string,
     endsOn: string,
+    siteOrigin: string | null,
   ) {
-    const url = new URL('/booking/manage', process.env.WEB_APP_URL || 'http://localhost:3001');
-    url.searchParams.set('tenant', context.tenantId);
-    url.searchParams.set('property', context.propertyId);
+    // A custom website (no WordPress plugin) hosts its own manage page and already knows the hotel.
+    const url = new URL('/booking/manage', siteOrigin ?? (process.env.WEB_APP_URL || 'http://localhost:3001'));
+    if (!siteOrigin) {
+      url.searchParams.set('tenant', context.tenantId);
+      url.searchParams.set('property', context.propertyId);
+    }
     url.searchParams.set('booking', bookingId);
     url.searchParams.set(
       'token',

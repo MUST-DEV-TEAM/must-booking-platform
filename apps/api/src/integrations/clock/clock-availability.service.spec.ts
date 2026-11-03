@@ -2165,7 +2165,7 @@ describe('classifyUnavailable', () => {
 
 describe('ClockAvailabilityService.getStaySearch', () => {
   it.each([0.12, null, 0])(
-    'carries only the winning rate discount (%s) through both price memories',
+    'never makes up a crossed-out price from the included discount (%s), in either price memory',
     async (discount) => {
       const rates = ratesBody.map((rate) => ({
         ...rate,
@@ -2200,12 +2200,7 @@ describe('ClockAvailabilityService.getStaySearch', () => {
           available: true,
           price: { amount: '264.00', currency: 'EUR' },
         });
-        if (discount)
-          expect(search.details[query.roomTypeId]).toHaveProperty('originalTotal', {
-            amount: '300.00',
-            currency: 'EUR',
-          });
-        else expect(search.details[query.roomTypeId]).not.toHaveProperty('originalTotal');
+        expect(search.details[query.roomTypeId]).not.toHaveProperty('originalTotal');
       }
       expect(request).toHaveBeenCalledTimes(2);
       expect(restartedRequest).toHaveBeenCalledTimes(1);
@@ -2520,7 +2515,7 @@ describe('the crossed-out price', () => {
     expect(originalPrice(total, 0)).toBeUndefined();
   });
 
-  it('comes with the offers of a rate whose included discount is set, and not with the others', async () => {
+  it('does not turn the included discount setting of a rate into a crossed-out price', async () => {
     const rates = ratesBody.map((rate) =>
       rate.id === bedAndBreakfast.id ? { ...rate, included_discount_rate: 0.12 } : rate,
     );
@@ -2536,10 +2531,8 @@ describe('the crossed-out price', () => {
     const byId = Object.fromEntries(
       (result.ok ? result.value : []).map((entry) => [entry.rateId, entry]),
     );
-    expect(byId['546549']).toMatchObject({
-      total: { amount: '264.00', currency: 'EUR' },
-      originalTotal: { amount: '300.00', currency: 'EUR' },
-    });
+    expect(byId['546549']).toMatchObject({ total: { amount: '264.00', currency: 'EUR' } });
+    expect(byId['546549']).not.toHaveProperty('originalTotal');
     expect(byId['615688']).not.toHaveProperty('originalTotal');
   });
 });
@@ -2636,7 +2629,7 @@ describe('public comparison rate pricing', () => {
     { compareCents: 26400 },
     { compareCents: 25000 },
   ])(
-    'ignores an invalid comparison %j, with included discount as the only fallback',
+    'ignores an invalid comparison %j, and the included discount never fills in for it',
     async (options) => {
       for (const channel of ['website', 'staff'] as const) {
         for (const discount of [undefined, 0.12]) {
@@ -2644,9 +2637,7 @@ describe('public comparison rate pricing', () => {
           const offers = await service.listOffersForStay('t1', 'p1', { ...pairedQuery, channel });
           const promo = offers.ok && offers.value.find((o) => o.rateId === '546549');
           expect(promo).toBeTruthy();
-          if (discount)
-            expect(promo).toHaveProperty('originalTotal', { amount: '300.00', currency: 'EUR' });
-          else expect(promo).not.toHaveProperty('originalTotal');
+          expect(promo).not.toHaveProperty('originalTotal');
         }
       }
     },
@@ -2664,10 +2655,7 @@ describe('public comparison rate pricing', () => {
     expect(request).toHaveBeenCalledTimes(2);
     overrides.pairs = {} as typeof overrides.pairs;
     const cleared = await service.getStaySearch('t1', 'p1', [pairedQuery]);
-    expect(cleared.details[query.roomTypeId]).toHaveProperty('originalTotal', {
-      amount: '300.00',
-      currency: 'EUR',
-    });
+    expect(cleared.details[query.roomTypeId]).not.toHaveProperty('originalTotal');
     expect(request).toHaveBeenCalledTimes(3);
     const unavailable = setup({ unavailable: true });
     const offers = await unavailable.service.listOffersForStay('t1', 'p1', pairedQuery);

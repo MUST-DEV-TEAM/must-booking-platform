@@ -15,6 +15,7 @@ import { minorUnits as paymentMinor, money as decimalMoney } from './payment-sta
 import { Alert, AlertTitle, AlertDescription } from '../../components/ui/alert';
 import { EditBookingDetailsDialog } from './edit-booking-details-dialog';
 import { CancellationDialog } from './cancellation-dialog';
+import { StayHistory } from './stay-history';
 import { StayStatusActions } from './stay-status-actions';
 import { ReservationReview } from './reservation-review';
 
@@ -506,7 +507,12 @@ export function ReservationDetail({
         actions={
           <>
             {canEditBooking ? (
-              <StayStatusActions tenantId={tenantId} propertyId={propertyId} booking={booking} />
+              <StayStatusActions
+                tenantId={tenantId}
+                propertyId={propertyId}
+                booking={booking}
+                onEarlyDeparture={() => setChangingDates(true)}
+              />
             ) : null}
             {canEditBooking ? (
               <Button onClick={() => setEditingDetails(true)}>
@@ -643,6 +649,14 @@ export function ReservationDetail({
           </AlertDescription>
         </Alert>
       ) : null}
+      {booking.externalBookingId ? null : (
+        <StayHistory
+          tenantId={tenantId}
+          propertyId={propertyId}
+          bookingId={bookingId}
+          stayStatus={booking.pmsStayStatus}
+        />
+      )}
       <BookingReviewCard
         tenantId={tenantId}
         propertyId={propertyId}

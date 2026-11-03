@@ -9,6 +9,10 @@ export type StoredDisplayPrice = {
   value: { amount: string; currency: string } | null;
   /** The winning rate's price before its included discount; absent in older entries. */
   originalTotal?: { amount: string; currency: string };
+  /** How many different rates are bookable for the stay; absent in older entries. */
+  rateCount?: number;
+  /** The biggest discount, in whole percent, among those rates; absent when none has one. */
+  maxDiscountPercent?: number;
   /** When Clock last answered, in milliseconds since 1970. */
   storedAt: number;
   /** How many rooms of this type were free, when Clock said. */

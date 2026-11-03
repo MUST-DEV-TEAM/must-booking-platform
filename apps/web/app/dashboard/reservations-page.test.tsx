@@ -11,6 +11,15 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 afterEach(() => vi.unstubAllGlobals());
 
+const emptyFrontDesk = {
+  date: '2027-07-12',
+  arrivals: [],
+  departures: [],
+  inHouse: [],
+  lateArrivals: [],
+  overdueDepartures: [],
+};
+
 describe('ReservationsPage permissions', () => {
   it('hides both add-reservation entry points without bookings.create', async () => {
     const result = {
@@ -33,7 +42,15 @@ describe('ReservationsPage permissions', () => {
       'fetch',
       vi.fn((url: string) =>
         Promise.resolve(
-          new Response(JSON.stringify(url.endsWith('/unseen') ? { count: 0, ids: [] } : result)),
+          new Response(
+            JSON.stringify(
+              url.endsWith('/unseen')
+                ? { count: 0, ids: [] }
+                : url.includes('/front-desk')
+                  ? emptyFrontDesk
+                  : result,
+            ),
+          ),
         ),
       ),
     );
@@ -99,22 +116,24 @@ it.each(['EUR', 'ALL'])('reservations table and quick peek preserve %s', async (
     (url) =>
       url.endsWith('/unseen')
         ? { count: 0, ids: [] }
-        : {
-            items: [booking],
-            total: 1,
-            page: 1,
-            pageSize: 10,
-            counts: {
-              all: 1,
-              arriving_today: 0,
-              in_house: 0,
-              departing_today: 0,
-              upcoming: 1,
-              needs_attention: 0,
-              unpaid: 1,
-              cancelled: 0,
+        : url.includes('/front-desk')
+          ? emptyFrontDesk
+          : {
+              items: [booking],
+              total: 1,
+              page: 1,
+              pageSize: 10,
+              counts: {
+                all: 1,
+                arriving_today: 0,
+                in_house: 0,
+                departing_today: 0,
+                upcoming: 1,
+                needs_attention: 0,
+                unpaid: 1,
+                cancelled: 0,
+              },
             },
-          },
   );
   await expectHotelAmount(view, currency, '5000.00');
   const row = view.host.querySelector('tbody tr');

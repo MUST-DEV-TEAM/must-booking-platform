@@ -26,6 +26,9 @@ export class BookingStayStatusController {
     const value = (body ?? {}) as Record<string, unknown>;
     if (!NOTIFICATION_UUID.test(bookingId) || !isStayStatus(value.status))
       throw new BadRequestException('Choose a reservation and a valid arrival status.');
-    return this.stayStatus.set(req.tenantContext, bookingId, value.status, value.expectedFrom);
+    return this.stayStatus.set(req.tenantContext, bookingId, value.status, value.expectedFrom, {
+      note: value.note,
+      acknowledgeBalance: value.acknowledgeBalance,
+    });
   }
 }

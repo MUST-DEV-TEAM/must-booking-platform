@@ -4,6 +4,7 @@ import { BookingRoomMoveController } from './booking/booking-room-move.controlle
 import { GuestReviewController } from './booking/guest-review.controller';
 import { GuestReviewReportController } from './booking/guest-review-report.controller';
 import { GuestReviewService } from './booking/guest-review.service';
+import { BookingFrontDeskController } from './booking/booking-front-desk.controller';
 import { BookingStayStatusController } from './booking/booking-stay-status.controller';
 import { BookingStayStatusService } from './booking/booking-stay-status.service';
 import { requestLogPath } from './observability/request-log-path';
@@ -372,6 +373,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     BookingAmendController,
     BookingRoomMoveController,
     BookingStayStatusController,
+    BookingFrontDeskController,
     GuestReviewController,
     GuestReviewReportController,
     StaffBookingController,

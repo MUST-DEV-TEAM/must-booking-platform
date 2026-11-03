@@ -13,6 +13,7 @@ MUST is a multi-tenant hotel booking platform: a NestJS API owns booking and gue
 | Schema, RLS, authentication, roles | [Data and access](architecture/data-and-access.md) | Current data/security architecture |
 | Availability, quotes, bookings, payments, refunds | [Booking and payments](architecture/booking-and-payments.md) | Current domain flows |
 | Next.js, WordPress, API entry points | [Frontends and API](architecture/frontends-and-api.md) | Current client/server contracts |
+| Building a non-WordPress site (Astro etc.) on the public guest API | [Public guest API](architecture/public-guest-api.md) | Endpoints, sample responses, session and payment flow, traps |
 | Hotel currency, display rates and payment annotations | [Currency](architecture/booking-and-payments.md#currency-and-approximate-displays) | Hotel overrides, feed fallback, API and WordPress cache contract |
 | Guest stay reviews | [Guest reviews](architecture/guest-reviews.md) | Review link, page, report and rules |
 | Free plans versus paid subscriptions | [Platform billing](architecture/platform-billing.md) | Implemented foundation and accepted future intent |

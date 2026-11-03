@@ -44,6 +44,8 @@ export interface ClockBookingDetail {
   created_at?: string | null;
   updated_at?: string | null;
   number?: string | null;
+  /** The reference MUST sent when it created the reservation; absent for reservations made in Clock. */
+  reference_number?: string | null;
   arrival: string;
   departure: string;
   status: string;
@@ -236,6 +238,32 @@ export class ClockBookingHydrationService {
         if (stale) {
           if (ownership) await this.finalizeOwnedEvent(tx, tenantId, ownership, 'HYDRATED');
           return { outcome: 'updated', bookingId: existing.id, cancelledInPms: false };
+        }
+
+        // A reservation MUST created itself carries MUST's own reference. When it shows up here before MUST
+        // has saved the link (the payment step is still running), attach it to that booking instead of
+        // importing a second booking for the same stay. Only the link is stored: the booking's status
+        // belongs to its payment flow, which finishes it once it sees the reservation.
+        const mustReference = detail.reference_number?.trim();
+        if (!existing && mustReference && !mustReference.startsWith('CLOCK-')) {
+          const own = await tx.$queryRawUnsafe<Array<{ id: string }>>(
+            `SELECT id FROM bookings
+             WHERE tenant_id = $1::uuid AND property_id = $2::uuid AND external_reference = $3
+               AND external_booking_id IS NULL
+             FOR UPDATE`,
+            tenantId,
+            propertyId,
+            mustReference,
+          );
+          if (own[0]) {
+            await tx.$executeRawUnsafe(
+              `UPDATE bookings SET external_booking_id = $1, version = version + 1 WHERE id = $2::uuid`,
+              String(detail.id),
+              own[0].id,
+            );
+            if (ownership) await this.finalizeOwnedEvent(tx, tenantId, ownership, 'HYDRATED');
+            return { outcome: 'updated', bookingId: own[0].id, cancelledInPms: false };
+          }
         }
 
         if (

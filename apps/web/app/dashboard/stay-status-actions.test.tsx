@@ -75,4 +75,64 @@ describe('StayStatusActions', () => {
     expect(button(host, /check out/i)?.disabled).toBe(false);
     expect(button(host, /undo check-in/i)?.disabled).toBe(false);
   });
+
+  it('asks why before checking out a guest who still owes money', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      json: async () => ({
+        message: 'This guest still owes 40.00 EUR.',
+        code: 'BALANCE_OUTSTANDING',
+        outstanding: '40.00',
+        currency: 'EUR',
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const host = await mount({ pmsStayStatus: 'checked_in' });
+    await act(async () => {
+      button(host, /check out/i)!.click();
+    });
+    expect(document.body.textContent).toContain('Check out with a balance open?');
+    expect(document.body.textContent).toContain('still owes 40.00 EUR');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('tells the page when the guest leaves before the booked departure day', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          stayStatus: 'checked_out',
+          earlyDeparture: true,
+          plannedEndsOn: '2027-07-15',
+          departedOn: '2027-07-13',
+        }),
+      }),
+    );
+    const onEarlyDeparture = vi.fn();
+    const host = document.body.appendChild(document.createElement('div'));
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(
+        createElement(
+          QueryClientProvider,
+          { client: new QueryClient() },
+          createElement(StayStatusActions, {
+            tenantId: 't',
+            propertyId: 'p',
+            booking: { ...booking, pmsStayStatus: 'checked_in' },
+            today: '2027-07-13',
+            onEarlyDeparture,
+          }),
+        ),
+      );
+    });
+    await act(async () => {
+      button(host, /check out/i)!.click();
+    });
+    expect(onEarlyDeparture).toHaveBeenCalledWith({
+      plannedEndsOn: '2027-07-15',
+      departedOn: '2027-07-13',
+    });
+  });
 });

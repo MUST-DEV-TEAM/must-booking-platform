@@ -238,7 +238,7 @@ model Property {
   logoUrl                           String?                         @map("logo_url") @db.VarChar(2048)
   phone                             String?                         @db.VarChar(100)
   supportEmail                      String?                         @map("support_email") @db.VarChar(320)
-  bookingMode                       PropertyBookingMode             @default(ROOM_TYPE_ONLY) @map("booking_mode")
+  bookingMode                       PropertyBookingMode             @default(MIXED) @map("booking_mode")
   minStayNights                     Int?                            @map("min_stay_nights")
   maxStayNights                     Int?                            @map("max_stay_nights")
   checkInTime                       String?                         @map("check_in_time")
@@ -911,6 +911,7 @@ model Booking {
   // The PMS's own stay status as received (Clock: expected, checked_in, ...).
   pmsStayStatus              String?                  @map("pms_stay_status") @db.VarChar(40)
   checkedInAt                DateTime?                @map("checked_in_at") @db.Timestamptz
+  checkedOutAt               DateTime?                @map("checked_out_at") @db.Timestamptz
   currency                   String?                  @db.VarChar(3)
   // DIRECT (staff) | WEBSITE (public booking flow) | null (unknown, e.g. created in Clock).
   source                     String?                  @db.VarChar(20)
@@ -2090,4 +2091,22 @@ model PromoCode {
 
   @@unique([tenantId, propertyId, code])
   @@map("promo_codes")
+}
+
+/// Append-only history of a stay's arrival, departure and no-show steps.
+model BookingStayEvent {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String   @map("tenant_id") @db.Uuid
+  propertyId        String   @map("property_id") @db.Uuid
+  bookingId         String   @map("booking_id") @db.Uuid
+  fromStatus        String   @map("from_status") @db.VarChar(20)
+  toStatus          String   @map("to_status") @db.VarChar(20)
+  occurredAt        DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  actorUserId       String?  @map("actor_user_id") @db.Uuid
+  earlyDeparture    Boolean  @default(false) @map("early_departure")
+  balanceOverridden Boolean  @default(false) @map("balance_overridden")
+  note              String?  @db.VarChar(500)
+
+  @@index([tenantId, propertyId, bookingId, occurredAt])
+  @@map("booking_stay_events")
 }

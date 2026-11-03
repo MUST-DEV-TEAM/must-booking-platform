@@ -643,6 +643,7 @@ export function DashboardShell({
               tenantId={tenantId}
               propertyId={selectedProperty.id}
               canCreateBooking={hasCapability('bookings.create')}
+              canEditBooking={hasCapability('bookings.edit')}
             />
           )
         ) : null}

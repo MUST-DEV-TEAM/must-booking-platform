@@ -1,4 +1,5 @@
 'use client';
+import { FrontDeskPanel } from './front-desk-panel';
 import { ScopedHotelMoney } from './approximate-money';
 
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
@@ -329,10 +330,12 @@ export function ReservationsPage({
   tenantId,
   propertyId,
   canCreateBooking = false,
+  canEditBooking = false,
 }: {
   tenantId: string;
   propertyId: string;
   canCreateBooking?: boolean;
+  canEditBooking?: boolean;
 }) {
   const [filters, setFilters] = useState<Filters>(initialFilters);
   const [searchText, setSearchText] = useState('');
@@ -555,6 +558,7 @@ export function ReservationsPage({
         }
       />
 
+      <FrontDeskPanel tenantId={tenantId} propertyId={propertyId} canEdit={canEditBooking} />
       {data?.metricBasis ? (
         <div className="flex flex-wrap gap-2">
           <Badge variant="secondary">

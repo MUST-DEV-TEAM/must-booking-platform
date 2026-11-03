@@ -87,6 +87,9 @@ export type BookingSearchItem = {
   clockBalance?: { amount: string; currency: string } | null;
   specialRequests: string | null;
   pmsStayStatus: string | null;
+  /** When staff or the hotel system recorded the real arrival and departure. */
+  checkedInAt: string | null;
+  checkedOutAt: string | null;
   roomId: string | null;
   roomName: string | null;
   roomTypeId: string;
@@ -170,6 +173,9 @@ export type BookingSearchResult = {
 const isoDate = (value: unknown): string =>
   value instanceof Date ? value.toISOString().slice(0, 10) : String(value);
 
+const isoOrNull = (value: unknown): string | null =>
+  value instanceof Date ? value.toISOString() : value ? String(value) : null;
+
 function toSearchItem(row: Record<string, unknown>): BookingSearchItem {
   return {
     id: String(row.id),
@@ -194,6 +200,8 @@ function toSearchItem(row: Record<string, unknown>): BookingSearchItem {
     childrenAges: (row.children_ages as number[] | null) ?? null,
     specialRequests: (row.special_requests as string | null) ?? null,
     pmsStayStatus: (row.pms_stay_status as string | null) ?? null,
+    checkedInAt: isoOrNull(row.checked_in_at),
+    checkedOutAt: isoOrNull(row.checked_out_at),
     roomId: (row.room_id as string | null) ?? null,
     roomName: (row.room_name as string | null) ?? null,
     roomTypeId: String(row.room_type_id),
@@ -217,7 +225,7 @@ const BOOKING_BASE_SQL = `
         SELECT NOT EXISTS (SELECT 1 FROM audit_logs a WHERE a.tenant_id=b.tenant_id AND a.property_id=b.property_id AND a.target_type='booking' AND a.target_id=b.id::text AND a.action='booking.attention_dismissed' AND a.details->>'version'=b.version::text AND a.details->>'status'=b.status::text) AS attention_open, b.id, b.external_reference, b.order_reference, b.status, b.payment_method, b.source,
           ${CLOCK_BALANCE_SQL} AS clock_balance,b.starts_on, b.ends_on, b.created_at, b.total_amount, b.adults, b.children,b.children_ages,
           EXISTS(SELECT 1 FROM booking_requests q WHERE q.tenant_id=b.tenant_id AND q.property_id=b.property_id AND q.booking_id=b.id AND q.type='cancellation' AND q.status='Pending') AS cancellation_pending,
-          b.special_requests, b.pms_stay_status, b.room_id, r.name AS room_name,
+          b.special_requests, b.pms_stay_status, b.checked_in_at, b.checked_out_at, b.room_id, r.name AS room_name,
           b.room_type_id, rt.name AS room_type_name, rp.name AS rate_plan_name, rp.currency,
           b.guest_id, ${BOOKING_CONTACT_SQL.firstName} AS guest_first_name, ${BOOKING_CONTACT_SQL.lastName} AS guest_last_name,
           ${BOOKING_CONTACT_SQL.email} AS guest_email, ${BOOKING_CONTACT_SQL.phone} AS guest_phone,
@@ -286,6 +294,50 @@ export class BookingProjectionService {
         to,
       );
       return { items: rows.slice(0, LIMIT).map(toSearchItem), truncated: rows.length > LIMIT };
+    });
+  }
+
+  /**
+   * The front desk's day: who arrives, who is in the house, who leaves, and who is overdue. Stays held in a
+   * hotel system (Clock) are listed too; their arrival status is the one read back from it.
+   */
+  async frontDesk(tenantId: string, propertyId: string, date: string) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date))
+      throw new BadRequestException('date must be a day (YYYY-MM-DD).');
+    const LIMIT = 500;
+    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      const rows = await tx.$queryRawUnsafe<Array<Record<string, unknown>>>(
+        `SELECT x.* FROM (${BOOKING_BASE_SQL}) x
+         WHERE x.status = 'CONFIRMED'
+           AND ((x.starts_on <= $3::date AND x.ends_on >= $3::date)
+             OR (x.pms_stay_status = 'checked_in' AND x.ends_on < $3::date)
+             OR (COALESCE(x.pms_stay_status, 'expected') = 'expected' AND x.starts_on < $3::date AND x.ends_on > $3::date))
+         ORDER BY x.starts_on, x.guest_last_name NULLS LAST, x.created_at
+         LIMIT ${LIMIT + 1}`,
+        tenantId,
+        propertyId,
+        date,
+      );
+      const items = rows.slice(0, LIMIT).map((row) => ({
+        ...toSearchItem(row),
+        externalBookingId: row.external_booking_id ? String(row.external_booking_id) : null,
+      }));
+      const stage = (item: { pmsStayStatus: string | null }) => item.pmsStayStatus ?? 'expected';
+      return {
+        date,
+        arrivals: items.filter((i) => i.startsOn === date),
+        departures: items.filter((i) => i.endsOn === date),
+        inHouse: items.filter(
+          (i) => i.startsOn < date && i.endsOn > date && stage(i) === 'checked_in',
+        ),
+        // Should have arrived on an earlier day and has not been marked yet.
+        lateArrivals: items.filter(
+          (i) => i.startsOn < date && i.endsOn > date && stage(i) === 'expected',
+        ),
+        // Still marked as in the house after the departure day.
+        overdueDepartures: items.filter((i) => i.endsOn < date && stage(i) === 'checked_in'),
+        truncated: rows.length > LIMIT,
+      };
     });
   }
 
