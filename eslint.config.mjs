@@ -9,6 +9,7 @@ export default tseslint.config(
       '**/dist/**',
       '**/build/**',
       '**/.next/**',
+      '**/.astro/**',
       '**/coverage/**',
       'apps/wordpress-plugin/**',
     ],
@@ -16,7 +17,12 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ['infrastructure/**/*.mjs', 'apps/web/e2e/**/*.mjs', 'apps/api/scripts/**/*.mjs'],
+    files: [
+      'infrastructure/**/*.mjs',
+      'apps/web/e2e/**/*.mjs',
+      'apps/api/scripts/**/*.mjs',
+      'apps/restaurant-demo/**/*.mjs',
+    ],
     languageOptions: {
       globals: {
         process: 'readonly',

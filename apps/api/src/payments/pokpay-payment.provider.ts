@@ -14,6 +14,7 @@ import {
 import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
 import {
   POKPAY_BASE_URL_MESSAGE,
+  POKPAY_STAGING_BASE_URL,
   isAllowedPokpayBaseUrl,
   normalizePokpayBaseUrl,
   resolvePokpayBaseUrl,
@@ -61,7 +62,7 @@ export class PokPayPaymentProvider implements PaymentProvider {
   }
 
   async createCheckoutSession(
-    context: PaymentProviderContext,
+    context: PaymentProviderContext & { stagingOnly?: boolean },
     command: CreateCheckoutSessionCommand,
   ): Promise<Result<CheckoutSession>> {
     const configuration = await this.configuration(context);
@@ -100,7 +101,7 @@ export class PokPayPaymentProvider implements PaymentProvider {
   // PokPay documents no signed webhook format. Callers must bind the supplied order id to a
   // local session and use getPayment()'s authenticated provider re-read as the trust boundary.
   async verifyWebhookEvent(
-    context: PaymentProviderContext,
+    context: PaymentProviderContext & { stagingOnly?: boolean },
     rawBody: Uint8Array,
     signature: string,
   ): Promise<Result<PaymentWebhookEvent>> {
@@ -123,7 +124,10 @@ export class PokPayPaymentProvider implements PaymentProvider {
   // already recorded). An ALL order comes out at a rate of 1. The result is
   // re-read afterwards and the refund is reported as failed, never silently
   // recorded as complete, if PokPay moved a different amount than requested.
-  async refund(context: PaymentProviderContext, command: RefundCommand): Promise<Result<Payment>> {
+  async refund(
+    context: PaymentProviderContext & { stagingOnly?: boolean },
+    command: RefundCommand,
+  ): Promise<Result<Payment>> {
     const configuration = await this.configuration(context);
     if (!configuration.ok) return configuration;
     const orderPath = `/merchants/${encodeURIComponent(configuration.value.merchantId)}/sdk-orders/${encodeURIComponent(command.paymentId)}`;
@@ -206,7 +210,10 @@ export class PokPayPaymentProvider implements PaymentProvider {
     };
   }
 
-  async getPayment(context: PaymentProviderContext, paymentId: string): Promise<Payment | null> {
+  async getPayment(
+    context: PaymentProviderContext & { stagingOnly?: boolean },
+    paymentId: string,
+  ): Promise<Payment | null> {
     const configuration = await this.configuration(context);
     if (!configuration.ok) return null;
     const response = await this.authenticatedRequest(configuration.value, {
@@ -227,11 +234,11 @@ export class PokPayPaymentProvider implements PaymentProvider {
     };
   }
 
-  /** Reads the tenant's own PokPay connection for this property (ADR-0026) —
+  /** Reads the tenant's own PokPay connection for this property (ADR-0026) â€”
    * never the server environment. A property with no enabled PokPay
    * connection cannot take PokPay payments, same as having none configured. */
   private async configuration(
-    context: PaymentProviderContext,
+    context: PaymentProviderContext & { stagingOnly?: boolean },
   ): Promise<Result<PokPayConfiguration>> {
     const credentials = await this.connections.activePaymentConnectionCredentials(
       context.tenantId,
@@ -243,6 +250,8 @@ export class PokPayPaymentProvider implements PaymentProvider {
     const merchantId = credentials?.merchantId?.trim();
     const webhookUrl = resolvePokpayWebhookUrl(credentials?.webhookUrl);
     const baseUrl = resolvePokpayBaseUrl(credentials ?? {});
+    if (context.stagingOnly && baseUrl !== POKPAY_STAGING_BASE_URL)
+      return this.failure('POKPAY_STAGING_REQUIRED', 'Restaurant deposits require staging PokPay.');
     if (!keyId || !keySecret || !merchantId || !webhookUrl)
       return this.failure('POKPAY_NOT_CONFIGURED', 'PokPay is not configured for this property.');
     if (!isAllowedPokpayBaseUrl(baseUrl))
@@ -341,7 +350,7 @@ export class PokPayPaymentProvider implements PaymentProvider {
 
   // PokPay's own API docs (payments.doc.pokpay.io, "Create an Order") show
   // `amount` sent and returned as the raw currency value directly (e.g. 100
-  // for 100.00 EUR) — there is no minor-units/cents convention, unlike
+  // for 100.00 EUR) â€” there is no minor-units/cents convention, unlike
   // Stripe. Confirmed for real: sending 900.00 EUR as 90000 triggered
   // PokPay's own "maximum amount of 1000 EUR" rejection.
   private pokpayAmount(amount: string): number {

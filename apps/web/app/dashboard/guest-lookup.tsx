@@ -38,30 +38,37 @@ export function GuestLookup({
   selected,
   onPick,
   onClear,
+  searchText,
+  endpoint,
+  historyNoun = 'stay',
 }: {
   tenantId: string;
   propertyId: string;
   selected: KnownGuest | null;
   onPick: (guest: KnownGuest) => void;
   onClear: () => void;
+  searchText?: string;
+  endpoint?: string;
+  historyNoun?: string;
 }) {
   const [text, setText] = useState('');
   const [term, setTerm] = useState('');
   useEffect(() => {
-    const timer = window.setTimeout(() => setTerm(text.trim()), 300);
+    const timer = window.setTimeout(() => setTerm((searchText ?? text).trim()), 300);
     return () => window.clearTimeout(timer);
-  }, [text]);
+  }, [text, searchText]);
 
   const results = useQuery({
-    queryKey: ['dashboard', 'guest-lookup', tenantId, propertyId, term],
+    queryKey: ['dashboard', 'guest-lookup', tenantId, propertyId, endpoint, term],
     queryFn: async (): Promise<KnownGuest[] | null> => {
       const response = await fetch(
-        `/api/tenants/${tenantId}/properties/${propertyId}/guests?search=${encodeURIComponent(term)}`,
+        `${endpoint ?? `/api/tenants/${tenantId}/properties/${propertyId}/guests`}?search=${encodeURIComponent(term)}`,
         { credentials: 'include' },
       );
       if (response.status === 403) return null;
       if (!response.ok) return [];
       const local = (await response.json()) as KnownGuest[];
+      if (endpoint) return local;
       const clock = await fetch(
         `/api/tenants/${tenantId}/properties/${propertyId}/clock-guests?search=${encodeURIComponent(term)}`,
         { credentials: 'include' },
@@ -98,7 +105,7 @@ export function GuestLookup({
                 'Clock profile. Confirm the contact details below with the guest.'
               ) : (
                 <>
-                  Existing guest; {selected.bookingCount} previous stay
+                  Existing guest; {selected.bookingCount} previous {historyNoun}
                   {selected.bookingCount === 1 ? '' : 's'}. Details are filled in below for this
                   reservation.
                 </>
@@ -114,12 +121,14 @@ export function GuestLookup({
 
   return (
     <div className="space-y-2">
-      <SearchInput
-        aria-label="Find an existing guest"
-        placeholder="Find a guest who stayed before: name, email or phone"
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-      />
+      {searchText === undefined ? (
+        <SearchInput
+          aria-label="Find an existing guest"
+          placeholder="Find a guest who stayed before: name, email or phone"
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+        />
+      ) : null}
       {term.length >= 2 && results.data ? (
         results.data.length === 0 ? (
           <p className="m-0 text-xs text-muted-foreground">

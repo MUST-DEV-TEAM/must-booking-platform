@@ -38,6 +38,7 @@ type RequestWithContext = {
     userId: string;
     tenantId: string;
     propertyId?: string;
+    venueId?: string;
     /** Present when a platform support session, not a hotel membership, authorised the request. */
     support?: { sessionId: string; kind: 'VIEW' | 'ACT'; accountId: string; accountEmail: string };
   };
@@ -101,7 +102,8 @@ export class TenantContextGuard implements CanActivate {
 
     const tenantId = request.params[scope.tenantParam ?? 'tenantId'];
     const propertyId = scope.propertyParam ? request.params[scope.propertyParam] : undefined;
-    if (!tenantId || (scope.propertyParam && !propertyId))
+    const venueId = scope.venueParam ? request.params[scope.venueParam] : undefined;
+    if (!tenantId || (scope.propertyParam && !propertyId) || (scope.venueParam && !venueId))
       throw new ForbiddenException('Invalid tenant scope.');
 
     const access = await this.database.withTenantTransaction(
@@ -117,6 +119,12 @@ export class TenantContextGuard implements CanActivate {
         SELECT 1 AS allowed FROM "properties" WHERE "id" = ${propertyId}::uuid
       `;
           if (properties.length !== 1) return null;
+        }
+        if (venueId) {
+          const venues = await tx.$queryRaw<Array<{ allowed: number }>>`
+        SELECT 1 AS allowed FROM "venues" WHERE "id" = ${venueId}::uuid
+      `;
+          if (venues.length !== 1) return null;
         }
         const organization = await tx.$queryRaw<
           Array<{ state: LifecycleState; readOnlyPlan: boolean }>
@@ -172,7 +180,7 @@ export class TenantContextGuard implements CanActivate {
         code: 'PLAN_READ_ONLY',
       });
 
-    request.tenantContext = { userId, tenantId, propertyId };
+    request.tenantContext = { userId, tenantId, propertyId, venueId };
     return true;
   }
 
@@ -190,7 +198,9 @@ export class TenantContextGuard implements CanActivate {
   ): Promise<boolean> {
     const tenantId = request.params[scope.tenantParam ?? 'tenantId'];
     const propertyId = scope.propertyParam ? request.params[scope.propertyParam] : undefined;
-    if (!tenantId || (scope.propertyParam && !propertyId)) return false;
+    const venueId = scope.venueParam ? request.params[scope.venueParam] : undefined;
+    if (!tenantId || (scope.propertyParam && !propertyId) || (scope.venueParam && !venueId))
+      return false;
     const access = await this.support.resolveForTenant(
       this.cookie(request.headers.cookie, SUPPORT_COOKIE),
       tenantId,
@@ -203,6 +213,16 @@ export class TenantContextGuard implements CanActivate {
         (tx) =>
           tx.$queryRaw<Array<{ allowed: number }>>`
           SELECT 1 AS allowed FROM "properties" WHERE "id" = ${propertyId}::uuid
+        `,
+      );
+      if (found.length !== 1) return false;
+    }
+    if (venueId) {
+      const found = await this.database.withTenantTransaction(
+        { tenantId },
+        (tx) =>
+          tx.$queryRaw<Array<{ allowed: number }>>`
+          SELECT 1 AS allowed FROM "venues" WHERE "id" = ${venueId}::uuid
         `,
       );
       if (found.length !== 1) return false;
@@ -264,6 +284,7 @@ export class TenantContextGuard implements CanActivate {
       userId: access.ownerUserId,
       tenantId,
       propertyId,
+      venueId,
       support: {
         sessionId: access.sessionId,
         kind: access.kind,

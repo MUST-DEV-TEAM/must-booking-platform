@@ -181,6 +181,23 @@ import { RatePlansController } from './tenancy/rate-plans.controller';
 import { RatePlansService } from './tenancy/rate-plans.service';
 import { AmenitiesController } from './tenancy/amenities.controller';
 import { AmenitiesService } from './tenancy/amenities.service';
+import { RestaurantIntegrationController } from './tenancy/restaurant-integration.controller';
+import { RestaurantIntegrationService } from './tenancy/restaurant-integration.service';
+import { VenueReservationsController } from './tenancy/venue-reservations.controller';
+import { PublicRestaurantController } from './tenancy/public-restaurant.controller';
+import { PublicRestaurantService } from './tenancy/public-restaurant.service';
+import { VenueReservationsService } from './tenancy/venue-reservations.service';
+import { VenueServicesController } from './tenancy/venue-services.controller';
+import { VenueServicesService } from './tenancy/venue-services.service';
+import { VenueDepositPaymentsService } from './payments/venue-deposit-payments.service';
+import { VenueDepositRulesService } from './tenancy/venue-deposit-rules.service';
+import { VenueDepositRulesController } from './tenancy/venue-deposit-rules.controller';
+import { VenueLayoutController } from './tenancy/venue-layout.controller';
+import { VenueLayoutService } from './tenancy/venue-layout.service';
+import { VenueStaffController } from './tenancy/venue-staff.controller';
+import { VenueStaffService } from './tenancy/venue-staff.service';
+import { VenuesController } from './tenancy/venues.controller';
+import { VenuesService } from './tenancy/venues.service';
 import { AvailabilityController } from './tenancy/availability.controller';
 import { AvailabilityService } from './tenancy/availability.service';
 import { PublicAvailabilityController } from './tenancy/public-availability.controller';
@@ -354,6 +371,14 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     PropertyRoomsController,
     RatePlansController,
     AmenitiesController,
+    VenuesController,
+    VenueStaffController,
+    VenueLayoutController,
+    VenueServicesController,
+    VenueDepositRulesController,
+    VenueReservationsController,
+    PublicRestaurantController,
+    RestaurantIntegrationController,
     AvailabilityController,
     CapabilitiesController,
     PublicAvailabilityController,
@@ -477,6 +502,15 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     RoomsService,
     RatePlansService,
     AmenitiesService,
+    VenuesService,
+    VenueStaffService,
+    VenueLayoutService,
+    VenueServicesService,
+    VenueDepositRulesService,
+    VenueDepositPaymentsService,
+    VenueReservationsService,
+    PublicRestaurantService,
+    RestaurantIntegrationService,
     AvailabilityService,
     PublicCatalogService,
     WordpressPairingService,

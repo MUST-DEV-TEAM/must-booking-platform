@@ -1,13 +1,14 @@
 import { PaymentCollectionService } from './payment-collection.service';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { BookingPaymentMethod, BookingStatus, type Result } from '@must/domain-contracts';
 
 import { LocalPmsProvider } from '../booking/local-pms.provider';
 import { BookingConfirmationNotificationService } from '../mail/booking-confirmation-notification.service';
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
+import { VenueDepositPaymentsService } from './venue-deposit-payments.service';
 import { PaymentProviderRegistry } from './payment-provider-registry';
 
-type SessionCandidate = { bookingId: string; tenantId: string; propertyId: string };
+type SessionCandidate = { bookingId: string | null; tenantId: string; propertyId: string };
 type PendingCandidate = SessionCandidate & { externalPaymentId: string };
 type BookingRow = {
   id: string;
@@ -26,6 +27,9 @@ export class PokPayPaymentService {
     @Inject(BookingConfirmationNotificationService)
     private readonly confirmations: BookingConfirmationNotificationService,
     @Inject(PaymentCollectionService) private readonly collections: PaymentCollectionService,
+    @Optional()
+    @Inject(VenueDepositPaymentsService)
+    private readonly venueDeposits?: VenueDepositPaymentsService,
   ) {}
 
   async processAuthoritativeOrder(orderId: string): Promise<Result<{ duplicate: boolean }>> {
@@ -42,6 +46,10 @@ export class PokPayPaymentService {
         'PokPay order is not bound to a booking.',
       );
     const context = { tenantId: candidate.tenantId, propertyId: candidate.propertyId };
+    if (!candidate.bookingId)
+      return this.venueDeposits
+        ? this.venueDeposits.process(candidate.tenantId, candidate.propertyId, orderId)
+        : this.failure('POKPAY_ORDER_BINDING_INVALID', 'Restaurant payment handler unavailable.');
     const collection = await this.collections.process(context, candidate.bookingId, orderId);
     if (collection) return collection;
     let emailBookingId: string | null = null;
@@ -129,7 +137,7 @@ export class PokPayPaymentService {
         return { ok: true, value: { duplicate: false } };
       },
       // continueAfterPayment can attach a real Clock reservation and post a
-      // real deposit folio + credit_item inside this transaction — several
+      // real deposit folio + credit_item inside this transaction â€” several
       // real outbound Clock calls, same reasoning as
       // ClockBookingService.createBooking's own extended timeout.
       { timeoutMs: 45_000 },
@@ -140,6 +148,7 @@ export class PokPayPaymentService {
   }
 
   async pollPendingOrders(): Promise<void> {
+    await this.venueDeposits?.sweep();
     const candidates = await this.database.$queryRaw<PendingCandidate[]>`
       SELECT "bookingId", "tenantId", "propertyId", "externalPaymentId"
       FROM "payment_pending_pokpay_candidates"(100::integer)

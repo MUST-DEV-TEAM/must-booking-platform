@@ -10,8 +10,10 @@ export interface PlanUsage {
     pmsEnabled: boolean;
     maxPmsConnectionsPerProperty: number;
     readOnly: boolean;
+    diningEnabled: boolean;
+    maxVenues: number;
   };
-  usage: { properties: number; staffSeats: number };
+  usage: { properties: number; staffSeats: number; venues: number };
 }
 
 @Injectable()
@@ -30,8 +32,11 @@ export class PlanUsageService {
             pmsEnabled: boolean;
             maxPmsConnectionsPerProperty: number;
             readOnly: boolean;
+            diningEnabled: boolean;
+            maxVenues: number;
             properties: number;
             staffSeats: number;
+            venues: number;
           }>
         >`
           SELECT
@@ -41,9 +46,12 @@ export class PlanUsageService {
             p."pms_enabled" AS "pmsEnabled",
             p."max_pms_connections_per_property" AS "maxPmsConnectionsPerProperty",
             p."read_only" AS "readOnly",
+            p."dining_enabled" AS "diningEnabled",
+            p."max_venues" AS "maxVenues",
             (SELECT COUNT(*)::integer FROM "properties" WHERE "tenant_id" = o."id") AS "properties",
             (SELECT COUNT(*)::integer FROM "tenant_memberships"
-              WHERE "tenant_id" = o."id" AND NOT "is_auto_provisioned") AS "staffSeats"
+              WHERE "tenant_id" = o."id" AND NOT "is_auto_provisioned") AS "staffSeats",
+            (SELECT COUNT(*)::integer FROM "venues" WHERE "tenant_id" = o."id" AND "active") AS "venues"
           FROM "organizations" o
           JOIN "plans" p ON p."id" = o."plan_id"
           WHERE o."id" = ${tenantId}::uuid
@@ -51,7 +59,7 @@ export class PlanUsageService {
     );
     if (!rows[0]) throw new NotFoundException('Tenant plan was not found.');
 
-    const { properties, staffSeats, ...plan } = rows[0];
-    return { plan, usage: { properties, staffSeats } };
+    const { properties, staffSeats, venues, ...plan } = rows[0];
+    return { plan, usage: { properties, staffSeats, venues } };
   }
 }

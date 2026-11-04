@@ -7,6 +7,7 @@ export enum Role {
   TenantOwner = 'TENANT_OWNER',
   TenantAdmin = 'TENANT_ADMIN',
   PropertyStaff = 'PROPERTY_STAFF',
+  VenueStaff = 'VENUE_STAFF',
 }
 
 export const Roles = (...roles: Role[]): MethodDecorator & ClassDecorator =>

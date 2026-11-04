@@ -22,7 +22,7 @@ import {
 } from '../../../../../lib/platform-api';
 import { useConsoleSession } from '../../console-frame';
 
-const CURRENCIES = ['EUR', 'ALL', 'USD', 'GBP', 'CHF', 'MKD', 'RSD', 'BAM', 'TRY'];
+import { currencyOptions } from '../../../../../lib/currencies';
 const FALLBACK_ZONES = ['Europe/Tirane', 'Europe/Rome', 'Europe/Athens', 'Europe/London', 'UTC'];
 
 function timeZones(): string[] {
@@ -129,7 +129,7 @@ export default function NewHotelPage() {
             <FormField label="Currency" required>
               <Combobox
                 label="Currency"
-                options={CURRENCIES.map((code) => ({ value: code, label: code }))}
+                options={currencyOptions}
                 value={currency}
                 onChange={setCurrency}
               />

@@ -149,6 +149,223 @@ afterEach(() => {
 });
 
 describe('Staff', () => {
+  it('lists restaurant staff as normal selectable rows', async () => {
+    const waiter = {
+      userId: 'rw',
+      email: 'waiter@test',
+      firstName: 'Ana',
+      lastName: 'Waiter',
+      roleTemplateId: '',
+      roleTemplateName: 'Waiter',
+      overrides: [],
+      status: 'ACTIVE' as const,
+      lastActiveAt: null,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      createdByEmail: 'owner@test',
+      restaurant: { venueId: 'v1', venueName: 'Hotel Restaurant' },
+    };
+    staff.push(waiter as never);
+    try {
+      mock({ staffSeats: 1, maxStaffSeats: 5 });
+      const { root } = await mount();
+      const text = document.body.textContent ?? '';
+      expect(text).toContain('Ana Waiter');
+      expect(text).toContain('Waiter');
+      expect(text).toContain('Restaurant');
+      expect(
+        document.body.querySelector('[aria-label="More actions for waiter@test"]'),
+      ).not.toBeNull();
+      expect(
+        document.body
+          .querySelector('[aria-label="Select waiter@test"]')
+          ?.getAttribute('data-disabled'),
+      ).toBeNull();
+      await act(async () => {
+        document.body
+          .querySelector<HTMLElement>('[aria-label="Show details for waiter@test"]')!
+          .click();
+        await settle();
+      });
+      expect(document.body.textContent).toContain('Hotel Restaurant');
+      expect(document.body.querySelector('[aria-label="Restaurant staff role"]')).not.toBeNull();
+      await unmount(root);
+    } finally {
+      staff.pop();
+    }
+  });
+
+  it('creates and invites fixed restaurant roles through scoped endpoints', async () => {
+    const fetch = vi.fn((url: string, init?: RequestInit) => {
+      if (url.endsWith('/plan-usage'))
+        return Promise.resolve(
+          Response.json({
+            plan: { maxStaffSeats: 10, diningEnabled: true },
+            usage: { staffSeats: 1 },
+          }),
+        );
+      if (url === `${base}/venues`)
+        return Promise.resolve(
+          Response.json([{ id: 'v1', name: 'Terrace', propertyId: 'p', active: true }]),
+        );
+      if (url === `${base}/venues/v1/staff`)
+        return Promise.resolve(
+          Response.json(init?.method === 'POST' ? { userId: 'new-waiter' } : []),
+        );
+      if (url.endsWith('/staff/invitations'))
+        return Promise.resolve(Response.json({ token: 'invite' }));
+      return responseFor(url);
+    });
+    vi.stubGlobal('fetch', fetch);
+    const { root } = await mount();
+    await clickTab('Roles');
+    expect(document.body.textContent).toContain('Restaurant Manager');
+    expect(document.body.textContent).toContain('Waiter');
+    expect(document.body.textContent).toContain('Hotel roles belong to this hotel');
+    await clickTab('Staff');
+    await clickButton('Add staff');
+    await openSelect('Create staff role');
+    await chooseOption('Waiter');
+    expect(document.body.querySelector('[aria-label="Restaurant"]')).not.toBeNull();
+    expect(document.body.textContent).not.toContain('Optional extra permissions');
+    for (const [id, value] of [
+      ['first-name', 'Sam'],
+      ['email', 'waiter@example.test'],
+      ['password', 'OwnerChosenPass9!'],
+    ])
+      await setValue(document.querySelector<HTMLInputElement>(`#staff-create-${id}`)!, value);
+    await clickButton('Create account');
+    const created = fetch.mock.calls.find(
+      ([u, i]) => u === `${base}/venues/v1/staff` && i?.method === 'POST',
+    )!;
+    expect(JSON.parse(created[1]!.body as string)).toEqual({
+      firstName: 'Sam',
+      email: 'waiter@example.test',
+      password: 'OwnerChosenPass9!',
+      role: 'HOST',
+    });
+    await clickButton('Done');
+    await clickButton('Add staff');
+    await clickTab('Send invitation');
+    await openSelect('Invite role');
+    await chooseOption('Restaurant Manager');
+    await setValue(
+      document.querySelector<HTMLInputElement>('#staff-invite-email')!,
+      'manager@example.test',
+    );
+    await clickButton('Send invitation');
+    expect(fetch.mock.calls).toContainEqual([
+      `${base}/venues/v1/staff/invitations`,
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ email: 'manager@example.test', role: 'MANAGER' }),
+      }),
+    ]);
+    await unmount(root);
+  });
+
+  it('lets a venue-only manager edit, suspend, resume and remove restaurant access', async () => {
+    let role = 'HOST';
+    let suspended = false;
+    let removed = false;
+    const fetch = vi.fn((url: string, init?: RequestInit) => {
+      if (url.endsWith('/plan-usage'))
+        return Promise.resolve(
+          Response.json({
+            plan: { maxStaffSeats: 10, diningEnabled: true },
+            usage: { staffSeats: 2 },
+          }),
+        );
+      if (url === `${base}/venues`)
+        return Promise.resolve(
+          Response.json([{ id: 'v1', name: 'Terrace', propertyId: 'p', active: true }]),
+        );
+      if (url === `${base}/venues/v1/staff`)
+        return Promise.resolve(
+          Response.json(
+            removed
+              ? []
+              : [
+                  {
+                    userId: 'rw',
+                    email: 'waiter@test',
+                    firstName: 'Ana',
+                    lastName: 'Waiter',
+                    role,
+                    suspendedAt: suspended ? '2026-01-01' : null,
+                  },
+                ],
+          ),
+        );
+      if (url === `${base}/venues/v1/staff/rw` && init?.method === 'PUT') {
+        role = JSON.parse(init.body as string).role;
+        return Promise.resolve(Response.json({}));
+      }
+      if (url.endsWith('/suspend')) {
+        suspended = true;
+        return Promise.resolve(Response.json({}));
+      }
+      if (url.endsWith('/resume')) {
+        suspended = false;
+        return Promise.resolve(Response.json({}));
+      }
+      if (url === `${base}/venues/v1/staff/rw` && init?.method === 'DELETE') {
+        removed = true;
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+      return Promise.resolve(Response.json({ message: 'Forbidden' }, { status: 403 }));
+    });
+    vi.stubGlobal('fetch', fetch);
+    const { root } = await mount();
+    const peek = async () =>
+      act(async () => {
+        document.querySelector<HTMLElement>('[aria-label="Show details for waiter@test"]')!.click();
+        await settle();
+      });
+    await peek();
+    await openSelect('Restaurant staff role');
+    await chooseOption('Restaurant Manager');
+    expect(role).toBe('MANAGER');
+    await clickButton('Suspend access');
+    await act(settle);
+    await clickButton('Suspend staff');
+    expect(suspended).toBe(true);
+    await peek();
+    await clickButton('Reactivate access');
+    await act(settle);
+    await clickButton('Reactivate staff');
+    expect(suspended).toBe(false);
+    await peek();
+    await clickButton('Remove access');
+    await clickButton('Remove access');
+    expect(removed).toBe(true);
+    expect(fetch.mock.calls.some(([u, i]) => u.includes('/properties/') && i?.method)).toBe(false);
+    await unmount(root);
+  });
+
+  it('opens stand-alone restaurant staff without a hotel request', async () => {
+    const fetch = vi.fn((url: string) => {
+      if (url.endsWith('/plan-usage'))
+        return Promise.resolve(
+          Response.json({
+            plan: { maxStaffSeats: 10, diningEnabled: true },
+            usage: { staffSeats: 1 },
+          }),
+        );
+      if (url === `${base}/venues`)
+        return Promise.resolve(
+          Response.json([{ id: 'v1', name: 'Standalone', propertyId: null, active: true }]),
+        );
+      if (url === `${base}/venues/v1/staff`) return Promise.resolve(Response.json([]));
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal('fetch', fetch);
+    const { root } = await mount('');
+    await clickButton('Add staff');
+    expect(document.body.querySelector('[aria-label="Restaurant"]')).not.toBeNull();
+    expect(fetch.mock.calls.some(([url]) => url.includes('/properties/'))).toBe(false);
+    await unmount(root);
+  });
+
   it('invites with the selected role through the hotel-scoped endpoint', async () => {
     const fetch = mock({ staffSeats: 1, maxStaffSeats: 2 });
     const { root } = await mount();
@@ -717,7 +934,7 @@ function responseFor(url: string, usage = { staffSeats: 1, maxStaffSeats: 2 }) {
   );
 }
 
-async function mount() {
+async function mount(propertyId = 'p') {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -726,7 +943,7 @@ async function mount() {
       createElement(
         DashboardQueryProvider,
         undefined,
-        createElement(DashboardStaff, { tenantId: 't', propertyId: 'p' }),
+        createElement(DashboardStaff, { tenantId: 't', propertyId }),
       ),
     );
   });

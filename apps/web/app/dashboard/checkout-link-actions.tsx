@@ -12,6 +12,7 @@ export function CheckoutLinkActions({
   bookingId,
   canSend = false,
   onOpened,
+  sendPaymentLink,
 }: {
   url: string;
   tenantId: string;
@@ -19,6 +20,7 @@ export function CheckoutLinkActions({
   bookingId: string;
   canSend?: boolean;
   onOpened?: (tab: Window) => void;
+  sendPaymentLink?: () => Promise<unknown>;
 }) {
   const [qr, setQr] = useState(''),
     [fallback, setFallback] = useState(false),
@@ -26,6 +28,11 @@ export function CheckoutLinkActions({
   const send = async () => {
     setSending(true);
     try {
+      if (sendPaymentLink) {
+        await sendPaymentLink();
+        toast.success('Payment email queued');
+        return;
+      }
       const r = await fetch(
         `/api/tenants/${tenantId}/properties/${propertyId}/bookings/${bookingId}/send-pokpay-link`,
         {

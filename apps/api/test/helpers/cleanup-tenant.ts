@@ -14,6 +14,21 @@ export async function cleanupTenant(
   admin: PrismaClient | Prisma.TransactionClient,
   tenantId: string,
 ): Promise<void> {
+  // Test tenants only: production receipts remain append-only to the application role.
+  await admin.$executeRaw`DELETE FROM venue_deposit_receipts WHERE tenant_id=${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM venue_deposit_operations WHERE tenant_id=${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM venue_deposit_rules WHERE tenant_id=${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM payment_provider_sessions WHERE tenant_id=${tenantId}::uuid AND venue_id IS NOT NULL`;
+  await admin.$executeRaw`DELETE FROM venue_reservation_events WHERE tenant_id = ${tenantId}::uuid`;
+  // (hotel bookings are removed further down; reservations only point at guests, not at bookings)
+  await admin.$executeRaw`DELETE FROM venue_reservation_tables WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM venue_reservations WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM venue_table_combinations WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM venue_tables WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM venue_areas WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM venue_services WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM venue_staff_assignments WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM venues WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM server_media_uploads WHERE tenant_id=${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM clock_sync_jobs WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM clock_guest_profiles WHERE tenant_id = ${tenantId}::uuid`;

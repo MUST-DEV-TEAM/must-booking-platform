@@ -11,6 +11,7 @@ export function NumberStepper({
   onChange,
   min = 0,
   max = 99,
+  step = 1,
   label,
   className,
 }: {
@@ -18,6 +19,7 @@ export function NumberStepper({
   onChange: (value: number) => void;
   min?: number;
   max?: number;
+  step?: number;
   /** Accessible name of the group, such as "Adults". */
   label: string;
   className?: string;
@@ -33,7 +35,7 @@ export function NumberStepper({
         size="icon-sm"
         aria-label={`Fewer ${label.toLowerCase()}`}
         disabled={value <= min}
-        onClick={() => onChange(Math.max(min, value - 1))}
+        onClick={() => onChange(Math.max(min, value - step))}
       >
         <Minus aria-hidden="true" />
       </Button>
@@ -45,7 +47,7 @@ export function NumberStepper({
         size="icon-sm"
         aria-label={`More ${label.toLowerCase()}`}
         disabled={value >= max}
-        onClick={() => onChange(Math.min(max, value + 1))}
+        onClick={() => onChange(Math.min(max, value + step))}
       >
         <Plus aria-hidden="true" />
       </Button>

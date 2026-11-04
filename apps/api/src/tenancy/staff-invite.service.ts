@@ -17,11 +17,13 @@ import { AuditLogService } from './audit-log.service';
 import { NotificationsService } from './notifications.service';
 import { MailDeliveryService } from '../mail/mail-delivery.service';
 import { renderBrandedEmail } from '../mail/email-layout';
+import { loadVenuePlan, requireDining } from './venue-plan';
 
 export interface StaffInvite {
   tenantId: string;
   email: string;
   assignments: Array<{ propertyId: string; roleTemplateId: string; capabilityKeys?: string[] }>;
+  venueAssignments?: Array<{ venueId: string; role: 'MANAGER' | 'HOST' }>;
   /** Hotel membership the invitee receives. Defaults to STAFF; the platform console invites owners. */
   membershipRole?: 'OWNER' | 'STAFF';
 }
@@ -47,12 +49,13 @@ export class StaffInviteService implements OnModuleDestroy {
   }
 
   async invite(command: StaffInvite, actorUserId: string, sender?: InviteSender): Promise<string> {
-    if (!command.assignments.length)
-      throw new BadRequestException('At least one property assignment is required.');
+    if (!command.assignments.length && !command.venueAssignments?.length)
+      throw new BadRequestException('At least one hotel or restaurant assignment is required.');
     try {
-      await this.database.withTenantTransaction({ tenantId: command.tenantId }, (tx) =>
-        this.ensureStaffSeatAvailable(tx, command.tenantId, { email: command.email }),
-      );
+      await this.database.withTenantTransaction({ tenantId: command.tenantId }, async (tx) => {
+        await this.validateVenueAssignments(tx, command);
+        await this.ensureStaffSeatAvailable(tx, command.tenantId, { email: command.email });
+      });
     } catch (error) {
       if (error instanceof StaffSeatLimitReachedError) {
         await Promise.all(
@@ -80,6 +83,7 @@ export class StaffInviteService implements OnModuleDestroy {
       targetId: command.email.toLowerCase(),
       details: {
         propertyIds: command.assignments.map((assignment) => assignment.propertyId),
+        venueIds: command.venueAssignments?.map((a) => a.venueId),
         ...(command.membershipRole === 'OWNER' ? { membershipRole: 'OWNER' } : {}),
       },
     });
@@ -179,6 +183,109 @@ export class StaffInviteService implements OnModuleDestroy {
     }
     await this.sendAccountCreatedEmailSafely(command, userId);
     return { userId };
+  }
+
+  /**
+   * Creates a staff account whose only access is to one restaurant (a waiter or a restaurant manager).
+   * It uses the same staff seats as hotel staff. Whoever creates it hands over the password.
+   */
+  async createVenueDirect(command: {
+    tenantId: string;
+    venueId: string;
+    actorUserId: string;
+    firstName: string;
+    lastName: string | null;
+    email: string;
+    password: string;
+    role: 'MANAGER' | 'HOST';
+  }): Promise<{ userId: string }> {
+    const userId = randomUUID();
+    const passwordHash = await bcrypt.hash(command.password, 12);
+    const alreadyExists = () =>
+      new ConflictException('That email already has an account. Send an invitation instead.');
+    try {
+      await this.database.withTenantTransaction({ tenantId: command.tenantId }, async (tx) => {
+        await this.validateVenueAssignments(tx, {
+          tenantId: command.tenantId,
+          venueAssignments: [{ venueId: command.venueId, role: command.role }],
+        });
+        await this.ensureStaffSeatAvailable(tx, command.tenantId, { email: command.email });
+        const existing = await tx.$queryRaw<Array<{ found: number }>>`
+          SELECT 1 AS found FROM "users" WHERE "email" = ${command.email}
+        `;
+        if (existing[0]) throw alreadyExists();
+        await tx.$executeRaw`
+          INSERT INTO "users" ("id", "email", "password_hash", "email_verified_at", "is_auto_provisioned", "first_name", "last_name")
+          VALUES (${userId}::uuid, ${command.email}, ${passwordHash}, CURRENT_TIMESTAMP, false, ${command.firstName}, ${command.lastName})
+        `;
+        await tx.$executeRaw`
+          INSERT INTO "tenant_memberships" ("tenant_id", "user_id", "role", "is_auto_provisioned")
+          VALUES (${command.tenantId}::uuid, ${userId}::uuid, 'STAFF', false)
+        `;
+        await tx.$executeRaw`
+          INSERT INTO "venue_staff_assignments" ("tenant_id", "venue_id", "user_id", "role", "created_by_user_id")
+          VALUES (${command.tenantId}::uuid, ${command.venueId}::uuid, ${userId}::uuid, ${command.role}, ${command.actorUserId}::uuid)
+        `;
+        await this.auditLogs.recordInTransaction(tx, {
+          tenantId: command.tenantId,
+          actorUserId: command.actorUserId,
+          action: 'venue.staff_created',
+          targetType: 'venue',
+          targetId: command.venueId,
+          details: { email: command.email, role: command.role },
+        });
+      });
+    } catch (error) {
+      if (this.isUniqueEmailViolation(error)) throw alreadyExists();
+      throw error;
+    }
+    await this.sendVenueAccountCreatedEmailSafely(command, userId);
+    return { userId };
+  }
+
+  private async sendVenueAccountCreatedEmailSafely(
+    command: { tenantId: string; venueId: string; email: string; firstName: string },
+    userId: string,
+  ) {
+    try {
+      const [venue] = await this.database.withTenantTransaction(
+        { tenantId: command.tenantId },
+        (tx) =>
+          tx.$queryRaw<
+            Array<{ propertyId: string | null; name: string }>
+          >`SELECT property_id AS "propertyId",name FROM venues WHERE tenant_id=${command.tenantId}::uuid AND id=${command.venueId}::uuid`,
+      );
+      if (venue?.propertyId)
+        await this.sendAccountCreatedEmailSafely(
+          { ...command, propertyId: venue.propertyId },
+          userId,
+        );
+      else if (venue) {
+        const signInLink = new URL('/login', process.env.WEB_APP_URL).toString();
+        await this.delivery.dispatch(
+          'rendered',
+          {
+            to: command.email,
+            subject: 'Your staff account is ready',
+            text: `Your restaurant staff account is ready. Ask the person who created it for your password. Sign in: ${signInLink}`,
+            html: renderBrandedEmail({
+              subject: 'Your staff account is ready',
+              brand: { name: venue.name },
+              heading: 'Your staff account is ready',
+              content:
+                '<p>Your restaurant staff account is ready. Ask the person who created it for your password.</p>',
+              cta: { url: signInLink, label: 'Sign in' },
+            }),
+            idempotencyKey: `staff-account-created/${userId}`,
+            eventType: 'staff.account_created',
+            bookingId: null,
+          },
+          { tenantId: command.tenantId, propertyId: null },
+        );
+      }
+    } catch {
+      this.logger.error(`Unable to send the account-ready email for staff account ${userId}.`);
+    }
   }
 
   /**
@@ -314,6 +421,13 @@ Sign in: ${signInLink}`,
               `,
             ),
           );
+          for (const assignment of command.venueAssignments ?? []) {
+            assignments.push(
+              await tx.$queryRaw<
+                Array<{ propertyName: string; roleTemplateName: string }>
+              >`SELECT name AS "propertyName", ${assignment.role === 'MANAGER' ? 'Restaurant Manager' : 'Waiter'}::text AS "roleTemplateName" FROM venues WHERE tenant_id=${command.tenantId}::uuid AND id=${assignment.venueId}::uuid`,
+            );
+          }
           if (!organization[0] || assignments.some((rows) => !rows[0]))
             throw new Error('Unable to load staff invitation email details.');
           return { organization: organization[0], assignments: assignments.map((rows) => rows[0]) };
@@ -382,6 +496,7 @@ Sign in: ${signInLink}`,
     invite: StaffInvite,
     userId: string,
   ): Promise<void> {
+    await this.validateVenueAssignments(tx, invite);
     await this.assignStaffInTransaction(
       tx,
       invite.tenantId,
@@ -390,14 +505,47 @@ Sign in: ${signInLink}`,
       false,
       invite.membershipRole === 'OWNER' ? 'OWNER' : 'STAFF',
     );
+    // The membership makes a newly activated user visible under users RLS. A mismatch rolls back the entire transaction.
+    if (invite.venueAssignments?.length) {
+      const [user] = await tx.$queryRaw<
+        Array<{ email: string }>
+      >`SELECT email FROM users WHERE id=${userId}::uuid`;
+      if (!user || user.email.toLowerCase() !== invite.email.toLowerCase())
+        throw new BadRequestException('Sign in with the invited email address.');
+    }
+    for (const assignment of invite.venueAssignments ?? []) {
+      await tx.$executeRaw`INSERT INTO venue_staff_assignments(tenant_id,venue_id,user_id,role)
+        VALUES(${invite.tenantId}::uuid,${assignment.venueId}::uuid,${userId}::uuid,${assignment.role})
+        ON CONFLICT(tenant_id,venue_id,user_id) DO UPDATE SET role=EXCLUDED.role,updated_at=now()`;
+    }
     await this.auditLogs.recordInTransaction(tx, {
       tenantId: invite.tenantId,
       actorUserId: userId,
       action: 'staff.invite_accepted',
       targetType: 'user',
       targetId: userId,
-      details: { propertyIds: invite.assignments.map((assignment) => assignment.propertyId) },
+      details: {
+        propertyIds: invite.assignments.map((assignment) => assignment.propertyId),
+        venueIds: invite.venueAssignments?.map((a) => a.venueId),
+      },
     });
+  }
+
+  private async validateVenueAssignments(
+    tx: TenantTransaction,
+    command: Pick<StaffInvite, 'tenantId' | 'venueAssignments'>,
+  ) {
+    if (!command.venueAssignments?.length) return;
+    requireDining(await loadVenuePlan(tx, command.tenantId));
+    for (const assignment of command.venueAssignments) {
+      if (!['MANAGER', 'HOST'].includes(assignment.role))
+        throw new BadRequestException('Invalid restaurant role.');
+      const rows = await tx.$queryRaw<
+        Array<{ id: string }>
+      >`SELECT id FROM venues WHERE tenant_id=${command.tenantId}::uuid AND id=${assignment.venueId}::uuid AND active`;
+      if (!rows[0])
+        throw new BadRequestException('The restaurant must be active in this workspace.');
+    }
   }
 
   private async createActiveStaffInTransaction(

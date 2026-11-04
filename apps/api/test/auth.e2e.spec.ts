@@ -151,8 +151,10 @@ describe('authentication endpoints', () => {
         pmsEnabled: false,
         maxPmsConnectionsPerProperty: 0,
         readOnly: false,
+        diningEnabled: false,
+        maxVenues: 0,
       },
-      usage: { properties: 1, staffSeats: 1 },
+      usage: { properties: 1, staffSeats: 1, venues: 0 },
     });
     await request(app.getHttpServer())
       .get(`/tenants/${randomUUID()}/plan-usage`)
