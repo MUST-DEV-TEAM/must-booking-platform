@@ -20,9 +20,7 @@ export async function resolveBillingRatePlan(
   ratePlanId: string,
   currency: string,
 ): Promise<BillingRatePlan> {
-  const plans = await tx.$queryRaw<
-    Array<{ id: string; currency: string; isClockPlan: boolean }>
-  >`
+  const plans = await tx.$queryRaw<Array<{ id: string; currency: string; isClockPlan: boolean }>>`
     SELECT id, currency, (clock_shadow_room_type_id IS NOT NULL) AS "isClockPlan"
     FROM rate_plans
     WHERE id = ${ratePlanId}::uuid AND tenant_id = ${scope.tenantId}::uuid

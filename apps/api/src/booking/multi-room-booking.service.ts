@@ -418,12 +418,7 @@ export class MultiRoomBookingService {
         AND id = ${room.roomTypeId}::uuid AND status = 'PUBLISHED'::"RoomTypeStatus"
     `;
     if (!types[0]) return null;
-    const billing = await resolveBillingRatePlan(
-      tx,
-      context,
-      room.ratePlanId,
-      room.total.currency,
-    );
+    const billing = await resolveBillingRatePlan(tx, context, room.ratePlanId, room.total.currency);
     if (!billing.ok) return null;
     if (!room.roomId) return billing.ratePlanId;
     const selected = await tx.$queryRaw<Array<{ id: string }>>`
