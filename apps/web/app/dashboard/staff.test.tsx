@@ -200,7 +200,7 @@ describe('Staff', () => {
         return Promise.resolve(
           Response.json({
             plan: { maxStaffSeats: 10, diningEnabled: true },
-            usage: { staffSeats: 1 },
+            usage: { staffSeats: 1, venues: 1 },
           }),
         );
       if (url === `${base}/venues`)
@@ -272,7 +272,7 @@ describe('Staff', () => {
         return Promise.resolve(
           Response.json({
             plan: { maxStaffSeats: 10, diningEnabled: true },
-            usage: { staffSeats: 2 },
+            usage: { staffSeats: 2, venues: 1 },
           }),
         );
       if (url === `${base}/venues`)
@@ -348,7 +348,7 @@ describe('Staff', () => {
         return Promise.resolve(
           Response.json({
             plan: { maxStaffSeats: 10, diningEnabled: true },
-            usage: { staffSeats: 1 },
+            usage: { staffSeats: 1, venues: 1 },
           }),
         );
       if (url === `${base}/venues`)

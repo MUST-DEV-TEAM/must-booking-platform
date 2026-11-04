@@ -7,7 +7,7 @@ const nav = (role: 'OWNER' | 'ADMIN' | 'STAFF', capabilities: string[], dining: 
   dashboardNavigation('t', 'p', role, 'overview', capabilities, {}, dining);
 
 describe('Restaurants in the sidebar', () => {
-  it('is hidden on plans without dining', () => {
+  it('is hidden until a restaurant is activated', () => {
     expect(labels(nav('OWNER', [], false))).not.toContain('Restaurants');
   });
 

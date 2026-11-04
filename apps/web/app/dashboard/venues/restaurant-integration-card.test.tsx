@@ -114,10 +114,10 @@ describe('RestaurantIntegrationCard', () => {
     expect(posted(calls, '/restaurant/deactivate')).toBe(true);
   });
 
-  it('explains when the plan does not include restaurants and offers no button', async () => {
-    await mount({ available: false, venue: null });
-    expect(text()).toContain('Not included in your plan');
-    expect(button('Activate')).toBeUndefined();
+  it('offers activation without plan upgrade messaging', async () => {
+    await mount({ available: true, venue: null });
+    expect(text()).not.toContain('Not included');
+    expect(button('Activate')).toBeDefined();
   });
 
   it('shows the state but no buttons to someone who cannot change settings', async () => {

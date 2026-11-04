@@ -47,7 +47,7 @@ export type VenueUpdate = Partial<{
 
 /** Settings -> Integrations -> Restaurant, for one hotel. */
 export type RestaurantIntegration = {
-  /** The plan includes restaurants, so the hotel may switch it on. */
+  /** Restaurants are currently available on every plan. */
   available: boolean;
   venue: { id: string; name: string; active: boolean; setupCompletedAt: string | null } | null;
 };

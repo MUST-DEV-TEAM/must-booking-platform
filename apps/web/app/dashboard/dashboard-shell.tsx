@@ -480,7 +480,7 @@ export function DashboardShell({
   const planData = usePlanUsage(tenantId).data;
   const planUsage = planData?.plan;
   // Restaurants appears once the hotel has switched its restaurant on (Settings -> Integrations).
-  const showRestaurants = planUsage?.diningEnabled === true && (planData?.usage?.venues ?? 0) > 0;
+  const showRestaurants = (planData?.usage?.venues ?? 0) > 0;
   const restaurantStaff =
     useRestaurantStaffAccess(tenantId, selectedProperty?.id, role === 'STAFF' && showRestaurants)
       .data === true;

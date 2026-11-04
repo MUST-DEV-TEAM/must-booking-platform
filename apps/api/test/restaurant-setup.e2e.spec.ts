@@ -114,15 +114,15 @@ describe('restaurant integration and first-time setup', () => {
   const restaurantUrl = (a: Account) =>
     `/tenants/${a.tenantId}/properties/${a.propertyId}/restaurant`;
 
-  it('starts off, and cannot be switched on by a plan without restaurants', async () => {
+  it('starts off and can be activated despite legacy plan dining being disabled', async () => {
     const owner = await signUp('plan');
     const status = await http().get(restaurantUrl(owner)).set('Cookie', owner.cookie).expect(200);
-    expect(status.body).toEqual({ available: false, venue: null });
-    const refused = await http()
+    expect(status.body).toEqual({ available: true, venue: null });
+    const activated = await http()
       .post(`${restaurantUrl(owner)}/activate`)
-      .set('Cookie', owner.cookie);
-    expect(refused.status).toBe(403);
-    expect(refused.body.code).toBe('DINING_NOT_ENABLED');
+      .set('Cookie', owner.cookie)
+      .expect(201);
+    expect(activated.body).toMatchObject({ available: true, venue: { active: true } });
   });
 
   it('switches on from the hotel details, off without losing anything, and on again', async () => {

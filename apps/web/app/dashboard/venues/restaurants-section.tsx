@@ -4,7 +4,6 @@ import { useQuery } from '@tanstack/react-query';
 
 import { Alert, AlertDescription, AlertTitle } from '../../../components/ui/alert';
 import { TabBar } from '../../../components/ui/tab-bar';
-import { usePlanUsage } from '../plan-access';
 import { RestaurantSetupWizard } from './restaurant-setup-wizard';
 import { venueApi, type Venue } from './venue-api';
 import { VenueSetup } from './venue-setup';
@@ -29,24 +28,11 @@ export function RestaurantsSection({
   venueId: string | null;
   onSelectVenue: (venueId: string) => void;
 }) {
-  const plan = usePlanUsage(tenantId);
-  const diningEnabled = plan.data?.plan.diningEnabled === true;
   const venues = useQuery({
     queryKey: ['venues', tenantId],
     queryFn: () => venueApi.listVenues(tenantId),
-    enabled: diningEnabled,
   });
 
-  if (plan.isPending) return <p className="text-sm text-muted-foreground">Loading restaurants…</p>;
-  if (!diningEnabled)
-    return (
-      <Alert variant="info">
-        <AlertTitle>Restaurants are not part of your plan</AlertTitle>
-        <AlertDescription>
-          Your plan does not include restaurants. Contact MUST to add table bookings.
-        </AlertDescription>
-      </Alert>
-    );
   if (venues.isPending)
     return <p className="text-sm text-muted-foreground">Loading restaurants…</p>;
   if (venues.isError)

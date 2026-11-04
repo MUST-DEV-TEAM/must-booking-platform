@@ -5,7 +5,7 @@ import { loadVenuePlan } from './venue-plan';
 import { VenuesService, type VenueView } from './venues.service';
 
 export type RestaurantIntegrationStatus = {
-  /** The plan includes restaurants, so the hotel may switch it on. */
+  /** Restaurants are currently available on every plan. */
   available: boolean;
   /** The restaurant of this hotel, if it has ever been switched on. */
   venue: Pick<VenueView, 'id' | 'name' | 'active' | 'setupCompletedAt'> | null;

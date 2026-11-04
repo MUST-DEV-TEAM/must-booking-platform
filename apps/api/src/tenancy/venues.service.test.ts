@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 
 import { slugifyVenueName } from './venue-input';
@@ -58,18 +58,24 @@ describe('slugifyVenueName', () => {
 });
 
 describe('VenuesService.create', () => {
-  it('refuses when the plan does not include dining', async () => {
-    const { venues } = service([lock], [{ ...planOk, diningEnabled: false, maxVenues: 0 }]);
-    const error = await venues.create(tenantId, actorUserId, validBody).catch((e) => e);
-    expect(error).toBeInstanceOf(ForbiddenException);
-    expect(error.getResponse()).toMatchObject({ code: 'DINING_NOT_ENABLED' });
+  it('creates a restaurant despite legacy plan dining being disabled', async () => {
+    const { venues } = service(
+      [lock],
+      [{ ...planOk, diningEnabled: false, maxVenues: 0 }],
+      [],
+      [venueRow],
+    );
+    await expect(venues.create(tenantId, actorUserId, validBody)).resolves.toEqual(venueRow);
   });
 
-  it('refuses when the venue limit is reached', async () => {
-    const { venues } = service([lock], [{ ...planOk, maxVenues: 1, activeVenues: 1 }]);
-    const error = await venues.create(tenantId, actorUserId, validBody).catch((e) => e);
-    expect(error).toBeInstanceOf(ConflictException);
-    expect(error.getResponse()).toMatchObject({ code: 'VENUE_LIMIT_REACHED' });
+  it('creates beyond the legacy plan venue limit', async () => {
+    const { venues } = service(
+      [lock],
+      [{ ...planOk, maxVenues: 1, activeVenues: 1 }],
+      [],
+      [venueRow],
+    );
+    await expect(venues.create(tenantId, actorUserId, validBody)).resolves.toEqual(venueRow);
   });
 
   it('rejects a linked property that is not in the tenant', async () => {
@@ -123,8 +129,12 @@ describe('VenuesService.create', () => {
 });
 
 describe('VenuesService.list', () => {
-  it('refuses when the plan does not include dining', async () => {
-    const { venues } = service([{ ...planOk, diningEnabled: false }]);
-    await expect(venues.list(tenantId, actorUserId)).rejects.toBeInstanceOf(ForbiddenException);
+  it('lists restaurants despite legacy plan dining being disabled', async () => {
+    const { venues } = service(
+      [{ ...planOk, diningEnabled: false }],
+      [{ role: 'OWNER' }],
+      [venueRow],
+    );
+    await expect(venues.list(tenantId, actorUserId)).resolves.toEqual([venueRow]);
   });
 });

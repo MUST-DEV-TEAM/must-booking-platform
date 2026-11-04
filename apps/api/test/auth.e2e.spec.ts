@@ -151,8 +151,8 @@ describe('authentication endpoints', () => {
         pmsEnabled: false,
         maxPmsConnectionsPerProperty: 0,
         readOnly: false,
-        diningEnabled: false,
-        maxVenues: 0,
+        diningEnabled: true,
+        maxVenues: null,
       },
       usage: { properties: 1, staffSeats: 1, venues: 0 },
     });
