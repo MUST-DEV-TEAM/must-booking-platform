@@ -4,6 +4,7 @@ import type {
 } from '@must/domain-contracts';
 import type { MoveBookingRoomCommand } from '@must/domain-contracts';
 import { enforcePropertyBookingLimits } from './property-booking-limits';
+import { resolveBillingRatePlan } from './billing-rate-plan';
 import { BadRequestException, HttpException, Inject, Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import {
@@ -342,14 +343,15 @@ export class LocalPmsProvider implements PmsProvider {
                   children: occupancy.children,
                   roomCount: 1,
                 });
-              const catalogError = await this.validateCatalog(
+              const catalog = await this.validateCatalog(
                 tx,
                 context,
                 command.roomTypeId,
                 ratePlanId,
                 command.total.currency,
               );
-              if (catalogError) return catalogError;
+              if (typeof catalog !== 'string') return catalog;
+              const billingRatePlanId = catalog;
               const roomSelection = await this.validateRoomSelection(tx, context, command);
               if ('ok' in roomSelection) return roomSelection;
               const paymentMethod = await this.paymentMethod(tx, context, command);
@@ -388,7 +390,7 @@ export class LocalPmsProvider implements PmsProvider {
           ${command.guest.specialRequests?.trim() || null},
           ${BookingStatus.DRAFT}::"BookingStatus",
           ${paymentMethod.value}::"BookingPaymentMethod",
-          ${command.startsOn}::date, ${command.endsOn}::date, ${ratePlanId}::uuid,
+          ${command.startsOn}::date, ${command.endsOn}::date, ${billingRatePlanId}::uuid,
           ${command.total.amount}::numeric, ${occupancy.adults}, ${occupancy.children}, ${command.childrenAges === undefined ? null : JSON.stringify(command.childrenAges)}::jsonb,
           ${occupancy.guestCount}, ${command.staffActorId ? 'DIRECT' : 'WEBSITE'}, ${command.clockRateId ?? null},
           ${promo?.code ?? null}, ${promo?.discount.amount ?? null}::numeric, ${promo?.originalTotal.amount ?? null}::numeric
@@ -1714,22 +1716,19 @@ export class LocalPmsProvider implements PmsProvider {
     roomTypeId: string,
     ratePlanId: string,
     totalCurrency: string,
-  ): Promise<Result<Booking> | null> {
+  ): Promise<Result<Booking> | string> {
     const roomTypes = await tx.$queryRaw<Array<{ id: string }>>`
       SELECT id FROM room_types
       WHERE id = ${roomTypeId}::uuid AND tenant_id = ${context.tenantId}::uuid
         AND property_id = ${context.propertyId}::uuid AND status = 'PUBLISHED'::"RoomTypeStatus"
     `;
     if (!roomTypes[0]) return this.failure('ROOM_TYPE_NOT_FOUND', 'Room type was not found.');
-    const ratePlans = await tx.$queryRaw<Array<{ id: string; currency: string }>>`
-      SELECT id, currency FROM rate_plans
-      WHERE id = ${ratePlanId}::uuid AND tenant_id = ${context.tenantId}::uuid
-        AND property_id = ${context.propertyId}::uuid AND is_active = true
-    `;
-    if (!ratePlans[0])
-      return this.failure('RATE_PLAN_NOT_FOUND', 'Active rate plan was not found.');
-    return ratePlans[0].currency === totalCurrency
-      ? null
+    // Returns the plan the booking is stored under: the chosen plan, or for a Clock rate that Clock sells in
+    // another currency, the plan billed in that currency (see resolveBillingRatePlan).
+    const billing = await resolveBillingRatePlan(tx, context, ratePlanId, totalCurrency);
+    if (billing.ok) return billing.ratePlanId;
+    return billing.reason === 'RATE_PLAN_NOT_FOUND'
+      ? this.failure('RATE_PLAN_NOT_FOUND', 'Active rate plan was not found.')
       : this.failure(
           'CURRENCY_MISMATCH',
           'Booking total currency must match the rate plan currency.',

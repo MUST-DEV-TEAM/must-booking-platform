@@ -12,6 +12,7 @@ import { createHash, randomUUID } from 'node:crypto';
 
 import { AvailabilityService } from '../tenancy/availability.service';
 import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant-database.service';
+import { resolveBillingRatePlan } from './billing-rate-plan';
 import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
 import { ClockBookingService } from '../integrations/clock/clock-booking.service';
 import { BookingConfirmationNotificationService } from '../mail/booking-confirmation-notification.service';
@@ -117,6 +118,9 @@ export class MultiRoomBookingService {
             );
             if (!paymentMethod.ok) return paymentMethod;
 
+            // The plan each room is stored under (index-aligned with command.rooms): a Clock rate that Clock sells
+            // in another currency is kept on the plan billed in that currency.
+            const billingRatePlanIds: string[] = [];
             for (const room of command.rooms) {
               const quoteError = this.quotes.validate(room.quoteToken, command.quoteSessionId, {
                 tenantId: context.tenantId,
@@ -134,11 +138,13 @@ export class MultiRoomBookingService {
                   'QUOTE_INVALID',
                   'The quote does not contain a price for every night. Please request a new quote.',
                 );
-              if (!(await this.validCatalog(tx, context, room)))
+              const billingRatePlanId = await this.validCatalog(tx, context, room);
+              if (!billingRatePlanId)
                 return this.failure(
                   'CATALOG_MISMATCH',
                   'A requested room type or rate plan is no longer available.',
                 );
+              billingRatePlanIds.push(billingRatePlanId);
             }
 
             const guest = await this.resolveGuest(tx, context.tenantId, command.guest);
@@ -175,7 +181,7 @@ export class MultiRoomBookingService {
                   ${externalReference}, ${orderReference}, ${index + 1},
                   ${roomGuest.firstName?.trim() || null}, ${roomGuest.lastName?.trim() || null},
                   ${status}::"BookingStatus", ${paymentMethod.value}::"BookingPaymentMethod",
-                  ${command.startsOn}::date, ${command.endsOn}::date, ${room.ratePlanId}::uuid,
+                  ${command.startsOn}::date, ${command.endsOn}::date, ${billingRatePlanIds[index]}::uuid,
                   ${room.total.amount}::numeric, ${occupancy.adults}, ${occupancy.children},
                   ${occupancy.guestCount}, ${JSON.stringify(nightlyRates)}::jsonb, 'WEBSITE'
                 )
@@ -405,29 +411,23 @@ export class MultiRoomBookingService {
     tx: TenantTransaction,
     context: { tenantId: string; propertyId: string },
     room: MultiRoomBookingCommand['rooms'][number],
-  ): Promise<boolean> {
-    const rows = await tx.$queryRaw<Array<{ id: string }>>`
-      SELECT rp.id
-      FROM rate_plans rp
-      JOIN room_types rt
-        ON rt.tenant_id = rp.tenant_id AND rt.property_id = rp.property_id
-        AND rt.id = ${room.roomTypeId}::uuid
-      WHERE rp.tenant_id = ${context.tenantId}::uuid
-        AND rp.property_id = ${context.propertyId}::uuid
-        AND rp.id = ${room.ratePlanId}::uuid
-        AND rp.is_active = true
-        AND rp.currency = ${room.total.currency}
-        AND rt.status = 'PUBLISHED'::"RoomTypeStatus"
+  ): Promise<string | null> {
+    const types = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM room_types
+      WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+        AND id = ${room.roomTypeId}::uuid AND status = 'PUBLISHED'::"RoomTypeStatus"
     `;
-    if (!rows[0]) return false;
-    if (!room.roomId) return true;
+    if (!types[0]) return null;
+    const billing = await resolveBillingRatePlan(tx, context, room.ratePlanId, room.total.currency);
+    if (!billing.ok) return null;
+    if (!room.roomId) return billing.ratePlanId;
     const selected = await tx.$queryRaw<Array<{ id: string }>>`
       SELECT id FROM rooms
       WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
         AND id = ${room.roomId}::uuid AND room_type_id = ${room.roomTypeId}::uuid
         AND is_active = true
     `;
-    return !!selected[0];
+    return selected[0] ? billing.ratePlanId : null;
   }
 
   private async paymentMethod(
