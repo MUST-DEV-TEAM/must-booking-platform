@@ -210,7 +210,7 @@ describe('restaurant reservations', () => {
     expect(staff.body.reason).toBeNull();
   });
 
-  it('serves anonymous website availability without exposing table or guest records and respects the full stay', async () => {
+  it('serves anonymous availability with public table IDs, excludes private records and respects the full stay', async () => {
     ownDay();
     const publicBase = `/v1/tenants/${tenantId}/restaurants/${venueId}`;
     const info = await http().get(publicBase).expect(200);
@@ -228,12 +228,17 @@ describe('restaurant reservations', () => {
       const short = await http()
         .get(`${publicBase}/availability?date=${day}&partySize=2&durationMinutes=90`)
         .expect(200);
-      expect(short.body.services[0].slots).toContainEqual({ time: '19:00' });
+      expect(short.body.services[0].slots).toContainEqual({
+        time: '19:00',
+        freeTableIds: [table1.id],
+      });
       expect(short.body.services[0].slots[0]).not.toHaveProperty('freeTables');
       const long = await http()
         .get(`${publicBase}/availability?date=${day}&partySize=2&durationMinutes=120`)
         .expect(200);
-      expect(long.body.services[0].slots).not.toContainEqual({ time: '19:00' });
+      expect(long.body.services[0].slots.map((slot: { time: string }) => slot.time)).not.toContain(
+        '19:00',
+      );
     } finally {
       await admin.$executeRaw`UPDATE venue_tables SET online_bookable=true WHERE tenant_id=${tenantId}::uuid AND id=${table2.id}::uuid`;
     }
@@ -254,7 +259,9 @@ describe('restaurant reservations', () => {
         `/v1/tenants/${tenantId}/restaurants/${venueId}/availability?date=${day}&partySize=2&time=22:45`,
       )
       .expect(200);
-    expect(online.body.services[0].slots).not.toContainEqual({ time: '22:45' });
+    expect(online.body.services[0].slots.map((slot: { time: string }) => slot.time)).not.toContain(
+      '22:45',
+    );
     await book({ time: '22:45', guestName: 'Late staff booking' }).expect(201);
     const closing = await http()
       .get(`${base}/availability?date=${day}&partySize=2&time=23:00`)
