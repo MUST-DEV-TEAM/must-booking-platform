@@ -1,0 +1,377 @@
+---
+interface Props {
+  tenant: string;
+  venue: string;
+}
+const { tenant, venue } = Astro.props;
+---
+
+<div
+  class="booking-card"
+  id="booking-app"
+  data-api={`/api/v1/tenants/${tenant}/restaurants/${venue}`}
+>
+  <div id="modes" class="modes" role="tablist" aria-label="How would you like to book?">
+    <button type="button" role="tab" data-mode="auto" aria-selected="true">
+      Best table
+    </button>
+    <button type="button" role="tab" data-mode="choose" aria-selected="false">
+      Choose area &amp; table
+    </button>
+    <button type="button" role="tab" data-mode="map" aria-selected="false">
+      Pick on the map
+    </button>
+  </div>
+  <form id="find-form">
+    <h3>Reserve a table</h3>
+    <div class="fields">
+      <label>
+        Your day
+        <input id="date" name="date" type="date" required />
+      </label>
+      <label>
+        Guests
+        <input id="party" name="party" type="number" min="1" max="12" value="2" required />
+      </label>
+      <label class="full">
+        Time to enjoy
+        <select id="duration">
+          <option value="60">1 hour</option>
+          <option value="90" selected>
+            1 hour 30 min
+          </option>
+          <option value="120">2 hours</option>
+          <option value="150">2 hours 30 min</option>
+          <option value="180">3 hours</option>
+        </select>
+      </label>
+    </div>
+    <button class="button" id="find-button">
+      Find a time <span>→</span>
+    </button>
+  </form>
+  <div id="times" hidden>
+    <h3>Choose your arrival</h3>
+    <div id="slots" class="slots"></div>
+  </div>
+  <div id="pick" hidden>
+    <div id="choose" hidden>
+      <h3>Choose your table</h3>
+      <div class="fields">
+        <label>
+          Area
+          <select id="area-select"></select>
+        </label>
+        <label>
+          Table
+          <select id="table-select"></select>
+        </label>
+      </div>
+    </div>
+    <div id="map-panel" hidden>
+      <h3>Pick your table</h3>
+      <label>
+        Area
+        <select id="map-area"></select>
+      </label>
+      <svg
+        id="map"
+        class="floor-map"
+        role="group"
+        aria-label="Floor map"
+        viewBox="0 0 1000 700"
+      ></svg>
+      <p class="legend">
+        <span class="dot free"></span> Free <span class="dot taken"></span> Not available
+      </p>
+    </div>
+  </div>
+  <div id="guest-slot">
+    <form id="guest-form" hidden>
+      <div class="booking-summary" id="terms"></div>
+      <h3>A few details</h3>
+      <label>
+        Your name
+        <input name="guestName" autocomplete="name" required maxlength="200" />
+      </label>
+      <label>
+        Email
+        <input name="guestEmail" type="email" autocomplete="email" required maxlength="320" />
+      </label>
+      <label>
+        Phone
+        <input name="guestPhone" type="tel" autocomplete="tel" maxlength="50" />
+      </label>
+      <label>
+        Anything we should know?
+        <textarea
+          name="notes"
+          maxlength="1000"
+          placeholder="A celebration, an accessibility request…"
+        ></textarea>
+      </label>
+      <button class="button" id="book-button">
+        Confirm reservation <span>→</span>
+      </button>
+      <button type="button" id="change-time" class="text-button">
+        Choose another time
+      </button>
+    </form>
+  </div>
+  <dialog id="table-dialog">
+    <button type="button" id="dialog-close" class="dialog-close" aria-label="Close">
+      ×
+    </button>
+    <div id="dialog-body"></div>
+  </dialog>
+
+  <div id="result" hidden>
+    <p class="eyebrow">YOUR TABLE</p>
+    <h3 id="result-title"></h3>
+    <p id="reference"></p>
+    <p id="booking-window"></p>
+    <p id="payment-status"></p>
+    <a id="checkout" class="button" hidden target="_blank" rel="noopener noreferrer">
+      Pay your deposit securely ↗
+    </a>
+    <button id="status-button" class="text-button" hidden>
+      Check payment status
+    </button>
+  </div>
+  <p id="message" role="status" aria-live="polite"></p>
+  <noscript>Please enable JavaScript to check availability and reserve a table.</noscript>
+</div>
+<script src="../scripts/booking.ts"></script>
+<style>
+  .booking-card {
+    padding: 30px;
+    background: #fffdf8;
+    border: 1px solid #dedfd3;
+    border-radius: 8px;
+    box-shadow: 0 15px 45px #34402b08;
+  }
+  .booking-card h3 {
+    font:
+      27px Georgia,
+      serif;
+    margin: 0 0 22px;
+  }
+  .fields {
+    display: grid;
+    grid-template-columns: 1.5fr 1fr;
+    gap: 14px;
+  }
+  .full {
+    grid-column: 1/-1;
+  }
+  label {
+    display: block;
+    font-size: 12px;
+    margin-bottom: 16px;
+  }
+  input,
+  select,
+  textarea {
+    display: block;
+    width: 100%;
+    padding: 11px;
+    margin-top: 6px;
+    border: 1px solid #d4d9cc;
+    border-radius: 3px;
+    background: #fff;
+    color: #253b30;
+    min-width: 0;
+  }
+  .booking-card .button {
+    width: 100%;
+    margin-top: 8px;
+  }
+  .slots {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .booking-card :global(.service-slots) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .booking-card :global(.service-slots > p) {
+    flex-basis: 100%;
+    margin: 8px 0;
+  }
+  .booking-card #times {
+    margin-top: 28px;
+  }
+  .booking-card :global(.slot) {
+    padding: 9px 14px;
+    border: 1px solid #acb6a2;
+    background: #fffdf8;
+    border-radius: 3px;
+    color: #253b30;
+    cursor: pointer;
+  }
+  .booking-card :global(.slot[aria-pressed='true']) {
+    background: #294a37;
+    color: #fff;
+  }
+  .modes {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 24px;
+    border-bottom: 1px solid #dedfd3;
+  }
+  .modes button {
+    flex: 1;
+    padding: 10px 6px;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: none;
+    color: #53654c;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .modes button[aria-selected='true'] {
+    color: #253b30;
+    border-bottom-color: #294a37;
+    font-weight: 600;
+  }
+  #pick {
+    margin-top: 28px;
+  }
+  .floor-map {
+    width: 100%;
+    height: auto;
+    background: #f4f1e8;
+    border: 1px solid #dedfd3;
+    border-radius: 6px;
+  }
+  .floor-map :global(.table rect),
+  .floor-map :global(.table ellipse) {
+    stroke-width: 2;
+  }
+  .floor-map :global(.table.free rect),
+  .floor-map :global(.table.free ellipse) {
+    fill: #cfe3c8;
+    stroke: #294a37;
+  }
+  .floor-map :global(.table.free) {
+    cursor: pointer;
+  }
+  .floor-map :global(.table.free:hover rect),
+  .floor-map :global(.table.free:hover ellipse),
+  .floor-map :global(.table.free:focus rect),
+  .floor-map :global(.table.free:focus ellipse) {
+    fill: #294a37;
+  }
+  .floor-map :global(.table.free:hover text),
+  .floor-map :global(.table.free:focus text) {
+    fill: #fff;
+  }
+  .floor-map :global(.table.taken rect),
+  .floor-map :global(.table.taken ellipse) {
+    fill: #e4e2da;
+    stroke: #b9b8ae;
+  }
+  .floor-map :global(.table.taken text) {
+    fill: #9a998f;
+  }
+  .floor-map :global(text) {
+    font-family: sans-serif;
+    font-weight: 600;
+    fill: #253b30;
+    pointer-events: none;
+  }
+  .floor-map :global(text.seats) {
+    font-weight: 400;
+  }
+  .legend {
+    font-size: 12px;
+    color: #53654c;
+  }
+  .dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin: 0 4px 0 12px;
+  }
+  .dot.free {
+    background: #cfe3c8;
+    border: 1px solid #294a37;
+  }
+  .dot.taken {
+    background: #e4e2da;
+    border: 1px solid #b9b8ae;
+  }
+  dialog {
+    width: min(480px, calc(100vw - 32px));
+    max-height: 90vh;
+    overflow: auto;
+    padding: 28px;
+    border: 1px solid #dedfd3;
+    border-radius: 8px;
+    background: #fffdf8;
+    color: #253b30;
+  }
+  dialog::backdrop {
+    background: #1a2a2088;
+  }
+  .dialog-close {
+    position: absolute;
+    top: 10px;
+    right: 14px;
+    border: 0;
+    background: none;
+    font-size: 26px;
+    cursor: pointer;
+    color: #53654c;
+  }
+  .booking-summary {
+    font-size: 13px;
+    padding: 15px;
+    background: #edf0e6;
+    margin: 24px 0;
+  }
+  .text-button {
+    display: block;
+    margin: 16px auto 0;
+    border: 0;
+    background: none;
+    text-decoration: underline;
+    cursor: pointer;
+    color: #53654c;
+    font-size: 12px;
+  }
+  #message {
+    font-size: 13px;
+    margin: 18px 0 0;
+    color: #7b492c;
+  }
+  .button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 30px;
+    padding: 15px 24px;
+    background: #294a37;
+    color: #fff;
+    border: 0;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 14px;
+  }
+  .button:hover {
+    background: #3b5e49;
+  }
+  .eyebrow {
+    font-size: 10px;
+    letter-spacing: 2.6px;
+    font-weight: 600;
+  }
+  @media (max-width: 760px) {
+    .booking-card {
+      padding: 24px 18px;
+    }
+  }
+</style>

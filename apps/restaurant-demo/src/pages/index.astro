@@ -1,0 +1,8 @@
+---
+import RestaurantLanding from '../components/RestaurantLanding.astro';
+
+const tenant = import.meta.env.PUBLIC_TENANT_ID ?? '00000000-0000-0000-0000-000000000000';
+const venue = import.meta.env.PUBLIC_VENUE_ID ?? '00000000-0000-0000-0000-000000000000';
+---
+
+<RestaurantLanding {tenant} {venue} />

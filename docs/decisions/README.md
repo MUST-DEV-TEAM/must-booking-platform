@@ -44,6 +44,7 @@ Index of durable, cross-cutting, or hard-to-reverse decisions. Routine implement
 | [ADR-0037](ADR-0037-audit-event-evidence.md) | Explicit audit metadata, operation links and application append-only history | Accepted owner direction 2026-10-24 |
 
 | [ADR-0038](ADR-0038-hotel-display-exchange-rates.md) | Hotel display rates override the feed | Accepted owner direction 2026-10-28; display only, new payment annotations snapshot the applicable rate |
+| [ADR-0039](ADR-0039-restaurant-venues.md) | Restaurant venues are their own model | Accepted owner direction 2026-11-03; optional hotel link, equivalent (not generalised) staff tables, plan flag off by default |
 
 ## Interpretation and unresolved implementation details
 

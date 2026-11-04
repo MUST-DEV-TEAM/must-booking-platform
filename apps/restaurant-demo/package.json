@@ -1,0 +1,16 @@
+{
+  "name": "restaurant-demo",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev --host 127.0.0.1 --port 4323",
+    "build": "astro sync && tsc --noEmit && astro build"
+  },
+  "dependencies": {
+    "astro": "7.4.5"
+  },
+  "devDependencies": {
+    "prettier-plugin-astro": "1.1.2"
+  }
+}

@@ -1,9 +1,37 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { TenantDatabaseService } from './tenant-database.service';
+import {
+  VENUE_CAPABILITY_CATALOG,
+  VENUE_ROLE_CAPABILITIES,
+  type VenueRole,
+} from './venue-capability-catalog';
 
 @Injectable()
 export class CapabilitiesService {
   constructor(@Inject(TenantDatabaseService) private readonly database: TenantDatabaseService) {}
+
+  /** Workspace owners and admins hold every venue capability; others get their venue role's set. */
+  async effectiveForVenue(context: {
+    tenantId: string;
+    venueId: string;
+    userId: string;
+  }): Promise<string[]> {
+    return this.database.withTenantTransaction({ tenantId: context.tenantId }, async (tx) => {
+      const member = await tx.$queryRaw<
+        Array<{ role: 'OWNER' | 'ADMIN' | 'STAFF' }>
+      >`SELECT "role" FROM "tenant_memberships" WHERE "tenant_id"=${context.tenantId}::uuid AND "user_id"=${context.userId}::uuid`;
+      if (member[0]?.role === 'OWNER' || member[0]?.role === 'ADMIN')
+        return VENUE_CAPABILITY_CATALOG.map((entry) => entry.key);
+      const assignment = await tx.$queryRaw<Array<{ role: VenueRole }>>`
+        SELECT "role" FROM "venue_staff_assignments"
+        WHERE "tenant_id"=${context.tenantId}::uuid AND "venue_id"=${context.venueId}::uuid
+          AND "user_id"=${context.userId}::uuid AND "suspended_at" IS NULL
+      `;
+      const role = assignment[0]?.role;
+      return role ? [...(VENUE_ROLE_CAPABILITIES[role] ?? [])] : [];
+    });
+  }
+
   async effective(context: { tenantId: string; propertyId?: string; userId: string }) {
     return this.database.withTenantTransaction(context, async (tx) => {
       const member = await tx.$queryRaw<

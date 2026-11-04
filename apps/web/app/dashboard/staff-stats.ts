@@ -21,6 +21,8 @@ export type StaffMember = {
   lastActiveAt: string | null;
   createdAt?: string;
   createdByEmail?: string | null;
+  /** Set for people who work at this hotel's restaurant; managed on the Staff page. */
+  restaurant?: { venueId: string; venueName: string; role?: 'MANAGER' | 'HOST' };
 };
 
 export type StaffStats = {

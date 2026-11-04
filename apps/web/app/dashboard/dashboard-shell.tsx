@@ -23,8 +23,10 @@ import {
   Tags,
   UserRound,
   Users,
+  UtensilsCrossed,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useRestaurantStaffAccess } from './venues/venue-access';
 
 import { Chip } from '../../components/ui/chip';
 import { TabBar } from '../../components/ui/tab-bar';
@@ -41,6 +43,7 @@ import { NeedsAttentionTab } from './needs-attention';
 import { SystemHealthTab } from './system-health';
 import { GlobalSearch } from './global-search';
 import { useUnseenBookings } from './unseen-bookings';
+import { RestaurantsSection } from './venues/restaurants-section';
 import { DashboardOverview, useOverviewQuery } from './overview';
 import { CalendarPage } from './calendar-page';
 import { AddReservation } from './add-reservation';
@@ -168,10 +171,17 @@ const hotelNavigation = [
   },
 ] as const;
 
+// Restaurant access is granted per restaurant (see the Restaurants section), not by hotel
+// capabilities, so every role may open it; the API decides which restaurants they can see.
+const restaurantNavigation = [
+  { section: 'restaurants', label: 'Restaurants', icon: UtensilsCrossed },
+] as const;
+
 const dashboardSections: readonly DashboardNavigationDefinition[] = [
   ...operationalNavigation.slice(0, 3),
   ...hotelNavigation,
   ...operationalNavigation.slice(3),
+  ...restaurantNavigation,
   ...managementNavigation,
 ];
 
@@ -211,6 +221,7 @@ export function canAccessSection(
     role !== 'STAFF' ||
     section === 'overview' ||
     section === 'hotels' ||
+    section === 'restaurants' ||
     section === 'account' ||
     section === 'notifications'
   )
@@ -314,9 +325,20 @@ export function dashboardNavigation(
   currentSection = 'overview',
   capabilities: readonly string[] = [],
   badges: Readonly<Record<string, number>> = {},
+  /** Restaurants appear only on plans that include dining. */
+  diningEnabled = false,
+  /** Staff who work at the restaurant and hold no hotel permissions see only the restaurant. */
+  restaurantOnly = false,
+  restaurantStaff = false,
 ): AppNavigationItem[] {
-  const items = dashboardSections.filter((item) =>
-    canAccessSection(role, capabilities, item.section),
+  const items = dashboardSections.filter(
+    (item) =>
+      (canAccessSection(role, capabilities, item.section) ||
+        (item.section === 'staff' && restaurantStaff)) &&
+      (item.section !== 'restaurants' || diningEnabled) &&
+      (!restaurantOnly ||
+        item.section === 'restaurants' ||
+        (item.section === 'staff' && restaurantStaff)),
   );
   return items.map((item) => ({
     href: `/dashboard/${tenantId}?propertyId=${encodeURIComponent(propertyId)}&section=${item.section}`,
@@ -344,6 +366,8 @@ export function DashboardShell({
   const [paymentId, setPaymentId] = useState<string | null>(null);
   const [guestId, setGuestId] = useState<string | null>(null);
   const [reservationId, setReservationId] = useState<string | null>(null);
+  // The restaurant open on the Restaurants page (?venue=<venueId>).
+  const [venueId, setVenueId] = useState<string | null>(null);
   const [tab, setTab] = useState<DashboardTab>('overview');
   const [settingsArea, setSettingsArea] = useState<SettingsArea | null>(null);
   const [emailTab, setEmailTab] = useState<EmailTab | undefined>(undefined);
@@ -353,8 +377,10 @@ export function DashboardShell({
   // Tabs switch in place and push the address; the back/forward buttons must follow.
   useEffect(() => {
     const onPopState = () => {
-      const requested = new URLSearchParams(window.location.search).get('tab');
+      const params = new URLSearchParams(window.location.search);
+      const requested = params.get('tab');
       setTab(isDashboardTab(requested) ? requested : 'overview');
+      setVenueId(params.get('venue'));
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
@@ -365,6 +391,7 @@ export function DashboardShell({
     setPaymentId(params.get('payment'));
     setGuestId(params.get('guest'));
     setReservationId(params.get('reservation'));
+    setVenueId(params.get('venue'));
   }, []);
 
   useEffect(() => {
@@ -414,7 +441,10 @@ export function DashboardShell({
   }, [initialData, tenantId]);
 
   useEffect(() => {
-    if (!role || !selectedProperty) return;
+    if (!role || !selectedProperty) {
+      if (role && properties?.length === 0) setCapabilities([]);
+      return;
+    }
     let active = true;
     setCapabilities(undefined);
     void fetch(`/api/tenants/${tenantId}/properties/${selectedProperty.id}/capabilities/mine`, {
@@ -437,7 +467,7 @@ export function DashboardShell({
     return () => {
       active = false;
     };
-  }, [role, selectedProperty?.id, tenantId]);
+  }, [role, selectedProperty?.id, tenantId, properties?.length]);
 
   const canSeeBookings =
     !!role && (role !== 'STAFF' || capabilities?.includes('bookings.view') === true);
@@ -447,11 +477,32 @@ export function DashboardShell({
     selectedProperty?.id,
     !!selectedProperty && canSeeBookings,
   );
+  const planData = usePlanUsage(tenantId).data;
+  const planUsage = planData?.plan;
+  // Restaurants appears once the hotel has switched its restaurant on (Settings -> Integrations).
+  const showRestaurants = planUsage?.diningEnabled === true && (planData?.usage?.venues ?? 0) > 0;
+  const restaurantStaff =
+    useRestaurantStaffAccess(tenantId, selectedProperty?.id, role === 'STAFF' && showRestaurants)
+      .data === true;
+  // Staff who only work at the restaurant (no hotel permissions at all) get just the restaurant.
+  const restaurantOnly =
+    role === 'STAFF' && capabilities !== undefined && capabilities.length === 0 && showRestaurants;
+  useEffect(() => {
+    if (restaurantOnly && section === 'overview') setSection('restaurants');
+  }, [restaurantOnly, section]);
   const navigation =
-    selectedProperty && role
-      ? dashboardNavigation(tenantId, selectedProperty.id, role, section, capabilities ?? [], {
-          reservations: unseen.count,
-        })
+    (selectedProperty || restaurantOnly) && role
+      ? dashboardNavigation(
+          tenantId,
+          selectedProperty?.id ?? '',
+          role,
+          section,
+          capabilities ?? [],
+          { reservations: unseen.count },
+          showRestaurants,
+          restaurantOnly,
+          restaurantStaff,
+        )
       : [];
   const sectionLabel =
     section === 'account'
@@ -460,11 +511,14 @@ export function DashboardShell({
         ? 'Notifications'
         : (dashboardSections.find((candidate) => candidate.section === section)?.label ??
           'Dashboard');
-  const canViewSection = role ? canAccessSection(role, capabilities ?? [], section) : false;
+  const canViewSection = role
+    ? canAccessSection(role, capabilities ?? [], section) ||
+      (section === 'staff' && restaurantStaff)
+    : false;
   const hasCapability = (capability: string) =>
     role !== 'STAFF' || capabilities?.includes(capability) === true;
   // A read-only plan keeps every page visible but turns off the write controls.
-  const readOnlyPlan = usePlanUsage(tenantId).data?.plan?.readOnly === true;
+  const readOnlyPlan = planUsage?.readOnly === true;
   const canChange = (capability: string) => !readOnlyPlan && hasCapability(capability);
   const canAccessQuickBooking = hasCapability('bookings.create');
   const canAccessSystemHealth = hasCapability('bookings.view');
@@ -690,6 +744,24 @@ export function DashboardShell({
             />
           )
         ) : null}
+        {(selectedProperty || restaurantOnly) &&
+        role &&
+        canViewSection &&
+        section === 'restaurants' ? (
+          <RestaurantsSection
+            tenantId={tenantId}
+            role={role}
+            venueId={venueId}
+            onSelectVenue={(id) => {
+              setVenueId(id);
+              window.history.pushState(
+                null,
+                '',
+                `/dashboard/${tenantId}?propertyId=${encodeURIComponent(selectedProperty?.id ?? '')}&section=restaurants&venue=${encodeURIComponent(id)}`,
+              );
+            }}
+          />
+        ) : null}
         {selectedProperty && role && canViewSection && section === 'account' ? (
           <MyAccount
             tenantId={tenantId}
@@ -727,8 +799,8 @@ export function DashboardShell({
             emailVerified={user?.emailVerified === true}
           />
         ) : null}
-        {selectedProperty && role && canViewSection && section === 'staff' ? (
-          <DashboardStaff tenantId={tenantId} propertyId={selectedProperty.id} />
+        {(selectedProperty || restaurantStaff) && role && canViewSection && section === 'staff' ? (
+          <DashboardStaff tenantId={tenantId} propertyId={selectedProperty?.id ?? ''} />
         ) : null}
         {selectedProperty && role && canViewSection && section === 'emails' ? (
           <EmailsWorkspace

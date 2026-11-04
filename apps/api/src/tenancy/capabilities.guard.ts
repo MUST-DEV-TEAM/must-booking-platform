@@ -26,13 +26,19 @@ export class CapabilitiesGuard implements CanActivate {
       context.getClass(),
     ]);
     if (!capability) return true;
-    const request = context
-      .switchToHttp()
-      .getRequest<{ tenantContext?: { userId: string; tenantId: string; propertyId?: string } }>();
+    const request = context.switchToHttp().getRequest<{
+      tenantContext?: { userId: string; tenantId: string; propertyId?: string; venueId?: string };
+    }>();
     const tenantContext = request.tenantContext;
     if (!tenantContext)
       throw new ForbiddenException('A tenant context is required for capability checks.');
-    const allowed = (await this.capabilities.effective(tenantContext)).includes(capability);
+    const granted = tenantContext.venueId
+      ? await this.capabilities.effectiveForVenue({
+          ...tenantContext,
+          venueId: tenantContext.venueId,
+        })
+      : await this.capabilities.effective(tenantContext);
+    const allowed = granted.includes(capability);
     if (!allowed) {
       await auditDenial(this.audit, tenantContext, 'CAPABILITY_REQUIRED', capability);
       throw new ForbiddenException('Missing required capability.');

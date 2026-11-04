@@ -16,7 +16,7 @@ import { TenantDatabaseService } from './tenant-database.service';
 
 type ContextRequest = {
   headers: { cookie?: string };
-  tenantContext?: { userId: string; tenantId: string; propertyId?: string };
+  tenantContext?: { userId: string; tenantId: string; propertyId?: string; venueId?: string };
   platformContext?: { userId: string };
 };
 
@@ -80,6 +80,16 @@ export class RolesGuard implements CanActivate {
             AND "suspended_at" IS NULL
         `;
         if (staff.length > 0) roles.add(Role.PropertyStaff);
+      }
+      if (context.venueId) {
+        const staff = await tx.$queryRaw<Array<{ assigned: number }>>`
+          SELECT 1 AS assigned FROM "venue_staff_assignments"
+          WHERE "tenant_id" = ${context.tenantId}::uuid
+            AND "venue_id" = ${context.venueId}::uuid
+            AND "user_id" = ${context.userId}::uuid
+            AND "suspended_at" IS NULL
+        `;
+        if (staff.length > 0) roles.add(Role.VenueStaff);
       }
       return roles;
     });

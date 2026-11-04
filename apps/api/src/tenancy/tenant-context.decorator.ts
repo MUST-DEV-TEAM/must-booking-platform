@@ -8,6 +8,8 @@ export const ALLOW_ON_READ_ONLY_PLAN = 'allow-on-read-only-plan';
 export interface TenantScopeOptions {
   tenantParam?: string;
   propertyParam?: string;
+  /** Route param holding a restaurant venue id; the guard checks it exists in the tenant. */
+  venueParam?: string;
 }
 
 export const Public = (): ClassDecorator & MethodDecorator => SetMetadata(PUBLIC_ROUTE, true);

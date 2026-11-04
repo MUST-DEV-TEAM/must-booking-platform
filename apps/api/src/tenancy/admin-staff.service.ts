@@ -11,6 +11,22 @@ import { AuditLogService } from './audit-log.service';
 
 type MembershipRole = 'OWNER' | 'ADMIN' | 'STAFF';
 
+export type PropertyStaffRow = {
+  userId: string;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  roleTemplateId: string;
+  roleTemplateName: string;
+  status: 'ACTIVE' | 'SUSPENDED';
+  lastActiveAt: Date | null;
+  createdAt: Date;
+  createdByEmail: string | null;
+  overrides: Array<{ capabilityKey: string; granted: boolean }>;
+  /** Set for people who work at this hotel's restaurant; managed on the main Staff page. */
+  restaurant?: { venueId: string; venueName: string; role: 'MANAGER' | 'HOST' };
+};
+
 @Injectable()
 export class AdminStaffService {
   constructor(
@@ -95,48 +111,48 @@ export class AdminStaffService {
         WHERE "tenant_id" = ${tenantId}::uuid AND "user_id" = ${userId}::uuid
       `;
       await tx.$executeRaw`
+        DELETE FROM "venue_staff_assignments"
+        WHERE "tenant_id" = ${tenantId}::uuid AND "user_id" = ${userId}::uuid
+      `;
+      await tx.$executeRaw`
         DELETE FROM "tenant_memberships"
         WHERE "tenant_id" = ${tenantId}::uuid AND "user_id" = ${userId}::uuid
       `;
     });
   }
 
-  async listPropertyStaff(
-    tenantId: string,
-    propertyId: string,
-  ): Promise<
-    Array<{
-      userId: string;
-      email: string;
-      firstName: string | null;
-      lastName: string | null;
-      roleTemplateId: string;
-      roleTemplateName: string;
-      status: 'ACTIVE' | 'SUSPENDED';
-      lastActiveAt: Date | null;
-      createdAt: Date;
-      createdByEmail: string | null;
-      overrides: Array<{ capabilityKey: string; granted: boolean }>;
-    }>
-  > {
+  async listPropertyStaff(tenantId: string, propertyId: string): Promise<PropertyStaffRow[]> {
+    const hotelStaff = await this.listHotelStaff(tenantId, propertyId);
+    // Keep each scoped assignment editable, including a person assigned to both hotel and restaurant.
+    const restaurantStaff = await this.database.withTenantTransaction(
+      { tenantId },
+      (tx) =>
+        tx.$queryRaw<PropertyStaffRow[]>`
+        SELECT vsa."user_id" AS "userId", u."email", u."first_name" AS "firstName", u."last_name" AS "lastName",
+          '' AS "roleTemplateId",
+          CASE vsa."role" WHEN 'MANAGER' THEN 'Restaurant Manager' ELSE 'Waiter' END AS "roleTemplateName",
+          CASE WHEN vsa."suspended_at" IS NULL THEN 'ACTIVE' ELSE 'SUSPENDED' END AS "status",
+          (SELECT MAX(al."created_at") FROM "audit_logs" al
+            WHERE al."tenant_id" = vsa."tenant_id" AND al."actor_user_id" = vsa."user_id") AS "lastActiveAt",
+          vsa."created_at" AS "createdAt", cb."email" AS "createdByEmail",
+          '[]'::json AS "overrides",
+          json_build_object('venueId', v."id", 'venueName', v."name", 'role', vsa."role") AS "restaurant"
+        FROM "venue_staff_assignments" vsa
+        JOIN "venues" v ON v."tenant_id" = vsa."tenant_id" AND v."id" = vsa."venue_id"
+        JOIN "users" u ON u."id" = vsa."user_id"
+        LEFT JOIN "users" cb ON cb."id" = vsa."created_by_user_id"
+        WHERE vsa."tenant_id" = ${tenantId}::uuid AND v."property_id" = ${propertyId}::uuid AND v."active"
+        ORDER BY u."email"
+      `,
+    );
+    return [...hotelStaff, ...restaurantStaff].sort((a, b) => a.email.localeCompare(b.email));
+  }
+
+  private async listHotelStaff(tenantId: string, propertyId: string): Promise<PropertyStaffRow[]> {
     return this.database.withTenantTransaction(
       { tenantId, propertyId },
       (tx) =>
-        tx.$queryRaw<
-          Array<{
-            userId: string;
-            email: string;
-            firstName: string | null;
-            lastName: string | null;
-            roleTemplateId: string;
-            roleTemplateName: string;
-            status: 'ACTIVE' | 'SUSPENDED';
-            lastActiveAt: Date | null;
-            createdAt: Date;
-            createdByEmail: string | null;
-            overrides: Array<{ capabilityKey: string; granted: boolean }>;
-          }>
-        >`
+        tx.$queryRaw<PropertyStaffRow[]>`
         SELECT psa."user_id" AS "userId", u."email", u."first_name" AS "firstName", u."last_name" AS "lastName",
           psa."role_template_id" AS "roleTemplateId", prt."name" AS "roleTemplateName",
           CASE WHEN psa."suspended_at" IS NULL THEN 'ACTIVE' ELSE 'SUSPENDED' END AS "status",

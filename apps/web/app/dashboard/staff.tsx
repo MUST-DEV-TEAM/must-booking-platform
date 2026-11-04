@@ -67,8 +67,19 @@ import { cn } from '../../lib/utils';
 import { StaffDetail, staffHref, staffListHref } from './staff-detail';
 import { StaffSheet } from './staff-sheet';
 import { type StaffMember, type StaffTemplate } from './staff-stats';
+import { RestaurantStaffProfile } from './restaurant-staff-profile';
+import { venueApi, type Venue } from './venues/venue-api';
+import { VENUE_ROLE_OPTIONS } from './venues/venue-roles';
+import {
+  RESTAURANT_PERMISSION_CATALOG,
+  RESTAURANT_ROLE_ROWS,
+  type RestaurantRoleRow,
+} from './venues/restaurant-role-cards';
 
-type Usage = { plan: { maxStaffSeats: number }; usage: { staffSeats: number } };
+type Usage = {
+  plan: { maxStaffSeats: number; diningEnabled?: boolean };
+  usage: { staffSeats: number };
+};
 type StaffView = 'all' | 'active' | 'suspended' | 'with-extra' | 'without-extra';
 type SortKey = 'member' | 'role' | 'extra' | 'status' | 'last-active';
 type ColumnKey = 'role' | 'extra' | 'status' | 'lastActive';
@@ -87,6 +98,10 @@ const DEFAULT_COLUMNS: Record<ColumnKey, boolean> = {
   lastActive: true,
 };
 const PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
+
+function staffKey(member: StaffMember) {
+  return member.restaurant ? `${member.restaurant.venueId}/${member.userId}` : member.userId;
+}
 
 function sortValue(member: StaffMember, key: SortKey): string {
   if (key === 'member')
@@ -124,6 +139,7 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
   const [ticked, setTicked] = useState<string[]>([]);
   const [notice, setNotice] = useState('');
   const [addStaffOpen, setAddStaffOpen] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<StaffMember | null>(null);
   const [suspendTarget, setSuspendTarget] = useState<StaffMember | null>(null);
   const { columns, density, toggleColumn, toggleDensity } = useTablePreferences(
     'must.staff.table',
@@ -133,33 +149,71 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
   const staffQuery = useQuery({
     queryKey: ['dashboard', 'staff', tenantId, propertyId],
     queryFn: async () => {
+      const propertyFetch = (path: string) =>
+        propertyId
+          ? fetch(`${base}/properties/${propertyId}/${path}`, { credentials: 'include' })
+          : Promise.resolve(new Response(null, { status: 403 }));
       const [staffResponse, templatesResponse, usageResponse, catalogResponse, mineResponse] =
         await Promise.all([
-          fetch(`${base}/properties/${propertyId}/staff`, { credentials: 'include' }),
-          fetch(`${base}/properties/${propertyId}/role-templates`, { credentials: 'include' }),
+          propertyFetch('staff'),
+          propertyFetch('role-templates'),
           fetch(`${base}/plan-usage`, { credentials: 'include' }),
-          fetch(`${base}/properties/${propertyId}/capabilities/catalog`, {
-            credentials: 'include',
-          }),
-          fetch(`${base}/properties/${propertyId}/capabilities/mine`, { credentials: 'include' }),
+          propertyFetch('capabilities/catalog'),
+          propertyFetch('capabilities/mine'),
         ]);
       if (
-        !staffResponse.ok ||
-        !templatesResponse.ok ||
+        (!staffResponse.ok && staffResponse.status !== 403) ||
+        (!templatesResponse.ok && templatesResponse.status !== 403) ||
         !usageResponse.ok ||
-        !catalogResponse.ok ||
-        !mineResponse.ok
+        (!catalogResponse.ok && catalogResponse.status !== 403) ||
+        (!mineResponse.ok && mineResponse.status !== 403)
       )
         throw new Error('Unable to load staff management data.');
       const [staff, templates, usage, catalog, myCapabilities] = (await Promise.all([
-        staffResponse.json(),
-        templatesResponse.json(),
+        staffResponse.ok ? staffResponse.json() : [],
+        templatesResponse.ok ? templatesResponse.json() : [],
         usageResponse.json(),
-        catalogResponse.json(),
-        mineResponse.json(),
+        catalogResponse.ok ? catalogResponse.json() : [],
+        mineResponse.ok ? mineResponse.json() : [],
       ])) as [StaffMember[], StaffTemplate[], Usage, PermissionCatalogItem[], string[]];
+      const venues: Venue[] = [];
+      const restaurantRows: StaffMember[] = [];
+      if (usage.plan.diningEnabled || staffResponse.status === 403) {
+        const available = await venueApi.listVenues(tenantId);
+        for (const venue of available.filter(
+          (v) => v.active && (!v.propertyId || v.propertyId === propertyId),
+        )) {
+          try {
+            const people = await venueApi.listStaff(tenantId, venue.id);
+            venues.push(venue);
+            restaurantRows.push(
+              ...people.map((person) => ({
+                ...person,
+                roleTemplateId: person.role,
+                roleTemplateName: person.role === 'MANAGER' ? 'Restaurant Manager' : 'Waiter',
+                status: person.suspendedAt ? ('SUSPENDED' as const) : ('ACTIVE' as const),
+                lastActiveAt: null,
+                overrides: [],
+                restaurant: { venueId: venue.id, venueName: venue.name, role: person.role },
+              })),
+            );
+          } catch (error) {
+            if (!(error instanceof Error && 'status' in error && error.status === 403)) throw error;
+          }
+        }
+      }
+      if (!staffResponse.ok && !venues.length)
+        throw new Error('You do not have permission to manage staff.');
       return {
-        staff: staff.map((member) => ({ ...member, overrides: member.overrides ?? [] })),
+        venues,
+        staff: [
+          ...(venues.length
+            ? staff.filter(
+                (m) => !m.restaurant || !venues.some((v) => v.id === m.restaurant?.venueId),
+              )
+            : staff),
+          ...restaurantRows,
+        ].map((member) => ({ ...member, overrides: member.overrides ?? [] })),
         templates,
         usage,
         catalog,
@@ -170,6 +224,7 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
   const load = () => void staffQuery.refetch();
   const {
     staff = [],
+    venues = [],
     templates = [],
     usage,
     catalog = [],
@@ -195,12 +250,18 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
 
   const assignMutation = useMutation({
     mutationFn: async ({ userId, roleTemplateId }: { userId: string; roleTemplateId: string }) => {
-      const response = await fetch(`${base}/properties/${propertyId}/staff/${userId}`, {
-        method: 'PUT',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ roleTemplateId }),
-      });
+      const member = staff.find((m) => staffKey(m) === userId);
+      const response = await fetch(
+        member?.restaurant
+          ? `${base}/venues/${member.restaurant.venueId}/staff/${member.userId}`
+          : `${base}/properties/${propertyId}/staff/${userId}`,
+        {
+          method: 'PUT',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(member?.restaurant ? { role: roleTemplateId } : { roleTemplateId }),
+        },
+      );
       if (!response.ok) throw new Error('Unable to update staff role.');
     },
     onSuccess: (_data, variables) => {
@@ -256,12 +317,18 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
   });
   const statusMutation = useMutation({
     mutationFn: async ({ userId, status }: { userId: string; status: 'ACTIVE' | 'SUSPENDED' }) => {
-      const response = await fetch(`${base}/properties/${propertyId}/staff/${userId}/status`, {
-        method: 'PATCH',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
-      });
+      const member = staff.find((m) => staffKey(m) === userId);
+      const response = await fetch(
+        member?.restaurant
+          ? `${base}/venues/${member.restaurant.venueId}/staff/${member.userId}/${status === 'ACTIVE' ? 'resume' : 'suspend'}`
+          : `${base}/properties/${propertyId}/staff/${userId}/status`,
+        {
+          method: member?.restaurant ? 'POST' : 'PATCH',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status }),
+        },
+      );
       if (!response.ok) throw await contractError(response, 'Unable to update staff status.');
     },
     onSuccess: (_data, variables) => {
@@ -272,6 +339,26 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
       );
     },
   });
+
+  const removeMutation = useMutation({
+    mutationFn: async (member: StaffMember) => {
+      const response = await fetch(
+        `${base}/venues/${member.restaurant!.venueId}/staff/${member.userId}`,
+        { method: 'DELETE', credentials: 'include' },
+      );
+      if (!response.ok) throw await contractError(response, 'Unable to remove restaurant access.');
+    },
+    onSuccess: () => {
+      setRemoveTarget(null);
+      setSelectedId(null);
+      setDetailId(null);
+      window.history.replaceState(null, '', staffListHref(tenantId, propertyId));
+      load();
+      toast.success('Restaurant access removed.');
+    },
+  });
+  const canManageRestaurant = (member: StaffMember) =>
+    venues.some((v) => v.id === member.restaurant?.venueId);
 
   const normalizedSearch = search.trim().toLocaleLowerCase();
   const counts = useMemo(
@@ -315,12 +402,12 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
     });
   }, [filteredStaff, sort]);
   const pageStaff = sortedStaff.slice((page - 1) * pageSize, page * pageSize);
-  const selected = staff.find((member) => member.userId === selectedId) ?? null;
-  const detailMember = detailId ? staff.find((member) => member.userId === detailId) : undefined;
-  const tickedStaff = staff.filter((member) => ticked.includes(member.userId));
+  const selected = staff.find((member) => staffKey(member) === selectedId) ?? null;
+  const detailMember = detailId ? staff.find((member) => staffKey(member) === detailId) : undefined;
+  const tickedStaff = staff.filter((member) => ticked.includes(staffKey(member)));
   const allTicked =
-    pageStaff.length > 0 && pageStaff.every((member) => ticked.includes(member.userId));
-  const someTicked = pageStaff.some((member) => ticked.includes(member.userId));
+    pageStaff.length > 0 && pageStaff.every((member) => ticked.includes(staffKey(member)));
+  const someTicked = pageStaff.some((member) => ticked.includes(staffKey(member)));
   const toggleSort = (key: SortKey) => {
     setSort((current) =>
       current.key === key
@@ -343,7 +430,7 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
     );
   const tickAll = (checked: boolean) =>
     setTicked((current) => {
-      const pageIds = pageStaff.map((member) => member.userId);
+      const pageIds = pageStaff.map(staffKey);
       return checked
         ? [...new Set([...current, ...pageIds])]
         : current.filter((id) => !pageIds.includes(id));
@@ -360,12 +447,12 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
     setSelectedId(null);
     window.setTimeout(() => setSuspendTarget(member), 0);
   };
-  const canCreateStaff = myCapabilities.includes('staff.create');
+  const canCreateStaff = myCapabilities.includes('staff.create') || venues.length > 0;
 
   if (staffQuery.isPending)
     return (
       <div className="space-y-5">
-        <PageHeader title="Staff" description="Staff access for the selected hotel." />
+        <PageHeader title="Staff" description="Hotel and restaurant staff access." />
         <ListSkeleton rows={6} />
       </div>
     );
@@ -373,7 +460,7 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
   if (staffQuery.error)
     return (
       <div className="space-y-5">
-        <PageHeader title="Staff" description="Staff access for the selected hotel." />
+        <PageHeader title="Staff" description="Hotel and restaurant staff access." />
         <ErrorPanel
           title="Staff could not be loaded"
           description={staffQuery.error.message}
@@ -401,32 +488,63 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
 
     return (
       <>
-        <StaffDetail
-          tenantId={tenantId}
-          propertyId={propertyId}
-          member={detailMember}
-          templates={templates}
-          catalog={catalog}
-          myCapabilities={myCapabilities}
-          roleChangePending={
-            assignMutation.isPending && assignMutation.variables?.userId === detailMember.userId
-          }
-          pendingOverride={
-            overrideMutation.isPending && overrideMutation.variables?.userId === detailMember.userId
-              ? overrideMutation.variables.key
-              : undefined
-          }
-          statusPending={
-            statusMutation.isPending && statusMutation.variables?.userId === detailMember.userId
-          }
-          onChangeRole={(roleTemplateId) =>
-            assignMutation.mutate({ userId: detailMember.userId, roleTemplateId })
-          }
-          onChangeOverride={(key, value) =>
-            overrideMutation.mutate({ userId: detailMember.userId, key, value })
-          }
-          onChangeStatus={() => requestStatusChange(detailMember)}
-        />
+        {detailMember.restaurant ? (
+          <RestaurantStaffProfile
+            full
+            member={detailMember}
+            tenantId={tenantId}
+            propertyId={propertyId}
+            canManage={canManageRestaurant(detailMember)}
+            pending={
+              assignMutation.isPending || statusMutation.isPending || removeMutation.isPending
+            }
+            onClose={() => setDetailId(null)}
+            onChangeRole={(roleTemplateId) =>
+              assignMutation.mutate({ userId: staffKey(detailMember), roleTemplateId })
+            }
+            onChangeStatus={() => requestStatusChange(detailMember)}
+            onRemove={() => setRemoveTarget(detailMember)}
+          />
+        ) : (
+          <StaffDetail
+            tenantId={tenantId}
+            propertyId={propertyId}
+            member={detailMember}
+            templates={templates}
+            catalog={catalog}
+            myCapabilities={myCapabilities}
+            roleChangePending={
+              assignMutation.isPending && assignMutation.variables?.userId === detailMember.userId
+            }
+            pendingOverride={
+              overrideMutation.isPending &&
+              overrideMutation.variables?.userId === detailMember.userId
+                ? overrideMutation.variables.key
+                : undefined
+            }
+            statusPending={
+              statusMutation.isPending && statusMutation.variables?.userId === detailMember.userId
+            }
+            onChangeRole={(roleTemplateId) =>
+              assignMutation.mutate({ userId: detailMember.userId, roleTemplateId })
+            }
+            onChangeOverride={(key, value) =>
+              overrideMutation.mutate({ userId: detailMember.userId, key, value })
+            }
+            onChangeStatus={() => requestStatusChange(detailMember)}
+          />
+        )}
+        {removeTarget ? (
+          <ConfirmDialog
+            open
+            onOpenChange={(open) => !open && setRemoveTarget(null)}
+            title="Remove restaurant access?"
+            description="This removes only this restaurant assignment. Other access is preserved."
+            confirmLabel="Remove access"
+            destructive
+            onConfirm={() => removeMutation.mutateAsync(removeTarget)}
+          />
+        ) : null}
         <StaffStatusDialog
           target={suspendTarget}
           pending={statusMutation.isPending}
@@ -434,7 +552,7 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
           onConfirm={async () => {
             if (!suspendTarget) return;
             await statusMutation.mutateAsync({
-              userId: suspendTarget.userId,
+              userId: staffKey(suspendTarget),
               status: suspendTarget.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE',
             });
           }}
@@ -449,13 +567,16 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
         <TabBar
           tabs={[
             { id: 'staff', label: 'Staff', count: staff.length },
-            { id: 'roles', label: 'Roles', count: templates.length },
+            ...(templates.length || venues.length
+              ? [{ id: 'roles', label: 'Roles', count: templates.length + (venues.length ? 2 : 0) }]
+              : []),
           ]}
           current={screen}
           onSelect={(value) => setScreen(value as 'staff' | 'roles')}
           label="Staff sections"
         />
         <RoleManagement
+          restaurantRoles={venues.length ? restaurantRoleRows(staff) : []}
           tenantId={tenantId}
           propertyId={propertyId}
           templates={templates}
@@ -470,7 +591,7 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
     <div className="space-y-5">
       <PageHeader
         title="Staff"
-        description="Manage the people assigned to this hotel and their role access."
+        description="Manage hotel and restaurant assignments and role access."
         actions={
           <>
             <Button variant="outline" asChild>
@@ -490,7 +611,7 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
             {canCreateStaff ? (
               <Button
                 onClick={() => setAddStaffOpen(true)}
-                disabled={capped || templates.length === 0}
+                disabled={capped || (templates.length === 0 && venues.length === 0)}
                 title={capped ? 'The staff seat limit has been reached.' : undefined}
               >
                 Add staff
@@ -503,7 +624,9 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
       <TabBar
         tabs={[
           { id: 'staff', label: 'Staff', count: staff.length },
-          { id: 'roles', label: 'Roles', count: templates.length },
+          ...(templates.length || venues.length
+            ? [{ id: 'roles', label: 'Roles', count: templates.length + (venues.length ? 2 : 0) }]
+            : []),
         ]}
         current={screen}
         onSelect={(value) => setScreen(value as 'staff' | 'roles')}
@@ -597,13 +720,13 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
           <div className="p-4">
             <EmptyPanel
               title="No staff assigned yet"
-              description="Staff accounts appear here after an invitation is accepted and assigned to this hotel."
+              description="Staff accounts appear here after creation or invitation acceptance."
               action={
                 canCreateStaff ? (
                   <Button
                     size="sm"
                     onClick={() => setAddStaffOpen(true)}
-                    disabled={capped || templates.length === 0}
+                    disabled={capped || (templates.length === 0 && venues.length === 0)}
                   >
                     Add staff
                   </Button>
@@ -682,13 +805,13 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
               </TableHeader>
               <TableBody>
                 {pageStaff.map((member) => {
-                  const isTicked = ticked.includes(member.userId);
+                  const isTicked = ticked.includes(staffKey(member));
                   const template = templates.find(
                     (candidate) => candidate.id === member.roleTemplateId,
                   );
                   return (
                     <TableRow
-                      key={member.userId}
+                      key={staffKey(member)}
                       data-state={isTicked ? 'selected' : undefined}
                       className={cn(
                         'h-14 cursor-pointer group-data-[density=compact]:h-10',
@@ -701,14 +824,14 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
                           )
                         )
                           return;
-                        setSelectedId(member.userId);
+                        setSelectedId(staffKey(member));
                       }}
                     >
                       <TableCell className="px-3 py-2">
                         <Checkbox
                           aria-label={`Select ${member.email}`}
                           checked={isTicked}
-                          onCheckedChange={(value) => tick(member.userId, value === true)}
+                          onCheckedChange={(value) => tick(staffKey(member), value === true)}
                         />
                       </TableCell>
                       <TableCell className="px-2 py-2">
@@ -723,7 +846,7 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
                           <span className="min-w-0">
                             <button
                               type="button"
-                              onClick={() => setSelectedId(member.userId)}
+                              onClick={() => setSelectedId(staffKey(member))}
                               aria-label={`Show details for ${member.email}`}
                               className="block max-w-full truncate bg-transparent p-0 text-left text-[12px] font-semibold text-foreground hover:underline"
                             >
@@ -738,9 +861,16 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
                       </TableCell>
                       {columns.role ? (
                         <TableCell className="px-2 py-2">
-                          <Badge variant="secondary">
-                            {template?.name ?? member.roleTemplateName}
-                          </Badge>
+                          <span className="flex flex-wrap items-center gap-1.5">
+                            <Badge variant="secondary">
+                              {template?.name ?? member.roleTemplateName}
+                            </Badge>
+                            {member.restaurant ? (
+                              <Badge variant="outline" title={member.restaurant.venueName}>
+                                Restaurant
+                              </Badge>
+                            ) : null}
+                          </span>
                         </TableCell>
                       ) : null}
                       {columns.extra ? (
@@ -778,18 +908,22 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onSelect={() => setSelectedId(member.userId)}>
+                            <DropdownMenuItem onSelect={() => setSelectedId(staffKey(member))}>
                               Quick peek
                             </DropdownMenuItem>
                             <DropdownMenuItem asChild>
-                              <a href={staffHref(tenantId, propertyId, member.userId)}>
+                              <a href={staffHref(tenantId, propertyId, staffKey(member))}>
                                 Open staff details
                               </a>
                             </DropdownMenuItem>
                             <DropdownMenuItem onSelect={() => void copyEmails([member])}>
                               Copy email
                             </DropdownMenuItem>
-                            {myCapabilities.includes('staff.suspend') ? (
+                            {(
+                              member.restaurant
+                                ? canManageRestaurant(member)
+                                : myCapabilities.includes('staff.suspend')
+                            ) ? (
                               <DropdownMenuItem
                                 variant={member.status === 'ACTIVE' ? 'destructive' : 'default'}
                                 onSelect={() => requestStatusChange(member)}
@@ -823,33 +957,63 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
         )}
       </div>
 
-      <StaffSheet
-        member={selected}
-        template={
-          selected
-            ? templates.find((candidate) => candidate.id === selected.roleTemplateId)
-            : undefined
-        }
-        tenantId={tenantId}
-        propertyId={propertyId}
-        catalog={catalog}
-        myCapabilities={myCapabilities}
-        pendingOverride={
-          overrideMutation.isPending && overrideMutation.variables?.userId === selected?.userId
-            ? overrideMutation.variables.key
-            : undefined
-        }
-        statusPending={
-          statusMutation.isPending && statusMutation.variables?.userId === selected?.userId
-        }
-        onClose={() => setSelectedId(null)}
-        onChangeOverride={(key, value) => {
-          if (selected) overrideMutation.mutate({ userId: selected.userId, key, value });
-        }}
-        onChangeStatus={() => {
-          if (selected) requestStatusChange(selected);
-        }}
-      />
+      {selected?.restaurant ? (
+        <RestaurantStaffProfile
+          member={selected}
+          tenantId={tenantId}
+          propertyId={propertyId}
+          canManage={canManageRestaurant(selected)}
+          pending={assignMutation.isPending || statusMutation.isPending || removeMutation.isPending}
+          onClose={() => setSelectedId(null)}
+          onChangeRole={(roleTemplateId) =>
+            assignMutation.mutate({ userId: staffKey(selected), roleTemplateId })
+          }
+          onChangeStatus={() => requestStatusChange(selected)}
+          onRemove={() => {
+            setSelectedId(null);
+            window.setTimeout(() => setRemoveTarget(selected), 0);
+          }}
+        />
+      ) : (
+        <StaffSheet
+          member={selected}
+          template={
+            selected
+              ? templates.find((candidate) => candidate.id === selected.roleTemplateId)
+              : undefined
+          }
+          tenantId={tenantId}
+          propertyId={propertyId}
+          catalog={catalog}
+          myCapabilities={myCapabilities}
+          pendingOverride={
+            overrideMutation.isPending && overrideMutation.variables?.userId === selected?.userId
+              ? overrideMutation.variables.key
+              : undefined
+          }
+          statusPending={
+            statusMutation.isPending && statusMutation.variables?.userId === selected?.userId
+          }
+          onClose={() => setSelectedId(null)}
+          onChangeOverride={(key, value) => {
+            if (selected) overrideMutation.mutate({ userId: selected.userId, key, value });
+          }}
+          onChangeStatus={() => {
+            if (selected) requestStatusChange(selected);
+          }}
+        />
+      )}
+      {removeTarget ? (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => !open && setRemoveTarget(null)}
+          title="Remove restaurant access?"
+          description="This removes only this restaurant assignment. Other access is preserved."
+          confirmLabel="Remove access"
+          destructive
+          onConfirm={() => removeMutation.mutateAsync(removeTarget)}
+        />
+      ) : null}
 
       <AddStaffDialog
         open={addStaffOpen}
@@ -857,6 +1021,7 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
         tenantId={tenantId}
         propertyId={propertyId}
         templates={templates}
+        venues={venues}
         catalog={catalog}
         myCapabilities={myCapabilities}
         capped={capped}
@@ -877,7 +1042,7 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
         onConfirm={async () => {
           if (!suspendTarget) return;
           await statusMutation.mutateAsync({
-            userId: suspendTarget.userId,
+            userId: staffKey(suspendTarget),
             status: suspendTarget.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE',
           });
         }}
@@ -892,6 +1057,7 @@ function AddStaffDialog({
   tenantId,
   propertyId,
   templates,
+  venues,
   catalog,
   myCapabilities,
   capped,
@@ -903,12 +1069,14 @@ function AddStaffDialog({
   tenantId: string;
   propertyId: string;
   templates: StaffTemplate[];
+  venues: Venue[];
   catalog: PermissionCatalogItem[];
   myCapabilities: string[];
   capped: boolean;
   onCreated: () => void;
   onInvited: () => void;
 }) {
+  const [venueId, setVenueId] = useState('');
   const [tab, setTab] = useState<'create' | 'invite'>('create');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -922,13 +1090,17 @@ function AddStaffDialog({
   const [created, setCreated] = useState<{ email: string; password: string | null } | null>(null);
   const [copyStatus, setCopyStatus] = useState('');
   const base = `/api/tenants/${tenantId}`;
-  const selectedCreateRole = createRoleId || templates[0]?.id || '';
-  const selectedInviteRole = inviteRoleId || templates[0]?.id || '';
+  const selectedCreateRole = createRoleId || templates[0]?.id || (venues.length ? 'HOST' : '');
+  const selectedInviteRole = inviteRoleId || templates[0]?.id || (venues.length ? 'HOST' : '');
+  const restaurantCreate = ['HOST', 'MANAGER'].includes(selectedCreateRole);
+  const restaurantInvite = ['HOST', 'MANAGER'].includes(selectedInviteRole);
+  const selectedVenue = venueId || venues[0]?.id || '';
   const permissionOptions = permissionMultiSelectOptions(catalog, myCapabilities);
   const validPassword = password.length >= 12 && /[a-z]/i.test(password) && /\d/.test(password);
 
   const reset = () => {
     setTab('create');
+    setVenueId('');
     setFirstName('');
     setLastName('');
     setCreateEmail('');
@@ -946,22 +1118,31 @@ function AddStaffDialog({
     mutationFn: async () => {
       const email = createEmail.trim();
       const ownerChosenPassword = password;
-      const response = await fetch(`${base}/properties/${propertyId}/staff`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          firstName: firstName.trim(),
-          ...(lastName.trim() ? { lastName: lastName.trim() } : {}),
-          email,
-          password: ownerChosenPassword,
-          roleTemplateId: selectedCreateRole,
-          ...(extraCapabilities.length ? { extraCapabilities } : {}),
-        }),
-      });
+      const response = await fetch(
+        restaurantCreate
+          ? `${base}/venues/${selectedVenue}/staff`
+          : `${base}/properties/${propertyId}/staff`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            firstName: firstName.trim(),
+            ...(lastName.trim() ? { lastName: lastName.trim() } : {}),
+            email,
+            password: ownerChosenPassword,
+            ...(restaurantCreate
+              ? { role: selectedCreateRole }
+              : {
+                  roleTemplateId: selectedCreateRole,
+                  ...(extraCapabilities.length ? { extraCapabilities } : {}),
+                }),
+          }),
+        },
+      );
       if (!response.ok) {
         if (response.status === 409)
-          throw new Error('That email already belongs to staff at this hotel.');
+          throw new Error('That email already has an account. Send an invitation instead.');
         throw new Error('Could not create this staff account.');
       }
       const result = (await response.json()) as { userId?: string };
@@ -980,16 +1161,27 @@ function AddStaffDialog({
 
   const inviteMutation = useMutation({
     mutationFn: async () => {
-      const response = await fetch(`${base}/properties/${propertyId}/staff-invitations`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: inviteEmail.trim(),
-          roleTemplateId: selectedInviteRole,
-          ...(inviteExtraCapabilities.length ? { capabilityKeys: inviteExtraCapabilities } : {}),
-        }),
-      });
+      const response = await fetch(
+        restaurantInvite
+          ? `${base}/venues/${selectedVenue}/staff/invitations`
+          : `${base}/properties/${propertyId}/staff-invitations`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: inviteEmail.trim(),
+            ...(restaurantInvite
+              ? { role: selectedInviteRole }
+              : {
+                  roleTemplateId: selectedInviteRole,
+                  ...(inviteExtraCapabilities.length
+                    ? { capabilityKeys: inviteExtraCapabilities }
+                    : {}),
+                }),
+          }),
+        },
+      );
       if (!response.ok) throw new Error('Could not send the invitation.');
     },
     onSuccess: () => {
@@ -1025,7 +1217,7 @@ function AddStaffDialog({
           <DialogDescription>
             {created
               ? 'The password is shown only as a one-time copy action.'
-              : 'Create a staff account now or send an invitation for this hotel.'}
+              : 'Create an account or invite someone to a hotel or restaurant.'}
           </DialogDescription>
         </DialogHeader>
         {created ? (
@@ -1098,7 +1290,7 @@ function AddStaffDialog({
                   <Select
                     value={selectedCreateRole}
                     onValueChange={setCreateRoleId}
-                    disabled={templates.length === 0}
+                    disabled={templates.length === 0 && venues.length === 0}
                   >
                     <SelectTrigger
                       id="staff-create-role"
@@ -1108,6 +1300,13 @@ function AddStaffDialog({
                       <SelectValue placeholder="Choose a role" />
                     </SelectTrigger>
                     <SelectContent>
+                      {venues.length
+                        ? VENUE_ROLE_OPTIONS.map((role) => (
+                            <SelectItem key={role.value} value={role.value}>
+                              {role.label}
+                            </SelectItem>
+                          ))
+                        : null}
                       {templates.map((template) => (
                         <SelectItem key={template.id} value={template.id}>
                           {template.name}
@@ -1123,22 +1322,40 @@ function AddStaffDialog({
                     onChange={setPassword}
                   />
                 </FormField>
-                <section className="space-y-2">
-                  <div className="space-y-1">
-                    <h3 className="m-0 text-sm font-semibold">Optional extra permissions</h3>
-                    <p className="m-0 text-xs text-muted-foreground">
-                      Extra permissions add to the selected role. Denials can be set on the staff
-                      detail page.
-                    </p>
-                  </div>
-                  <MultiSelect
-                    options={permissionOptions}
-                    value={extraCapabilities}
-                    onChange={setExtraCapabilities}
-                    placeholder="Choose extra permissions"
-                    label="Extra permissions"
-                  />
-                </section>
+                {restaurantCreate ? (
+                  <FormField label="Restaurant" required>
+                    <Select value={selectedVenue} onValueChange={setVenueId}>
+                      <SelectTrigger aria-label="Restaurant">
+                        <SelectValue placeholder="Choose a restaurant" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {venues.map((venue) => (
+                          <SelectItem key={venue.id} value={venue.id}>
+                            {venue.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </FormField>
+                ) : null}
+                {!restaurantCreate ? (
+                  <section className="space-y-2">
+                    <div className="space-y-1">
+                      <h3 className="m-0 text-sm font-semibold">Optional extra permissions</h3>
+                      <p className="m-0 text-xs text-muted-foreground">
+                        Extra permissions add to the selected role. Denials can be set on the staff
+                        detail page.
+                      </p>
+                    </div>
+                    <MultiSelect
+                      options={permissionOptions}
+                      value={extraCapabilities}
+                      onChange={setExtraCapabilities}
+                      placeholder="Choose extra permissions"
+                      label="Extra permissions"
+                    />
+                  </section>
+                ) : null}
                 {capped ? (
                   <p role="alert" className="m-0 text-sm text-warning">
                     This plan has reached its staff-seat limit.
@@ -1161,6 +1378,7 @@ function AddStaffDialog({
                       !firstName.trim() ||
                       !createEmail.trim() ||
                       !selectedCreateRole ||
+                      (restaurantCreate && !selectedVenue) ||
                       !validPassword
                     }
                     onClick={() => createMutation.mutate()}
@@ -1185,7 +1403,7 @@ function AddStaffDialog({
                   <Select
                     value={selectedInviteRole}
                     onValueChange={setInviteRoleId}
-                    disabled={templates.length === 0}
+                    disabled={templates.length === 0 && venues.length === 0}
                   >
                     <SelectTrigger
                       id="staff-invite-role"
@@ -1195,6 +1413,13 @@ function AddStaffDialog({
                       <SelectValue placeholder="Choose a role" />
                     </SelectTrigger>
                     <SelectContent>
+                      {venues.length
+                        ? VENUE_ROLE_OPTIONS.map((role) => (
+                            <SelectItem key={role.value} value={role.value}>
+                              {role.label}
+                            </SelectItem>
+                          ))
+                        : null}
                       {templates.map((template) => (
                         <SelectItem key={template.id} value={template.id}>
                           {template.name}
@@ -1203,21 +1428,39 @@ function AddStaffDialog({
                     </SelectContent>
                   </Select>
                 </FormField>
-                <section className="space-y-2">
-                  <div className="space-y-1">
-                    <h3 className="m-0 text-sm font-semibold">Optional extra permissions</h3>
-                    <p className="m-0 text-xs text-muted-foreground">
-                      Extra permissions add to the selected role.
-                    </p>
-                  </div>
-                  <MultiSelect
-                    options={permissionOptions}
-                    value={inviteExtraCapabilities}
-                    onChange={setInviteExtraCapabilities}
-                    placeholder="Choose extra permissions"
-                    label="Invitation extra permissions"
-                  />
-                </section>
+                {restaurantInvite ? (
+                  <FormField label="Restaurant" required>
+                    <Select value={selectedVenue} onValueChange={setVenueId}>
+                      <SelectTrigger aria-label="Restaurant">
+                        <SelectValue placeholder="Choose a restaurant" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {venues.map((venue) => (
+                          <SelectItem key={venue.id} value={venue.id}>
+                            {venue.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </FormField>
+                ) : null}
+                {!restaurantInvite ? (
+                  <section className="space-y-2">
+                    <div className="space-y-1">
+                      <h3 className="m-0 text-sm font-semibold">Optional extra permissions</h3>
+                      <p className="m-0 text-xs text-muted-foreground">
+                        Extra permissions add to the selected role.
+                      </p>
+                    </div>
+                    <MultiSelect
+                      options={permissionOptions}
+                      value={inviteExtraCapabilities}
+                      onChange={setInviteExtraCapabilities}
+                      placeholder="Choose extra permissions"
+                      label="Invitation extra permissions"
+                    />
+                  </section>
+                ) : null}
                 <p className="m-0 text-xs text-muted-foreground">
                   The invitation link expires after seven days. Staff set their password when they
                   accept.
@@ -1239,7 +1482,12 @@ function AddStaffDialog({
                   <Button
                     type="button"
                     loading={inviteMutation.isPending}
-                    disabled={capped || !inviteEmail.trim() || !selectedInviteRole}
+                    disabled={
+                      capped ||
+                      !inviteEmail.trim() ||
+                      !selectedInviteRole ||
+                      (restaurantInvite && !selectedVenue)
+                    }
                     onClick={() => inviteMutation.mutate()}
                   >
                     Send invitation
@@ -1279,7 +1527,17 @@ const OVERVIEW_TYPE_OPTIONS = [
   { value: 'minimal', label: 'Minimal', hint: 'Only their own tasks and the date.' },
 ] as const;
 
+function restaurantRoleRows(
+  staff: StaffMember[],
+): Array<RestaurantRoleRow & { memberCount: number }> {
+  return RESTAURANT_ROLE_ROWS.map((role) => ({
+    ...role,
+    memberCount: staff.filter((member) => member.restaurant?.role === role.value).length,
+  }));
+}
+
 function RoleManagement({
+  restaurantRoles,
   tenantId,
   propertyId,
   templates,
@@ -1287,6 +1545,7 @@ function RoleManagement({
   myCapabilities,
   onChanged,
 }: {
+  restaurantRoles: Array<RestaurantRoleRow & { memberCount: number }>;
   tenantId: string;
   propertyId: string;
   templates: StaffTemplate[];
@@ -1303,6 +1562,10 @@ function RoleManagement({
   const [overviewType, setOverviewType] = useState('auto');
   const [capabilities, setCapabilities] = useState<string[]>([]);
   const [viewingRole, setViewingRole] = useState<StaffTemplate | null>(null);
+  const [viewingRestaurantRole, setViewingRestaurantRole] = useState<RestaurantRoleRow | null>(
+    null,
+  );
+  const [roleFilter, setRoleFilter] = useState<'all' | 'hotel' | 'restaurant'>('all');
   const permissionOptions = permissionMultiSelectOptions(catalog, myCapabilities);
   const lockedKeys = capabilities.filter((key) => !myCapabilities.includes(key));
 
@@ -1383,11 +1646,28 @@ function RoleManagement({
     <div className="space-y-4">
       <PageHeader
         title="Roles"
-        description="Roles belong to this hotel. Built-in roles stay locked; copy one to customize it."
+        description="Hotel roles belong to this hotel; restaurant roles apply to one restaurant. Built-in roles stay locked."
         actions={
-          myCapabilities.includes('staff.manage_roles') ? (
-            <Button onClick={beginCreate}>New custom role</Button>
-          ) : undefined
+          <div className="flex items-center gap-2">
+            {restaurantRoles.length ? (
+              <Select
+                value={roleFilter}
+                onValueChange={(value) => setRoleFilter(value as 'all' | 'hotel' | 'restaurant')}
+              >
+                <SelectTrigger aria-label="Filter roles" className="w-40">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All roles</SelectItem>
+                  <SelectItem value="hotel">Hotel roles</SelectItem>
+                  <SelectItem value="restaurant">Restaurant roles</SelectItem>
+                </SelectContent>
+              </Select>
+            ) : null}
+            {myCapabilities.includes('staff.manage_roles') ? (
+              <Button onClick={beginCreate}>New custom role</Button>
+            ) : null}
+          </div>
         }
       />
       {deleteMutation.isError ? (
@@ -1395,13 +1675,13 @@ function RoleManagement({
           {deleteMutation.error.message}
         </p>
       ) : null}
-      {templates.length === 0 ? (
+      {templates.length === 0 && restaurantRoles.length === 0 ? (
         <div className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">
           No roles are available for this hotel.
         </div>
       ) : (
         <div className="grid gap-3 lg:grid-cols-2">
-          {templates.map((role) => {
+          {(roleFilter === 'restaurant' ? [] : templates).map((role) => {
             const builtIn = role.kind === 'BUILT_IN';
             const blocked = role.memberCount > 0;
             return (
@@ -1476,8 +1756,70 @@ function RoleManagement({
               </Card>
             );
           })}
+          {(roleFilter === 'hotel' ? [] : restaurantRoles).map((role) => (
+            <Card key={role.value}>
+              <CardHeader className="flex-row items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <CardTitle className="text-base">{role.name}</CardTitle>
+                  <p className="m-0 text-sm text-muted-foreground">{role.description}</p>
+                </div>
+                <div className="flex gap-1">
+                  <Badge variant="secondary">Built-in</Badge>
+                  <Badge variant="outline">Restaurant</Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                  <span>{role.memberCount} staff members</span>
+                  <span aria-hidden="true">·</span>
+                  <span>{role.capabilities.length} permissions</span>
+                  <span aria-hidden="true">·</span>
+                  <span>Overview: Automatic</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setViewingRestaurantRole(role)}
+                  >
+                    View permissions
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
         </div>
       )}
+
+      <Dialog
+        open={viewingRestaurantRole !== null}
+        onOpenChange={(open) => !open && setViewingRestaurantRole(null)}
+      >
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{viewingRestaurantRole?.name} permissions</DialogTitle>
+            <DialogDescription>
+              Built-in roles are read-only. Restaurant roles apply to the restaurant the person is
+              assigned to.
+            </DialogDescription>
+          </DialogHeader>
+          <PermissionList
+            ariaLabel={`${viewingRestaurantRole?.name ?? 'Restaurant role'} permissions`}
+            permissions={
+              viewingRestaurantRole
+                ? RESTAURANT_PERMISSION_CATALOG.filter((permission) =>
+                    viewingRestaurantRole.capabilities.includes(permission.key),
+                  ).map((permission) => ({ ...permission, source: 'Role' as const }))
+                : []
+            }
+          />
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setViewingRestaurantRole(null)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={dialog !== null} onOpenChange={(open) => !open && reset()}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
@@ -1652,9 +1994,13 @@ function StaffStatusDialog({
       onConfirm={onConfirm}
     >
       <p className="m-0 rounded-md border bg-muted p-3 text-sm text-muted-foreground">
-        {suspending
-          ? 'Suspending blocks sign-in and ends active sessions. Staff history stays available.'
-          : 'The staff account can sign in again after it is reactivated.'}
+        {target?.restaurant
+          ? suspending
+            ? 'This suspends only this restaurant assignment. Other hotel and restaurant access stays available.'
+            : 'Access to this restaurant is restored.'
+          : suspending
+            ? 'Suspending blocks sign-in and ends active sessions. Staff history stays available.'
+            : 'The staff account can sign in again after it is reactivated.'}
       </p>
     </ConfirmDialog>
   );

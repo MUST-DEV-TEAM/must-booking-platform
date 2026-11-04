@@ -7,7 +7,11 @@ import { type ReactNode, useEffect, useState } from 'react';
 import { Alert, AlertDescription, AlertTitle } from '../../components/ui/alert';
 import { PlanAccessProvider } from '../../components/ui/plan-access';
 
-type PlanUsage = { plan: { name: string; readOnly: boolean } };
+type PlanUsage = {
+  plan: { name: string; readOnly: boolean; diningEnabled?: boolean; maxVenues?: number };
+  /** `venues` counts the restaurants that are switched on. */
+  usage?: { venues?: number };
+};
 
 export function usePlanUsage(tenantId: string) {
   return useQuery({

@@ -105,6 +105,18 @@ export class PropertiesService {
                     AND psa.property_id = p.id
                     AND psa.user_id = ${userId}::uuid
                 )
+                -- Restaurant staff reach the hotel their restaurant belongs to, so the dashboard has a
+                -- hotel to open; the hotel's own pages stay behind their usual permissions.
+                OR EXISTS (
+                  SELECT 1
+                  FROM venue_staff_assignments vsa
+                  JOIN venues v ON v.tenant_id = vsa.tenant_id AND v.id = vsa.venue_id
+                  WHERE vsa.tenant_id = p.tenant_id
+                    AND vsa.user_id = ${userId}::uuid
+                    AND vsa.suspended_at IS NULL
+                    AND v.active
+                    AND v.property_id = p.id
+                )
               )
           )
           ORDER BY p.created_at`,
@@ -428,6 +440,7 @@ export class PropertiesService {
         UNION ALL SELECT 'Clock catalog mappings', COUNT(*)::int FROM clock_catalog_mappings WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
         UNION ALL SELECT 'manual review items', COUNT(*)::int FROM manual_review_items WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
         UNION ALL SELECT 'provider events', COUNT(*)::int FROM provider_events WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        UNION ALL SELECT 'linked restaurants', COUNT(*)::int FROM venues WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
         UNION ALL SELECT 'amenities', COUNT(*)::int FROM amenities WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
         UNION ALL SELECT 'room type amenities', COUNT(*)::int FROM room_type_amenities WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
         UNION ALL SELECT 'room amenities', COUNT(*)::int FROM room_amenities WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid

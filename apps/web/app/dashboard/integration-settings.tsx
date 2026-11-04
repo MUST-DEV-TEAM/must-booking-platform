@@ -19,6 +19,7 @@ import { ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
 import { credentialFieldsByProvider } from './[tenantId]/integrations-management';
 import { Tabs, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { ClockSyncStatus } from './clock-sync';
+import { RestaurantIntegrationCard } from './venues/restaurant-integration-card';
 type Connection = {
   id: string;
   provider: 'CLOCK_PMS' | 'POKPAY' | 'STRIPE';
@@ -200,7 +201,7 @@ export function IntegrationSettings({
       </p>
       <Tabs value={category} onValueChange={setCategory}>
         <TabsList className="h-auto max-w-full flex-wrap justify-start">
-          {['All', 'Property systems', 'Payments', 'Channels', 'Email'].map((value) => (
+          {['All', 'Property systems', 'Payments', 'Channels', 'Email', 'Services'].map((value) => (
             <TabsTrigger key={value} value={value}>
               {value}
             </TabsTrigger>
@@ -321,6 +322,13 @@ export function IntegrationSettings({
             ));
           },
         )}
+        {category === 'All' || category === 'Services' ? (
+          <RestaurantIntegrationCard
+            tenantId={tenantId}
+            propertyId={propertyId}
+            canWrite={canWrite}
+          />
+        ) : null}
       </div>
       <ClockSyncStatus tenantId={tenantId} propertyId={propertyId} />
       <Dialog open={syncOpen} onOpenChange={setSyncOpen}>

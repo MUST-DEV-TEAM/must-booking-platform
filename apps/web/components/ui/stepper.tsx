@@ -1,4 +1,7 @@
+'use client';
+
 import { Check } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 
 import { cn } from '../../lib/utils';
 
@@ -19,12 +22,21 @@ export function Stepper({
   current: number;
   label?: string;
 }) {
+  const track = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const active = track.current?.querySelector<HTMLElement>('[aria-current="step"]');
+    active?.scrollIntoView?.({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+  }, [current]);
   return (
-    <div>
+    <div
+      ref={track}
+      tabIndex={0}
+      className="overflow-x-auto overscroll-x-contain pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+    >
       <ol
         aria-label={label}
         className="m-0 grid list-none gap-3 p-0"
-        style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }}
+        style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(150px, 1fr))` }}
       >
         {steps.map((step, index) => {
           const done = index < current;
