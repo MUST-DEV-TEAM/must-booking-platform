@@ -130,5 +130,21 @@ namespace MustHotelBooking\Frontend {
     if (isset($selection['promoCode'])) $fail('Emptying the field must remove the code.');
     if (($selection['quote']['quoteToken'] ?? '') !== 'plain-token') $fail('Removing the code must restore the normal quote.');
 
+    // A rate with a discount built in names itself next to the percentage, as the hotel wrote it in Clock.
+    $_SERVER['REQUEST_METHOD'] = 'GET';
+    $_POST = [];
+    \MustHotelBooking\Core\MustApiClient::$offers = [
+        ['rateId' => '2', 'name' => 'early booker', 'label' => 'Bed & breakfast', 'mealNames' => [], 'total' => ['amount' => '340.00', 'currency' => 'EUR'], 'originalTotal' => ['amount' => '400.00', 'currency' => 'EUR']],
+    ];
+    $view = get_checkout_page_view_data();
+    $pricing = $view['selected_rooms'][0]['pricing'] ?? [];
+    if (($pricing['discount_rate_name'] ?? null) !== 'early booker') $fail('The discounted rate must carry its own name.');
+    if (abs(($pricing['discount_total'] ?? 0) - 60.0) > 0.001) $fail('The rate discount must be shown.');
+    \MustHotelBooking\Core\MustApiClient::$offers = [
+        ['rateId' => '2', 'name' => 'early booker', 'label' => 'Bed & breakfast', 'mealNames' => [], 'total' => ['amount' => '340.00', 'currency' => 'EUR']],
+    ];
+    $view = get_checkout_page_view_data();
+    if (($view['selected_rooms'][0]['pricing']['discount_rate_name'] ?? null) !== '') $fail('A rate without a discount must not show a name.');
+
     echo "Checkout coupon test passed.\n";
 }

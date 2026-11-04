@@ -28,7 +28,6 @@ import { ClockRateLimiterService } from './clock-rate-limiter';
 import { DisplayPriceStore, type StoredDisplayPrice } from './display-price-store';
 import { ClockRateRankingService } from './clock-rate-ranking.service';
 import { ClockWebsiteRatesService } from './clock-website-rates.service';
-import { ClockRatePairsService, type ClockRatePairs } from './clock-rate-pairs.service';
 import {
   ClockBookingConsistencyService,
   ClockBookingReadError,
@@ -287,6 +286,9 @@ interface CacheEntry<T> {
   expiresAt: number;
 }
 
+/** Rate id of a discounted rate, to the rate id of the regular rate it is compared with. */
+type ClockRatePairs = Record<string, string>;
+
 /** A room type of a stay quote request with everything resolved, ready for one /products request. */
 type StayQuoteItem = {
   entry: {
@@ -385,7 +387,6 @@ export class ClockAvailabilityService {
     @Optional()
     @Inject(ClockWebsiteRatesService)
     private readonly websiteRates?: ClockWebsiteRatesService,
-    @Optional() @Inject(ClockRatePairsService) private readonly ratePairs?: ClockRatePairsService,
   ) {}
 
   /**
@@ -778,10 +779,8 @@ export class ClockAvailabilityService {
     }
 
     const hidden = await this.hiddenRatesFor(tenantId, propertyId, uniqueQueries[0]?.channel);
-    const [configuredPairs, publicHidden] = await Promise.all([
-      this.ratePairs?.pairs(tenantId, propertyId) ?? {},
-      this.websiteRates?.hiddenRateIds(tenantId, propertyId) ?? new Set<string>(),
-    ]);
+    const publicHidden =
+      (await this.websiteRates?.hiddenRateIds(tenantId, propertyId)) ?? new Set<string>();
     // /rates/ returns the entire catalogue. Share one cold-cache fetch within
     // this tenant/property request, leaving allowance for the products query.
     let batchRates: Promise<ClockOutcome<ClockRateRow[]>> | undefined;
@@ -834,9 +833,7 @@ export class ClockAvailabilityService {
       usable.map(async (entry) => ({
         entry,
         rankOrder: await this.rateRankings.rankOrder(tenantId, propertyId, entry.query.roomTypeId),
-        pairs: entry.rates.ok
-          ? publicRatePairs(configuredPairs, entry.rates.value, publicHidden)
-          : {},
+        pairs: entry.rates.ok ? publicRatePairs(entry.rates.value, publicHidden) : {},
       })),
     );
     // What the two memories already know. A recent price is used as it is; an older one (up to a day) is shown
@@ -1333,10 +1330,8 @@ export class ClockAvailabilityService {
         ),
       );
     const hidden = await this.hiddenRatesFor(tenantId, propertyId, query.channel);
-    const [configuredPairs, publicHidden] = await Promise.all([
-      this.ratePairs?.pairs(tenantId, propertyId) ?? {},
-      this.websiteRates?.hiddenRateIds(tenantId, propertyId) ?? new Set<string>(),
-    ]);
+    const publicHidden =
+      (await this.websiteRates?.hiddenRateIds(tenantId, propertyId)) ?? new Set<string>();
     const rates = await this.ratesForRoomType(
       parsed.value,
       externalRoomTypeId,
@@ -1366,7 +1361,7 @@ export class ClockAvailabilityService {
 
     const roomType = response.value.find((item) => String(item.id) === externalRoomTypeId);
     const offers = roomType ? collectValidOffers(ratesAmong(roomType.rates, rates.value.ids)) : [];
-    const pairs = publicRatePairs(configuredPairs, rates.value, publicHidden);
+    const pairs = publicRatePairs(rates.value, publicHidden);
     return {
       ok: true,
       value: orderOffers(offers).map(({ rateId, offer }) => {
@@ -2393,25 +2388,16 @@ function summarizeAvailability(
 
 /** Never expand the offered rates for a pairing. Both ids must belong to this room type; the reference must
  * still be public even on the staff channel, which itself continues to offer hidden and code-only rates. */
-function publicRatePairs(
-  pairs: ClockRatePairs,
-  rates: RoomTypeRates,
-  hidden: Set<string>,
-): ClockRatePairs {
+function publicRatePairs(rates: RoomTypeRates, hidden: Set<string>): ClockRatePairs {
   const usable = (compare: string) =>
     rates.ids.includes(compare) && !hidden.has(compare) && !rates.codeProtected?.[compare]?.length;
-  const configured = Object.fromEntries(
-    Object.entries(pairs).filter(
-      ([promo, compare]) => promo !== compare && rates.ids.includes(promo) && usable(compare),
-    ),
-  );
-  return { ...automaticRatePairs(rates, usable), ...configured };
+  return automaticRatePairs(rates, usable);
 }
 
 /**
  * A rate the hotel marked with an included discount is compared with the public rate of the same room type
  * it is derived from (same Clock base rate, same currency, no discount of its own), so staff need not pair
- * them by hand. A pairing staff did set wins. Nothing here changes a price: the crossed-out price is only
+ * them by hand. Nothing here changes a price: the crossed-out price is only
  * drawn when that regular rate really costs more for the stay (see comparedOriginal).
  */
 function automaticRatePairs(
@@ -2438,7 +2424,19 @@ function automaticRatePairs(
   return result;
 }
 
-/** Uses only the same response/stay/occupancy as the promoted offer. Errors and unavailable offers are ignored. */
+/** The offer's only problem is that the rate is stopped from sale: Clock still prices it as it would be sold. */
+function isStopSaleOnly(offer: ClockProductOffer): boolean {
+  const messages = Object.values(offer.errors ?? {})
+    .flatMap((value) => (Array.isArray(value) ? value : [value]))
+    .map((value) => String(value).toLowerCase());
+  return messages.length > 0 && messages.every((message) => /stop from sale/.test(message));
+}
+
+/**
+ * Uses only the same response/stay/occupancy as the promoted offer. Other errors and unavailable offers are
+ * ignored. A regular rate that is only stopped from sale still has its real price, so it can be crossed out:
+ * guests see what the stay would cost without the discount, and the stopped rate itself is never offered.
+ */
 function comparedOriginal(
   total: Money,
   promoRateId: string,
@@ -2448,7 +2446,10 @@ function comparedOriginal(
   const compareRateId = pairs[promoRateId];
   if (!compareRateId) return undefined;
   const compared = selectBestOffer(ratesAmong(offers, [compareRateId]), []);
-  const price = compared?.offer.price;
+  const stopped = (offers[compareRateId] ?? []).find(
+    (offer) => !offer.available && isStopSaleOnly(offer) && Number.isFinite(offer.price?.cents),
+  );
+  const price = compared?.offer.price ?? stopped?.price;
   if (
     !price ||
     price.currency !== total.currency ||

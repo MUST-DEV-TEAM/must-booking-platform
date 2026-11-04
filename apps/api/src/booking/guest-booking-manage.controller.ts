@@ -112,7 +112,16 @@ export class GuestBookingManageController {
     const scope = req.tenantContext,
       identity = this.identity(scope, id, token),
       row = await this.booking(scope, id, identity.guestSessionId);
-    const automaticAllowed = this.policyAllows(row) && (await this.moneyAllows(scope, row));
+    // Read the money position fresh, as the cancel action does, so the preview never says "not automatic"
+    // only because the saved Clock snapshot is older than a minute.
+    let automaticAllowed = false;
+    if (this.policyAllows(row)) {
+      try {
+        automaticAllowed = await this.moneyAllows(scope, row, true);
+      } catch {
+        /* An uncertain financial position requires staff review. */
+      }
+    }
     const position =
       this.policyAllows(row) && !automaticAllowed && row.external && row.onlineRefundable
         ? await this.financial.read(scope, row.id)

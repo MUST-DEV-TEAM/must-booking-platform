@@ -105,7 +105,7 @@ function makeProvider(options: { clockConnected: boolean; clockAvailable: boolea
       _reference: unknown,
       execute: () => unknown,
     ) => execute(),
-    validateCatalog: async () => null,
+    validateCatalog: async () => '55555555-5555-4555-8555-555555555555',
     validateRoomSelection: async () => ({ autoAssign: false }),
     paymentMethod: async () => ({ ok: true, value: BookingPaymentMethod.STRIPE_CHECKOUT }),
     resolveGuest: async () => ({ ok: true, value: '88888888-8888-4888-8888-888888888888' }),
