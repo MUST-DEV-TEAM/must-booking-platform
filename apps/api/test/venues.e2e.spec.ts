@@ -107,16 +107,24 @@ describe('venues', () => {
     await admin.$disconnect();
   });
 
-  it('refuses every venue route until the plan includes dining', async () => {
+  it('offers restaurants even when legacy plan dining is disabled', async () => {
     const owner = await signUp('gate');
     const base = `/tenants/${owner.tenantId}/venues`;
-    const refused = await http().post(base).set('Cookie', owner.cookie).send({ name: 'Grill' });
-    expect(refused.status).toBe(403);
-    expect(refused.body.code).toBe('DINING_NOT_ENABLED');
-    await http().get(base).set('Cookie', owner.cookie).expect(403);
+    const created = await http()
+      .post(base)
+      .set('Cookie', owner.cookie)
+      .send({ name: 'Grill' })
+      .expect(201);
+    const listed = await http().get(base).set('Cookie', owner.cookie).expect(200);
+    expect(listed.body.map((venue: { id: string }) => venue.id)).toContain(created.body.id);
+    const usage = await http()
+      .get(`/tenants/${owner.tenantId}/plan-usage`)
+      .set('Cookie', owner.cookie)
+      .expect(200);
+    expect(usage.body.plan).toMatchObject({ diningEnabled: true, maxVenues: null });
   });
 
-  it('creates, reads, updates and deactivates a venue, and enforces the venue limit', async () => {
+  it('creates, reads, updates and deactivates venues without legacy plan limits', async () => {
     const owner = await signUp('crud');
     await setDining(owner.tenantId, true, 1);
     const base = `/tenants/${owner.tenantId}/venues`;
@@ -134,12 +142,16 @@ describe('venues', () => {
     });
     const venueId = created.body.id as string;
 
-    const limit = await http().post(base).set('Cookie', owner.cookie).send({ name: 'Second' });
-    expect(limit.status).toBe(409);
-    expect(limit.body.code).toBe('VENUE_LIMIT_REACHED');
+    const second = await http()
+      .post(base)
+      .set('Cookie', owner.cookie)
+      .send({ name: 'Second' })
+      .expect(201);
 
     const list = await http().get(base).set('Cookie', owner.cookie).expect(200);
-    expect(list.body.map((v: { id: string }) => v.id)).toEqual([venueId]);
+    expect(list.body.map((v: { id: string }) => v.id).sort()).toEqual(
+      [venueId, second.body.id].sort(),
+    );
 
     await http()
       .patch(`${base}/${venueId}`)
@@ -201,16 +213,15 @@ describe('venues', () => {
     expect(own.body).toEqual([]);
   });
 
-  it('never exceeds the venue limit when two requests arrive together', async () => {
+  it('creates concurrent restaurants with distinct slugs despite a legacy venue limit', async () => {
     const owner = await signUp('race');
     await setDining(owner.tenantId, true, 1);
     const base = `/tenants/${owner.tenantId}/venues`;
     const results = await Promise.all(
-      ['Race One', 'Race Two'].map((name) =>
-        http().post(base).set('Cookie', owner.cookie).send({ name }),
-      ),
+      ['Race', 'Race'].map((name) => http().post(base).set('Cookie', owner.cookie).send({ name })),
     );
-    expect(results.map((r) => r.status).sort()).toEqual([201, 409]);
+    expect(results.map((r) => r.status)).toEqual([201, 201]);
+    expect(new Set(results.map((r) => r.body.slug)).size).toBe(2);
   });
 
   it('limits venue staff to their assigned venue and drops access when suspended', async () => {

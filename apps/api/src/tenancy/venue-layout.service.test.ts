@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 
 import { VenueLayoutService } from './venue-layout.service';
@@ -33,14 +28,20 @@ function service(...answers: unknown[][]) {
 }
 
 describe('VenueLayoutService', () => {
-  it('refuses reads and writes when the plan does not include dining', async () => {
+  it('allows layout reads and writes despite legacy plan dining being disabled', async () => {
     const off = { ...planOk, diningEnabled: false };
-    await expect(service([off]).layout.get(tenantId, venueId)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
+    await expect(service([off], [], [], []).layout.get(tenantId, venueId)).resolves.toEqual({
+      areas: [],
+      combinations: [],
+    });
     await expect(
-      service([off]).layout.createArea(tenantId, venueId, actorUserId, { name: 'Terrace' }),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+      service([off], [{ id: areaId, name: 'Terrace' }]).layout.createArea(
+        tenantId,
+        venueId,
+        actorUserId,
+        { name: 'Terrace' },
+      ),
+    ).resolves.toMatchObject({ id: areaId, name: 'Terrace' });
   });
 
   it('will not delete an area that still has tables', async () => {

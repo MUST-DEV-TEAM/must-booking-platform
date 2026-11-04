@@ -8,7 +8,7 @@ import { Alert, AlertDescription, AlertTitle } from '../../components/ui/alert';
 import { PlanAccessProvider } from '../../components/ui/plan-access';
 
 type PlanUsage = {
-  plan: { name: string; readOnly: boolean; diningEnabled?: boolean; maxVenues?: number };
+  plan: { name: string; readOnly: boolean; diningEnabled?: boolean; maxVenues?: number | null };
   /** `venues` counts the restaurants that are switched on. */
   usage?: { venues?: number };
 };

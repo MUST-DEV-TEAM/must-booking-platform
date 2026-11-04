@@ -93,7 +93,7 @@ export class VenuesService {
       await tx.$queryRaw`SELECT 1 AS "locked" FROM "organizations" WHERE "id" = ${tenantId}::uuid FOR UPDATE`;
       const plan = await loadVenuePlan(tx, tenantId);
       requireDining(plan);
-      if (plan.activeVenues >= plan.maxVenues)
+      if (plan.maxVenues !== null && plan.activeVenues >= plan.maxVenues)
         throw new ConflictException({
           message: `Your plan allows ${plan.maxVenues} restaurant${plan.maxVenues === 1 ? '' : 's'}.`,
           code: 'VENUE_LIMIT_REACHED',
@@ -210,7 +210,7 @@ export class VenuesService {
       `;
       if (!current[0]) throw new NotFoundException('Restaurant was not found.');
       if (current[0].active) return this.findVenue(tx, tenantId, venueId);
-      if (plan.activeVenues >= plan.maxVenues)
+      if (plan.maxVenues !== null && plan.activeVenues >= plan.maxVenues)
         throw new ConflictException({
           message: `Your plan allows ${plan.maxVenues} restaurant${plan.maxVenues === 1 ? '' : 's'}.`,
           code: 'VENUE_LIMIT_REACHED',

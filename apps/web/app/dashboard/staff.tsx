@@ -78,7 +78,7 @@ import {
 
 type Usage = {
   plan: { maxStaffSeats: number; diningEnabled?: boolean };
-  usage: { staffSeats: number };
+  usage: { staffSeats: number; venues?: number };
 };
 type StaffView = 'all' | 'active' | 'suspended' | 'with-extra' | 'without-extra';
 type SortKey = 'member' | 'role' | 'extra' | 'status' | 'last-active';
@@ -178,8 +178,11 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
       ])) as [StaffMember[], StaffTemplate[], Usage, PermissionCatalogItem[], string[]];
       const venues: Venue[] = [];
       const restaurantRows: StaffMember[] = [];
-      if (usage.plan.diningEnabled || staffResponse.status === 403) {
-        const available = await venueApi.listVenues(tenantId);
+      if ((usage.usage.venues ?? 0) > 0 || staffResponse.status === 403) {
+        const available = await venueApi.listVenues(tenantId).catch((error: unknown) => {
+          if (error instanceof Error && 'status' in error && error.status === 403) return [];
+          throw error;
+        });
         for (const venue of available.filter(
           (v) => v.active && (!v.propertyId || v.propertyId === propertyId),
         )) {

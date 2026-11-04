@@ -54,7 +54,7 @@ export function RestaurantIntegrationCard({
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
           <span className="font-semibold text-foreground">Restaurant</span>
           <Badge variant={on ? 'success' : 'secondary'}>
-            {status.isPending ? 'Checking…' : !available ? 'Not included' : on ? 'On' : 'Off'}
+            {status.isPending ? 'Checking…' : status.isError ? 'Unavailable' : on ? 'On' : 'Off'}
           </Badge>
         </div>
         <p className="text-xs text-muted-foreground">
@@ -63,10 +63,6 @@ export function RestaurantIntegrationCard({
         </p>
         {status.isError ? (
           <p className="text-xs text-destructive">{status.error.message}</p>
-        ) : !status.isPending && !available ? (
-          <p className="text-xs text-muted-foreground">
-            Not included in your plan. Contact MUST to add it.
-          </p>
         ) : on && !venue?.setupCompletedAt ? (
           <p className="text-xs text-muted-foreground">
             Open Restaurants in the menu to finish the setup.

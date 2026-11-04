@@ -1,6 +1,7 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 
 import { TenantDatabaseService } from './tenant-database.service';
+import { RESTAURANT_ENTITLEMENT } from './venue-plan';
 
 export interface PlanUsage {
   plan: {
@@ -11,7 +12,7 @@ export interface PlanUsage {
     maxPmsConnectionsPerProperty: number;
     readOnly: boolean;
     diningEnabled: boolean;
-    maxVenues: number;
+    maxVenues: number | null;
   };
   usage: { properties: number; staffSeats: number; venues: number };
 }
@@ -33,7 +34,7 @@ export class PlanUsageService {
             maxPmsConnectionsPerProperty: number;
             readOnly: boolean;
             diningEnabled: boolean;
-            maxVenues: number;
+            maxVenues: number | null;
             properties: number;
             staffSeats: number;
             venues: number;
@@ -46,8 +47,8 @@ export class PlanUsageService {
             p."pms_enabled" AS "pmsEnabled",
             p."max_pms_connections_per_property" AS "maxPmsConnectionsPerProperty",
             p."read_only" AS "readOnly",
-            p."dining_enabled" AS "diningEnabled",
-            p."max_venues" AS "maxVenues",
+            true AS "diningEnabled",
+            NULL::integer AS "maxVenues",
             (SELECT COUNT(*)::integer FROM "properties" WHERE "tenant_id" = o."id") AS "properties",
             (SELECT COUNT(*)::integer FROM "tenant_memberships"
               WHERE "tenant_id" = o."id" AND NOT "is_auto_provisioned") AS "staffSeats",
@@ -60,6 +61,9 @@ export class PlanUsageService {
     if (!rows[0]) throw new NotFoundException('Tenant plan was not found.');
 
     const { properties, staffSeats, venues, ...plan } = rows[0];
-    return { plan, usage: { properties, staffSeats, venues } };
+    return {
+      plan: { ...plan, ...RESTAURANT_ENTITLEMENT },
+      usage: { properties, staffSeats, venues },
+    };
   }
 }

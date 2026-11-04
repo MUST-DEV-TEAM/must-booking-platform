@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 
 import { VenueStaffService } from './venue-staff.service';
@@ -48,10 +48,10 @@ describe('VenueStaffService.createAccount', () => {
     role: 'HOST',
   };
 
-  it('refuses when the plan does not include dining', async () => {
-    const { staff } = service([{ ...planOk, diningEnabled: false }]);
-    await expect(staff.createAccount(tenantId, venueId, body, actorUserId)).rejects.toBeInstanceOf(
-      ForbiddenException,
+  it('creates restaurant staff despite legacy plan dining being disabled', async () => {
+    const { staff } = service([{ ...planOk, diningEnabled: false }], [assignment]);
+    await expect(staff.createAccount(tenantId, venueId, body, actorUserId)).resolves.toEqual(
+      assignment,
     );
   });
 
@@ -89,11 +89,15 @@ describe('VenueStaffService.createAccount', () => {
 });
 
 describe('VenueStaffService.assign', () => {
-  it('refuses when the plan does not include dining', async () => {
-    const { staff } = service([{ ...planOk, diningEnabled: false }]);
+  it('assigns restaurant staff despite legacy plan dining being disabled', async () => {
+    const { staff } = service(
+      [{ ...planOk, diningEnabled: false }],
+      [{ userId: targetUserId }],
+      [assignment],
+    );
     await expect(
       staff.assign(tenantId, venueId, targetUserId, { role: 'HOST' }, actorUserId),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+    ).resolves.toEqual(assignment);
   });
 
   it.each([[{ role: 'OWNER' }], [{ role: 'host' }], [{}], ['HOST'], [null]])(

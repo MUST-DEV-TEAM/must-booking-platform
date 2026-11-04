@@ -129,10 +129,11 @@ async function mount(options: Options = {}) {
 }
 
 describe('RestaurantsSection', () => {
-  it('explains that the plan has no restaurants', async () => {
+  it('loads restaurants regardless of legacy plan dining metadata', async () => {
     const { calls } = await mount({ dining: false });
-    expect(text()).toContain('does not include restaurants');
-    expect(calls).not.toContain('/api/tenants/t/venues');
+    expect(text()).toContain('Terrace Grill');
+    expect(calls).toContain('/api/tenants/t/venues');
+    expect(text()).not.toContain('does not include restaurants');
   });
 
   it('opens the only finished restaurant straight away, with no list in between', async () => {
