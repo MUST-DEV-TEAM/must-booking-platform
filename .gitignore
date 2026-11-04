@@ -14,9 +14,14 @@ coverage/
 *.tsbuildinfo
 apps/api/.dev-certs/
 .playwright-mcp/
-output/playwright/
+output/
 dump.rdb
 infrastructure/containers/.deployed-release
 
 # Local browser inspection snapshots
 .playwright-cli/
+
+# Local restaurant fixtures and payment setup
+apps/api/scripts/seed-restaurant-demo.ts
+apps/api/scripts/configure-local-restaurant-pokpay.ts
+apps/api/scripts/seed-restaurant-qa-guests.ts
