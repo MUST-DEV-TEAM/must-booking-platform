@@ -20,10 +20,14 @@ export async function pickDate(trigger: HTMLElement | null, iso: string) {
   if (!trigger) throw new Error('The date field was not found.');
   const [year, month, day] = iso.split('-').map(Number) as [number, number, number];
   await act(async () => trigger.click());
+  // Radix can retain a closed calendar while its exit animation finishes. Follow this
+  // trigger's controlled popover instead of accidentally navigating that older calendar.
+  const contentId = trigger.getAttribute('aria-controls');
+  const calendar = contentId ? document.getElementById(contentId) : null;
+  if (!calendar || calendar.getAttribute('data-state') !== 'open')
+    throw new Error('The requested date field did not open its calendar.');
   const shown = () => {
-    const title =
-      document.querySelector('[role="dialog"] h4, [data-slot="popover-content"] h4')?.textContent ??
-      '';
+    const title = calendar.querySelector('h4')?.textContent ?? '';
     const [name, y] = title.split(' ');
     return { month: MONTHS.indexOf(name ?? '') + 1, year: Number(y) };
   };
@@ -31,17 +35,17 @@ export async function pickDate(trigger: HTMLElement | null, iso: string) {
     const current = shown();
     const diff = (year - current.year) * 12 + (month - current.month);
     if (diff === 0 || current.month === 0) break;
-    const button = document.querySelector<HTMLElement>(
+    const button = calendar.querySelector<HTMLElement>(
       `button[aria-label="${diff > 0 ? 'Next month' : 'Previous month'}"]`,
     );
     if (!button) break;
     await act(async () => button.click());
   }
   const label = `Choose ${day} ${MONTHS[month - 1]} ${year}`;
-  const cell = document.querySelector<HTMLElement>(`button[aria-label="${label}"]`);
+  const cell = calendar.querySelector<HTMLElement>(`button[aria-label="${label}"]`);
   if (!cell) throw new Error(`The calendar does not show ${label}.`);
   await act(async () => cell.click());
-  const apply = [...document.querySelectorAll<HTMLElement>('button')].find(
+  const apply = [...calendar.querySelectorAll<HTMLElement>('button')].find(
     (b) => b.textContent === 'Apply',
   );
   if (!apply) throw new Error('The calendar has no Apply button.');
