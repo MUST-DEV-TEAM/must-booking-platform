@@ -61,7 +61,7 @@ Empire Beach Resort (Clock account 14688) reported that after a paid website boo
 
 PaymentRefundService owns the gateway/local refund and invokes `postRefund` after the local transaction. ClockBookingService finds the original deposit folio using the original payment reference and posts a negative credit item with `must-refund:{refundId}`. It neither creates a detached refund folio nor reopens the original.
 
-A mirrored refund still requires Clock's human Deposit Adjustment/correction-document action according to the recorded contract evidence. Success and failure both leave the appropriate manual-review/staff notice; a sync failure cannot undo the guest refund. Automated refund synchronization must not be inferred for every cancellation path merely because manual refunds mirror.
+A mirrored refund still requires Clock's human Deposit Adjustment/correction-document action according to the recorded contract evidence. Success and failure both leave the appropriate manual-review/staff notice; a sync failure cannot undo the guest refund. Refunds made by a cancellation (guest link, automatic policy refund and the multi-room order variant) are mirrored the same way, once, after the refund is recorded; a Clock failure leaves a review item and never undoes the refund.
 
 ### Live refund finding (2026-10-01)
 
