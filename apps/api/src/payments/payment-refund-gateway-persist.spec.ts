@@ -28,13 +28,12 @@ function setup(writeOutcomes: Array<'ok' | 'fail'>) {
     $queryRaw: vi.fn().mockResolvedValue([]),
   };
   const outcomes = [...writeOutcomes];
-  const withTenantTransaction = vi.fn(
-    async (_ctx: unknown, op: (t: typeof tx) => Promise<unknown>, _options?: unknown) => {
-      if (withTenantTransaction.mock.calls.length === 1) return op(tx);
-      if (outcomes.shift() === 'fail') throw poolTimeout;
-      return op(tx);
-    },
-  );
+  const withTenantTransaction = vi.fn(async (...args: unknown[]) => {
+    const op = args[1] as (t: typeof tx) => Promise<unknown>;
+    if (withTenantTransaction.mock.calls.length === 1) return op(tx);
+    if (outcomes.shift() === 'fail') throw poolTimeout;
+    return op(tx);
+  });
   const provider = { refund: vi.fn().mockResolvedValue(refundResult) };
   const service = new PaymentRefundService(
     { withTenantTransaction } as never,

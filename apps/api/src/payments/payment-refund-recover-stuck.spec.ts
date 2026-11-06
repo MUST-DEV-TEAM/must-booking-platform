@@ -57,8 +57,8 @@ function setup(options: Options = {}) {
       return [];
     }),
   };
-  const withTenantTransaction = vi.fn(
-    async (_ctx: unknown, op: (t: typeof tx) => Promise<unknown>, _opts?: unknown) => op(tx),
+  const withTenantTransaction = vi.fn(async (...args: unknown[]) =>
+    (args[1] as (t: typeof tx) => Promise<unknown>)(tx),
   );
   const provider = {
     refund: vi.fn(),
