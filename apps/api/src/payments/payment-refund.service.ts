@@ -18,6 +18,7 @@ import { PaymentProviderRegistry } from './payment-provider-registry';
 import { NotificationsService } from '../tenancy/notifications.service';
 import { ClockBookingService } from '../integrations/clock/clock-booking.service';
 import { ManualReviewService } from '../integrations/manual-review.service';
+import { reportOperationalFailure } from '../observability/error-tracking';
 
 type Charge = {
   id: string;
@@ -102,6 +103,15 @@ export function percentageRefundMinorUnits(amount: string, percentage: number): 
   const denominator = 100n * scale;
   return (originalMinorUnits * numerator + denominator / 2n) / denominator;
 }
+
+/**
+ * The two small writes around a provider refund must not lose to a busy connection pool: money may already
+ * have moved. They wait longer for a free connection, and the write that records the provider's answer is
+ * retried before the attempt is left for the recovery sweeper.
+ */
+const REFUND_WRITE_MAX_WAIT_MS = 15_000;
+const REFUND_RESULT_WRITE_ATTEMPTS = 5;
+const REFUND_RESULT_WRITE_BACKOFF_MS = 500;
 
 /** How long after a cancellation a refund can still be made from Payments. */
 const REFUND_WINDOW_HOURS = 24;
@@ -459,44 +469,48 @@ export class PaymentRefundService {
         }),
       )
       .digest('hex');
-    const prepared = await this.database.withTenantTransaction(context, async (durable) => {
-      await durable.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${context.tenantId + ':' + context.propertyId + ':' + bookingId + ':refund'},0))`;
-      const existing = await durable.$queryRaw<
-        Array<{ hash: string; result: { providerResult?: Result<Payment> } }>
-      >`
+    const prepared = await this.database.withTenantTransaction(
+      context,
+      async (durable) => {
+        await durable.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${context.tenantId + ':' + context.propertyId + ':' + bookingId + ':refund'},0))`;
+        const existing = await durable.$queryRaw<
+          Array<{ hash: string; result: { providerResult?: Result<Payment> } }>
+        >`
         SELECT request_hash AS hash,result FROM integration_operations WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND idempotency_key=${key}`;
-      if (existing[0]) {
-        if (existing[0].hash !== hash)
+        if (existing[0]) {
+          if (existing[0].hash !== hash)
+            return {
+              replay: this.failure(
+                'IDEMPOTENCY_KEY_CONFLICT',
+                'This refund attempt belongs to another request.',
+              ),
+            };
           return {
-            replay: this.failure(
-              'IDEMPOTENCY_KEY_CONFLICT',
-              'This refund attempt belongs to another request.',
-            ),
+            replay:
+              existing[0].result?.providerResult ??
+              this.failure(
+                'REFUND_REQUIRES_REVIEW',
+                'This refund attempt has an uncertain result. Verify the original payment before retrying.',
+              ),
           };
-        return {
-          replay:
-            existing[0].result?.providerResult ??
-            this.failure(
-              'REFUND_REQUIRES_REVIEW',
-              'This refund attempt has an uncertain result. Verify the original payment before retrying.',
-            ),
-        };
-      }
-      const unresolved = await durable.$queryRaw<Array<{ id: string }>>`
+        }
+        const unresolved = await durable.$queryRaw<Array<{ id: string }>>`
         SELECT op.id FROM integration_operations op WHERE op.tenant_id=${context.tenantId}::uuid AND op.property_id=${context.propertyId}::uuid AND op.aggregate_id=${bookingId}::uuid AND op.result->>'kind'='gateway_refund'
         AND (op.result->>'stage' IS DISTINCT FROM 'RETURNED' OR NOT EXISTS (
           SELECT 1 FROM payments p WHERE p.tenant_id=op.tenant_id AND p.property_id=op.property_id AND p.booking_id=op.aggregate_id AND p.kind='REFUND' AND p.status='REFUNDED' AND p.external_payment_id=op.result#>>'{providerResult,value,id}'
         )) LIMIT 1`;
-      if (unresolved[0])
-        return {
-          replay: this.failure(
-            'REFUND_REQUIRES_REVIEW',
-            'An earlier refund is pending or uncertain. Review it before requesting another refund.',
-          ),
-        };
-      await durable.$executeRaw`INSERT INTO integration_operations(tenant_id,property_id,idempotency_key,aggregate_id,request_hash,status,result) VALUES(${context.tenantId}::uuid,${context.propertyId}::uuid,${key},${bookingId}::uuid,${hash},'PENDING',${JSON.stringify({ kind: 'gateway_refund', stage: 'PREPARING', provider: charge.provider, chargeExternalPaymentId: charge.externalPaymentId, amount: command.amount })}::jsonb)`;
-      return { replay: null };
-    });
+        if (unresolved[0])
+          return {
+            replay: this.failure(
+              'REFUND_REQUIRES_REVIEW',
+              'An earlier refund is pending or uncertain. Review it before requesting another refund.',
+            ),
+          };
+        await durable.$executeRaw`INSERT INTO integration_operations(tenant_id,property_id,idempotency_key,aggregate_id,request_hash,status,result) VALUES(${context.tenantId}::uuid,${context.propertyId}::uuid,${key},${bookingId}::uuid,${hash},'PENDING',${JSON.stringify({ kind: 'gateway_refund', stage: 'PREPARING', provider: charge.provider, chargeExternalPaymentId: charge.externalPaymentId, amount: command.amount })}::jsonb)`;
+        return { replay: null };
+      },
+      { maxWaitMs: REFUND_WRITE_MAX_WAIT_MS },
+    );
     if (prepared.replay) return prepared.replay;
     let result: Result<Payment>;
     try {
@@ -509,13 +523,51 @@ export class PaymentRefundService {
     }
     // Even an error may follow a provider write. Preserve it and require review;
     // a new browser idempotency key cannot bypass the saved uncertain attempt.
-    await this.database.withTenantTransaction(
-      context,
-      (durable) => durable.$executeRaw`
+    await this.persistGatewayResult(context, key, hash, result, bookingId);
+    return result;
+  }
+
+  /**
+   * Saves the provider's answer on the saved attempt. A busy pool must not make this fail for good, so it is
+   * retried. If every try fails the attempt stays as it was (the recovery sweeper reads the provider and
+   * finishes it), the failure is reported, and the caller still gets the provider's answer: the money has
+   * already moved, so the booking flow must go on.
+   */
+  private async persistGatewayResult(
+    context: PaymentProviderContext,
+    key: string,
+    hash: string,
+    result: Result<Payment>,
+    bookingId: string,
+  ): Promise<void> {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= REFUND_RESULT_WRITE_ATTEMPTS; attempt += 1) {
+      try {
+        await this.database.withTenantTransaction(
+          context,
+          (durable) => durable.$executeRaw`
       UPDATE integration_operations SET status=${result.ok ? 'SUCCEEDED' : 'FAILED'}, result=result || ${JSON.stringify({ stage: result.ok ? 'RETURNED' : 'UNCERTAIN', providerResult: result })}::jsonb,updated_at=now()
       WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND idempotency_key=${key} AND request_hash=${hash}`,
+          { maxWaitMs: REFUND_WRITE_MAX_WAIT_MS },
+        );
+        return;
+      } catch (error) {
+        lastError = error;
+        if (attempt < REFUND_RESULT_WRITE_ATTEMPTS)
+          await new Promise((resolve) =>
+            setTimeout(resolve, REFUND_RESULT_WRITE_BACKOFF_MS * attempt),
+          );
+      }
+    }
+    this.logger.error(
+      `Could not save the provider's refund answer for booking ${bookingId} after ${REFUND_RESULT_WRITE_ATTEMPTS} tries; the recovery sweeper will finish it. ${lastError instanceof Error ? lastError.message : String(lastError)}`,
     );
-    return result;
+    reportOperationalFailure(lastError, {
+      component: 'payments',
+      operation: 'refund-result-write',
+      tenantId: context.tenantId,
+      propertyId: context.propertyId,
+    });
   }
 
   /**

@@ -206,6 +206,10 @@ the existing public photo origin routed to those keys, configure R2, and switch
 3. Confirm health: `docker compose -f compose.homelab.yaml --env-file .env ps` — `api` and `web`
    should be running, not restarting.
 
+## Database connection pool
+
+The API's `DATABASE_URL` carries `connection_limit` and `pool_timeout` (`DB_CONNECTION_LIMIT`, default 10, and `DB_POOL_TIMEOUT`, default 20 seconds). Without a limit, Prisma sizes the pool at twice the CPU count plus one, which is 3 connections on the current 1 vCPU host. A refund holds one connection while it calls the payment provider, so a small pool can time out when the second write needs a connection (2026-11-06, Empire refund). Size the limit to the host: roughly 3 to 4 times the vCPU count, and never above half of the database's `max_connections` (100). Raise `DB_CONNECTION_LIMIT` in `.env` when the server is upgraded. Changing it needs an API container recreate.
+
 ## The runtime database role
 
 The API connects as `must_booking_app`, a non-superuser role that RLS actually applies to — not as
