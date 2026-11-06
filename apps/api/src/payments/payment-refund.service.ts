@@ -158,6 +158,7 @@ export class PaymentRefundService {
       amount: { amount: charge.amount, currency: charge.currency },
       idempotencyKey,
     });
+    await this.mirrorCancellationRefundToClock(tx, context, bookingId, outcome);
     return { result: outcome.result, confirmation: outcome.confirmation };
   }
 
@@ -193,7 +194,26 @@ export class PaymentRefundService {
       idempotencyKey,
       ...metadata,
     });
+    await this.mirrorCancellationRefundToClock(tx, context, bookingId, outcome);
     return { result: outcome.result, confirmation: outcome.confirmation };
+  }
+
+  /**
+   * A refund made by a cancellation reaches Clock the same way a staff refund does: a negative payment on the
+   * original deposit folio. It runs only when this call recorded a new refund (a repeat records nothing, so it
+   * posts nothing), and a Clock failure never undoes the refund; it leaves a review item instead.
+   */
+  private async mirrorCancellationRefundToClock(
+    tx: TenantTransaction,
+    context: PaymentProviderContext,
+    bookingId: string,
+    outcome: {
+      result: Result<Payment | null>;
+      clockRefund: { amount: Money; refundId: string } | null;
+    },
+  ): Promise<void> {
+    if (outcome.result.ok && outcome.clockRefund)
+      await this.syncManualRefundToClock(tx, context, bookingId, outcome.clockRefund);
   }
 
   /**
