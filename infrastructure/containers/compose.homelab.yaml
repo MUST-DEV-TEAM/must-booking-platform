@@ -54,7 +54,7 @@ services:
     environment:
       APP_PORT: 3000
       APP_DATABASE_PASSWORD: ${APP_DATABASE_PASSWORD}
-      DATABASE_URL: postgresql://must_booking_app:${APP_DATABASE_PASSWORD}@postgres:5432/must_booking?schema=public
+      DATABASE_URL: postgresql://must_booking_app:${APP_DATABASE_PASSWORD}@postgres:5432/must_booking?schema=public&connection_limit=${DB_CONNECTION_LIMIT:-10}&pool_timeout=${DB_POOL_TIMEOUT:-20}
       MIGRATION_DATABASE_URL: postgresql://must_booking:${POSTGRES_PASSWORD}@postgres:5432/must_booking?schema=public
       REDIS_URL: redis://redis:6379
       WEB_APP_URL: ${WEB_APP_URL}

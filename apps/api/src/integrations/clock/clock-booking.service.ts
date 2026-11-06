@@ -1184,6 +1184,47 @@ export class ClockBookingService {
     return { ok: true, value: undefined };
   }
 
+  /**
+   * Read-only: does Clock's original deposit folio hold the negative payment MUST posts for this refund
+   * (reference `must-refund:{refundId}`)? Used by the nightly check; it never writes to Clock. A booking with
+   * no Clock booking has nothing to mirror and counts as POSTED. A Clock read failure is an error, never MISSING.
+   */
+  async refundMirrorStatus(
+    context: PmsProviderContext,
+    bookingId: string,
+    refundId: string,
+  ): Promise<Result<'POSTED' | 'MISSING'>> {
+    const row = await this.database.withTenantTransaction(context, (tx) =>
+      this.bookingById(tx, context, bookingId),
+    );
+    if (!row?.externalBookingId) return { ok: true, value: 'POSTED' };
+    const connection = await this.credentials(context);
+    if (!connection.ok) return connection;
+    const originalDeposit = await this.withRetry(() =>
+      this.depositFolioWithPaymentReference(
+        connection.value,
+        row.externalBookingId!,
+        row.externalReference,
+      ),
+    );
+    if (!originalDeposit.ok)
+      return this.failure(
+        originalDeposit.error.code,
+        originalDeposit.error.message,
+        originalDeposit.error.retryable,
+      );
+    const posted = await this.withRetry(() =>
+      this.creditItemByReference(
+        connection.value,
+        originalDeposit.value.folio.id,
+        `must-refund:${refundId}`,
+      ),
+    );
+    if (!posted.ok)
+      return this.failure(posted.error.code, posted.error.message, posted.error.retryable);
+    return { ok: true, value: posted.value ? 'POSTED' : 'MISSING' };
+  }
+
   /** Bounded retry for postDeposit's two outbound steps: up to 3 attempts,
    * ~1.2s apart (just over the Clock rate limiter's 1s window), only when
    * the failure is itself marked retryable (rate-limited/circuit-open/
