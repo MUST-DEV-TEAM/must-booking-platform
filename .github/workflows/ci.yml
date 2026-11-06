@@ -31,8 +31,100 @@ env:
   INTEGRATION_CREDENTIALS_KEY: 7JsGVIPiEfyPy2jzT+B04wdH9Z0jdhnRxREXJf688so=
 
 jobs:
-  verify:
-    name: Build, lint, and test
+  # The checks below run side by side. The required check "Build, lint, and test" (branch protection) is the
+  # last job, which passes only when all of them pass.
+  static:
+    name: Build, lint and format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.12.4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build workspace
+        run: pnpm -w build
+
+      - name: Lint workspace
+        run: pnpm -w lint
+
+      - name: Check formatting
+        run: pnpm -w format:check
+
+  # The API tests are the long part of CI. Their end-to-end specs share one database and one Redis, so within a
+  # run they must go one file at a time (fileParallelism is off). Each shard has its own database and Redis, so
+  # the shards can run at the same time without ever sharing them.
+  api-tests:
+    name: API tests (shard ${{ matrix.shard }} of 4)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: must_booking
+          POSTGRES_USER: must_booking
+          POSTGRES_PASSWORD: must_booking_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U must_booking -d must_booking"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.12.4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the shared packages
+        run: pnpm --filter "./packages/*" build
+
+      - name: Apply database migrations
+        run: pnpm --filter api prisma migrate deploy
+
+      - name: Run this shard of the API tests
+        run: pnpm --filter api exec vitest run --shard=${{ matrix.shard }}/4
+
+  other-tests:
+    name: Web and UI tests
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -78,17 +170,28 @@ jobs:
       - name: Build workspace
         run: pnpm -w build
 
-      - name: Lint workspace
-        run: pnpm -w lint
-
-      - name: Check formatting
-        run: pnpm -w format:check
-
       - name: Apply database migrations
         run: pnpm --filter api prisma migrate deploy
 
-      - name: Test workspace
-        run: pnpm -w test
+      - name: Run the web and UI tests
+        run: pnpm --recursive --filter '!api' run test
+
+  verify:
+    name: Build, lint, and test
+    needs: [static, api-tests, other-tests]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every part must have passed
+        env:
+          STATIC: ${{ needs.static.result }}
+          API: ${{ needs.api-tests.result }}
+          OTHER: ${{ needs.other-tests.result }}
+        run: |
+          echo "build, lint and format: $STATIC"
+          echo "API tests: $API"
+          echo "web and UI tests: $OTHER"
+          test "$STATIC" = success && test "$API" = success && test "$OTHER" = success
 
   browser:
     name: Browser tests
