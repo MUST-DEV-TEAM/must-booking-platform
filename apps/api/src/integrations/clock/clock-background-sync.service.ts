@@ -5,7 +5,11 @@ import {
   type SyncCounts,
   type SyncJobRow,
 } from './clock-sync-progress';
-import { ClockFinancialService, ClockFinancialCurrencyError } from './clock-financial.service';
+import {
+  ClockFinancialService,
+  ClockFinancialCurrencyError,
+  ClockFinancialDataError,
+} from './clock-financial.service';
 import { Param } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import {
@@ -62,7 +66,7 @@ const enabled = () => process.env.CLOCK_BACKGROUND_SYNC_ENABLED === 'true';
  * What may be logged about a failure: the kind of error, its code and the rule that refused a row. Never the
  * message itself, because a database message can quote the failing row, which holds guest details.
  */
-const errorText = (error: unknown) => {
+export const errorText = (error: unknown) => {
   if (!(error instanceof Error)) return 'unknown error';
   const code = (error as { code?: unknown }).code;
   const dbCode = (error as { meta?: { code?: unknown } }).meta?.code;
@@ -72,6 +76,8 @@ const errorText = (error: unknown) => {
     typeof code === 'string' ? `code ${code}` : null,
     typeof dbCode === 'string' ? `database code ${dbCode}` : null,
     constraint ? `rule ${constraint}` : null,
+    // A financial refusal carries fixed text that never quotes Clock or guest data, so the cause can be logged.
+    error instanceof ClockFinancialDataError ? error.message : null,
   ]
     .filter(Boolean)
     .join(', ');
@@ -277,7 +283,7 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
               await this.db.withTenantTransaction(
                 scope,
                 (tx) =>
-                  tx.$executeRaw`UPDATE clock_sync_jobs SET status=${retry ? 'RETRY' : 'FAILED'},last_error=${error instanceof ClockFinancialCurrencyError ? error.message : retry ? 'Clock is temporarily unavailable. Synchronization will retry automatically.' : 'Synchronization needs connection or room-mapping review (' + category + ').'},next_run_at=now()+interval '1 minute',lease_token=NULL,lease_until=NULL,updated_at=now() WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${job.id}::uuid AND lease_token=${job.leaseToken}::uuid`,
+                  tx.$executeRaw`UPDATE clock_sync_jobs SET status=${retry ? 'RETRY' : 'FAILED'},last_error=${error instanceof ClockFinancialDataError ? error.message : retry ? 'Clock is temporarily unavailable. Synchronization will retry automatically.' : 'Synchronization needs connection or room-mapping review (' + category + ').'},next_run_at=now()+interval '1 minute',lease_token=NULL,lease_until=NULL,updated_at=now() WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${job.id}::uuid AND lease_token=${job.leaseToken}::uuid`,
               );
             }
           }),

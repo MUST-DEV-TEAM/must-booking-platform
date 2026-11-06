@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { financialSnapshot } from './clock-financial.service';
+import {
+  ClockFinancialCurrencyError,
+  ClockFinancialDataError,
+  financialSnapshot,
+} from './clock-financial.service';
 const amount = (cents: number) => ({ cents, currency: 'EUR' });
 const identity = {
   bookingId: 'local',
@@ -75,5 +79,163 @@ describe('verified Clock financial projection', () => {
     const d = data();
     d.booking.balance = undefined as never;
     expect(() => financialSnapshot(d, identity)).toThrow('missing');
+  });
+});
+
+// Real shapes read from Clock on 2026-11-06. Clock keeps each bill (folio) in its own currency and records a
+// payment in the currency the guest paid, plus its value converted into the bill's currency (fixed_value_*).
+const money = (cents: number, currency: string) => ({ cents, currency });
+describe('Clock bills and payments in more than one currency', () => {
+  it('accepts a payment made in ALL on an EUR booking, using its EUR value for the bill', () => {
+    const result = financialSnapshot(
+      {
+        booking: { balance: money(0, 'EUR') },
+        folios: [
+          {
+            detail: { id: 1, deposit: false, value: money(44688, 'EUR'), balance: money(0, 'EUR') },
+            credits: [
+              {
+                id: 7,
+                value_cents: 4245360,
+                currency: 'ALL',
+                fixed_value_cents: 44688,
+                fixed_value_currency: 'EUR',
+                payment_type: 'card',
+                reference: null,
+              },
+            ],
+          },
+        ],
+      },
+      identity,
+    );
+    expect(result.paid).toEqual({ amount: '446.88', currency: 'EUR' });
+    expect(result.balance.amount).toBe('0.00');
+    expect(result.folios[0].payments[0].amount).toEqual({ amount: '42453.60', currency: 'ALL' });
+  });
+
+  it('adds a payment in the bill currency and a payment converted into it on the same bill', () => {
+    const result = financialSnapshot(
+      {
+        booking: { balance: money(0, 'EUR') },
+        folios: [
+          {
+            detail: { id: 1, deposit: false, value: money(73000, 'EUR'), balance: money(0, 'EUR') },
+            credits: [
+              {
+                id: 1,
+                value_cents: 4873500,
+                currency: 'ALL',
+                fixed_value_cents: 51300,
+                fixed_value_currency: 'EUR',
+                payment_type: 'card',
+              },
+              {
+                id: 2,
+                value_cents: 21700,
+                currency: 'EUR',
+                fixed_value_cents: 21700,
+                fixed_value_currency: 'EUR',
+                payment_type: 'bank',
+              },
+            ],
+          },
+        ],
+      },
+      identity,
+    );
+    expect(result.paid.amount).toBe('730.00');
+  });
+
+  // The Empire booking of 2026-11-06: an ALL booking whose deposit bill Clock holds in EUR (1 EUR = 90 ALL).
+  const empire = () => ({
+    booking: { balance: money(4312040, 'ALL') },
+    folios: [
+      {
+        detail: {
+          id: 1,
+          deposit: false,
+          value: money(2156000, 'ALL'),
+          balance: money(2156000, 'ALL'),
+        },
+        credits: [],
+      },
+      {
+        detail: {
+          id: 2,
+          deposit: true,
+          value: money(23956, 'EUR'),
+          balance: money(23956, 'EUR'),
+          local_currency: 'ALL',
+          fixed_currency_rate: 90,
+        },
+        credits: [
+          {
+            id: 10,
+            value_cents: 2156000,
+            currency: 'ALL',
+            fixed_value_cents: 23956,
+            fixed_value_currency: 'EUR',
+            payment_type: 'on-line',
+          },
+          {
+            id: 11,
+            value_cents: -2156000,
+            currency: 'ALL',
+            fixed_value_cents: -23956,
+            fixed_value_currency: 'EUR',
+            payment_type: 'on-line',
+          },
+        ],
+      },
+    ],
+  });
+
+  it('accepts an ALL booking whose deposit bill is held in EUR, and reports totals in ALL', () => {
+    const result = financialSnapshot(empire(), identity);
+    expect(result.balance).toEqual({ amount: '43120.40', currency: 'ALL' });
+    expect(result.paid).toEqual({ amount: '21560.00', currency: 'ALL' });
+    expect(result.refunded).toEqual({ amount: '21560.00', currency: 'ALL' });
+    expect(result.folios[1].balance).toEqual({ amount: '239.56', currency: 'EUR' });
+  });
+
+  it('still refuses a bill in another currency when Clock gives no rate to relate it to the booking', () => {
+    const d = empire();
+    delete (d.folios[1].detail as Record<string, unknown>).fixed_currency_rate;
+    expect(() => financialSnapshot(d, identity)).toThrow(ClockFinancialCurrencyError);
+  });
+
+  it('still refuses a payment in another currency that has no converted value', () => {
+    const d = empire();
+    delete (d.folios[1].credits[0] as Record<string, unknown>).fixed_value_cents;
+    expect(() => financialSnapshot(d, identity)).toThrow('incomplete');
+  });
+
+  it('still notices when the converted bills do not add up to the booking balance', () => {
+    const d = empire();
+    d.booking.balance = money(4312040 + 500, 'ALL');
+    expect(() => financialSnapshot(d, identity)).toThrow('changed');
+  });
+
+  it('tolerates one minor unit of rounding per converted bill, and no more', () => {
+    const rounded = empire();
+    rounded.booking.balance = money(4312040 + 1, 'ALL');
+    expect(() => financialSnapshot(rounded, identity)).not.toThrow();
+    const off = empire();
+    off.booking.balance = money(4312040 + 2, 'ALL');
+    expect(() => financialSnapshot(off, identity)).toThrow('changed');
+  });
+
+  it('shows a cause in the logs: every refusal is a ClockFinancialDataError with a fixed message', () => {
+    const d = empire();
+    delete (d.folios[1].credits[0] as Record<string, unknown>).fixed_value_cents;
+    try {
+      financialSnapshot(d, identity);
+      throw new Error('expected a refusal');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ClockFinancialDataError);
+      expect((error as Error).name).toBe('ClockFinancialDataError');
+    }
+    expect(new ClockFinancialCurrencyError()).toBeInstanceOf(ClockFinancialDataError);
   });
 });
