@@ -16,11 +16,22 @@ const decimalMinor = (value: string) => {
   const [whole, fraction = ''] = value.split('.');
   return BigInt(whole) * 100n + BigInt(fraction.padEnd(2, '0').slice(0, 2));
 };
-export class ClockFinancialCurrencyError extends Error {
+/**
+ * A refusal to build the Clock financial snapshot. Its message is fixed text that never quotes Clock data or guest
+ * details, so it is safe to log and to show to staff (the sync job stores it as the reason).
+ */
+export class ClockFinancialDataError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ClockFinancialDataError';
+  }
+}
+export class ClockFinancialCurrencyError extends ClockFinancialDataError {
   constructor() {
     super(
       'Clock bills and payments use inconsistent currencies. Collection is blocked while automatic checks continue; review the currency setup for this booking.',
     );
+    this.name = 'ClockFinancialCurrencyError';
   }
 }
 
@@ -54,11 +65,36 @@ function signed(cents: bigint) {
   );
 }
 function money(v: unknown): Money {
-  if (!v || typeof v !== 'object') throw new Error('Clock financial amount is missing.');
+  if (!v || typeof v !== 'object')
+    throw new ClockFinancialDataError('Clock financial amount is missing.');
   const m = v as Record<string, unknown>;
   if (typeof m.cents !== 'number' || !Number.isSafeInteger(m.cents) || !currency(m.currency))
-    throw new Error('Clock financial amount is invalid.');
+    throw new ClockFinancialDataError('Clock financial amount is invalid.');
   return { amount: signed(BigInt(m.cents)), currency: m.currency };
+}
+const RATE_SCALE = 100_000_000n;
+/** How many booking-currency units one unit of the bill's currency is worth, scaled by RATE_SCALE. */
+function folioRate(
+  detail: Record<string, unknown>,
+  folioCurrency: string,
+  bookingCurrency: string,
+): bigint {
+  if (folioCurrency === bookingCurrency) return RATE_SCALE;
+  const raw = detail.fixed_currency_rate;
+  const rate = typeof raw === 'string' ? Number(raw) : raw;
+  if (
+    detail.local_currency !== bookingCurrency ||
+    typeof rate !== 'number' ||
+    !Number.isFinite(rate) ||
+    rate <= 0
+  )
+    throw new ClockFinancialCurrencyError();
+  return BigInt(Math.round(rate * 1e8));
+}
+function toBookingCents(cents: bigint, rate: bigint): bigint {
+  const scaled = cents * rate;
+  const half = RATE_SCALE / 2n;
+  return scaled >= 0n ? (scaled + half) / RATE_SCALE : -((-scaled + half) / RATE_SCALE);
 }
 export function financialSnapshot(
   raw: Awaited<ReturnType<ClockBookingConsistencyService['financialData']>>,
@@ -74,31 +110,50 @@ export function financialSnapshot(
   const balance = money(raw.booking.balance);
   let paid = 0n,
     refunded = 0n,
-    folioBalances = 0n;
+    localBalances = 0n,
+    convertedFolios = 0;
   const seen = new Set<string>();
   const folios = raw.folios.map(({ detail, credits }) => {
+    // Clock keeps each bill in its own currency. The bill's value and balance must agree with each other, and
+    // when the bill is not in the booking's currency Clock must say how to relate the two (local currency + rate).
     const value = money(detail.value),
       folioBalance = money(detail.balance);
-    if (value.currency !== balance.currency || folioBalance.currency !== balance.currency)
-      throw new ClockFinancialCurrencyError();
-    folioBalances += BigInt((detail.balance as { cents: number }).cents);
+    if (value.currency !== folioBalance.currency) throw new ClockFinancialCurrencyError();
+    const rate = folioRate(detail, folioBalance.currency, balance.currency);
+    if (folioBalance.currency !== balance.currency) convertedFolios += 1;
+    localBalances += toBookingCents(BigInt((detail.balance as { cents: number }).cents), rate);
     let creditNet = 0n;
     const payments = credits.flatMap((v: unknown) => {
-      if (!v || typeof v !== 'object') throw new Error('Clock payment is invalid.');
+      if (!v || typeof v !== 'object')
+        throw new ClockFinancialDataError('Clock payment is invalid.');
       const c = v as Record<string, unknown>;
       if (c.voided_at || c.archived_at) return [];
       if (
         !Number.isSafeInteger(c.id) ||
         !Number.isSafeInteger(c.value_cents) ||
-        !currency(c.currency) ||
-        c.currency !== balance.currency
+        !currency(c.currency)
       )
-        throw new Error('Clock payment amount is incomplete.');
+        throw new ClockFinancialDataError('Clock payment amount is incomplete.');
+      // The payment in the currency the guest paid, and the same payment in the bill's currency: either it is
+      // already in it, or Clock gives its converted value (fixed_value_*). Anything else cannot be added up.
+      let inFolio: bigint;
+      if (c.currency === folioBalance.currency) inFolio = BigInt(c.value_cents as number);
+      else if (
+        c.fixed_value_currency === folioBalance.currency &&
+        Number.isSafeInteger(c.fixed_value_cents)
+      )
+        inFolio = BigInt(c.fixed_value_cents as number);
+      else throw new ClockFinancialDataError('Clock payment amount is incomplete.');
       const id = String(c.id);
-      if (seen.has(id)) throw new Error('Clock returned a repeated payment identity.');
+      if (seen.has(id))
+        throw new ClockFinancialDataError('Clock returned a repeated payment identity.');
       seen.add(id);
-      const cents = BigInt(c.value_cents as number);
-      creditNet += cents;
+      creditNet += inFolio;
+      // Totals are reported in the booking's currency.
+      const cents =
+        c.currency === balance.currency
+          ? BigInt(c.value_cents as number)
+          : toBookingCents(inFolio, rate);
       // Internal transfers are not new guest money. Provider balance remains authoritative.
       const type = typeof c.payment_type === 'string' ? c.payment_type : 'other';
       if (!['transfer', 'cross_account_transfer'].includes(type)) {
@@ -108,7 +163,7 @@ export function financialSnapshot(
       return [
         {
           id,
-          amount: { amount: signed(cents), currency: c.currency },
+          amount: { amount: signed(BigInt(c.value_cents as number)), currency: c.currency },
           type,
           reference: typeof c.reference === 'string' ? c.reference.slice(0, 300) : null,
         },
@@ -129,7 +184,10 @@ export function financialSnapshot(
       payments,
     };
   });
-  if (folioBalances !== BigInt((raw.booking.balance as { cents: number }).cents))
+  // Converting a bill into the booking's currency can differ by a minor unit from Clock's own rounding: allow one
+  // per converted bill, and none when every bill is already in the booking's currency.
+  const difference = localBalances - BigInt((raw.booking.balance as { cents: number }).cents);
+  if ((difference < 0n ? -difference : difference) > BigInt(convertedFolios))
     throw new ConflictException(
       'Clock bills changed during the financial check. They will be checked again.',
     );
