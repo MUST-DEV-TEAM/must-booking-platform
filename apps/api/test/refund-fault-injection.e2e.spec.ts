@@ -77,7 +77,12 @@ const provider = {
     amount: { amount: '100.00', currency: 'ALL' },
   })),
 };
-const clock = { postRefund: vi.fn(async () => ({ ok: true as const, value: undefined })) };
+const clock = {
+  postRefund: vi.fn<(...args: unknown[]) => Promise<{ ok: true; value: undefined }>>(async () => ({
+    ok: true,
+    value: undefined,
+  })),
+};
 let refunds: PaymentRefundService;
 
 const count = async (table: string, where = '') =>

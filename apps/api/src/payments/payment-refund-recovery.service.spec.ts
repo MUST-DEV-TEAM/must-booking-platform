@@ -22,7 +22,9 @@ function setup(
 ) {
   const database = { $queryRaw: vi.fn().mockResolvedValue(rows) };
   const refunds = {
-    raiseStuckRefundAlert: vi.fn(async () => true),
+    raiseStuckRefundAlert: vi.fn<(operation: StuckRefundOperation) => Promise<boolean>>(
+      async () => true,
+    ),
     recoverStuckRefund: vi.fn(async (operation: StuckRefundOperation) => {
       const outcome = outcomes[operation.operationId] ?? 'RECOVERED';
       if (outcome === 'throws') throw new Error('database busy');

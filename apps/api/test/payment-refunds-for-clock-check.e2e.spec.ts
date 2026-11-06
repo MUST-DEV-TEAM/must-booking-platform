@@ -50,7 +50,8 @@ async function seedRefund(db: Db, bookingId: string, provider: string, externalI
 async function listed() {
   const rows = await app.$queryRaw<Array<{ bookingId: string; refundExternalPaymentId: string }>>`
     SELECT "bookingId", "refundExternalPaymentId" FROM payment_refunds_for_clock_check(45, 500)`;
-  return rows.filter((row) => [inClock, notInClock, alreadyFlagged].includes(row.bookingId));
+  const ours: string[] = [inClock, notInClock, alreadyFlagged];
+  return rows.filter((row) => ours.includes(row.bookingId));
 }
 
 beforeAll(async () => {
