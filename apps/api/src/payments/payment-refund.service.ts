@@ -42,6 +42,22 @@ type ManualRefundCommand = {
 
 type OperationRow = { requestHash: string; result: Result<Payment> | null };
 
+/** A refund attempt saved before the provider was called that never finished (see payment_stuck_refund_operations). */
+export type StuckRefundOperation = {
+  tenantId: string;
+  propertyId: string;
+  bookingId: string;
+  operationId: string;
+  idempotencyKey: string;
+  stage: string;
+  chargeExternalPaymentId: string | null;
+  amount: string | null;
+  currency: string | null;
+  ageMinutes: number;
+};
+
+export type RefundRecoveryOutcome = 'RECOVERED' | 'NOTHING_TO_DO' | 'NEEDS_PERSON';
+
 export type RefundConfirmation = {
   bookingId: string;
   bookingReference: string;
@@ -178,6 +194,145 @@ export class PaymentRefundService {
       ...metadata,
     });
     return { result: outcome.result, confirmation: outcome.confirmation };
+  }
+
+  /**
+   * Finishes a refund the provider paid but this system never recorded (for example the write that saves the
+   * provider's answer timed out). It only READS the provider: if the provider shows the payment fully refunded,
+   * the missing REFUND row is recorded exactly like a manual reconciliation, Clock is told, and the saved attempt
+   * is closed. It never sends a refund. Anything it cannot prove (partial refund, provider unreachable, several
+   * charges) is left untouched for a person.
+   */
+  async recoverStuckRefund(operation: StuckRefundOperation): Promise<RefundRecoveryOutcome> {
+    const context: PaymentProviderContext = {
+      tenantId: operation.tenantId,
+      propertyId: operation.propertyId,
+    };
+    return this.database.withTenantTransaction(
+      context,
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${context.tenantId + ':' + context.propertyId + ':' + operation.bookingId + ':refund'},0))`;
+        const charge = await this.chargeForBooking(tx, context, operation.bookingId, [
+          'PAID',
+          'LATE_AFTER_EXPIRY',
+          'succeeded',
+        ]);
+        if (!charge || (charge.chargeCount ?? 1) > 1) return 'NEEDS_PERSON';
+        if (
+          operation.chargeExternalPaymentId &&
+          operation.chargeExternalPaymentId !== charge.externalPaymentId
+        )
+          return 'NEEDS_PERSON';
+        const provider = this.paymentProviders.forProvider(charge.provider);
+        if (!provider) return 'NEEDS_PERSON';
+
+        const missing =
+          this.minorUnits(charge.amount) -
+          (await this.refundedAmount(tx, context, operation.bookingId));
+        if (missing <= 0n) {
+          const latest = await tx.$queryRaw<Array<{ id: string }>>`
+            SELECT external_payment_id AS id FROM payments
+            WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+              AND booking_id = ${operation.bookingId}::uuid AND kind = 'REFUND'::"PaymentKind" AND status = 'REFUNDED'
+            ORDER BY created_at DESC LIMIT 1`;
+          if (!latest[0]) return 'NEEDS_PERSON';
+          await this.closeRecoveredOperation(tx, context, operation, latest[0].id, {
+            amount: charge.amount,
+            currency: charge.currency,
+          });
+          return 'NOTHING_TO_DO';
+        }
+
+        const synced = await this.syncRefundAlreadyDone(
+          tx,
+          context,
+          operation.bookingId,
+          charge,
+          provider,
+          {},
+        );
+        if (!synced) return 'NEEDS_PERSON';
+
+        const refundId = `${charge.externalPaymentId}:refund:reconciled`;
+        const recorded = { amount: this.money(missing), currency: charge.currency };
+        await this.syncManualRefundToClock(tx, context, operation.bookingId, {
+          amount: recorded,
+          refundId,
+        });
+        await this.closeRecoveredOperation(tx, context, operation, refundId, recorded);
+        return 'RECOVERED';
+      },
+      { timeoutMs: 90_000, maxWaitMs: REFUND_WRITE_MAX_WAIT_MS },
+    );
+  }
+
+  /**
+   * A refund the recovery sweeper could not prove stays stuck: tell people, once. The saved attempt is marked
+   * as alerted in the same transaction that records the review item and the staff notification, so repeated
+   * sweeps (or two at once) raise exactly one alert. Returns true only for the run that raised it.
+   */
+  async raiseStuckRefundAlert(operation: StuckRefundOperation): Promise<boolean> {
+    const context: PaymentProviderContext = {
+      tenantId: operation.tenantId,
+      propertyId: operation.propertyId,
+    };
+    return this.database.withTenantTransaction(
+      context,
+      async (tx) => {
+        const claimed = await tx.$queryRaw<Array<{ id: string }>>`
+          UPDATE integration_operations
+          SET result = result || ${JSON.stringify({ alertedAt: new Date().toISOString() })}::jsonb, updated_at = now()
+          WHERE id = ${operation.operationId}::uuid AND tenant_id = ${context.tenantId}::uuid
+            AND property_id = ${context.propertyId}::uuid AND (result->>'alertedAt') IS NULL
+          RETURNING id`;
+        if (!claimed[0]) return false;
+        const amount =
+          operation.amount && operation.currency
+            ? `${operation.amount} ${operation.currency}`
+            : 'an unknown amount';
+        await this.manualReview.recordInTransaction(tx, {
+          ...context,
+          category: 'PAYMENT_BOOKING_MISMATCH',
+          referenceType: 'booking',
+          referenceId: operation.bookingId,
+          message: `A refund of ${amount} was started ${operation.ageMinutes} minutes ago and the system could not confirm it. Check in the payment provider whether the guest was refunded before trying again; new refunds on this booking are blocked until this is resolved.`,
+          context: {
+            operationId: operation.operationId,
+            stage: operation.stage,
+            chargeExternalPaymentId: operation.chargeExternalPaymentId,
+            ageMinutes: operation.ageMinutes,
+          },
+        });
+        await this.inAppNotifications.recordInTransaction(tx, {
+          ...context,
+          type: 'BOOKING_NEEDS_ATTENTION',
+          payload: { bookingId: operation.bookingId, reason: 'refund_stuck' },
+        });
+        return true;
+      },
+      { maxWaitMs: REFUND_WRITE_MAX_WAIT_MS },
+    );
+  }
+
+  private async closeRecoveredOperation(
+    tx: TenantTransaction,
+    context: PaymentProviderContext,
+    operation: StuckRefundOperation,
+    refundId: string,
+    amount: Money,
+  ): Promise<void> {
+    const answer = {
+      stage: 'RETURNED',
+      recovered: true,
+      providerResult: {
+        ok: true,
+        value: { id: refundId, amount, status: 'REFUNDED', bookingId: operation.bookingId },
+      },
+    };
+    await tx.$executeRaw`
+      UPDATE integration_operations SET status = 'SUCCEEDED', result = result || ${JSON.stringify(answer)}::jsonb, updated_at = now()
+      WHERE id = ${operation.operationId}::uuid AND tenant_id = ${context.tenantId}::uuid
+        AND property_id = ${context.propertyId}::uuid`;
   }
 
   async refundCharge(
