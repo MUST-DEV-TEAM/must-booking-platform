@@ -239,6 +239,7 @@ import { StripeWebhookService } from './payments/stripe-webhook.service';
 import { PaymentExpiryService } from './payments/payment-expiry.service';
 import { PokPayReconciliationService } from './payments/pokpay-reconciliation.service';
 import { PaymentRefundRecoveryService } from './payments/payment-refund-recovery.service';
+import { ClockRefundMirrorCheckService } from './integrations/clock/clock-refund-mirror-check.service';
 import { PaymentRefundController } from './payments/payment-refund.controller';
 import { PaymentRefundService } from './payments/payment-refund.service';
 import { PaymentLedgerController } from './payments/payment-ledger.controller';
@@ -534,6 +535,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     PaymentExpiryService,
     PokPayReconciliationService,
     PaymentRefundRecoveryService,
+    ClockRefundMirrorCheckService,
     PaymentRefundService,
     PaymentLedgerService,
     ManualPaymentService,
