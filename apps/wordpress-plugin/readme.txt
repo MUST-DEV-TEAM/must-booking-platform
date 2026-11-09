@@ -4,7 +4,7 @@ Tags: hotel, booking, reservation, accommodation
 Requires at least: 5.0
 Tested up to: 6.0
 Requires PHP: 7.4
-Stable tag: 0.4.124
+Stable tag: 0.4.125
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -31,6 +31,9 @@ Main features include:
 5. When updating, upload the new release ZIP or use the configured updater, then review **Diagnostics & Maintenance** after the update completes.
 
 == Changelog ==
+
+= 0.4.125 =
+* Checkout room card: the original price, the percentage off and the rate name now sit in one row, with the percentage and the rate name shown as small badges.
 
 = 0.4.124 =
 * Rate choice and room cards: the crossed-out price is drawn smaller, so the new price stands out.
