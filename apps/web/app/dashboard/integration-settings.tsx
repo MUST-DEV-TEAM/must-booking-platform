@@ -47,6 +47,11 @@ export function IntegrationSettings({
   >({});
   const [category, setCategory] = useState('All');
   const [syncOpen, setSyncOpen] = useState(false);
+  const [switchConfirm, setSwitchConfirm] = useState<{
+    replacing: string;
+    toProduction: boolean | null;
+    run: () => void;
+  } | null>(null);
   const query = useQuery({
     queryKey: ['dashboard', 'integration-settings', tenantId, propertyId],
     queryFn: async () => {
@@ -213,6 +218,11 @@ export function IntegrationSettings({
     );
   const assigned = (id: string) =>
     query.data!.assignments.some((a) => a.connectionId === id && a.enabled);
+  // The PokPay connection this hotel is using now, other than the one being switched to.
+  const otherEnabledPokpay = (exceptId?: string) =>
+    query.data!.connections.find(
+      (c) => c.provider === 'POKPAY' && c.id !== exceptId && assigned(c.id),
+    );
   return (
     <div className="space-y-5">
       <p className="text-sm text-muted-foreground">
@@ -304,13 +314,26 @@ export function IntegrationSettings({
                             action.isPending ||
                             (!assigned(connection.id) && connection.status !== 'CONNECTED')
                           }
-                          onClick={() =>
-                            action.mutate({
-                              path: `/properties/${propertyId}/integration-connections/${connection.id}`,
-                              method: 'PATCH',
-                              body: { enabled: !assigned(connection.id) },
-                            })
-                          }
+                          onClick={() => {
+                            const run = () =>
+                              action.mutate({
+                                path: `/properties/${propertyId}/integration-connections/${connection.id}`,
+                                method: 'PATCH',
+                                body: { enabled: !assigned(connection.id) },
+                              });
+                            const replacing = otherEnabledPokpay(connection.id);
+                            if (
+                              connection.provider === 'POKPAY' &&
+                              !assigned(connection.id) &&
+                              replacing
+                            )
+                              setSwitchConfirm({
+                                replacing: replacing.name,
+                                toProduction: null,
+                                run,
+                              });
+                            else run();
+                          }}
                         >
                           {assigned(connection.id) ? 'Disable' : 'Enable'}
                         </Button>
@@ -361,6 +384,33 @@ export function IntegrationSettings({
           <ClockSyncStatus tenantId={tenantId} propertyId={propertyId} details />
         </DialogContent>
       </Dialog>
+      <Dialog open={!!switchConfirm} onOpenChange={(open) => !open && setSwitchConfirm(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogTitle>
+            {switchConfirm?.toProduction ? 'Go live with PokPay?' : 'Switch PokPay connection?'}
+          </DialogTitle>
+          <DialogDescription>
+            This hotel is using “{switchConfirm?.replacing}” now. Guests will pay through the new
+            connection from this moment, and “{switchConfirm?.replacing}” is switched off.
+            {switchConfirm?.toProduction ? ' Production takes real payments.' : ''} Payments already
+            taken stay on record, but a switched-off connection cannot refund them from here.
+          </DialogDescription>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setSwitchConfirm(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                const run = switchConfirm?.run;
+                setSwitchConfirm(null);
+                run?.();
+              }}
+            >
+              {switchConfirm?.toProduction ? 'Go live' : 'Switch'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <Dialog
         open={!!edit}
         onOpenChange={(open) => {
@@ -382,7 +432,15 @@ export function IntegrationSettings({
             className="space-y-4"
             onSubmit={(e) => {
               e.preventDefault();
-              save.mutate();
+              const replacing =
+                !edit?.id && edit?.provider === 'POKPAY' ? otherEnabledPokpay() : undefined;
+              if (replacing)
+                setSwitchConfirm({
+                  replacing: replacing.name,
+                  toProduction: credentials.baseUrl === 'https://api.pokpay.io',
+                  run: () => save.mutate(),
+                });
+              else save.mutate();
             }}
           >
             {edit?.provider === 'POKPAY' ? (
