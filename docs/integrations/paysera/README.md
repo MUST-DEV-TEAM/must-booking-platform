@@ -1,6 +1,6 @@
 # Paysera integration sources
 
-Saved 2026-11-09 for [Milestone 36](../../roadmap/milestones/36-multiple-payment-methods-paysera.md). These are copies of Paysera's public developer documentation (plain text taken from the pages), kept so the design does not depend on the site staying the same. They are reference only; nothing here is built.
+Saved 2026-11-09 for [Milestone 36](../../roadmap/milestones/36-multiple-payment-methods.md). These are copies of Paysera's public developer documentation (plain text taken from the pages), kept so the design does not depend on the site staying the same. They are reference only; nothing here is built.
 
 - Portal: https://developers.paysera.com
 - Paysera Albania: https://www.paysera.al/v2/en-AL/payment-gateway-checkout

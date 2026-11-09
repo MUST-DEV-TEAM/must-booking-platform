@@ -1,10 +1,10 @@
-# Milestone 36: Several payment methods per hotel, starting with Paysera (planning, not scheduled)
+# Milestone 36: Several payment methods per hotel (Stripe first, then Paysera) (planned, not scheduled)
 
-Status: **Brainstorming 2026-11-09; all suggestions below approved by the owner the same day. Nothing is built. Waiting on Paysera Albania for documents (owner asks 2026-11-10).**
+Status: **Planned 2026-11-09, to be done later (owner). All suggestions below approved. Nothing is built. Stripe sandbox connected to Claude 2026-11-09. Waiting on Paysera Albania for documents (owner asks 2026-11-10).**
 
 ## Why
 
-Today a hotel can take card payments through one provider only: PokPay. The owner wants a hotel to offer **several payment methods at the same time** (like large booking sites do), because different methods suit different guests. Paysera is next; Stripe follows later ([Milestone 37](37-stripe-payments.md), recorded only).
+Today a hotel can take card payments through one provider only: PokPay. The owner wants a hotel to offer **several payment methods at the same time** (like large booking sites do), because different methods suit different guests. The system is built for hotels in several countries (Albania now; for example Italy and Greece later), so Stripe, which does not serve Albanian businesses, is still needed. Stripe is built first as the second method because its test mode and documents are available now; Paysera follows when Paysera Albania sends its documents.
 
 ## What the owner decided
 
@@ -39,10 +39,10 @@ Source files are saved in [docs/integrations/paysera/](../../integrations/payser
 
 ## Build order (suggestion)
 
-1. **The general layer first, with PokPay as its first user:** several connections per hotel, test or live per method, the go-live and credential-change steps, retired-method refunds, and the owner's on/off settings. This needs nothing from Paysera.
-2. **The Paysera adapter second,** once Paysera's documents, test credentials and the answers above are in.
-3. Stripe later ([Milestone 37](37-stripe-payments.md)).
+1. **The general layer first, with PokPay and Stripe (test mode) as its first two users:** several connections per hotel, test or live per method, the go-live and credential-change steps, retired-method refunds, and the owner's on/off settings. This needs nothing from Paysera.
+2. **The Paysera adapter after that,** once Paysera's documents, test credentials and the answers above are in.
+3. Stripe's finishing work for real hotels is in [Milestone 37](37-stripe-payments.md).
 
 ## Not in this milestone
 
-Stripe (Milestone 37), the payment-method picker design on the public booking page (needs a design pass), per-guest method choice rules.
+Stripe going live for a real hotel (Milestone 37), the payment-method picker design on the public booking page (needs a design pass), per-guest method choice rules.
