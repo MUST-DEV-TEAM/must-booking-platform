@@ -64,7 +64,10 @@ const admin = new PrismaClient({
   },
 });
 
-async function waitFor(check: () => Promise<boolean> | boolean, timeoutMs = 10_000): Promise<void> {
+// Returns as soon as the condition holds, so a normal run is not slower. The limit only matters on a loaded CI
+// machine, where a real worker can take longer than 10 seconds to pick a job up (the missing-job recreation test
+// timed out at exactly 10 s twice on 2026-11-09 and passed on re-run). It stays below the 45 s test timeout.
+async function waitFor(check: () => Promise<boolean> | boolean, timeoutMs = 30_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await check()) return;
