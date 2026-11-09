@@ -10,7 +10,7 @@ import { ClockWebhookHealthService } from './clock-webhook-health.service';
 function makeService(rows: unknown[]) {
   const database = {
     withPlatformAdminTransaction: vi.fn((_context, callback) =>
-      callback({ $queryRawUnsafe: vi.fn().mockResolvedValue(rows) }),
+      callback({ $queryRaw: vi.fn().mockResolvedValue(rows) }),
     ),
   };
   return { service: new ClockWebhookHealthService(database as never), database };
