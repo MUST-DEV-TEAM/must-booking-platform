@@ -95,8 +95,11 @@ describe('amenities', () => {
     const amenity = await request(app!.getHttpServer())
       .post(`${propertyUrl}/amenities`)
       .set('Cookie', cookie)
-      .send({ name: 'Wi-Fi' })
-      .expect(201);
+      .send({ name: 'Wi-Fi' });
+    // Failed once on CI (2026-11-09) with a 403 right after the verification call returned 204, and the cause was
+    // not visible. Put the server's answer in the failure message: "Verify your email..." and "Missing required
+    // capability." are different problems.
+    expect(amenity.status, `server answered ${JSON.stringify(amenity.body)}`).toBe(201);
     const amenityId = amenity.body.id as string;
 
     await request(app!.getHttpServer())
