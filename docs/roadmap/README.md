@@ -4,6 +4,8 @@ Status reconciled against repository evidence on **2026-09-19**. This page owns 
 
 ## Current work
 
+**Open follow-ups (2026-11-09):** the list of things not done yet, with owners of the detail, is in [open-follow-ups.md](open-follow-ups.md).
+
 **Overall order agreed 2026-11-09.** (1) Close out [27](milestones/27-clock-rates-cancellation-permissions.md) and [28](milestones/28-release-and-cutover.md) (the redesign has been live since 2026-10-26; reconcile their rows against what is built). (2) [33 - Restaurants and venues](milestones/33-venues-restaurants.md), starting with the owner Q&A. (3) [32 - Empire website in Astro](milestones/32-empire-astro-website.md), built in its own repository, in parallel with [25 - Native PMS](milestones/25-native-pms.md). Then 26, 30, 15 and 14. [34](milestones/34-beach-management.md) and [35](milestones/35-spa-pool-services.md) are recorded as future plans only.
 
 **Updated 2026-11-09 (catch-up).** Work shipped 3-6 November is now recorded: rate cards, discount display and Clock link safety ([27](milestones/27-clock-rates-cancellation-permissions.md) Tasks 13-14), refund recovery, cancellation refunds in Clock and multi-currency Clock bills (27 Tasks 15-17), billing in Clock's currency ([29](milestones/29-currency.md) Task 8), parallel API test shards ([31](milestones/31-pipeline-and-connector.md) Task 8) and the restaurant module (index row below). The redesigned dashboard went live on 2026-10-26, so the 2026-10-25 text below that calls it "the next release" is historical; what remains of 27 and 28 is tracked in their own files. Owner direction: websites we build for hotels use Astro; WordPress hotels connect through the connector now and the [Milestone 26](milestones/26-public-api.md) API later.

@@ -56,6 +56,7 @@ Phase 1 (next 1-2 weeks): faster and more trustworthy.
 | 10 | Build the images once and deploy the tested build | Planned |
 | 11 | Deploy window with a "deploy now" label and a visible list of pending changes | Planned |
 | 12 | Database-change safety check in CI; weekly pipeline report | Planned |
+| 12a | Fix the flaky web tests of the payments screen (`payments.test.tsx` fails in CI under load with a DOM cleanup error, passes alone and on re-run; blocked PRs on 2026-11-09). Detail: [open follow-ups](../open-follow-ups.md) | Planned |
 
 Phase 2: separate the connector inside this repository.
 
