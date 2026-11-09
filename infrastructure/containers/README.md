@@ -54,6 +54,13 @@ The Ops workflow runs fixed maintenance actions: `status`, `health`, `sentry` (w
 `restart-web`, `backup-now` and `cleanup`. It does not show application logs, because they can
 contain guest details. Read logs over SSH instead.
 
+### Server settings that are not part of a deploy
+
+These live on the server only, so they are kept here as copies in case the server is rebuilt:
+
+- `journald-must-booking.conf` caps the system log at 200 MB (and keeps 2 GB of disk free, one month at most).
+  Install it as `/etc/systemd/journald.conf.d/must-booking.conf`, then run `systemctl restart systemd-journald`.
+
 ### One-time server setup
 
 Run as root. The checkout moves to `/opt/must-booking`, the path the backup unit expects.
