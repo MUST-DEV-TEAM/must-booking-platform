@@ -188,6 +188,48 @@ describe('venues', () => {
       .expect(400);
   });
 
+  it('lets only a workspace owner or admin change the hotel link of a restaurant', async () => {
+    const owner = await signUp('link-owner');
+    const manager = await signUp('link-manager');
+    await setDining(owner.tenantId, true, 5);
+    await admin.$executeRaw`
+      INSERT INTO tenant_memberships (tenant_id, user_id, role)
+      VALUES (${owner.tenantId}::uuid, ${manager.userId}::uuid, 'STAFF')`;
+    const [{ id: property }] = await admin.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM properties WHERE tenant_id = ${owner.tenantId}::uuid`;
+    const base = `/tenants/${owner.tenantId}/venues`;
+    const venue = (
+      await http().post(base).set('Cookie', owner.cookie).send({ name: 'Link Venue' }).expect(201)
+    ).body.id as string;
+    await http()
+      .put(`${base}/${venue}/staff/${manager.userId}`)
+      .set('Cookie', owner.cookie)
+      .send({ role: 'MANAGER' })
+      .expect(200);
+
+    // A venue manager can still edit their restaurant, but not move it to another hotel.
+    await http()
+      .patch(`${base}/${venue}`)
+      .set('Cookie', manager.cookie)
+      .send({ phone: '1' })
+      .expect(200);
+    await http()
+      .patch(`${base}/${venue}`)
+      .set('Cookie', manager.cookie)
+      .send({ propertyId: property })
+      .expect(403);
+    const unchanged = await http().get(`${base}/${venue}`).set('Cookie', owner.cookie).expect(200);
+    expect(unchanged.body.propertyId).toBeNull();
+
+    // The workspace owner can.
+    const linked = await http()
+      .patch(`${base}/${venue}`)
+      .set('Cookie', owner.cookie)
+      .send({ propertyId: property })
+      .expect(200);
+    expect(linked.body.propertyId).toBe(property);
+  });
+
   it("does not let one tenant's owner reach another tenant's venue", async () => {
     const a = await signUp('iso-a');
     const b = await signUp('iso-b');

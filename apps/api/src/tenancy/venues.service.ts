@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -129,6 +130,18 @@ export class VenuesService {
     return this.database
       .withTenantTransaction({ tenantId }, async (tx) => {
         requireDining(await loadVenuePlan(tx, tenantId));
+        if ('propertyId' in input) {
+          // Which hotel a restaurant belongs to is a workspace-level decision: venue managers may edit
+          // their restaurant, but only a workspace owner or admin may change its hotel link.
+          const member = await tx.$queryRaw<Array<{ role: 'OWNER' | 'ADMIN' | 'STAFF' }>>`
+            SELECT "role" FROM "tenant_memberships"
+            WHERE "tenant_id" = ${tenantId}::uuid AND "user_id" = ${actorUserId}::uuid
+          `;
+          if (member[0]?.role !== 'OWNER' && member[0]?.role !== 'ADMIN')
+            throw new ForbiddenException(
+              'Only a workspace owner or admin can change which hotel a restaurant is linked to.',
+            );
+        }
         if (input.propertyId) await this.requireProperty(tx, tenantId, input.propertyId);
         const has = (key: keyof typeof input) => key in input;
         const rows = await tx.$queryRaw<VenueView[]>`
