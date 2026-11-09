@@ -115,16 +115,8 @@ export class ClockWebhookHealthService implements OnModuleInit, OnModuleDestroy 
   async checkWebhookFreshness(): Promise<{ checked: number; stale: number }> {
     const rows = await this.database.withPlatformAdminTransaction(
       { role: 'platform_admin' },
-      (tx) =>
-        tx.$queryRawUnsafe<ConnectionHealthRow[]>(
-          `SELECT DISTINCT c.id, c.tenant_id AS "tenantId",
-             c.last_webhook_received_at AS "lastWebhookReceivedAt", c.created_at AS "createdAt"
-           FROM integration_connections c
-           JOIN property_integration_connections pic
-             ON pic.tenant_id = c.tenant_id AND pic.connection_id = c.id
-           WHERE c.kind = 'PMS' AND c.provider = 'CLOCK_PMS' AND c.status = 'CONNECTED'
-             AND pic.enabled = true`,
-        ),
+      // Row-level security hides connections from the platform role, so a narrow database function lists them.
+      (tx) => tx.$queryRaw<ConnectionHealthRow[]>`SELECT * FROM clock_connection_health()`,
     );
 
     const now = Date.now();
@@ -169,15 +161,11 @@ export class ClockWebhookHealthService implements OnModuleInit, OnModuleDestroy 
     const cutoff = new Date(Date.now() - PENDING_BOOKING_TIMEOUT_MS);
     const rows = await this.database.withPlatformAdminTransaction(
       { role: 'platform_admin' },
+      // Row-level security hides bookings from the platform role, so a narrow database function lists them.
       (tx) =>
-        tx.$queryRawUnsafe<StuckBookingRow[]>(
-          `SELECT id, tenant_id AS "tenantId", property_id AS "propertyId", status::text AS "status",
-             updated_at AS "updatedAt"
-           FROM bookings
-           WHERE status = ANY($1::"BookingStatus"[]) AND updated_at < $2::timestamptz`,
-          IN_FLIGHT_BOOKING_STATUSES,
-          cutoff,
-        ),
+        tx.$queryRaw<
+          StuckBookingRow[]
+        >`SELECT * FROM stuck_in_flight_bookings(${[...IN_FLIGHT_BOOKING_STATUSES]}::"BookingStatus"[], ${cutoff}::timestamptz)`,
     );
 
     for (const row of rows) {
