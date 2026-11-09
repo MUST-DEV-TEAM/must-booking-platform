@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fixed maintenance actions for the Ops workflow. Only the actions below exist, and
 # none of them print application logs (they can contain guest details).
-# Usage: ops.sh status|health|sentry|restart-api|restart-web|backup-now|cleanup
+# Usage: ops.sh status|health|sentry|restart-api|restart-web|backup-now|cleanup|disk-check
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -42,8 +42,22 @@ case "${1:-}" in
     docker builder prune -af
     df -h /
     ;;
+  disk-check)
+    # Fails when the server disk is nearly full, so the scheduled Server watch workflow goes red before a
+    # deploy or the database runs into a full disk (it did on 2026-11-09). Alert level: DISK_ALERT_PERCENT.
+    limit="${DISK_ALERT_PERCENT:-80}"
+    used="$(df --output=pcent / | tail -n 1 | tr -dc '0-9')"
+    free="$(df -h --output=avail / | tail -n 1 | tr -d ' ')"
+    echo "Disk: ${used}% used, ${free} free (alert at ${limit}%)."
+    if [ -f /var/run/reboot-required ]; then echo "Note: the server has updates waiting for a reboot."; fi
+    if [ "$used" -ge "$limit" ]; then
+      echo "ALERT: the server disk is ${used}% full. Run the Ops cleanup action, then look at what is growing." >&2
+      docker system df || true
+      exit 1
+    fi
+    ;;
   *)
-    echo "Unknown action. Use status, health, sentry, restart-api, restart-web, backup-now or cleanup." >&2
+    echo "Unknown action. Use status, health, sentry, restart-api, restart-web, backup-now, cleanup or disk-check." >&2
     exit 2
     ;;
 esac

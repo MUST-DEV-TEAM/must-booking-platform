@@ -19,6 +19,7 @@ on:
           - restart-web
           - backup-now
           - cleanup
+          - disk-check
 
 permissions:
   contents: read
