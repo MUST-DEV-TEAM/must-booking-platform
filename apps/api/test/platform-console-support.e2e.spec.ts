@@ -297,6 +297,25 @@ describe('platform console: support access (view-as and act-as)', () => {
     ).toBe(201);
   });
 
+  it('signing out also ends the support session, so the person is not signed straight back in', async () => {
+    const hotel = await createHotel();
+    const support = await openSession(operations, hotel);
+    const both = `${hotel.ownerCookie}; ${support.cookie}`;
+    expect((await hotelGet('/auth/session', both)).status).toBe(200);
+
+    const out = await hotelPost('/auth/logout', both);
+    expect(out.status).toBe(204);
+    const cleared = (out.headers['set-cookie'] as unknown as string[]).join(';');
+    expect(cleared).toContain('must_session=;');
+    expect(cleared).toContain('must_support=;');
+
+    // The old support cookie no longer opens a session, even if the browser kept it.
+    expect((await hotelGet('/auth/session', support.cookie)).status).toBe(401);
+    expect((await hotelGet(`/tenants/${hotel.tenantId}/properties`, support.cookie)).status).toBe(
+      401,
+    );
+  });
+
   it('requires a reason, a sane duration and the right platform permission', async () => {
     const hotel = await createHotel();
     const make = (body: object, client = operations) =>

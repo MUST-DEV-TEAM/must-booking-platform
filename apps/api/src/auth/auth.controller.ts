@@ -76,6 +76,13 @@ export class AuthController {
       secure: process.env.NODE_ENV === 'production',
       path: '/',
     });
+    // Signing out must also leave a platform support session. /auth/session falls back to that
+    // cookie, so keeping it would sign the person straight back in.
+    const supportToken = this.cookie(request.headers.cookie, SUPPORT_COOKIE);
+    if (supportToken) {
+      await this.support.endByCookie(supportToken).catch(() => undefined);
+      response.clearCookie(SUPPORT_COOKIE, { httpOnly: true, sameSite: 'strict', path: '/' });
+    }
   }
   @Post('password-reset/request') @HttpCode(202) async requestReset(@Body() body: unknown) {
     await this.auth.requestPasswordReset(body);
