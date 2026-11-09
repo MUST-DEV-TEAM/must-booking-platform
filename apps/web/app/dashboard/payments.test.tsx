@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { formatMoney } from '../../lib/money';
 import { act, createElement } from 'react';
-import { createRoot } from 'react-dom/client';
+import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock('sonner', () => ({ toast }));
@@ -19,8 +19,16 @@ const booking = {
   refundedAmount: '0.00',
 } as Reservation;
 
-afterEach(() => {
-  document.body.innerHTML = '';
+// Every root a test creates, so cleanup can unmount them even when an assertion failed before the test's own
+// unmount ran. A root left mounted and a page wiped under it made one failure break the next tests with
+// "The node to be removed is not a child of this node".
+const roots: Root[] = [];
+afterEach(async () => {
+  await act(async () => {
+    for (const root of roots.splice(0)) root.unmount();
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+  document.body.replaceChildren();
   vi.unstubAllGlobals();
 });
 
@@ -29,6 +37,17 @@ const settle = async () => {
     await new Promise((resolve) => window.setTimeout(resolve, 20));
     await Promise.resolve();
   }
+};
+// Waits until something shows up instead of sleeping a fixed time: a slow CI machine renders later than a fast
+// one, and a fixed sleep then looked for a button that was not there yet ("Cannot read properties of undefined").
+const until = async (check: () => unknown, what: string) => {
+  for (let attempt = 0; attempt < 150; attempt += 1) {
+    if (check()) return;
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 20));
+    });
+  }
+  throw new Error(`Timed out waiting for ${what}.`);
 };
 const byText = (text: string, within: ParentNode = document.body) =>
   Array.from(
@@ -71,6 +90,7 @@ async function renderPayments(bookings: Reservation[], capabilities = ['payments
   const c = document.createElement('div');
   document.body.appendChild(c);
   const r = createRoot(c);
+  roots.push(r);
   await act(async () =>
     r.render(
       createElement(
@@ -245,23 +265,25 @@ describe('Payments', () => {
       ['payments.refund', 'payments.refund_late'],
     );
     await openRefund(rows()[0]!);
+    await until(() => document.querySelector('[aria-label="Refund reason"]'), 'the refund reason');
     await act(async () =>
       document.querySelector<HTMLElement>('[aria-label="Refund reason"]')!.click(),
     );
+    await until(() => byText('guest request'), 'the reason options');
     await act(async () => byText('guest request')!.click());
     await act(async () => {
       byText('Record refund', dialog()!)!.click();
     });
-    await act(settle);
+    await until(() => dialog()?.textContent?.includes('Refund anyway'), 'the late-refund offer');
     // The first try is turned back with an offer to go on; nothing was refunded yet.
     expect(dialog()!.textContent).toContain('Refund anyway');
     expect(byText('Record refund', dialog()!)?.hasAttribute('disabled')).toBe(true);
+    await until(() => dialog()?.querySelector('[role="checkbox"]'), 'the late-refund checkbox');
     await act(async () => dialog()!.querySelector<HTMLElement>('[role="checkbox"]')!.click());
     await act(async () => {
       byText('Record refund', dialog()!)!.click();
     });
-    await act(settle);
-    expect(refunds).toBe(2);
+    await until(() => refunds === 2, 'the late refund to be sent');
     await unmount();
   });
 
@@ -295,17 +317,22 @@ describe('Payments', () => {
       'Approved by guest services',
     );
     expect(byText('Record refund', dialog()!)?.hasAttribute('disabled')).toBe(true);
+    await until(() => document.querySelector('[aria-label="Refund reason"]'), 'the refund reason');
     await act(async () =>
       document.querySelector<HTMLElement>('[aria-label="Refund reason"]')!.click(),
     );
+    await until(() => byText('guest request'), 'the reason options');
     await act(async () => byText('guest request')!.click());
     await act(async () => {
       byText('Record refund', dialog()!)!.click();
     });
-    await act(settle);
+    await until(
+      () => dialog()?.textContent?.includes('Connection interrupted'),
+      'the interrupted-refund message',
+    );
     expect(dialog()!.textContent).toContain('Connection interrupted');
     await act(async () => byText('Record refund', dialog()!)!.click());
-    await act(settle);
+    await until(() => dialog() === null, 'the refund dialog to close after the retry');
     const attemptsMade = (fetch as ReturnType<typeof vi.fn>).mock.calls.filter(([url]) =>
       String(url).endsWith('/payments/refunds'),
     );
@@ -528,6 +555,7 @@ describe('Payments', () => {
     const c = document.createElement('div');
     document.body.appendChild(c);
     const r = createRoot(c);
+    roots.push(r);
     await act(async () =>
       r.render(
         createElement(
