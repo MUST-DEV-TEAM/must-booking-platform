@@ -59,6 +59,8 @@ The **one-time documentation initialization** was explicitly authorized outside 
 | [33 - Restaurants and other venues as their own business](milestones/33-venues-restaurants.md) | **Opened 2026-11-09.** Restaurant (venue) is separate from the hotel and connectable to it; stage 1 is live; owner Q&A answered 2026-11-09; 22 proposed tasks to review |
 | [34 - Beach management](milestones/34-beach-management.md) | Future plan recorded 2026-11-09; sunbeds and spots as a kind of venue; no tasks |
 | [35 - Spa, pool and other services](milestones/35-spa-pool-services.md) | Future plan recorded 2026-11-09; no tasks |
+| [36 - Several payment methods per hotel (Stripe first, then Paysera)](milestones/36-multiple-payment-methods.md) | Planned 2026-11-09 for later; design approved by the owner; Stripe sandbox connected; Paysera docs saved, Albania not on its modern Checkout list, owner asking Paysera 2026-11-10; no tasks yet |
+| [37 - Stripe payments](milestones/37-stripe-payments.md) | Future plan recorded 2026-11-09; no tasks |
 
 ## How work proceeds
 

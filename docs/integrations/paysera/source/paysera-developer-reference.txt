@@ -1,0 +1,356 @@
+# Paysera Developer Documentation - Complete Reference
+
+> This file contains the complete documentation for all Paysera APIs. For feature-specific documentation, see the individual llms-*.txt files.
+
+## Table of Contents
+
+1. [Checkout (New)](#checkout-new) - Modern payment collection platform (Recommended)
+2. [Checkout Classic](#checkout-classic) - Legacy payment integration
+3. [Transfer API](#transfer-api) - Money transfers (coming soon)
+4. [Wallet API](#wallet-api) - Digital wallets (coming soon)
+5. [Open Banking](#open-banking) - PSD2 APIs (coming soon)
+6. [Recurring Billing](#recurring-billing) - Subscriptions (coming soon)
+7. [LightSMS](#lightsms) - SMS messaging (coming soon)
+8. [Delivery API](#delivery-api) - Logistics (coming soon)
+9. [POS API](#pos-api) - Point of sale (coming soon)
+
+---
+
+# Checkout (New)
+
+> Paysera Checkout is the modern payment integration platform built on microservices architecture for processing online payments. This is the recommended API for new integrations.
+
+## Critical Information
+
+### Amount Format
+- **Request**: String in minor currency units (e.g., `"2500"` for €25.00)
+- **Response**: Long/integer in minor currency units (e.g., `2500` for €25.00)
+- **NEVER use decimal format** like `"25.00"` - always use minor units
+
+### Timestamp Format
+- All timestamps are **Unix epoch** (seconds since 1970-01-01)
+- Example: `1736433270` (not ISO 8601 like `"2024-01-15T10:30:00Z"`)
+
+### Three Distinct Status Types
+Paysera Checkout has THREE separate status types - do not conflate them:
+
+1. **Order Status** (4 values): `pending_payment`, `paid`, `canceled`, `closed`
+2. **Payment Status** (13 values): `initiated`, `awaiting_authorization`, `authorized`, `processing`, `pending_settlement`, `on_hold`, `settled`, `failed`, `rejected`, `canceled`, `expired`, `refunded`, `chargeback`
+3. **Payment Link Status** (4 values): `active`, `completed`, `expired`, `canceled`
+
+## Base URLs
+
+| Environment | URL |
+|-------------|-----|
+| Production | https://api.paysera.com |
+
+## Authentication
+
+### OAuth2 Client Credentials
+
+**Token Endpoint**: POST /auth/realms/Paysera/protocol/openid-connect/token
+
+**Request**:
+```
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials
+client_id=YOUR_CLIENT_ID
+client_secret=YOUR_CLIENT_SECRET
+```
+
+**Response**:
+```json
+{
+  "access_token": "eyJhbGciOiJSUzI1NiIs...",
+  "token_type": "Bearer",
+  "expires_in": 3600
+}
+```
+
+## API Endpoints
+
+### Create Order
+
+**POST** /merchant-order/integration/v1/orders
+
+**Request**:
+```json
+{
+  "project_id": "01990618-2c90-7103-9169-752bdaac7a52",
+  "redirect_urls": {
+    "success_url": "https://example.com/success",
+    "failure_url": "https://example.com/failure",
+    "callback_url": "https://example.com/webhook"
+  },
+  "purchase": {
+    "reference": "ORDER-12345",
+    "amount": "2500",
+    "currency": "EUR"
+  }
+}
+```
+
+**Response**:
+```json
+{
+  "id": "a6f2b8e3-5e5f-47d9-b13f-87ed2db2938a",
+  "projectId": "01990618-2c90-7103-9169-752bdaac7a52",
+  "status": "pending_payment",
+  "amount": 2500,
+  "currency": "EUR",
+  "reference": "ORDER-12345",
+  "createdAt": 1736433270,
+  "updatedAt": 1736433270
+}
+```
+
+### Create Payment Link
+
+**POST** /checkout-payment-link/integration/v1/payment-links
+
+**Request**:
+```json
+{
+  "order_id": "a6f2b8e3-5e5f-47d9-b13f-87ed2db2938a",
+  "name": "Order #12345",
+  "amount": "2500",
+  "currency": "EUR",
+  "language": "en",
+  "link_lifetime": 3600
+}
+```
+
+**Response**:
+```json
+{
+  "id": "c8d9e0f1-2a3b-4c5d-6e7f-8a9b0c1d2e3f",
+  "link": {
+    "url": "https://api.paysera.com/checkout-payment-link/payment-collection/v1/payment-links/abc123def456GhiJkl_mNOpQrStUvWxYz0123456"
+  },
+  "status": "active",
+  "amount": 2500,
+  "currency": "EUR",
+  "expiredAt": 1736436870,
+  "createdAt": 1736433270
+}
+```
+
+### Get Payment Methods
+
+**GET** /checkout-project/integration/v1/methods?currency=EUR&country=LT
+
+**Response**:
+```json
+{
+  "items": [
+    {
+      "key": "swedbank",
+      "name": "Swedbank",
+      "country_code": "LT",
+      "min_amount": 1,
+      "max_amount": 5000000
+    }
+  ]
+}
+```
+
+### Create Refund
+
+**POST** /merchant-order/integration/v1/orders/{order_id}/refunds
+
+**Request**:
+```json
+{
+  "amount": "1000",
+  "currency": "EUR",
+  "reason": "Customer requested refund"
+}
+```
+
+## Webhooks
+
+### Event Types
+| Event | Description |
+|-------|-------------|
+| `order.paid` | Order has been fully paid |
+| `order.pending_payment` | Order awaiting payment |
+| `payment_link.completed` | Payment completed via this link |
+| `payment_link.expired` | Payment link expired |
+| `payment_link.canceled` | Payment link was canceled |
+
+### Payload Structure
+```json
+{
+  "event": {
+    "name": "order.paid",
+    "type": "order",
+    "timestamp": 1736433570
+  },
+  "order": {
+    "id": "a6f2b8e3-5e5f-47d9-b13f-87ed2db2938a",
+    "projectId": "01990618-2c90-7103-9169-752bdaac7a52",
+    "status": "paid",
+    "amount": 2500,
+    "currency": "EUR",
+    "reference": "ORDER-12345",
+    "amountPaid": 2500,
+    "balanceDue": 0,
+    "createdAt": 1736433270,
+    "updatedAt": 1736433570
+  },
+  "paymentLink": {
+    "id": "c8d9e0f1-2a3b-4c5d-6e7f-8a9b0c1d2e3f",
+    "status": "completed"
+  }
+}
+```
+
+### Signature Verification
+```
+expected = HMAC-SHA256(raw_payload, client_secret)
+valid = constant_time_compare(expected, X-Paysera-Signature)
+```
+
+## Order Statuses
+
+| Status | Description | Terminal |
+|--------|-------------|----------|
+| `pending_payment` | Awaiting payment | No |
+| `paid` | Fully paid | No* |
+| `canceled` | Manually canceled | Yes |
+| `closed` | No further operations | Yes |
+
+*`paid` can transition to `canceled` or `closed`
+
+## Payment Link Statuses
+
+| Status | Description | Terminal |
+|--------|-------------|----------|
+| `active` | Link is valid | No |
+| `completed` | Payment completed | Yes |
+| `expired` | Link expired | Quasi* |
+| `canceled` | Link canceled | Yes |
+
+*`expired` can transition to `completed` if payment settles during bank flow
+
+## Error Handling
+
+### HTTP Status Codes
+| Code | Meaning |
+|------|---------|
+| 200/201 | Success |
+| 400 | Bad Request |
+| 401 | Unauthorized |
+| 403 | Forbidden |
+| 404 | Not Found |
+| 409 | Conflict |
+| 422 | Validation Error |
+| 429 | Rate Limited |
+| 5xx | Server Error |
+
+## PHP SDK
+
+```bash
+composer require paysera/lib-checkout-integration-sdk
+```
+
+```php
+use Paysera\CheckoutSdk\SdkFacadeBuilder;
+use Paysera\CheckoutSdk\Entity\PaymentApiCredentials;
+
+$sdk = (new SdkFacadeBuilder())->build();
+$credentials = new PaymentApiCredentials('client-id', 'client-secret');
+$sdk->getAuthorizationFacade()->authorize($credentials);
+
+$paymentsFacade = $sdk->getPaymentsFacade();
+$orderRequest = $paymentsFacade->buildPaymentOrderCreateRequest([
+    'project_id' => 'project-id',
+    'redirect_urls' => [
+        'success_url' => 'https://example.com/success',
+        'failure_url' => 'https://example.com/failure',
+        'callback_url' => 'https://example.com/webhook',
+    ],
+    'purchase' => [
+        'reference' => 'ORDER-001',
+        'amount' => 2500,  // €25.00 in cents
+        'currency' => 'EUR',
+    ],
+]);
+
+$linkRequest = $paymentsFacade->buildPaymentLinkCreateRequest([
+    'name' => 'Order #001',
+    'lifetime' => 3600,
+    'experience' => ['language' => 'en'],
+]);
+
+$response = $paymentsFacade->initiatePayment($orderRequest, $linkRequest);
+$paymentUrl = $response->getPaymentUrl();
+```
+
+---
+
+# Checkout Classic
+
+> Paysera Checkout Classic is the legacy payment integration using MAC authentication. For new integrations, use Checkout (New) instead.
+
+This is the legacy Checkout API. While still supported, we recommend using the modern Checkout (New) API for all new integrations.
+
+## Key Differences from Checkout (New)
+
+| Aspect | Checkout Classic | Checkout (New) |
+|--------|------------------|----------------|
+| Authentication | MAC signatures | OAuth2 Bearer tokens |
+| Architecture | Monolithic | Microservices |
+| Amount Format | Cents as integers | String in request, Long in response |
+| Status Updates | Callback with MAC | Webhooks with HMAC-SHA256 |
+
+## Base URLs
+
+| Environment | URL |
+|-------------|-----|
+| Production | https://www.paysera.com/pay/ |
+
+See /llms-checkout-classic.txt for more details.
+
+---
+
+# Transfer API
+
+> Coming soon. See /llms-transfer.txt when available.
+
+---
+
+# Wallet API
+
+> Coming soon. See /llms-wallet.txt when available.
+
+---
+
+# Open Banking
+
+> Coming soon. See /llms-open-banking.txt when available.
+
+---
+
+# Recurring Billing
+
+> Coming soon. See /llms-recurring-billing.txt when available.
+
+---
+
+# LightSMS
+
+> Coming soon. See /llms-lightsms.txt when available.
+
+---
+
+# Delivery API
+
+> Coming soon. See /llms-delivery.txt when available.
+
+---
+
+# POS API
+
+> Coming soon. See /llms-pos.txt when available.
