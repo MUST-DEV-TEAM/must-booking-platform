@@ -1,14 +1,16 @@
 import type { Metadata } from 'next';
-import { Manrope } from 'next/font/google';
+import localFont from 'next/font/local';
 import type { ReactNode } from 'react';
 import { Toaster } from 'sonner';
 import 'react-day-picker/style.css';
 
 import '@must/ui/styles.css';
 
-const manrope = Manrope({
+// Bundled instead of fetched from Google Fonts at build time, which failed the build intermittently.
+const manrope = localFont({
+  src: './fonts/manrope-latin-wght-normal.woff2',
   display: 'swap',
-  subsets: ['latin'],
+  weight: '200 800',
 });
 
 export const metadata: Metadata = {
