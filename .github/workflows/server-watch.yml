@@ -1,0 +1,40 @@
+name: Server watch
+
+# Runs the read-only disk check on booking.must.al every six hours. It goes red when the server disk reaches the
+# alert level (80 percent by default), so a full disk is noticed before a deploy or the database hits it.
+# Same restricted deploy key as the Ops workflow: it can only run `ops disk-check` here.
+
+on:
+  schedule:
+    - cron: '23 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: server-watch
+  cancel-in-progress: false
+
+jobs:
+  disk:
+    name: Disk space
+    if: vars.DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Set up SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" >~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" >~/.ssh/known_hosts
+          chmod 600 ~/.ssh/deploy_key ~/.ssh/known_hosts
+
+      - name: Check disk space
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: ssh -n -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$DEPLOY_USER@$DEPLOY_HOST" ops disk-check
