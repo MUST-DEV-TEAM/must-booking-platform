@@ -162,16 +162,36 @@ export function IntegrationSettings({
           name,
           credentials: supplied,
         });
-        const tested = await request(`/integration-connections/${created.id}/test`, 'POST');
+        // A connection that never got linked to the hotel is removed again, so a failed attempt
+        // leaves no duplicate cards behind.
+        const discard = () =>
+          request(`/integration-connections/${created.id}`, 'DELETE').catch(() => undefined);
+        const tested = await request(`/integration-connections/${created.id}/test`, 'POST').catch(
+          async (e: unknown) => {
+            await discard();
+            throw e;
+          },
+        );
         if (tested.status !== 'CONNECTED') {
+          await discard();
           await refresh();
           throw Error(
-            'Connection saved but verification failed. The current hotel connection was kept.',
+            'Verification failed. Nothing was saved and the current connection was kept.',
           );
         }
-        await request(`/properties/${propertyId}/integration-connections/${created.id}`, 'PATCH', {
-          enabled: true,
-        });
+        try {
+          await request(
+            `/properties/${propertyId}/integration-connections/${created.id}`,
+            'PATCH',
+            {
+              enabled: true,
+            },
+          );
+        } catch (e) {
+          await discard();
+          await refresh();
+          throw e;
+        }
       }
     },
     onSuccess: async () => {

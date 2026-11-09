@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 
+import { POKPAY_STAGING_BASE_URL, resolvePokpayBaseUrl } from '../payments/pokpay-environments';
 import { AuditLogService } from '../tenancy/audit-log.service';
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
 import { ConnectionTestRegistry } from './connection-tester';
@@ -410,6 +411,7 @@ export class IntegrationConnectionsService {
     enabled: boolean,
   ): Promise<void> {
     await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      let wentLiveFromStaging = false;
       await tx.$queryRaw`SELECT id FROM properties WHERE tenant_id=${tenantId}::uuid AND id=${propertyId}::uuid FOR UPDATE`;
 
       const connection = await tx.$queryRawUnsafe<
@@ -437,10 +439,20 @@ export class IntegrationConnectionsService {
         const history = await tx.$queryRaw<
           Array<{ unsafe: boolean }>
         >`SELECT EXISTS(SELECT 1 FROM property_integration_connections pc JOIN integration_connections ic ON ic.tenant_id=pc.tenant_id AND ic.id=pc.connection_id WHERE pc.tenant_id=${tenantId}::uuid AND pc.property_id=${propertyId}::uuid AND pc.connection_id<>${connectionId}::uuid AND ic.provider=${connection[0].provider}::"IntegrationProvider") AND (CASE WHEN ${connection[0].provider}='CLOCK_PMS' THEN EXISTS(SELECT 1 FROM bookings WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND external_booking_id IS NOT NULL) ELSE EXISTS(SELECT 1 FROM payments WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND provider='pokpay') END) AS unsafe`;
-        if (history[0]?.unsafe)
-          throw new ConflictException(
-            'This hotel already has history with another connection. Replace credentials on that connection; moving to another provider account requires a reviewed migration.',
+        if (history[0]?.unsafe) {
+          const fromStaging = await this.replacesOnlyStagingPokpay(
+            tx,
+            tenantId,
+            propertyId,
+            connection[0].provider,
+            connectionId,
           );
+          if (!fromStaging)
+            throw new ConflictException(
+              'This hotel already has history with another connection. Replace credentials on that connection; moving to another provider account requires a reviewed migration.',
+            );
+          wentLiveFromStaging = true;
+        }
       }
       if (enabled && connection[0].provider === 'POKPAY') {
         await tx.$executeRaw`UPDATE property_integration_connections pc SET enabled=false,updated_at=now() FROM integration_connections c
@@ -474,8 +486,33 @@ export class IntegrationConnectionsService {
           : 'integration_connection.disabled_for_property',
         targetType: 'integration_connection',
         targetId: connectionId,
+        ...(wentLiveFromStaging ? { details: { switchedFromStaging: true } } : {}),
       });
     });
+  }
+
+  /**
+   * Going live: a hotel may move from PokPay staging to another PokPay connection even though it has
+   * payment history, because staging never holds real money. Every other PokPay connection linked to
+   * the hotel must be a staging one; anything on production keeps the reviewed-migration rule.
+   */
+  private async replacesOnlyStagingPokpay(
+    tx: Parameters<Parameters<TenantDatabaseService['withTenantTransaction']>[1]>[0],
+    tenantId: string,
+    propertyId: string,
+    provider: ConnectionProvider,
+    connectionId: string,
+  ): Promise<boolean> {
+    if (provider !== 'POKPAY') return false;
+    const others = await tx.$queryRaw<Array<{ encrypted: string }>>`
+      SELECT ic.encrypted_credentials AS encrypted
+      FROM property_integration_connections pc
+      JOIN integration_connections ic ON ic.tenant_id = pc.tenant_id AND ic.id = pc.connection_id
+      WHERE pc.tenant_id = ${tenantId}::uuid AND pc.property_id = ${propertyId}::uuid
+        AND pc.connection_id <> ${connectionId}::uuid AND ic.provider = 'POKPAY'::"IntegrationProvider"`;
+    return others.every(
+      (row) => resolvePokpayBaseUrl(this.cipher.decrypt(row.encrypted)) === POKPAY_STAGING_BASE_URL,
+    );
   }
 
   private createInput(body: unknown): {
