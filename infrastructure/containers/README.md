@@ -37,7 +37,10 @@ Production deploys from GitHub, so the server never builds anything (it has 1 vC
    2. saves a local `pg_dump` to `~/pre-deploy-backups` of the deploy user (last 5 kept), then runs the
       off-site backup (`must-booking-backup.service`, see [../backup](../backup/README.md)) if it is
       installed. A failed off-site backup only warns; a failed local dump stops the deploy;
-   3. pulls the images, runs migrations and `db:set-app-password`, and restarts api and web
+   3. makes room first: keeps the newest 3 release images (never the new release or the one running, which is
+      the rollback target) and removes older unused ones, and stops with a clear message if less than 2 GB is
+      free (`KEEP_RELEASE_IMAGES` and `MIN_FREE_KB` change this). The same cleanup runs again after a good
+      deploy. Then it pulls the images, runs migrations and `db:set-app-password`, and restarts api and web
       (`compose.release.yaml` swaps their `build:` for the GHCR images);
    4. waits for `/api/health`. If it fails, it starts the previous release again and the
       workflow goes red.

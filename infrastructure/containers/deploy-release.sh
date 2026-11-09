@@ -73,6 +73,34 @@ healthy() {
 
 PREVIOUS_TAG="$(cat "$STATE_FILE" 2>/dev/null || true)"
 
+# Every release leaves a pair of images behind, and the server disk is small (25 GB). Keep the newest
+# KEEP_RELEASE_IMAGES (default 3) images of each release repository, never the release being deployed or
+# the one running now (the rollback target), and remove the rest. Docker refuses to remove an image a
+# container uses, so a running release can never be touched. A failure here only warns.
+cleanup_release_images() {
+  local keep="${KEEP_RELEASE_IMAGES:-3}" repo tag
+  while read -r repo; do
+    [ -n "$repo" ] || continue
+    while IFS='|' read -r _ tag; do
+      if [ "$tag" = "$SHA" ] || [ "$tag" = "$PREVIOUS_TAG" ] || [ "$tag" = "<none>" ]; then continue; fi
+      docker rmi "$repo:$tag" >/dev/null 2>&1 || true
+    done < <(docker image ls "$repo" --format '{{.CreatedAt}}|{{.Tag}}' | sort -r | tail -n +"$((keep + 1))")
+  done < <(docker image ls --format '{{.Repository}}' | grep '^ghcr.io/must-dev-team/must-booking-platform-' | sort -u || true)
+  docker image prune -f >/dev/null 2>&1 || true
+}
+
+# Stop early, before anything is pulled or migrated, if there is too little room to pull the new images.
+MIN_FREE_KB="${MIN_FREE_KB:-2097152}"
+require_free_space() {
+  local root free_kb
+  root="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo /var/lib/docker)"
+  free_kb="$(df --output=avail -k "$root" 2>/dev/null | tail -n 1 | tr -d ' ')"
+  if [ -n "$free_kb" ] && [ "$free_kb" -lt "$MIN_FREE_KB" ]; then
+    echo "Refusing to deploy: only $((free_kb / 1024)) MB free on the server disk ($((MIN_FREE_KB / 1024)) MB needed). Free some space and run the deploy again." >&2
+    return 1
+  fi
+}
+
 # prepare: nothing user-facing has changed yet, so a failure only restores the checkout.
 # swap: api/web may already run the new release, so a failure also restarts the previous one.
 PHASE=prepare
@@ -120,6 +148,10 @@ purge_cdn_cache() {
 
 echo "Deploying $SHA (previous release: ${PREVIOUS_TAG:-none, locally built images})."
 
+# Make room first: a nearly full disk made a deploy fail halfway before this existed.
+cleanup_release_images
+require_free_space
+
 release "$SHA" pull api web photos
 
 release "$SHA" up -d postgres redis
@@ -152,5 +184,6 @@ PHASE=finished
 echo "$SHA" >"$STATE_FILE"
 release "$SHA" ps
 purge_cdn_cache
+cleanup_release_images
 docker image prune -af --filter 'until=240h' >/dev/null || true
 echo "Deployed $SHA."
