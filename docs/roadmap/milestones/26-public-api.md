@@ -3,6 +3,8 @@
 Status: **Planned — scoped 2026-10-16. Nothing implemented for this milestone. No task rows yet; define them at kickoff.** Not part of the first dashboard release (see [Milestone 24](24-dashboard-redesign.md), first-release scope).
 Related: [Milestone 15](15-platform-billing.md) (paid-plan entitlement), [Milestone 24](24-dashboard-redesign.md) (the Settings area that manages keys), [Milestone 25](25-native-pms.md).
 
+**Owner direction 2026-11-09:** hotel websites that we create ourselves are built with Astro (like Luxury Premium Finese) and are clients of this API; hotels that already run WordPress connect to MUST directly through this milestone, with the WordPress plugin acting as one client of the same API. See [Milestone 31](31-pipeline-and-connector.md) decision 7.
+
 ## Goal
 
 A hotel's own website, built by the hotel or its agency, can show rooms, availability and prices and take bookings through MUST **without installing our plugin or using our pages**. The hotel is a separate party who builds its own front end; MUST stays the system of record for inventory, price, payment and confirmation. This is the same model Clock PMS+ uses with us: access is granted by credentials with limited permissions, not by shipping them a theme.
