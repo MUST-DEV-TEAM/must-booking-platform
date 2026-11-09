@@ -1,6 +1,6 @@
 # Milestone 28: Release and cutover
 
-Status: **Planned — opened 2026-10-25.** The merge of `main` and the redesign branch is on hold until the owner says so, and not before [Milestone 27](27-clock-rates-cancellation-permissions.md) is finished.
+Status: **Cutover done 2026-10-26; reconciled against the code and the live system on 2026-11-09.** The owner said go and the redesign went live as squash PRs #368 and #369 (release `7bca557`, 173 migrations then; 196 are applied today). The hold on merging and the dependency on Milestone 27 are over. What is left are small rows: 4b, 5, 7, 8 and 11 (see the Status column). Evidence is in each row.
 
 ## Goal
 
@@ -16,18 +16,18 @@ Move the redesigned dashboard (including the platform admin console and the emai
 
 | # | Task | Notes | Status |
 | --- | --- | --- | --- |
-| 1 | **Owner decisions on behaviour changes** | A refund above the remaining balance is refused instead of capped; a refund that cannot be confirmed also records a payment/booking mismatch review item; the guest cancel link now opens the app's own manage page. Check how the WordPress plugin handles the new link. | Needs the owner |
-| 2 | **Wire the 12 unwired email situations** | 14 of 26 email situations have real senders; 12 can be drafted but not published. Decide which ship now. | Planned |
-| 3 | **Merge `main` into the redesign branch** | Settle the ~10 conflicting files, rerun the full isolated verification. Only when the owner says so. | On hold |
-| 4b | **Clock webhook health check sees no hotels** | Found 2026-10-26: ClockWebhookHealthService lists Clock connections under the platform_admin role, but row-level security hides integration_connections from that role (checked in psql: 0 rows with the role set), so its stale-webhook alert can never fire. The new function clock_connected_properties() (migration 20261026020000) is the fix to reuse. | Planned |
-| 4 | **Fix the time-of-day test** | `properties.e2e` expects a "too far ahead" rejection and fails between 22:00 and 24:00 UTC. | Planned |
-| 5 | **Test for the retired-room-type filter** | Cover the Clock catalog sync change (`operational_until`). | Planned |
-| 6 | **Confirm the "Live booking check" job** | It failed daily from 22 October; a fix is merged. Confirm it is green after the next deploy. | Planned |
-| 7 | **Build without a live font download** | The web build fetches Google Fonts and fails intermittently. Bundle the font locally. | Planned |
-| 8 | **Go-live security subset of Milestone 14** | Choose the audits that must pass before cutover (rights and tenant isolation, webhooks, secrets, SSH access) and defer the rest explicitly. | Planned |
-| 9 | **Pre-cutover rehearsal** | Run the merged build against a copy of Empire's data, with the same owner and staff logins, and check the guest, staff and platform journeys. | Planned |
-| 10 | **Deploy, verify, rollback plan** | Fresh backup, deploy outside busy hours, verify with the live booking check and a real read-only walk through Empire, and keep the previous release for rollback. | Planned |
-| 11 | **Tidy** | Remove temporary working folders and test containers left on the owner's laptop; update the roadmap page when this closes. | Planned |
+| 1 | **Owner decisions on behaviour changes** | A refund above the remaining balance is refused instead of capped; a refund that cannot be confirmed also records a payment/booking mismatch review item; the guest cancel link now opens the app's own manage page. Check how the WordPress plugin handles the new link. | **Accepted by shipping** (owner said go on 2026-10-26). Not recorded as checked: how the WordPress plugin handles the new guest cancel link |
+| 2 | **Wire the 12 unwired email situations** | 14 of 26 email situations have real senders; 12 can be drafted but not published. Decide which ship now. | **Closed by an owner decision** (2026-10-26): the 12 situations stay unpublished. Revisit under [Milestone 22](22-email-notifications.md) when wanted |
+| 3 | **Merge `main` into the redesign branch** | Settle the ~10 conflicting files, rerun the full isolated verification. Only when the owner says so. | **Done 2026-10-26** (squash PRs #368 and #369; full isolated run and rehearsal described below) |
+| 4b | **Clock webhook health check sees no hotels** | Found 2026-10-26: ClockWebhookHealthService lists Clock connections under the platform_admin role, but row-level security hides integration_connections from that role (checked in psql: 0 rows with the role set), so its stale-webhook alert can never fire. The new function clock_connected_properties() (migration 20261026020000) is the fix to reuse. | **Still open** (checked 2026-11-09): `ClockWebhookHealthService` still lists connections under the `platform_admin` role. Only the permissions monitor uses `clock_connected_properties()` |
+| 4 | **Fix the time-of-day test** | `properties.e2e` expects a "too far ahead" rejection and fails between 22:00 and 24:00 UTC. | **Fixed:** `properties.e2e.spec.ts` now counts from 14 hours ahead so every hotel timezone stays in the future, and the report-workspace test uses time zones away from the small hours |
+| 5 | **Test for the retired-room-type filter** | Cover the Clock catalog sync change (`operational_until`). | **Code is in, test is missing** (checked 2026-11-09): the filter is in `clock-catalog-sync.service.ts`; no spec mentions `operational_until` or retired room types |
+| 6 | **Confirm the "Live booking check" job** | It failed daily from 22 October; a fix is merged. Confirm it is green after the next deploy. | **Done:** the live booking check has been green since 2026-11-06 (last failure 2026-11-05; 8 of 8 runs passed on 2026-11-09) |
+| 7 | **Build without a live font download** | The web build fetches Google Fonts and fails intermittently. Bundle the font locally. | **Still open** (checked 2026-11-09): `apps/web/app/layout.tsx` still imports Manrope from `next/font/google` |
+| 8 | **Go-live security subset of Milestone 14** | Choose the audits that must pass before cutover (rights and tenant isolation, webhooks, secrets, SSH access) and defer the rest explicitly. | **Not recorded.** The cutover went ahead without a recorded choice of this subset. Either write down which audits count as the go-live subset (and that they passed) or move them to [Milestone 14](14-security-and-architecture-audit.md) as after-cutover work |
+| 9 | **Pre-cutover rehearsal** | Run the merged build against a copy of Empire's data, with the same owner and staff logins, and check the guest, staff and platform journeys. | **Done 2026-10-26** on a scrubbed copy of Empire's data (see the gate evidence below) |
+| 10 | **Deploy, verify, rollback plan** | Fresh backup, deploy outside busy hours, verify with the live booking check and a real read-only walk through Empire, and keep the previous release for rollback. | **Done 2026-10-26** (backup, deploy through the Deploy workflow, verification, previous release `8862d9c` kept). A rollback is still previous images plus a restored dump, and has never been exercised. Since then every deploy takes its own dump, health-checks and rolls back by itself ([container README](../../../infrastructure/containers/README.md)) |
+| 11 | **Tidy** | Remove temporary working folders and test containers left on the owner's laptop; update the roadmap page when this closes. | **Open, not verifiable from the repository** (it concerns the owner's laptop). Roadmap page updated 2026-11-09 |
 
 ## Gate evidence, 2026-10-26 (steps 1 and 3 of the gate)
 
@@ -45,3 +45,5 @@ Move the redesigned dashboard (including the platform admin console and the emai
 ## Done when
 
 Everything above is Done or explicitly deferred with a reason, the owner has signed off, and the live site runs the new build with Empire verified.
+
+**Where that stands (2026-11-09):** the live site runs the new build and the owner signed off by saying go. Rows 1 to 3, 4, 6, 9 and 10 are done and row 2 is closed by decision. Open: 4b (webhook health), 5 (test), 7 (font), 8 (record the security subset) and 11 (tidy). None of them blocks the live site.
