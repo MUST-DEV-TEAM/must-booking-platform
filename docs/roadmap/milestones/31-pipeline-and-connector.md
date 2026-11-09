@@ -19,7 +19,7 @@ Two linked improvements, agreed with the owner on 2026-10-30:
 | 4 | Alerts | Recorded in GitHub (Issues and run pages) only. No assignment, no mentions, no email. |
 | 5 | Empire's website | The current look is **final**. Nothing about it switches. Every plugin change is verified on `new.empirebeachresort.al`, the live site. |
 | 6 | Plugin design | Hello Elementor stays the theme. No starter theme. The plugin keeps the connection, the Elementor widgets and the money logic and has no look of its own; each website's look is its own Elementor design and code. |
-| 7 | Websites we build | Next.js and TypeScript for new custom sites; WordPress plus the connector where a hotel uses WordPress. The hotel starting next week is expected to be WordPress. |
+| 7 | Websites we build | **Updated by the owner 2026-11-09: Astro, not Next.js.** When we create a hotel's website ourselves we build it with Astro, as we did for Luxury Premium Finese. A hotel that already uses WordPress keeps WordPress and connects through the connector now and the [Milestone 26](26-public-api.md) API later. (Original 2026-10-30 text: Next.js and TypeScript for new custom sites.) |
 | 8 | Separation | Separate the connector inside this repository first (own folder, version, release). Move it to its own repository after the Public API ([Milestone 26](26-public-api.md)) is frozen. |
 
 ## Findings behind the plan (read-only inventory, 2026-10-30)
@@ -51,7 +51,7 @@ Phase 1 (next 1-2 weeks): faster and more trustworthy.
 | # | Task | Status |
 | --- | --- | --- |
 | 7 | Fix the two unit tests that need `WEB_APP_URL` in a fresh checkout, make the platform-audit e2e independent of leftover data, add a one-command local setup | Planned |
-| 8 | Run the tests as parallel groups, each with its own database | Planned |
+| 8 | Run the tests as parallel groups, each with its own database | **Done 2026-11-06** ([PR #437](https://github.com/MUST-DEV-TEAM/must-booking-platform/pull/437)): the API tests run as 4 parallel shards, each with its own Postgres and Redis; build, lint, format and the web tests run as separate parallel jobs; the required check `Build, lint, and test` stays, now a gate that passes only when all parts pass. CI went from about 13 minutes (the single test step took 650 s) to the shard time. |
 | 9 | Run and deploy only what changed (docs, plugin, web, API) | Planned |
 | 10 | Build the images once and deploy the tested build | Planned |
 | 11 | Deploy window with a "deploy now" label and a visible list of pending changes | Planned |
@@ -76,7 +76,7 @@ Phase 3: many websites (needs its own plan before work starts).
 | 20 | [Milestone 26](26-public-api.md): per-hotel keys, versioned interface, documentation | Planned |
 | 21 | Embeddable booking blocks and a hosted booking page in the hotel's colours | Planned |
 | 22 | Move the connector into its own repository once the interface is frozen | Planned |
-| 23 | Next.js website kit for custom sites | Planned |
+| 23 | Astro website kit for custom sites (changed from Next.js, owner 2026-11-09; base it on the Luxury Premium Finese site) | Planned |
 
 ## Open points
 
