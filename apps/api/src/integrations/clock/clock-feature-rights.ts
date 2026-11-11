@@ -63,6 +63,14 @@ export const CLOCK_FEATURES: ClockFeatureRights[] = [
     needs: ['POST base_api/folios/:id/credit_items'],
   },
   {
+    key: 'cancel-clears-charges',
+    label: 'Clearing the room charges when a booking is cancelled free of charge',
+    impact:
+      'A cancelled booking keeps its room charge in Clock, so the balance is not zero and Clock warns about valid charges in a cancelled booking.',
+    required: false,
+    needs: ['GET pms_api/bookings/:id/folios/', 'DELETE base_api/folios/:id'],
+  },
+  {
     key: 'rate-plans',
     label: 'Real rate plans',
     impact: 'MUST keeps using its own hidden rate plans instead of Clock’s.',

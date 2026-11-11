@@ -182,6 +182,9 @@ describe('Multi-room booking orders', () => {
             };
           return { ok: true as const, value: undefined };
         },
+        async voidRoomChargeFolios() {
+          return { ok: true as const, value: { voidedFolioIds: [] as number[] } };
+        },
       })
       .compile();
     app = moduleRef.createNestApplication();

@@ -5,7 +5,7 @@ import type {
 import type { MoveBookingRoomCommand } from '@must/domain-contracts';
 import { enforcePropertyBookingLimits } from './property-booking-limits';
 import { resolveBillingRatePlan } from './billing-rate-plan';
-import { BadRequestException, HttpException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, HttpException, Inject, Injectable, Logger } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   type AvailabilityQuery,
@@ -148,6 +148,8 @@ type RoomSelection = { autoAssign: boolean };
 
 @Injectable()
 export class LocalPmsProvider implements PmsProvider {
+  private readonly logger = new Logger(LocalPmsProvider.name);
+
   constructor(
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
     @Inject(AvailabilityService) private readonly availability: AvailabilityService,
@@ -182,6 +184,37 @@ export class LocalPmsProvider implements PmsProvider {
       context.propertyId,
     );
     return connection?.provider === 'CLOCK_PMS';
+  }
+
+  /**
+   * After a cancellation that carries no fee, clears the room charges in Clock the way Clock's own
+   * Cancel does (voids the booking's open, non-deposit folios). The cancellation already stands, so a
+   * failure never undoes it: a missing Clock right is only logged (the Clock permissions panel shows
+   * it), any other failure becomes a manual-review item so the hotel voids the folio by hand.
+   */
+  private async clearRoomChargesAfterFreeCancellation(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    bookingId: string,
+    externalBookingId: string,
+  ): Promise<void> {
+    const cleared = await this.clockBooking.voidRoomChargeFolios(context, externalBookingId);
+    if (cleared.ok) return;
+    if (cleared.error.code === 'CLOCK_RIGHT_MISSING') {
+      this.logger.warn(
+        `Room charges not cleared for booking ${bookingId}: ${cleared.error.message}`,
+      );
+      return;
+    }
+    await this.manualReview.recordInTransaction(tx, {
+      tenantId: context.tenantId,
+      propertyId: context.propertyId,
+      category: 'UNKNOWN_RESULT',
+      referenceType: 'booking',
+      referenceId: bookingId,
+      message: `The booking was cancelled, but its room charges could not be cleared in Clock: ${cleared.error.message} Void the room folio in Clock by hand.`,
+      context: { externalBookingId, errorCode: cleared.error.code },
+    });
   }
 
   async testConnection(context: PmsProviderContext): Promise<Result<void>> {
@@ -1247,6 +1280,7 @@ export class LocalPmsProvider implements PmsProvider {
                 'This booking is too close to arrival to cancel online. Please contact the hotel directly.',
               );
 
+            let cancelledInClock = false;
             if (await this.isClockConnected(context)) {
               if (!command.staffActorId) {
                 const checked = await tx.$queryRaw<
@@ -1271,10 +1305,18 @@ export class LocalPmsProvider implements PmsProvider {
                   row.externalBookingId,
                 );
                 if (!cancelledAtClock.ok) return cancelledAtClock;
+                cancelledInClock = true;
               }
             }
 
             const cancellationPolicy = await this.cancellationPolicy(tx, context, row.id);
+            if (cancelledInClock && cancellationPolicy.isFree && row.externalBookingId)
+              await this.clearRoomChargesAfterFreeCancellation(
+                tx,
+                context,
+                row.id,
+                row.externalBookingId,
+              );
             if (
               cancellationPolicy.isFree &&
               cancellationPolicy.autoRefund !== false &&
@@ -1445,6 +1487,14 @@ export class LocalPmsProvider implements PmsProvider {
           continue;
         }
       }
+
+      if (clockConnected && child.row.externalBookingId && child.cancellationPolicy.isFree)
+        await this.clearRoomChargesAfterFreeCancellation(
+          tx,
+          context,
+          child.row.id,
+          child.row.externalBookingId,
+        );
 
       await this.applyMultiRoomCancellation(
         tx,
