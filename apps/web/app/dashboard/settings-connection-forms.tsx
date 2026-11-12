@@ -376,9 +376,7 @@ export function PaymentSettings({
               {
                 onlinePaymentHoldMinutes: Number(hold),
                 autoRefundOnFreeCancellation: autoRefund,
-                ...(clockConnected
-                  ? { clockCancelRefundPolicy: clockRefund }
-                  : {}),
+                ...(clockConnected ? { clockCancelRefundPolicy: clockRefund } : {}),
               },
               draft,
             )
