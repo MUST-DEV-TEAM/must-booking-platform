@@ -199,6 +199,34 @@ export class PaymentRefundService {
   }
 
   /**
+   * Refunds whatever is still refundable on the booking's paid charge (Milestone 27 Task 19: the hotel cancelled
+   * the booking in Clock). Unlike `refundPaidChargeForBooking` it counts earlier refunds first, so a staff refund or
+   * a MUST cancellation refund that already happened is never paid a second time. Nothing to refund is success.
+   */
+  async refundRemainingChargeForBooking(
+    tx: TenantTransaction,
+    context: PaymentProviderContext,
+    bookingId: string,
+    idempotencyKey: string,
+    note: string,
+  ): Promise<{ result: Result<Payment | null>; confirmation: RefundConfirmation | null }> {
+    await this.lockBooking(tx, context, bookingId);
+    const charge = await this.chargeForBooking(tx, context, bookingId, ['PAID']);
+    if (!charge) return { result: { ok: true, value: null }, confirmation: null };
+    const remaining =
+      this.minorUnits(charge.amount) - (await this.refundedAmount(tx, context, bookingId));
+    if (remaining <= 0n) return { result: { ok: true, value: null }, confirmation: null };
+    const outcome = await this.refundCharge(tx, context, bookingId, charge, {
+      amount: { amount: this.money(remaining), currency: charge.currency },
+      idempotencyKey,
+      note,
+      reasonCode: 'hotel_cancellation',
+    });
+    await this.mirrorCancellationRefundToClock(tx, context, bookingId, outcome);
+    return { result: outcome.result, confirmation: outcome.confirmation };
+  }
+
+  /**
    * A refund made by a cancellation reaches Clock the same way a staff refund does: a negative payment on the
    * original deposit folio. It runs only when this call recorded a new refund (a repeat records nothing, so it
    * posts nothing), and a Clock failure never undoes the refund; it leaves a review item instead.
