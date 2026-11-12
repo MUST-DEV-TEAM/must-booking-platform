@@ -1,15 +1,16 @@
 import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 
-import { POKPAY_STAGING_BASE_URL, resolvePokpayBaseUrl } from '../payments/pokpay-environments';
 import { AuditLogService } from '../tenancy/audit-log.service';
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
+import { connectionMode, type ConnectionMode } from './connection-mode';
 import { ConnectionTestRegistry } from './connection-tester';
 import { CredentialCipherService } from './credential-cipher';
 
 export type ConnectionKind = 'PAYMENT' | 'PMS';
 export type ConnectionProvider = 'STRIPE' | 'POKPAY' | 'CLOCK_PMS';
 export type ConnectionStatus = 'PENDING' | 'CONNECTED' | 'FAILED';
+export type PaymentConnectionProvider = 'STRIPE' | 'POKPAY';
 
 const KINDS: ConnectionKind[] = ['PAYMENT', 'PMS'];
 const PROVIDERS: ConnectionProvider[] = ['STRIPE', 'POKPAY', 'CLOCK_PMS'];
@@ -20,6 +21,8 @@ export interface ConnectionSummary {
   provider: ConnectionProvider;
   name: string;
   status: ConnectionStatus;
+  /** TEST or LIVE for a payment connection, from its own keys; null for a PMS connection. */
+  mode: ConnectionMode | null;
   lastTestedAt: string | null;
   lastTestResult: string | null;
   webhookPublicId: string;
@@ -31,7 +34,15 @@ export interface PropertyConnectionAssignment {
   kind: ConnectionKind;
   provider: ConnectionProvider;
   name: string;
+  mode: ConnectionMode | null;
   enabled: boolean;
+}
+
+/** A payment connection with its decrypted keys, for payment providers only. */
+export interface PaymentConnection {
+  connectionId: string;
+  mode: ConnectionMode;
+  credentials: Record<string, string>;
 }
 
 export interface ActiveClockPmsProperty {
@@ -42,6 +53,9 @@ export interface ActiveClockPmsProperty {
 const SUMMARY_COLUMNS = `id, kind, provider, name, status,
   last_tested_at AS "lastTestedAt", last_test_result AS "lastTestResult",
   webhook_public_id AS "webhookPublicId", created_at AS "createdAt"`;
+/** Summary columns plus the encrypted keys, which never leave this service (see summarize()). */
+const SUMMARY_SOURCE = `${SUMMARY_COLUMNS}, encrypted_credentials AS "encryptedCredentials"`;
+type ConnectionRow = Omit<ConnectionSummary, 'mode'> & { encryptedCredentials: string };
 
 @Injectable()
 export class IntegrationConnectionsService {
@@ -52,13 +66,14 @@ export class IntegrationConnectionsService {
     @Inject(ConnectionTestRegistry) private readonly testers: ConnectionTestRegistry,
   ) {}
 
-  list(tenantId: string): Promise<ConnectionSummary[]> {
-    return this.database.withTenantTransaction({ tenantId }, (tx) =>
-      tx.$queryRawUnsafe<ConnectionSummary[]>(
-        `SELECT ${SUMMARY_COLUMNS} FROM integration_connections WHERE tenant_id = $1::uuid ORDER BY created_at`,
+  async list(tenantId: string): Promise<ConnectionSummary[]> {
+    const rows = await this.database.withTenantTransaction({ tenantId }, (tx) =>
+      tx.$queryRawUnsafe<ConnectionRow[]>(
+        `SELECT ${SUMMARY_SOURCE} FROM integration_connections WHERE tenant_id = $1::uuid ORDER BY created_at`,
         tenantId,
       ),
     );
+    return rows.map((row) => this.summarize(row));
   }
 
   async credentialDetails(tenantId: string, connectionId: string) {
@@ -124,10 +139,10 @@ export class IntegrationConnectionsService {
           );
       }
       const encrypted = this.cipher.encrypt(input.credentials);
-      const rows = await tx.$queryRawUnsafe<ConnectionSummary[]>(
+      const rows = await tx.$queryRawUnsafe<ConnectionRow[]>(
         `INSERT INTO integration_connections (id, tenant_id, kind, provider, name, encrypted_credentials)
          VALUES ($1::uuid, $2::uuid, $3::"IntegrationConnectionKind", $4::"IntegrationProvider", $5, $6)
-         RETURNING ${SUMMARY_COLUMNS}`,
+         RETURNING ${SUMMARY_SOURCE}`,
         id,
         tenantId,
         input.kind,
@@ -141,9 +156,16 @@ export class IntegrationConnectionsService {
         action: 'integration_connection.created',
         targetType: 'integration_connection',
         targetId: id,
-        details: { kind: input.kind, provider: input.provider, name: input.name },
+        details: {
+          kind: input.kind,
+          provider: input.provider,
+          name: input.name,
+          ...(input.kind === 'PAYMENT'
+            ? { mode: connectionMode(input.provider, input.credentials) }
+            : {}),
+        },
       });
-      return rows[0];
+      return this.summarize(rows[0]!);
     });
   }
 
@@ -190,8 +212,8 @@ export class IntegrationConnectionsService {
       );
     const encrypted = this.cipher.encrypt(credentials);
     return this.database.withTenantTransaction({ tenantId }, async (tx) => {
-      const rows = await tx.$queryRawUnsafe<ConnectionSummary[]>(
-        `UPDATE integration_connections SET encrypted_credentials=$3,status='CONNECTED',last_tested_at=now(),last_test_result='Replacement credentials verified' WHERE tenant_id=$1::uuid AND id=$2::uuid AND encrypted_credentials=$4 RETURNING ${SUMMARY_COLUMNS}`,
+      const rows = await tx.$queryRawUnsafe<ConnectionRow[]>(
+        `UPDATE integration_connections SET encrypted_credentials=$3,status='CONNECTED',last_tested_at=now(),last_test_result='Replacement credentials verified' WHERE tenant_id=$1::uuid AND id=$2::uuid AND encrypted_credentials=$4 RETURNING ${SUMMARY_SOURCE}`,
         tenantId,
         connectionId,
         encrypted,
@@ -209,7 +231,7 @@ export class IntegrationConnectionsService {
         targetId: connectionId,
         details: { provider: before[0].provider, verified: true },
       });
-      return rows[0];
+      return this.summarize(rows[0]);
     });
   }
 
@@ -261,11 +283,11 @@ export class IntegrationConnectionsService {
       if (!rows[0]) throw new BadRequestException('Connection not found.');
       const credentials = this.cipher.decrypt(rows[0].encryptedCredentials);
       const result = await this.testers.test(rows[0].provider, credentials);
-      const updated = await tx.$queryRawUnsafe<ConnectionSummary[]>(
+      const updated = await tx.$queryRawUnsafe<ConnectionRow[]>(
         `UPDATE integration_connections
          SET status = $3::"IntegrationConnectionStatus", last_tested_at = CURRENT_TIMESTAMP, last_test_result = $4
          WHERE tenant_id = $1::uuid AND id = $2::uuid
-         RETURNING ${SUMMARY_COLUMNS}`,
+         RETURNING ${SUMMARY_SOURCE}`,
         tenantId,
         connectionId,
         result.ok ? 'CONNECTED' : 'FAILED',
@@ -280,15 +302,20 @@ export class IntegrationConnectionsService {
         targetId: connectionId,
         details: { ok: result.ok, message: result.message },
       });
-      return updated[0];
+      return this.summarize(updated[0]!);
     });
   }
 
-  listForProperty(tenantId: string, propertyId: string): Promise<PropertyConnectionAssignment[]> {
-    return this.database.withTenantTransaction({ tenantId, propertyId }, (tx) =>
-      tx.$queryRawUnsafe<PropertyConnectionAssignment[]>(
+  async listForProperty(
+    tenantId: string,
+    propertyId: string,
+  ): Promise<PropertyConnectionAssignment[]> {
+    const rows = await this.database.withTenantTransaction({ tenantId, propertyId }, (tx) =>
+      tx.$queryRawUnsafe<
+        Array<Omit<PropertyConnectionAssignment, 'mode'> & { encryptedCredentials: string }>
+      >(
         `SELECT c.id AS "connectionId", c.kind, c.provider, c.name,
-             COALESCE(pic.enabled, false) AS enabled
+             COALESCE(pic.enabled, false) AS enabled, c.encrypted_credentials AS "encryptedCredentials"
            FROM integration_connections c
            LEFT JOIN property_integration_connections pic
              ON pic.tenant_id = c.tenant_id AND pic.connection_id = c.id AND pic.property_id = $2::uuid
@@ -298,6 +325,28 @@ export class IntegrationConnectionsService {
         propertyId,
       ),
     );
+    return rows.map(({ encryptedCredentials, ...row }) => ({
+      ...row,
+      mode: this.modeOf(row.provider, encryptedCredentials),
+    }));
+  }
+
+  /**
+   * The payment connections switched on for a property and whether each is a test or live account.
+   * Holds no keys, so every member of the hotel may read it (the dashboard's test-mode bar).
+   */
+  async paymentModes(
+    tenantId: string,
+    propertyId: string,
+  ): Promise<Array<{ provider: PaymentConnectionProvider; name: string; mode: ConnectionMode }>> {
+    const assignments = await this.listForProperty(tenantId, propertyId);
+    return assignments
+      .filter((row) => row.kind === 'PAYMENT' && row.enabled && row.mode)
+      .map((row) => ({
+        provider: row.provider as PaymentConnectionProvider,
+        name: row.name,
+        mode: row.mode!,
+      }));
   }
 
   /**
@@ -383,11 +432,22 @@ export class IntegrationConnectionsService {
   async activePaymentConnectionCredentials(
     tenantId: string,
     propertyId: string,
-    provider: 'STRIPE' | 'POKPAY',
+    provider: PaymentConnectionProvider,
   ): Promise<Record<string, string> | null> {
+    return (
+      (await this.activePaymentConnection(tenantId, propertyId, provider))?.credentials ?? null
+    );
+  }
+
+  /** Internal-only: the property's switched-on connection for this payment provider, with its keys. */
+  async activePaymentConnection(
+    tenantId: string,
+    propertyId: string,
+    provider: PaymentConnectionProvider,
+  ): Promise<PaymentConnection | null> {
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      const rows = await tx.$queryRawUnsafe<Array<{ encryptedCredentials: string }>>(
-        `SELECT c.encrypted_credentials AS "encryptedCredentials"
+      const rows = await tx.$queryRawUnsafe<Array<{ connectionId: string; encrypted: string }>>(
+        `SELECT c.id AS "connectionId", c.encrypted_credentials AS encrypted
          FROM integration_connections c
          JOIN property_integration_connections pic
            ON pic.tenant_id = c.tenant_id AND pic.connection_id = c.id
@@ -398,9 +458,74 @@ export class IntegrationConnectionsService {
         propertyId,
         provider,
       );
-      if (!rows[0]) return null;
-      return this.cipher.decrypt(rows[0].encryptedCredentials);
+      return rows[0] ? this.paymentConnection(provider, rows[0]) : null;
     });
+  }
+
+  /**
+   * Internal-only: the connection that created this provider order, as recorded on its payment
+   * session — switched on or not. Checks and refunds of a payment must reach the account that took
+   * it, even after the hotel switched between its test and live accounts. Null when the session
+   * has no recorded connection (older sessions; see linkedPaymentConnections).
+   */
+  async sessionPaymentConnection(
+    tenantId: string,
+    propertyId: string,
+    provider: PaymentConnectionProvider,
+    externalPaymentId: string,
+  ): Promise<PaymentConnection | null> {
+    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ connectionId: string; encrypted: string }>>`
+        SELECT c.id AS "connectionId", c.encrypted_credentials AS encrypted
+        FROM payment_provider_sessions s
+        JOIN integration_connections c ON c.tenant_id = s.tenant_id AND c.id = s.connection_id
+        WHERE s.tenant_id = ${tenantId}::uuid AND s.property_id = ${propertyId}::uuid
+          AND s.provider = ${provider.toLowerCase()} AND s.external_payment_id = ${externalPaymentId}
+          AND c.kind = 'PAYMENT' AND c.provider = ${provider}::"IntegrationProvider"`;
+      return rows[0] ? this.paymentConnection(provider, rows[0]) : null;
+    });
+  }
+
+  /**
+   * Internal-only: every connection of this payment provider linked to the property, switched on or
+   * off, the one in use first. Used to find which account an older order (one whose session does not
+   * record its connection) belongs to.
+   */
+  async linkedPaymentConnections(
+    tenantId: string,
+    propertyId: string,
+    provider: PaymentConnectionProvider,
+  ): Promise<PaymentConnection[]> {
+    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ connectionId: string; encrypted: string }>>`
+        SELECT c.id AS "connectionId", c.encrypted_credentials AS encrypted
+        FROM integration_connections c
+        JOIN property_integration_connections pic
+          ON pic.tenant_id = c.tenant_id AND pic.connection_id = c.id
+        WHERE c.tenant_id = ${tenantId}::uuid AND pic.property_id = ${propertyId}::uuid
+          AND c.kind = 'PAYMENT' AND c.provider = ${provider}::"IntegrationProvider"
+        ORDER BY pic.enabled DESC, pic.updated_at DESC, c.created_at DESC`;
+      return rows.map((row) => this.paymentConnection(provider, row));
+    });
+  }
+
+  /** Internal-only: records which connection an older session belongs to, once it has been found. */
+  async rememberSessionConnection(
+    tenantId: string,
+    propertyId: string,
+    provider: PaymentConnectionProvider,
+    externalPaymentId: string,
+    connectionId: string,
+  ): Promise<void> {
+    await this.database.withTenantTransaction(
+      { tenantId, propertyId },
+      (tx) =>
+        tx.$executeRaw`
+        UPDATE payment_provider_sessions SET connection_id = ${connectionId}::uuid
+        WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+          AND provider = ${provider.toLowerCase()} AND external_payment_id = ${externalPaymentId}
+          AND connection_id IS NULL`,
+    );
   }
 
   async setPropertyConnection(
@@ -411,13 +536,13 @@ export class IntegrationConnectionsService {
     enabled: boolean,
   ): Promise<void> {
     await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      let wentLiveFromStaging = false;
+      let switchedFrom: string[] = [];
       await tx.$queryRaw`SELECT id FROM properties WHERE tenant_id=${tenantId}::uuid AND id=${propertyId}::uuid FOR UPDATE`;
 
       const connection = await tx.$queryRawUnsafe<
-        Array<{ kind: ConnectionKind; provider: ConnectionProvider }>
+        Array<{ kind: ConnectionKind; provider: ConnectionProvider; encrypted: string }>
       >(
-        `SELECT kind,provider FROM integration_connections WHERE tenant_id = $1::uuid AND id = $2::uuid`,
+        `SELECT kind,provider,encrypted_credentials AS encrypted FROM integration_connections WHERE tenant_id = $1::uuid AND id = $2::uuid`,
         tenantId,
         connectionId,
       );
@@ -435,28 +560,27 @@ export class IntegrationConnectionsService {
             'This hotel has active bookings. Replace credentials to repair the connection; disabling Clock requires a reviewed migration to standalone inventory.',
           );
       }
-      if (enabled && ['CLOCK_PMS', 'POKPAY'].includes(connection[0].provider)) {
+      // Clock bookings are tied to one Clock account, so moving a hotel with Clock history to another
+      // Clock account stays a reviewed migration. Payment accounts are different: every payment session
+      // records the account that took it, and checks and refunds use that account, so a hotel may switch
+      // freely between its PokPay test and live accounts (or move to a new live account) at any time.
+      if (enabled && connection[0].provider === 'CLOCK_PMS') {
         const history = await tx.$queryRaw<
           Array<{ unsafe: boolean }>
-        >`SELECT EXISTS(SELECT 1 FROM property_integration_connections pc JOIN integration_connections ic ON ic.tenant_id=pc.tenant_id AND ic.id=pc.connection_id WHERE pc.tenant_id=${tenantId}::uuid AND pc.property_id=${propertyId}::uuid AND pc.connection_id<>${connectionId}::uuid AND ic.provider=${connection[0].provider}::"IntegrationProvider") AND (CASE WHEN ${connection[0].provider}='CLOCK_PMS' THEN EXISTS(SELECT 1 FROM bookings WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND external_booking_id IS NOT NULL) ELSE EXISTS(SELECT 1 FROM payments WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND provider='pokpay') END) AS unsafe`;
-        if (history[0]?.unsafe) {
-          const fromStaging = await this.replacesOnlyStagingPokpay(
-            tx,
-            tenantId,
-            propertyId,
-            connection[0].provider,
-            connectionId,
+        >`SELECT EXISTS(SELECT 1 FROM property_integration_connections pc JOIN integration_connections ic ON ic.tenant_id=pc.tenant_id AND ic.id=pc.connection_id WHERE pc.tenant_id=${tenantId}::uuid AND pc.property_id=${propertyId}::uuid AND pc.connection_id<>${connectionId}::uuid AND ic.provider='CLOCK_PMS'::"IntegrationProvider") AND EXISTS(SELECT 1 FROM bookings WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND external_booking_id IS NOT NULL) AS unsafe`;
+        if (history[0]?.unsafe)
+          throw new ConflictException(
+            'This hotel already has history with another Clock connection. Replace credentials on that connection; moving to another Clock account requires a reviewed migration.',
           );
-          if (!fromStaging)
-            throw new ConflictException(
-              'This hotel already has history with another connection. Replace credentials on that connection; moving to another provider account requires a reviewed migration.',
-            );
-          wentLiveFromStaging = true;
-        }
       }
       if (enabled && connection[0].provider === 'POKPAY') {
-        await tx.$executeRaw`UPDATE property_integration_connections pc SET enabled=false,updated_at=now() FROM integration_connections c
-        WHERE pc.tenant_id=${tenantId}::uuid AND pc.property_id=${propertyId}::uuid AND pc.connection_id=c.id AND c.tenant_id=pc.tenant_id AND c.provider='POKPAY' AND c.id<>${connectionId}::uuid AND pc.enabled`;
+        // One PokPay account in use at a time. The others stay saved with their keys, so the hotel
+        // can switch back whenever it wants.
+        const previous = await tx.$queryRaw<Array<{ id: string }>>`
+          UPDATE property_integration_connections pc SET enabled=false,updated_at=now() FROM integration_connections c
+          WHERE pc.tenant_id=${tenantId}::uuid AND pc.property_id=${propertyId}::uuid AND pc.connection_id=c.id AND c.tenant_id=pc.tenant_id AND c.provider='POKPAY' AND c.id<>${connectionId}::uuid AND pc.enabled
+          RETURNING pc.connection_id AS id`;
+        switchedFrom = previous.map((row) => row.id);
       }
       try {
         await tx.$executeRawUnsafe(
@@ -486,33 +610,43 @@ export class IntegrationConnectionsService {
           : 'integration_connection.disabled_for_property',
         targetType: 'integration_connection',
         targetId: connectionId,
-        ...(wentLiveFromStaging ? { details: { switchedFromStaging: true } } : {}),
+        ...(connection[0].kind === 'PAYMENT'
+          ? {
+              details: {
+                provider: connection[0].provider,
+                mode: this.modeOf(connection[0].provider, connection[0].encrypted),
+                ...(switchedFrom.length ? { switchedFrom } : {}),
+              },
+            }
+          : {}),
       });
     });
   }
 
-  /**
-   * Going live: a hotel may move from PokPay staging to another PokPay connection even though it has
-   * payment history, because staging never holds real money. Every other PokPay connection linked to
-   * the hotel must be a staging one; anything on production keeps the reviewed-migration rule.
-   */
-  private async replacesOnlyStagingPokpay(
-    tx: Parameters<Parameters<TenantDatabaseService['withTenantTransaction']>[1]>[0],
-    tenantId: string,
-    propertyId: string,
-    provider: ConnectionProvider,
-    connectionId: string,
-  ): Promise<boolean> {
-    if (provider !== 'POKPAY') return false;
-    const others = await tx.$queryRaw<Array<{ encrypted: string }>>`
-      SELECT ic.encrypted_credentials AS encrypted
-      FROM property_integration_connections pc
-      JOIN integration_connections ic ON ic.tenant_id = pc.tenant_id AND ic.id = pc.connection_id
-      WHERE pc.tenant_id = ${tenantId}::uuid AND pc.property_id = ${propertyId}::uuid
-        AND pc.connection_id <> ${connectionId}::uuid AND ic.provider = 'POKPAY'::"IntegrationProvider"`;
-    return others.every(
-      (row) => resolvePokpayBaseUrl(this.cipher.decrypt(row.encrypted)) === POKPAY_STAGING_BASE_URL,
-    );
+  private summarize({ encryptedCredentials, ...summary }: ConnectionRow): ConnectionSummary {
+    return { ...summary, mode: this.modeOf(summary.provider, encryptedCredentials) };
+  }
+
+  /** TEST or LIVE for a payment connection; null for a PMS one or keys that cannot be read. */
+  private modeOf(provider: ConnectionProvider, encrypted: string): ConnectionMode | null {
+    if (provider === 'CLOCK_PMS') return null;
+    try {
+      return connectionMode(provider, this.cipher.decrypt(encrypted));
+    } catch {
+      return null;
+    }
+  }
+
+  private paymentConnection(
+    provider: PaymentConnectionProvider,
+    row: { connectionId: string; encrypted: string },
+  ): PaymentConnection {
+    const credentials = this.cipher.decrypt(row.encrypted);
+    return {
+      connectionId: row.connectionId,
+      mode: connectionMode(provider, credentials) ?? 'LIVE',
+      credentials,
+    };
   }
 
   private createInput(body: unknown): {

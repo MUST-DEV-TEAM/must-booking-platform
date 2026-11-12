@@ -307,10 +307,6 @@ export function DashboardSettings({
                       ),
                   )?.id,
             )}
-            onConnectionChanged={async () => {
-              await settingsQuery.refetch();
-              refreshSavedViews();
-            }}
             operationsHref={dashboardSectionHref(tenantId, propertyId, 'payments')}
           />
         </SettingsAreaPanel>

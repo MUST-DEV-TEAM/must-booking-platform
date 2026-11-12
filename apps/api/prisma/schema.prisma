@@ -1033,6 +1033,10 @@ model PaymentProviderSession {
   venueReservationId String? @map("venue_reservation_id") @db.Uuid
   provider          String   @db.VarChar(50)
   externalPaymentId String   @map("external_payment_id") @db.VarChar(320)
+  /// The payment connection (provider account) that created this order; checks and refunds use it even
+  /// after the hotel switches accounts. Absent for older sessions the migration could not attribute.
+  /// Foreign key (tenant_id, connection_id) with ON DELETE SET NULL (connection_id), defined in SQL.
+  connectionId      String?  @map("connection_id") @db.Uuid
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   property          Property @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
   booking           Booking? @relation(fields: [tenantId, propertyId, bookingId], references: [tenantId, propertyId, id], onDelete: Restrict)

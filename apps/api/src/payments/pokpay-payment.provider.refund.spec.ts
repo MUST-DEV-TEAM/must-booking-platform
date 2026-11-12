@@ -8,7 +8,7 @@ const context = { tenantId: 'tenant-1', propertyId: 'property-1' };
 // (22750 before any refund), and refundAmount is read in Lek.
 function providerWith(orders: Array<Record<string, unknown>>) {
   const provider = new PokPayPaymentProvider({} as never);
-  vi.spyOn(provider as never, 'configuration' as never).mockResolvedValue({
+  vi.spyOn(provider as never, 'orderConfiguration' as never).mockResolvedValue({
     ok: true,
     value: { merchantId: 'merchant-1' },
   } as never);

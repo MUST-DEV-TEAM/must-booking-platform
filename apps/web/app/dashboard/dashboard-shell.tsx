@@ -49,6 +49,7 @@ import { CalendarPage } from './calendar-page';
 import { AddReservation } from './add-reservation';
 import { DashboardPayments } from './payments';
 import { PaymentDetail } from './payment-detail';
+import { PaymentTestMode } from './payment-test-mode';
 import { DashboardGuests } from './guests';
 import { GuestDetail } from './guest-detail';
 import { DashboardStaff } from './staff';
@@ -602,6 +603,13 @@ export function DashboardShell({
           </>
         }
       >
+        {selectedProperty && role ? (
+          <PaymentTestMode
+            tenantId={tenantId}
+            propertyId={selectedProperty.id}
+            canManage={role !== 'STAFF' && hasCapability('settings.manage')}
+          />
+        ) : null}
         {selectedProperty && role && capabilities !== undefined && !canViewSection ? (
           <SectionAccess
             allowed={false}

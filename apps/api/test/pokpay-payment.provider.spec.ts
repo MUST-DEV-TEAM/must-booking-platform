@@ -15,8 +15,15 @@ function makeProvider(
     webhookUrl: 'https://api.example.test/webhooks/pokpay',
   },
 ) {
+  // The hotel's one PokPay account; orders without a recorded account fall back to it.
+  const connection = credentials
+    ? { connectionId: 'connection-1', mode: 'TEST', credentials }
+    : null;
   const connections = {
-    activePaymentConnectionCredentials: vi.fn().mockResolvedValue(credentials),
+    activePaymentConnection: vi.fn().mockResolvedValue(connection),
+    sessionPaymentConnection: vi.fn().mockResolvedValue(null),
+    linkedPaymentConnections: vi.fn().mockResolvedValue([]),
+    rememberSessionConnection: vi.fn().mockResolvedValue(undefined),
   };
   return new PokPayPaymentProvider(connections as never);
 }
@@ -72,7 +79,11 @@ describe('PokPayPaymentProvider', () => {
         }),
       ).resolves.toEqual({
         ok: true,
-        value: { id: 'order-1', url: 'https://pay.pokpay.test/order-1' },
+        value: {
+          id: 'order-1',
+          url: 'https://pay.pokpay.test/order-1',
+          connectionId: 'connection-1',
+        },
       });
       await expect(provider.getPayment(context, 'order-1')).resolves.toEqual({
         id: 'order-1',

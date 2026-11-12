@@ -249,7 +249,7 @@ export class PaymentCollectionService {
       expiresAt: new Date(Date.now() + BALANCE_LINK_VALID_MINUTES * 60_000).toISOString(),
     };
     await this.db.withTenantTransaction(scope, async (tx) => {
-      await tx.$executeRaw`INSERT INTO payment_provider_sessions(tenant_id,property_id,booking_id,provider,external_payment_id) VALUES(${scope.tenantId}::uuid,${scope.propertyId}::uuid,${bookingId}::uuid,'pokpay',${checkout.value.id}) ON CONFLICT(tenant_id,provider,external_payment_id) DO NOTHING`;
+      await tx.$executeRaw`INSERT INTO payment_provider_sessions(tenant_id,property_id,booking_id,provider,external_payment_id,connection_id) VALUES(${scope.tenantId}::uuid,${scope.propertyId}::uuid,${bookingId}::uuid,'pokpay',${checkout.value.id},${checkout.value.connectionId ?? null}::uuid) ON CONFLICT(tenant_id,provider,external_payment_id) DO NOTHING`;
       await tx.$executeRaw`UPDATE integration_operations SET status='COMPLETED',external_reference=${checkout.value.id},result=${JSON.stringify(ready)}::jsonb,updated_at=now() WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${intent.id}::uuid`;
     });
     await this.audit.record({

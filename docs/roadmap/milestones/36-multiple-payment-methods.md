@@ -1,6 +1,13 @@
-# Milestone 36: Several payment methods per hotel (Stripe first, then Paysera) (planned, not scheduled)
+# Milestone 36: Several payment methods per hotel (PokPay finished first, then Stripe, then Paysera)
 
-Status: **Planned 2026-11-09, to be done later (owner). All suggestions below approved. Nothing is built. Stripe sandbox connected to Claude 2026-11-09. Waiting on Paysera Albania for documents (owner asks 2026-11-10).**
+Status: **In progress. Order changed by the owner on 2026-11-12: finish PokPay to industry standard first, then Stripe; Paysera later (waiting on Paysera Albania's documents, asked 2026-11-10).** Step 1 (switch freely between PokPay test and live) is prepared on `release/pokpay-free-switch`. Step 2 (payment labels, Clock note and report line) is preserved separately on `feat/pokpay-test-labels`, pending validation. The earlier one-way go-live switch (PR #447) is live since 2026-11-09.
+
+## PokPay first (owner, 2026-11-12)
+
+1. **Switch freely between test and live (built, step 1).** Both PokPay accounts stay saved; one is in use at a time and the hotel switches either way with a confirmation. Every payment remembers the account that took it, and checks and refunds use that account. TEST or LIVE label on each account, a warning bar across the dashboard while on test, and every switch recorded. See [ADR-0041](../../decisions/ADR-0041-payment-accounts-test-and-live.md).
+2. **Test labels (built, step 2).** Test payments act exactly like real ones (booking, balance, Clock) but carry a TEST label: on the booking and payments list and in the note sent to Clock with the payment. Money reports show test payments as their own line, not in the real totals (owner, 2026-11-12). The guest website shows no test-mode note (owner, 2026-11-12). The platform admin sees test or live per hotel.
+4. **After it is live:** Empire Beach Resort gets a PokPay staging account and is switched to it, with its production account kept saved; a database backup is taken first and the owner gives a final yes, because Empire's guests cannot really pay by card while it is on staging.
+3. **Clock:** a booking paid with test money at a hotel with its real Clock goes to Clock like any booking, labelled TEST (owner chose option B on 2026-11-12). Testing happens on the Must Hotel test property with the PokPay staging account.
 
 ## Why
 
@@ -12,7 +19,7 @@ Today a hotel can take card payments through one provider only: PokPay. The owne
 2. For each method, a hotel is on **either its test setup or its live setup, never both at once**.
 3. **Switching test to live**, and **changing the credentials** of a method, must follow industry standard and good practice (safe, recorded, no lost payment history).
 4. Stripe is planned as its own later milestone.
-5. The branch `feat/pokpay-go-live-switch` (test-to-live switch for PokPay, no more leftover duplicate cards) is pushed only after this brainstorming is done, in case the owner wants small changes.
+5. The test-to-live switch for PokPay (branch `feat/pokpay-go-live-switch`) was merged as PR #447 and is live since 2026-11-09; switching back from live to test is step 1 above.
 
 ## What we found out (2026-11-09)
 
@@ -37,11 +44,11 @@ Source files are saved in [docs/integrations/paysera/](../../integrations/payser
 - Currency: the owner thinks euro; decided later, not part of the first integration. See [Milestone 29](29-currency.md).
 - Which hotel uses Paysera first, and who opens the Paysera merchant account?
 
-## Build order (suggestion)
+## Build order (owner, 2026-11-12)
 
-1. **The general layer first, with PokPay and Stripe (test mode) as its first two users:** several connections per hotel, test or live per method, the go-live and credential-change steps, retired-method refunds, and the owner's on/off settings. This needs nothing from Paysera.
-2. **The Paysera adapter after that,** once Paysera's documents, test credentials and the answers above are in.
-3. Stripe's finishing work for real hotels is in [Milestone 37](37-stripe-payments.md).
+1. **PokPay finished to industry standard** (the steps above): free test/live switching, each payment on its own account, retired accounts still refunding their payments, test labels.
+2. **Stripe next,** on the same pattern (test and live keys both kept, free switching, refunds through the account that took the payment), plus several methods switched on at once so the guest picks. Stripe's go-live for real hotels is [Milestone 37](37-stripe-payments.md); Stripe does not serve Albanian businesses.
+3. **Paysera later,** once Paysera's documents, test credentials and the answers above are in.
 
 ## Not in this milestone
 
