@@ -12,6 +12,7 @@ type Row = {
   sameArrival?: boolean | null;
   cancelledAt?: Date;
   cancelledByMust?: boolean;
+  externalBookingId?: string | null;
 };
 
 /** Booking cancelled in Clock on 2026-11-12, free window ends 2027-04-20 unless a test says otherwise. */
@@ -24,6 +25,7 @@ function setup(row: Row, refundOk = true) {
         sameArrival: true,
         cancelledAt: new Date('2026-11-12T10:00:00Z'),
         cancelledByMust: false,
+        externalBookingId: '500',
         ...row,
       },
     ]),
@@ -47,21 +49,74 @@ function setup(row: Row, refundOk = true) {
     ),
   };
   const notifications = { sendRefundConfirmationEmailSafely: vi.fn() };
-  const manualReview = { recordInTransaction: vi.fn() };
+  const manualReview = { recordInTransaction: vi.fn(), record: vi.fn() };
+  const clockBooking = {
+    voidRoomChargeFolios: vi.fn().mockResolvedValue({ ok: true, value: { voidedFolioIds: [1] } }),
+  };
   const service = new HotelCancellationRefundService(
     database as never,
     refunds as never,
     notifications as never,
     manualReview as never,
+    clockBooking as never,
   );
-  return { service, refunds, notifications, manualReview };
+  return { service, refunds, notifications, manualReview, clockBooking };
 }
 
 describe('HotelCancellationRefundService', () => {
   it('does nothing when the hotel chose Never', async () => {
-    const { service, refunds } = setup({ policy: 'NEVER' });
+    const { service, refunds, clockBooking } = setup({ policy: 'NEVER' });
     await service.refundAfterHotelCancellation(context, 'booking-1');
     expect(refunds.refundRemainingChargeForBooking).not.toHaveBeenCalled();
+    expect(clockBooking.voidRoomChargeFolios).not.toHaveBeenCalled();
+  });
+
+  it('clears the room charges after refunding inside the free window', async () => {
+    const { service, clockBooking } = setup({ policy: 'FREE_WINDOW' });
+    await service.refundAfterHotelCancellation(context, 'booking-1');
+    expect(clockBooking.voidRoomChargeFolios).toHaveBeenCalledWith(context, '500');
+  });
+
+  it('keeps the room charges after the free window (the hotel decides about a fee)', async () => {
+    const { service, clockBooking } = setup({
+      policy: 'FREE_WINDOW',
+      cancelledAt: new Date('2027-04-21T10:00:00Z'),
+    });
+    await service.refundAfterHotelCancellation(context, 'booking-1');
+    expect(clockBooking.voidRoomChargeFolios).not.toHaveBeenCalled();
+  });
+
+  it('still clears the room charges when there is no online payment to refund', async () => {
+    const { service, refunds, clockBooking } = setup({ policy: 'ALWAYS' });
+    refunds.refundRemainingChargeForBooking.mockResolvedValue({
+      result: { ok: true, value: null },
+      confirmation: null,
+    });
+    await service.refundAfterHotelCancellation(context, 'booking-1');
+    expect(clockBooking.voidRoomChargeFolios).toHaveBeenCalledOnce();
+  });
+
+  it('a missing Clock right only logs; any other void failure leaves a review item', async () => {
+    const missing = setup({ policy: 'ALWAYS' });
+    missing.clockBooking.voidRoomChargeFolios.mockResolvedValue({
+      ok: false,
+      error: { code: 'CLOCK_RIGHT_MISSING', message: 'no right', retryable: false },
+    });
+    await missing.service.refundAfterHotelCancellation(context, 'booking-1');
+    expect(missing.manualReview.record).not.toHaveBeenCalled();
+
+    const other = setup({ policy: 'ALWAYS' });
+    other.clockBooking.voidRoomChargeFolios.mockResolvedValue({
+      ok: false,
+      error: { code: 'CLOCK_TIMEOUT', message: 'timed out', retryable: true },
+    });
+    await other.service.refundAfterHotelCancellation(context, 'booking-1');
+    expect(other.manualReview.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        referenceId: 'booking-1',
+        message: expect.stringContaining('timed out'),
+      }),
+    );
   });
 
   it('refunds what is left, posts the email, inside the free window', async () => {
