@@ -70,7 +70,6 @@ it('shows only the two hotel methods, validates hold bounds and saves settings w
       connectedProviders: new Set<string>(),
       operationsHref: '#',
       onPropertySave: save,
-      onConnectionChanged: vi.fn(async () => {}),
     };
   const m = await mount(<PaymentSettings {...props} />);
   try {
@@ -100,71 +99,40 @@ it('shows only the two hotel methods, validates hold bounds and saves settings w
     await m.close();
   }
 });
-it('keeps PokPay credentials write-only, tests via the existing endpoint and assigns the tested account', async () => {
-  const fetch = vi.fn(
-    async (url: string, init?: RequestInit) =>
-      new Response(
-        JSON.stringify(
-          url.endsWith('/test')
-            ? { id: 'new', status: 'CONNECTED' }
-            : init?.method === 'POST'
-              ? { id: 'new', status: 'PENDING' }
-              : {},
-        ),
-      ),
-  );
+it('shows whether the PokPay account in use is test or live and sends key changes to Integrations', async () => {
+  const fetch = vi.fn();
   vi.stubGlobal('fetch', fetch);
-  const changed = vi.fn(async () => {}),
-    m = await mount(
-      <PokpayConnectionPanel
-        tenantId="t"
-        propertyId="p"
-        assigned={false}
-        canManage
-        onChanged={changed}
-      />,
-    );
+  const manageHref = '/dashboard/t?propertyId=p&section=settings&settingsArea=integrations';
+  const m = await mount(
+    <PokpayConnectionPanel
+      connection={{ id: 'live', status: 'CONNECTED', mode: 'LIVE' }}
+      assigned
+      manageHref={manageHref}
+    />,
+  );
   try {
-    await value('pokpay-keyId', 'key');
-    await value('pokpay-merchantId', 'merchant');
-    await value('pokpay-keySecret', 'private-fixture-secret');
-    await click('Save credentials');
-    expect((document.querySelector('#pokpay-keySecret') as HTMLInputElement).value).toBe('');
-    expect(document.body.textContent).toContain('Credentials: Saved');
-    expect(document.querySelector('#pokpay-keySecret')?.getAttribute('type')).toBe('password');
-    expect(document.body.textContent).not.toContain('private-fixture-secret');
-    await click('Test connection');
-    expect(document.querySelector('#pokpay-keySecret')).toBeNull();
-    await click('Replace credentials');
-    expect((document.querySelector('#pokpay-keySecret') as HTMLInputElement).value).toBe('');
-    await click('Cancel');
-    await click('Assign to this hotel');
-    expect(fetch.mock.calls.map(([url]) => url)).toEqual([
-      '/api/tenants/t/integration-connections',
-      '/api/tenants/t/integration-connections/new/test',
-      '/api/tenants/t/properties/p/integration-connections/new',
-    ]);
-    expect(JSON.parse(fetch.mock.calls[0]![1]!.body as string).credentials).toMatchObject({
-      keyId: 'key',
-      merchantId: 'merchant',
-      keySecret: 'private-fixture-secret',
-    });
+    expect(document.body.textContent).toContain('Live');
+    expect(document.body.textContent).toContain('Live account: guests pay real money.');
+    expect(document.body.textContent).not.toContain('not supported');
+    expect(document.querySelector('a')?.getAttribute('href')).toBe(manageHref);
+    // Keys are never typed here: Integrations is the one place that handles them.
+    expect(document.querySelector('input')).toBeNull();
+
     await act(async () =>
       m.root.render(
         <PokpayConnectionPanel
-          key="readonly"
-          tenantId="t"
-          propertyId="p"
-          connection={{ id: 'new', status: 'CONNECTED' }}
+          connection={{ id: 'test', status: 'CONNECTED', mode: 'TEST' }}
           assigned
-          canManage={false}
-          onChanged={changed}
         />,
       ),
     );
-    expect(document.body.textContent).toContain('Connected');
-    expect(document.querySelector('input')).toBeNull();
+    expect(document.body.textContent).toContain('Test account: card payments are test payments');
+    expect(document.querySelector('a')).toBeNull();
     expect(document.querySelector('button')).toBeNull();
+
+    await act(async () => m.root.render(<PokpayConnectionPanel assigned={false} />));
+    expect(document.body.textContent).toContain('No PokPay account is switched on');
+    expect(fetch).not.toHaveBeenCalled();
   } finally {
     await m.close();
   }

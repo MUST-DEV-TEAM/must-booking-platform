@@ -118,6 +118,14 @@ export class IntegrationConnectionsController {
     return this.connections.listForProperty(request.tenantContext.tenantId, propertyId);
   }
 
+  /** Whether the hotel's payment accounts in use are test or live (no keys), for every hotel member. */
+  @Get('properties/:propertyId/payment-modes')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  paymentModes(@Param('propertyId') propertyId: string, @Req() request: TenantRequest) {
+    return this.connections.paymentModes(request.tenantContext.tenantId, propertyId);
+  }
+
   @Patch('properties/:propertyId/integration-connections/:connectionId')
   @TenantScoped({ propertyParam: 'propertyId' })
   @Roles(Role.TenantOwner, Role.TenantAdmin)

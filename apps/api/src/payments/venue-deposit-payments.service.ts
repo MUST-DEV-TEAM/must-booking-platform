@@ -124,8 +124,8 @@ export class VenueDepositPaymentsService {
       knownOrder = result.value.id;
       knownUrl = result.value.url;
       await this.database.withTenantTransaction({ tenantId }, async (tx) => {
-        await tx.$executeRaw`INSERT INTO payment_provider_sessions(tenant_id,property_id,booking_id,venue_id,venue_reservation_id,provider,external_payment_id)
-          VALUES(${tenantId}::uuid,${row.propertyId}::uuid,NULL,${venueId}::uuid,${reservationId}::uuid,'pokpay',${result.value.id})`;
+        await tx.$executeRaw`INSERT INTO payment_provider_sessions(tenant_id,property_id,booking_id,venue_id,venue_reservation_id,provider,external_payment_id,connection_id)
+          VALUES(${tenantId}::uuid,${row.propertyId}::uuid,NULL,${venueId}::uuid,${reservationId}::uuid,'pokpay',${result.value.id},${result.value.connectionId ?? null}::uuid)`;
         await tx.$executeRaw`UPDATE venue_deposit_operations SET state='READY',external_payment_id=${result.value.id},checkout_url=${result.value.url}
           WHERE tenant_id=${tenantId}::uuid AND venue_id=${venueId}::uuid AND reservation_id=${reservationId}::uuid AND kind='checkout'`;
       });

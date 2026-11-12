@@ -11,7 +11,10 @@ import {
   type Result,
 } from '@must/domain-contracts';
 
-import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
+import {
+  IntegrationConnectionsService,
+  type PaymentConnection,
+} from '../integrations/integration-connections.service';
 import {
   POKPAY_BASE_URL_MESSAGE,
   POKPAY_STAGING_BASE_URL,
@@ -42,6 +45,8 @@ type PokPayConfiguration = {
   keySecret: string;
   merchantId: string;
   webhookUrl: string;
+  /** The hotel's connection these keys belong to; absent only for the platform health check. */
+  connectionId?: string;
 };
 
 @Injectable()
@@ -95,7 +100,16 @@ export class PokPayPaymentProvider implements PaymentProvider {
         true,
       );
 
-    return { ok: true, value: { id: order.id, url: order._self.confirmUrl } };
+    return {
+      ok: true,
+      value: {
+        id: order.id,
+        url: order._self.confirmUrl,
+        ...(configuration.value.connectionId
+          ? { connectionId: configuration.value.connectionId }
+          : {}),
+      },
+    };
   }
 
   // PokPay documents no signed webhook format. Callers must bind the supplied order id to a
@@ -128,7 +142,7 @@ export class PokPayPaymentProvider implements PaymentProvider {
     context: PaymentProviderContext & { stagingOnly?: boolean },
     command: RefundCommand,
   ): Promise<Result<Payment>> {
-    const configuration = await this.configuration(context);
+    const configuration = await this.orderConfiguration(context, command.paymentId);
     if (!configuration.ok) return configuration;
     const orderPath = `/merchants/${encodeURIComponent(configuration.value.merchantId)}/sdk-orders/${encodeURIComponent(command.paymentId)}`;
 
@@ -214,7 +228,7 @@ export class PokPayPaymentProvider implements PaymentProvider {
     context: PaymentProviderContext & { stagingOnly?: boolean },
     paymentId: string,
   ): Promise<Payment | null> {
-    const configuration = await this.configuration(context);
+    const configuration = await this.orderConfiguration(context, paymentId);
     if (!configuration.ok) return null;
     const response = await this.authenticatedRequest(configuration.value, {
       method: 'GET',
@@ -234,22 +248,72 @@ export class PokPayPaymentProvider implements PaymentProvider {
     };
   }
 
-  /** Reads the tenant's own PokPay connection for this property (ADR-0026) â€”
+  /** Reads the tenant's own PokPay connection for this property (ADR-0026) —
    * never the server environment. A property with no enabled PokPay
    * connection cannot take PokPay payments, same as having none configured. */
   private async configuration(
     context: PaymentProviderContext & { stagingOnly?: boolean },
   ): Promise<Result<PokPayConfiguration>> {
-    const credentials = await this.connections.activePaymentConnectionCredentials(
-      context.tenantId,
-      context.propertyId,
-      'POKPAY',
+    return this.configurationFrom(
+      context,
+      await this.connections.activePaymentConnection(
+        context.tenantId,
+        context.propertyId,
+        'POKPAY',
+      ),
     );
-    const keyId = credentials?.keyId?.trim();
-    const keySecret = credentials?.keySecret?.trim();
-    const merchantId = credentials?.merchantId?.trim();
-    const webhookUrl = resolvePokpayWebhookUrl(credentials?.webhookUrl);
-    const baseUrl = resolvePokpayBaseUrl(credentials ?? {});
+  }
+
+  /**
+   * The keys of the account that created this order, so checks and refunds reach the account that
+   * took the money even after the hotel switched between its test and live accounts (ADR-0041).
+   * An older order whose session does not record its account is looked up in each of the hotel's
+   * PokPay accounts (the one in use first); the account that knows it is recorded for next time.
+   */
+  private async orderConfiguration(
+    context: PaymentProviderContext & { stagingOnly?: boolean },
+    orderId: string,
+  ): Promise<Result<PokPayConfiguration>> {
+    const { tenantId, propertyId } = context;
+    const bound = await this.connections.sessionPaymentConnection(
+      tenantId,
+      propertyId,
+      'POKPAY',
+      orderId,
+    );
+    if (bound) return this.configurationFrom(context, bound);
+    const linked = await this.connections.linkedPaymentConnections(tenantId, propertyId, 'POKPAY');
+    if (linked.length === 1) return this.configurationFrom(context, linked[0]!);
+    for (const candidate of linked) {
+      const configuration = this.configurationFrom(context, candidate);
+      if (!configuration.ok) continue;
+      const order = await this.authenticatedRequest(configuration.value, {
+        method: 'GET',
+        path: `/merchants/${encodeURIComponent(configuration.value.merchantId)}/sdk-orders/${encodeURIComponent(orderId)}`,
+      });
+      if (!order.ok || !order.value.data?.sdkOrder?.id) continue;
+      await this.connections
+        .rememberSessionConnection(tenantId, propertyId, 'POKPAY', orderId, candidate.connectionId)
+        .catch(() =>
+          this.logger.warn(`Could not record which PokPay account order ${orderId} belongs to.`),
+        );
+      return configuration;
+    }
+    return this.configuration(context);
+  }
+
+  private configurationFrom(
+    context: PaymentProviderContext & { stagingOnly?: boolean },
+    connection: PaymentConnection | null,
+  ): Result<PokPayConfiguration> {
+    if (!connection)
+      return this.failure('POKPAY_NOT_CONFIGURED', 'PokPay is not configured for this property.');
+    const { credentials } = connection;
+    const keyId = credentials.keyId?.trim();
+    const keySecret = credentials.keySecret?.trim();
+    const merchantId = credentials.merchantId?.trim();
+    const webhookUrl = resolvePokpayWebhookUrl(credentials.webhookUrl);
+    const baseUrl = resolvePokpayBaseUrl(credentials);
     if (context.stagingOnly && baseUrl !== POKPAY_STAGING_BASE_URL)
       return this.failure('POKPAY_STAGING_REQUIRED', 'Restaurant deposits require staging PokPay.');
     if (!keyId || !keySecret || !merchantId || !webhookUrl)
@@ -261,7 +325,17 @@ export class PokPayPaymentProvider implements PaymentProvider {
         'POKPAY_WEBHOOK_URL_INVALID',
         'Use a valid webhook URL; production requires public HTTPS.',
       );
-    return { ok: true, value: { baseUrl, keyId, keySecret, merchantId, webhookUrl } };
+    return {
+      ok: true,
+      value: {
+        baseUrl,
+        keyId,
+        keySecret,
+        merchantId,
+        webhookUrl,
+        connectionId: connection.connectionId,
+      },
+    };
   }
 
   private healthConfiguration(): Result<PokPayConfiguration> {

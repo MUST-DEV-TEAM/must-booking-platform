@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { Card, CardHeader, CardContent } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
+import { PaymentModeBadge } from '../../components/ui/payment-mode-badge';
 import {
   Select,
   SelectContent,
@@ -25,6 +26,8 @@ type Connection = {
   provider: 'CLOCK_PMS' | 'POKPAY' | 'STRIPE';
   name: string;
   status: string;
+  /** TEST or LIVE for a payment account; null for Clock. */
+  mode?: 'TEST' | 'LIVE' | null;
   lastTestedAt: string | null;
   lastTestResult: string | null;
 };
@@ -49,7 +52,8 @@ export function IntegrationSettings({
   const [syncOpen, setSyncOpen] = useState(false);
   const [switchConfirm, setSwitchConfirm] = useState<{
     replacing: string;
-    toProduction: boolean | null;
+    /** The account being switched to: a test or a live one. */
+    toMode: 'TEST' | 'LIVE';
     run: () => void;
   } | null>(null);
   const query = useQuery({
@@ -257,8 +261,9 @@ export function IntegrationSettings({
                 </CardHeader>
                 <CardContent className="space-y-3 pt-4">
                   <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                    <span className="text-muted-foreground">
+                    <span className="flex flex-wrap items-center gap-2 text-muted-foreground">
                       {connection?.name || item.category}
+                      {connection?.mode ? <PaymentModeBadge mode={connection.mode} /> : null}
                     </span>
                     <Badge
                       variant={connection && assigned(connection.id) ? 'success' : 'secondary'}
@@ -276,7 +281,9 @@ export function IntegrationSettings({
                   </div>
                   {connection?.provider === 'POKPAY' ? (
                     <p className="text-xs text-muted-foreground">
-                      Environment and account details in Credentials
+                      {connection.mode === 'TEST'
+                        ? 'PokPay test account (staging): payments are not real money.'
+                        : 'PokPay live account (production): real payments.'}
                     </p>
                   ) : null}
                   {connection?.lastTestResult ? (
@@ -329,13 +336,19 @@ export function IntegrationSettings({
                             )
                               setSwitchConfirm({
                                 replacing: replacing.name,
-                                toProduction: null,
+                                toMode: connection.mode ?? 'LIVE',
                                 run,
                               });
                             else run();
                           }}
                         >
-                          {assigned(connection.id) ? 'Disable' : 'Enable'}
+                          {assigned(connection.id)
+                            ? 'Disable'
+                            : connection.provider === 'POKPAY' && otherEnabledPokpay(connection.id)
+                              ? connection.mode === 'TEST'
+                                ? 'Switch to test'
+                                : 'Switch to live'
+                              : 'Enable'}
                         </Button>
                       </div>
                     ) : (
@@ -387,13 +400,17 @@ export function IntegrationSettings({
       <Dialog open={!!switchConfirm} onOpenChange={(open) => !open && setSwitchConfirm(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogTitle>
-            {switchConfirm?.toProduction ? 'Go live with PokPay?' : 'Switch PokPay connection?'}
+            {switchConfirm?.toMode === 'TEST' ? 'Switch PokPay to test?' : 'Go live with PokPay?'}
           </DialogTitle>
           <DialogDescription>
-            This hotel is using “{switchConfirm?.replacing}” now. Guests will pay through the new
-            connection from this moment, and “{switchConfirm?.replacing}” is switched off.
-            {switchConfirm?.toProduction ? ' Production takes real payments.' : ''} Payments already
-            taken stay on record, but a switched-off connection cannot refund them from here.
+            This hotel is using “{switchConfirm?.replacing}” now. From this moment guests pay
+            through the {switchConfirm?.toMode === 'TEST' ? 'test' : 'live'} account, and “
+            {switchConfirm?.replacing}” is switched off. It keeps its keys, so you can switch back
+            at any time.{' '}
+            {switchConfirm?.toMode === 'TEST'
+              ? 'While on test, card payments are test payments, not real money.'
+              : 'The live account takes real payments.'}{' '}
+            Payments already taken stay with the account that took them, including their refunds.
           </DialogDescription>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setSwitchConfirm(null)}>
@@ -406,7 +423,7 @@ export function IntegrationSettings({
                 run?.();
               }}
             >
-              {switchConfirm?.toProduction ? 'Go live' : 'Switch'}
+              {switchConfirm?.toMode === 'TEST' ? 'Switch to test' : 'Go live'}
             </Button>
           </div>
         </DialogContent>
@@ -437,7 +454,7 @@ export function IntegrationSettings({
               if (replacing)
                 setSwitchConfirm({
                   replacing: replacing.name,
-                  toProduction: credentials.baseUrl === 'https://api.pokpay.io',
+                  toMode: credentials.baseUrl === 'https://api.pokpay.io' ? 'LIVE' : 'TEST',
                   run: () => save.mutate(),
                 });
               else save.mutate();
@@ -464,9 +481,9 @@ export function IntegrationSettings({
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  Production uses real payments and requires production credentials and a public
-                  HTTPS webhook. Environment and merchant changes need a separate connection to
-                  protect payment history.
+                  Staging is PokPay&apos;s test account; production takes real payments and needs
+                  production credentials and a public HTTPS address. Test and live are two separate
+                  accounts: both stay saved, and you switch between them on the PokPay cards.
                 </p>
               </FormField>
             ) : (

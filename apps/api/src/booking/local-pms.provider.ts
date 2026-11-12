@@ -617,10 +617,10 @@ export class LocalPmsProvider implements PmsProvider {
                 if (paymentMethod.value === BookingPaymentMethod.POKPAY) {
                   await tx.$executeRaw`
                   INSERT INTO payment_provider_sessions (
-                    tenant_id, property_id, booking_id, provider, external_payment_id
+                    tenant_id, property_id, booking_id, provider, external_payment_id, connection_id
                   ) VALUES (
                     ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${bookingId}::uuid,
-                    'pokpay', ${checkout.value.id}
+                    'pokpay', ${checkout.value.id}, ${checkout.value.connectionId ?? null}::uuid
                   )
                   ON CONFLICT (tenant_id, provider, external_payment_id) DO NOTHING
                 `;
@@ -948,10 +948,10 @@ export class LocalPmsProvider implements PmsProvider {
             // booking-state idempotency decide which verified completion wins.
             await tx.$executeRaw`
               INSERT INTO payment_provider_sessions (
-                tenant_id, property_id, booking_id, provider, external_payment_id
+                tenant_id, property_id, booking_id, provider, external_payment_id, connection_id
               ) VALUES (
                 ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${booking.id}::uuid,
-                'pokpay', ${checkout.value.id}
+                'pokpay', ${checkout.value.id}, ${checkout.value.connectionId ?? null}::uuid
               )
               ON CONFLICT (tenant_id, provider, external_payment_id) DO NOTHING
             `;

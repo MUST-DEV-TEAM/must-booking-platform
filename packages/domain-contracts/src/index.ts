@@ -483,6 +483,8 @@ export interface CreateCheckoutSessionCommand {
 export interface CheckoutSession {
   id: string;
   url: string;
+  /** The hotel's payment connection (provider account) that created it; stored on the payment session. */
+  connectionId?: string;
 }
 
 export interface RefundCommand {

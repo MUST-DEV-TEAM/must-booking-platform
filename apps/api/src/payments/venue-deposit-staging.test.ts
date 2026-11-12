@@ -4,14 +4,22 @@ afterEach(() => vi.unstubAllGlobals());
 it('blocks restaurant create, read and refund before any production HTTP request', async () => {
   const fetch = vi.fn();
   vi.stubGlobal('fetch', fetch);
-  const provider = new PokPayPaymentProvider({
-    activePaymentConnectionCredentials: async () => ({
+  const production = {
+    connectionId: 'live',
+    mode: 'LIVE',
+    credentials: {
       environment: 'production',
       keyId: 'test',
       keySecret: 'test',
       merchantId: 'test',
       webhookUrl: 'https://example.test/api/webhooks/pokpay',
-    }),
+    },
+  };
+  const provider = new PokPayPaymentProvider({
+    activePaymentConnection: async () => production,
+    sessionPaymentConnection: async () => production,
+    linkedPaymentConnections: async () => [production],
+    rememberSessionConnection: async () => undefined,
   } as never);
   const context = { tenantId: 'tenant', propertyId: 'property', stagingOnly: true };
   expect(

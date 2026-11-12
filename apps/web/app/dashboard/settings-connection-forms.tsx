@@ -16,6 +16,7 @@ import { SaveBar } from '../../components/ui/save-bar';
 import { EmailBrandingPreview } from '../../components/ui/email-branding-preview';
 import { useUnsavedChanges } from '../../components/ui/unsaved-changes';
 import type { PaymentGateways, Property } from './settings-areas';
+import { settingsAreaHref } from './settings-hub';
 
 type Common = { property: Property; saving: boolean; canWrite: boolean };
 export const validEmail = (s: string) => !s || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
@@ -205,7 +206,6 @@ export function PaymentSettings({
   onPropertySave,
   connection,
   assigned = false,
-  onConnectionChanged,
 }: Common & {
   connectedProviders: Set<string>;
   operationsHref: string;
@@ -213,7 +213,6 @@ export function PaymentSettings({
   onPropertySave: (update: Partial<Property>, gateways: PaymentGateways) => void;
   connection?: PokpayConnection;
   assigned?: boolean;
-  onConnectionChanged: () => Promise<void>;
 }) {
   const [draft, setDraft] = useState(property.paymentGateways);
   useEffect(() => setDraft(property.paymentGateways), [property.paymentGateways]);
@@ -311,12 +310,9 @@ export function PaymentSettings({
         </Button>
       </FormSection>
       <PokpayConnectionPanel
-        tenantId={tenantId}
-        propertyId={property.id}
         connection={connection}
         assigned={assigned}
-        canManage={canWrite}
-        onChanged={onConnectionChanged}
+        manageHref={canWrite ? settingsAreaHref(tenantId, property.id, 'integrations') : undefined}
       />
       {canWrite ? (
         <SaveBar
