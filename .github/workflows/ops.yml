@@ -18,6 +18,7 @@ on:
           - restart-api
           - restart-web
           - backup-now
+          - copy-empire-pokpay-staging
           - cleanup
           - disk-check
 

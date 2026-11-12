@@ -54,6 +54,8 @@ The Ops workflow runs fixed maintenance actions: `status`, `health`, `sentry` (w
 `restart-web`, `backup-now`, `cleanup` and `disk-check`. The Server watch workflow runs `disk-check` every six hours and goes red when the server disk reaches 80 percent (`DISK_ALERT_PERCENT` changes the level), so a full disk is noticed before a deploy fails on it. It does not show application logs, because they can
 contain guest details. Read logs over SSH instead.
 
+`copy-empire-pokpay-staging` backs up first, authenticates Must Hotel's saved PokPay staging keys and copies them into an inactive Empire Beach Resort connection. It never selects the staging account or creates a payment. It uses the runtime database role and tenant-scoped transactions, records an audit event, reuses an identical connection on reruns and refuses conflicting staging keys. Keys stay encrypted at rest and are never returned to CI. This fixed cross-tenant copy requires the owner's explicit approval; there is no general copy endpoint.
+
 ### Server settings that are not part of a deploy
 
 These live on the server only, so they are kept here as copies in case the server is rebuilt:

@@ -37,6 +37,12 @@ case "${1:-}" in
   restart-api) compose restart api ;;
   restart-web) compose restart web ;;
   backup-now) sudo -n systemctl start must-booking-backup.service && echo "Backup finished." ;;
+  copy-empire-pokpay-staging)
+    # Fixed, owner-authorized copy. Credentials remain in the server process. Backup failure stops it.
+    sudo -n systemctl start must-booking-backup.service
+    echo "Backup finished. Copying the saved staging account without changing active accounts."
+    compose exec -T api node apps/api/dist/operations/copy-empire-pokpay-staging.cli.js --apply
+    ;;
   cleanup)
     docker image prune -af --filter 'until=240h'
     docker builder prune -af
