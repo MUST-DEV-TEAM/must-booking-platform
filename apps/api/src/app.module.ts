@@ -242,6 +242,7 @@ import { PaymentRefundRecoveryService } from './payments/payment-refund-recovery
 import { ClockRefundMirrorCheckService } from './integrations/clock/clock-refund-mirror-check.service';
 import { PaymentRefundController } from './payments/payment-refund.controller';
 import { PaymentRefundService } from './payments/payment-refund.service';
+import { HotelCancellationRefundService } from './payments/hotel-cancellation-refund.service';
 import { PaymentLedgerController } from './payments/payment-ledger.controller';
 import { PaymentLedgerService } from './payments/payment-ledger.service';
 import { ManualPaymentController } from './payments/manual-payment.controller';
@@ -537,6 +538,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     PaymentRefundRecoveryService,
     ClockRefundMirrorCheckService,
     PaymentRefundService,
+    HotelCancellationRefundService,
     PaymentLedgerService,
     ManualPaymentService,
     PaymentCollectionService,

@@ -1,6 +1,8 @@
 /** The Settings areas, how healthy each one looks, and the checks the forms run before saving. */
 export type PaymentGateways = { stripe: boolean; pokpay: boolean; payAtHotel: boolean };
 export type BookingMode = 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
+/** What happens to the guest's online payment when the hotel cancels the booking inside Clock. */
+export type ClockCancelRefundPolicy = 'NEVER' | 'FREE_WINDOW' | 'ALWAYS';
 
 export type Property = {
   dateFormat?: string;
@@ -39,6 +41,7 @@ export type Property = {
   timezone: string;
   onlinePaymentHoldMinutes?: number;
   autoRefundOnFreeCancellation?: boolean;
+  clockCancelRefundPolicy?: ClockCancelRefundPolicy;
   brandColour?: string | null;
   emailFooterText?: string | null;
   termsUrl?: string | null;
