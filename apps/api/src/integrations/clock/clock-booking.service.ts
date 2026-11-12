@@ -112,6 +112,7 @@ interface ClockFolioResource {
   id: number;
   deposit?: boolean;
   closed_at?: string | null;
+  voided_at?: string | null;
 }
 
 export function isClockFolioResource(value: unknown): value is ClockFolioResource {
@@ -1927,6 +1928,63 @@ export class ClockBookingService {
     return { ok: true, value: undefined };
   }
 
+  /**
+   * Clears the room charges of a cancelled booking the way Clock's own Cancel does when no
+   * cancellation fee applies. Clock's advice (2026-11-10): list the booking's folios, then void the
+   * ones that carry no penalty (`DELETE /base_api/folios/{id}` with a `void_reason`). Verified live on
+   * Empire booking #15938: balance 20,680 ALL -> 0, the closed deposit folio untouched.
+   *
+   * Only OPEN, NON-deposit folios are voided. A deposit folio holds the guest's payment and the hotel
+   * decides about it, so it is never touched; closed and already voided folios are skipped. Repeating
+   * the call is safe: a voided folio is skipped. Call it only when the cancellation is free; the caller
+   * decides that. A failure here must not undo the cancellation, so the caller treats it as follow-up.
+   */
+  async voidRoomChargeFolios(
+    context: PmsProviderContext,
+    externalBookingId: string,
+  ): Promise<Result<{ voidedFolioIds: number[] }>> {
+    const connection = await this.credentials(context);
+    if (!connection.ok) return connection;
+    const listed = await this.fetch<number[]>(connection.value, {
+      method: 'GET',
+      path: `/bookings/${externalBookingId}/folios/`,
+      api: 'pms_api',
+    });
+    if (!listed.ok) return this.folioVoidFailure(listed.error);
+    const voidedFolioIds: number[] = [];
+    for (const folioId of Array.isArray(listed.value) ? listed.value : []) {
+      const viewed = await this.fetch<unknown>(connection.value, {
+        method: 'GET',
+        path: `/folios/${folioId}`,
+        api: 'base_api',
+      });
+      if (!viewed.ok) return this.folioVoidFailure(viewed.error);
+      const folio = viewed.value;
+      if (!isClockFolioResource(folio)) continue;
+      if (folio.deposit === true || folio.closed_at || folio.voided_at) continue;
+      const voided = await this.fetch<unknown>(connection.value, {
+        method: 'DELETE',
+        path: `/folios/${folioId}`,
+        api: 'base_api',
+        body: { void_reason: 'Booking cancelled, no cancellation fee' },
+      });
+      if (!voided.ok) return this.folioVoidFailure(voided.error);
+      voidedFolioIds.push(folioId);
+    }
+    return { ok: true, value: { voidedFolioIds } };
+  }
+
+  private folioVoidFailure(error: ClockClassifiedError): Result<never> {
+    // A refusal names the missing right; a "CLOCK_RIGHT_MISSING" code lets the caller tell it apart.
+    return this.failure(
+      error.missingRight ? 'CLOCK_RIGHT_MISSING' : error.code,
+      error.missingRight
+        ? `Clock refused to void the room folio: the API user lacks ${error.missingRight}.`
+        : error.message,
+      error.retryable,
+    );
+  }
+
   async cancelBooking(
     context: PmsProviderContext,
     command: CancelBookingCommand,
@@ -2649,7 +2707,7 @@ export class ClockBookingService {
   private async fetch<T>(
     credentials: ClockConnectionCredentials,
     options: {
-      method: 'GET' | 'POST' | 'PUT';
+      method: 'GET' | 'POST' | 'PUT' | 'DELETE';
       path: string;
       body?: unknown;
       query?: Record<string, string>;
@@ -2667,7 +2725,7 @@ export class ClockBookingService {
   private async fetchOnce<T>(
     credentials: ClockConnectionCredentials,
     options: {
-      method: 'GET' | 'POST' | 'PUT';
+      method: 'GET' | 'POST' | 'PUT' | 'DELETE';
       path: string;
       body?: unknown;
       query?: Record<string, string>;
