@@ -12,6 +12,7 @@ import { CapabilitiesGuard } from '../src/tenancy/capabilities.guard';
 import { AuditLogService } from '../src/tenancy/audit-log.service';
 import { GlobalSearchService } from '../src/tenancy/global-search.service';
 import { BookingProjectionService } from '../src/booking/booking-projection.service';
+import { parseBookingSearchQuery } from '../src/booking/booking-search';
 import { minor } from '../src/booking/pricing-evaluator';
 import { BookingDetailsService } from '../src/booking/booking-details.service';
 import { BookingDetailsController } from '../src/booking/booking-details.controller';
@@ -87,6 +88,7 @@ const tables = [
   'payments',
   'rooms',
   'clock_folios',
+  'clock_sync_jobs',
   'email_messages',
   'notification_recipient_rules',
   'property_role_templates',
@@ -128,6 +130,11 @@ beforeAll(async () => {
       for (let n = 0; n < 2; n++)
         for (const sql of migration.split(';').filter((s) => s.trim()))
           await tx.$executeRawUnsafe(sql);
+      const attentionIndex = readFileSync(
+        'prisma/migrations/20261113010000_booking_attention_lookup_index/migration.sql',
+        'utf8',
+      );
+      for (let n = 0; n < 2; n++) await tx.$executeRawUnsafe(attentionIndex);
       await tx.$executeRawUnsafe(`GRANT USAGE ON SCHEMA "${schema}" TO must_booking_app`);
       await tx.$executeRawUnsafe(
         `GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA "${schema}" TO must_booking_app`,
@@ -350,3 +357,34 @@ it('refuses an occupancy change that alters the price', async () => {
     await admin.$executeRaw`DELETE FROM pricing_charges WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND id=${charge}::uuid`;
   }
 });
+
+it('loads booking counts with a large audit history and honours current alert dismissals', async () => {
+  const service = new BookingProjectionService(db);
+  const query = parseBookingSearchQuery({ pageSize: '25' });
+  const before = await service.search(tenantId, propertyId, query);
+  const prefix = 'search-scale-' + randomUUID();
+  await admin.$executeRaw`
+    INSERT INTO bookings(id,tenant_id,property_id,room_type_id,rate_plan_id,external_reference,starts_on,ends_on,total_amount,status,payment_method,version)
+    SELECT md5(${prefix}||i::text)::uuid,${tenantId}::uuid,${propertyId}::uuid,${roomType}::uuid,${ratePlan}::uuid,
+      ${prefix}||i::text,'2030-07-10','2030-07-12',200,'PAYMENT_FAILED','PAY_AT_HOTEL',1
+    FROM generate_series(1,16000) i`;
+  await admin.$executeRaw`
+    INSERT INTO audit_logs(tenant_id,property_id,action,target_type,target_id)
+    SELECT ${tenantId}::uuid,${propertyId}::uuid,'booking.created','booking',md5(${prefix}||i::text)::uuid::text
+    FROM generate_series(1,13000) i`;
+  await admin.$executeRaw`
+    INSERT INTO audit_logs(tenant_id,property_id,action,target_type,target_id,details)
+    VALUES
+      (${tenantId}::uuid,${propertyId}::uuid,'booking.attention_dismissed','booking',md5(${prefix}||'1')::uuid::text,jsonb_build_object('version',1,'status','PAYMENT_FAILED')),
+      (${tenantId}::uuid,${propertyId}::uuid,'booking.attention_dismissed','booking',md5(${prefix}||'2')::uuid::text,jsonb_build_object('version',0,'status','PAYMENT_FAILED')),
+      (${tenantId}::uuid,${otherProperty}::uuid,'booking.attention_dismissed','booking',md5(${prefix}||'3')::uuid::text,jsonb_build_object('version',1,'status','PAYMENT_FAILED'))`;
+  // Match production's table sizes before asking the planner to choose the lookup.
+  await admin.$executeRawUnsafe(`ANALYZE "${schema}".bookings`);
+  await admin.$executeRawUnsafe(`ANALYZE "${schema}".audit_logs`);
+  const result = await service.search(tenantId, propertyId, query);
+  expect(result.total).toBe(before.total + 16000);
+  expect(result.items).toHaveLength(25);
+  expect(result.counts.all).toBe(before.counts.all + 16000);
+  expect(result.counts.needs_attention).toBe(before.counts.needs_attention + 15999);
+  expect(result.counts.cancelled).toBe(before.counts.cancelled);
+}, 15000);
