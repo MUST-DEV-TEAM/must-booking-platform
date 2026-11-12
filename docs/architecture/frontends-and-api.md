@@ -10,6 +10,8 @@ Status: **IMPLEMENTED**, with named placeholders and legacy residue. Code inspec
 
 ## Dashboard payments and guest pages (2026-10-01)
 
+Reservation search tab counts check the current booking version/status against dismissed attention alerts. The partial `audit_logs_booking_attention_dismissed` index supports this per-booking lookup without repeatedly scanning the hotel's audit history. It does not change filters, counts or tenant/property access.
+
 The Payments section is a list plus two linkable detail views, all driven by URL parameters on the same shell (`?section=payments&payment=<bookingId>` and `?section=guests&guest=<guestId>`), so a booking or a guest can be opened, bookmarked and shared.
 
 - **List** ([payments.tsx](../../apps/web/app/dashboard/payments.tsx)): one row per booking with reference, guest, stay, separate Booking and Payment badges, and Total/Paid/Refunded/Outstanding columns; newest first; filter tabs with counts (All, Needs action, Outstanding, Paid, Refunded, Cancelled); search by reference, guest or email; per-currency totals; CSV export of the current view (spreadsheet formulas defused). Drafts that never reached payment are hidden.
