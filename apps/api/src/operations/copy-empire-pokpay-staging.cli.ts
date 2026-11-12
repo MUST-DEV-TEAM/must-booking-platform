@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
-import { copyPokpayStaging } from './copy-pokpay-staging';
+import { copyPokpayStaging, StagingCopyPreconditionError } from './copy-pokpay-staging';
 
 // Deliberately fixed source and destination. This is not a general cross-tenant credential API.
 const source = {
@@ -10,7 +10,9 @@ const source = {
 const database = new TenantDatabaseService();
 async function main() {
   if (process.argv.length !== 3 || process.argv[2] !== '--apply')
-    throw new Error('Run only through the approved copy-empire-pokpay-staging Ops action.');
+    throw new StagingCopyPreconditionError(
+      'Run only through the approved copy-empire-pokpay-staging Ops action.',
+    );
   const tenants = await database.withPlatformAdminTransaction(
     { role: 'platform_admin' },
     (tx) =>
@@ -18,7 +20,9 @@ async function main() {
       SELECT id FROM organizations WHERE lower(trim(name))='empire beach resort'`,
   );
   if (tenants.length !== 1)
-    throw new Error('Empire Beach Resort must resolve to exactly one tenant.');
+    throw new StagingCopyPreconditionError(
+      'Empire Beach Resort must resolve to exactly one tenant.',
+    );
   const tenantId = tenants[0]!.id;
   const properties = await database.withTenantTransaction(
     { tenantId },
@@ -28,7 +32,9 @@ async function main() {
         AND lower(trim(name))='empire beach resort'`,
   );
   if (properties.length !== 1)
-    throw new Error('Empire Beach Resort must resolve to exactly one property.');
+    throw new StagingCopyPreconditionError(
+      'Empire Beach Resort must resolve to exactly one property.',
+    );
   const result = await copyPokpayStaging(database, source, {
     tenantId,
     propertyId: properties[0]!.id,
@@ -38,11 +44,16 @@ async function main() {
   );
 }
 void main()
-  .catch(() => {
+  .catch((error: unknown) => {
     // Prisma/provider errors may include parameters. Never print the exception or credential values.
+    if (error instanceof StagingCopyPreconditionError) console.error(error.message);
     console.error(
       'Staging copy stopped. No credentials were printed. Check hotel identity, source staging connection, destination conflicts and provider availability.',
     );
     process.exitCode = 1;
   })
-  .finally(() => database.$disconnect());
+  .finally(() =>
+    database.$disconnect().catch(() => {
+      process.exitCode = 1;
+    }),
+  );

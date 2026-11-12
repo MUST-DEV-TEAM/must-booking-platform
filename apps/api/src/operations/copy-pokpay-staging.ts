@@ -8,6 +8,8 @@ import {
   type TenantDatabaseContext,
 } from '../tenancy/tenant-database.service';
 
+export class StagingCopyPreconditionError extends Error {}
+
 type Scope = Required<TenantDatabaseContext>;
 type Connection = { id: string; encrypted: string; name: string };
 const connectionName = 'PokPay staging (Must Hotel)';
@@ -16,7 +18,7 @@ const webhookUrl = 'https://booking.must.al/api/webhooks/pokpay';
 /** Authentication only: never creates an order or sends a payment. */
 export async function verifyStaging(credentials: Record<string, string>): Promise<void> {
   if (resolvePokpayBaseUrl(credentials) !== POKPAY_STAGING_BASE_URL)
-    throw new Error('Only PokPay staging may be copied.');
+    throw new StagingCopyPreconditionError('Only PokPay staging may be copied.');
   const response = await fetch(`${POKPAY_STAGING_BASE_URL}/auth/sdk/login`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -25,7 +27,7 @@ export async function verifyStaging(credentials: Record<string, string>): Promis
   });
   const body = (await response.json()) as { data?: { accessToken?: string } };
   if (!response.ok || !body?.data?.accessToken)
-    throw new Error('PokPay staging authentication failed.');
+    throw new StagingCopyPreconditionError('PokPay staging authentication failed.');
 }
 
 /** Server-only maintenance primitive; no API route and no credentials returned or logged. */
@@ -36,11 +38,11 @@ export async function copyPokpayStaging(
   verify: typeof verifyStaging = verifyStaging,
 ) {
   if (source.tenantId === destination.tenantId || source.propertyId === destination.propertyId)
-    throw new Error('Source and destination must be different hotels.');
+    throw new StagingCopyPreconditionError('Source and destination must be different hotels.');
   const roles = await database.$queryRaw<Array<{ unsafe: boolean }>>`
     SELECT (rolsuper OR rolbypassrls) AS unsafe FROM pg_roles WHERE rolname = current_user`;
   if (roles.length !== 1 || roles[0]!.unsafe)
-    throw new Error('Use the RLS-constrained runtime database role.');
+    throw new StagingCopyPreconditionError('Use the RLS-constrained runtime database role.');
   const cipher = new CredentialCipherService();
   const saved = await database.withTenantTransaction(
     source,
@@ -51,12 +53,13 @@ export async function copyPokpayStaging(
       WHERE c.tenant_id=${source.tenantId}::uuid AND pc.property_id=${source.propertyId}::uuid
         AND c.kind='PAYMENT' AND c.provider='POKPAY' AND c.status='CONNECTED' AND pc.enabled`,
   );
-  if (saved.length !== 1) throw new Error('Expected one connected PokPay account at Must Hotel.');
+  if (saved.length !== 1)
+    throw new StagingCopyPreconditionError('Expected one connected PokPay account at Must Hotel.');
   const original = cipher.decrypt(saved[0]!.encrypted);
   if (resolvePokpayBaseUrl(original) !== POKPAY_STAGING_BASE_URL)
-    throw new Error('Must Hotel must be using PokPay staging.');
+    throw new StagingCopyPreconditionError('Must Hotel must be using PokPay staging.');
   if (!original.keyId?.trim() || !original.keySecret?.trim() || !original.merchantId?.trim())
-    throw new Error('The source staging credentials are incomplete.');
+    throw new StagingCopyPreconditionError('The source staging credentials are incomplete.');
   const credentials = {
     keyId: original.keyId,
     keySecret: original.keySecret,
@@ -70,7 +73,8 @@ export async function copyPokpayStaging(
     const property = await tx.$queryRaw<Array<{ id: string }>>`
       SELECT id FROM properties WHERE tenant_id=${destination.tenantId}::uuid
         AND id=${destination.propertyId}::uuid FOR UPDATE`;
-    if (property.length !== 1) throw new Error('Destination hotel was not found.');
+    if (property.length !== 1)
+      throw new StagingCopyPreconditionError('Destination hotel was not found.');
     const existing = await tx.$queryRaw<Connection[]>`
       SELECT id, name, encrypted_credentials AS encrypted FROM integration_connections
       WHERE tenant_id=${destination.tenantId}::uuid AND kind='PAYMENT' AND provider='POKPAY'
@@ -92,14 +96,18 @@ export async function copyPokpayStaging(
       (staging.length === 1 && matching.length !== 1) ||
       existing.some((row) => row.name === connectionName && !matching.includes(row))
     )
-      throw new Error('A different staging connection already exists; nothing was overwritten.');
+      throw new StagingCopyPreconditionError(
+        'A different staging connection already exists; nothing was overwritten.',
+      );
     const id = matching[0]?.id ?? randomUUID();
     const assigned = await tx.$queryRaw<Array<{ enabled: boolean }>>`
       SELECT enabled FROM property_integration_connections
       WHERE tenant_id=${destination.tenantId}::uuid AND property_id=${destination.propertyId}::uuid
         AND connection_id=${id}::uuid`;
     if (assigned[0]?.enabled)
-      throw new Error('The matching staging connection is already active; nothing was changed.');
+      throw new StagingCopyPreconditionError(
+        'The matching staging connection is already active; nothing was changed.',
+      );
     const created = !matching.length;
     if (created)
       await tx.$executeRaw`

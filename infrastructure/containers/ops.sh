@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fixed maintenance actions for the Ops workflow. Only the actions below exist, and
 # none of them print application logs (they can contain guest details).
-# Usage: ops.sh status|health|sentry|restart-api|restart-web|backup-now|cleanup|disk-check
+# Usage: ops.sh status|health|sentry|restart-api|restart-web|backup-now|cleanup|disk-check|copy-empire-pokpay-staging
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -63,7 +63,7 @@ case "${1:-}" in
     fi
     ;;
   *)
-    echo "Unknown action. Use status, health, sentry, restart-api, restart-web, backup-now, cleanup or disk-check." >&2
+    echo "Unknown action. Use status, health, sentry, restart-api, restart-web, backup-now, cleanup, disk-check or copy-empire-pokpay-staging." >&2
     exit 2
     ;;
 esac
