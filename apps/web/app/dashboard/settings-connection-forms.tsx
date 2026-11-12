@@ -12,10 +12,17 @@ import {
 import { Input } from '../../components/ui/input';
 import { ColourField } from '../../components/ui/colour-field';
 import { Switch } from '../../components/ui/switch';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../components/ui/select';
 import { SaveBar } from '../../components/ui/save-bar';
 import { EmailBrandingPreview } from '../../components/ui/email-branding-preview';
 import { useUnsavedChanges } from '../../components/ui/unsaved-changes';
-import type { PaymentGateways, Property } from './settings-areas';
+import type { ClockCancelRefundPolicy, PaymentGateways, Property } from './settings-areas';
 import { settingsAreaHref } from './settings-hub';
 
 type Common = { property: Property; saving: boolean; canWrite: boolean };
@@ -201,6 +208,7 @@ export function PaymentSettings({
   saving,
   canWrite,
   connectedProviders,
+  clockConnected = false,
   operationsHref,
   tenantId,
   onPropertySave,
@@ -208,6 +216,7 @@ export function PaymentSettings({
   assigned = false,
 }: Common & {
   connectedProviders: Set<string>;
+  clockConnected?: boolean;
   operationsHref: string;
   tenantId: string;
   onPropertySave: (update: Partial<Property>, gateways: PaymentGateways) => void;
@@ -217,11 +226,19 @@ export function PaymentSettings({
   const [draft, setDraft] = useState(property.paymentGateways);
   useEffect(() => setDraft(property.paymentGateways), [property.paymentGateways]);
   const [hold, setHold] = useState(String(property.onlinePaymentHoldMinutes ?? 30)),
-    [autoRefund, setAutoRefund] = useState(property.autoRefundOnFreeCancellation ?? true);
+    [autoRefund, setAutoRefund] = useState(property.autoRefundOnFreeCancellation ?? true),
+    [clockRefund, setClockRefund] = useState<ClockCancelRefundPolicy>(
+      property.clockCancelRefundPolicy ?? 'NEVER',
+    );
   useEffect(() => {
     setHold(String(property.onlinePaymentHoldMinutes ?? 30));
     setAutoRefund(property.autoRefundOnFreeCancellation ?? true);
-  }, [property.onlinePaymentHoldMinutes, property.autoRefundOnFreeCancellation]);
+    setClockRefund(property.clockCancelRefundPolicy ?? 'NEVER');
+  }, [
+    property.onlinePaymentHoldMinutes,
+    property.autoRefundOnFreeCancellation,
+    property.clockCancelRefundPolicy,
+  ]);
   const holdError =
     !/^\d+$/.test(hold) || Number(hold) < 10 || Number(hold) > 1440
       ? 'Choose a hold between 10 and 1440 minutes.'
@@ -229,7 +246,8 @@ export function PaymentSettings({
   const dirty =
     JSON.stringify(draft) !== JSON.stringify(property.paymentGateways) ||
     hold !== String(property.onlinePaymentHoldMinutes ?? 30) ||
-    autoRefund !== (property.autoRefundOnFreeCancellation ?? true);
+    autoRefund !== (property.autoRefundOnFreeCancellation ?? true) ||
+    clockRefund !== (property.clockCancelRefundPolicy ?? 'NEVER');
   useUnsavedChanges(canWrite && dirty);
   // There is no independent online-booking enable switch in the property contract.
   const error = !(draft.payAtHotel || draft.pokpay)
@@ -305,6 +323,30 @@ export function PaymentSettings({
             onCheckedChange={setAutoRefund}
           />
         </FormField>
+        {clockConnected ? (
+          <FormField
+            label="When the hotel cancels a booking in Clock"
+            htmlFor="payment-clock-cancel-refund"
+            hint="What happens to the guest's online payment. Outside the choice made here, staff refund by hand."
+          >
+            <Select
+              value={clockRefund}
+              disabled={!canWrite}
+              onValueChange={(value) => setClockRefund(value as ClockCancelRefundPolicy)}
+            >
+              <SelectTrigger id="payment-clock-cancel-refund">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="NEVER">Do not refund (staff decide)</SelectItem>
+                <SelectItem value="FREE_WINDOW">
+                  Refund in full inside the free-cancellation window
+                </SelectItem>
+                <SelectItem value="ALWAYS">Always refund in full</SelectItem>
+              </SelectContent>
+            </Select>
+          </FormField>
+        ) : null}
         <Button variant="outline" asChild>
           <a href={operationsHref}>Open payment operations</a>
         </Button>
@@ -323,10 +365,15 @@ export function PaymentSettings({
             setDraft(property.paymentGateways);
             setHold(String(property.onlinePaymentHoldMinutes ?? 30));
             setAutoRefund(property.autoRefundOnFreeCancellation ?? true);
+            setClockRefund(property.clockCancelRefundPolicy ?? 'NEVER');
           }}
           onSave={() =>
             onPropertySave(
-              { onlinePaymentHoldMinutes: Number(hold), autoRefundOnFreeCancellation: autoRefund },
+              {
+                onlinePaymentHoldMinutes: Number(hold),
+                autoRefundOnFreeCancellation: autoRefund,
+                ...(clockConnected ? { clockCancelRefundPolicy: clockRefund } : {}),
+              },
               draft,
             )
           }

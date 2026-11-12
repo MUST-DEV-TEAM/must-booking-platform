@@ -283,6 +283,7 @@ export function DashboardSettings({
             canWrite={canWrite}
             saving={saveMutation.isPending}
             connectedProviders={connectedPaymentProviders}
+            clockConnected={clockManaged}
             tenantId={tenantId}
             onPropertySave={(update, gateways) =>
               saveMutation.mutate({ ...update, paymentGateways: gateways })

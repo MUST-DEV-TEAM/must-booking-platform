@@ -225,6 +225,7 @@ model Property {
   petsPolicyNote                    String?                         @map("pets_policy_note") @db.VarChar(300)
   onlinePaymentHoldMinutes          Int                             @default(30) @map("online_payment_hold_minutes")
   autoRefundOnFreeCancellation      Boolean                         @default(true) @map("auto_refund_on_free_cancellation")
+  clockCancelRefundPolicy           String                          @default("NEVER") @map("clock_cancel_refund_policy") @db.VarChar(20)
   brandColour                       String?                         @map("brand_colour") @db.VarChar(7)
   emailFooterText                   String?                         @map("email_footer_text") @db.VarChar(300)
   termsUrl                          String?                         @map("terms_url") @db.VarChar(2048)

@@ -485,6 +485,5 @@ describe('integration connections', () => {
       [liveAccount.id, { provider: 'POKPAY', mode: 'LIVE', switchedFrom: [testAccount.id] }],
     ]);
     expect(JSON.stringify(logs)).not.toContain('private-value');
-
   });
 });

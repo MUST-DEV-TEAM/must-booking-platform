@@ -7,6 +7,7 @@ import {
   type TenantTransaction,
 } from '../../tenancy/tenant-database.service';
 import { BookingCancellationNotificationService } from '../../mail/booking-cancellation-notification.service';
+import { HotelCancellationRefundService } from '../../payments/hotel-cancellation-refund.service';
 import {
   BookingUpdateNotificationService,
   type PreviousStay,
@@ -130,6 +131,8 @@ export class ClockBookingHydrationService {
     private readonly cancellations: BookingCancellationNotificationService,
     @Inject(BookingUpdateNotificationService)
     private readonly updates: BookingUpdateNotificationService,
+    @Inject(HotelCancellationRefundService)
+    private readonly hotelCancellationRefunds: HotelCancellationRefundService,
   ) {}
 
   async hydrateBooking(
@@ -459,8 +462,15 @@ export class ClockBookingHydrationService {
       options.notify !== false &&
       (outcome.outcome === 'created' || outcome.outcome === 'updated') &&
       outcome.cancelledInPms
-    )
+    ) {
       await this.notifyStaffOfPmsCancellation(tenantId, propertyId, outcome.bookingId);
+      // Milestone 27 Task 19: the property's setting decides whether the guest's online payment is returned.
+      // Never throws; a cancellation MUST started itself is recognised and skipped there.
+      await this.hotelCancellationRefunds.refundAfterHotelCancellation(
+        { tenantId, propertyId },
+        outcome.bookingId,
+      );
+    }
     // The hotel moved a guest's stay in Clock: tell the guest (direct bookings only,
     // when the property has this email on). Never fails hydration.
     if (options.notify !== false && outcome.outcome === 'updated' && outcome.changedFrom)
