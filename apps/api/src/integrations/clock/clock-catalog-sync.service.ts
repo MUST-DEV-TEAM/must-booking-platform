@@ -138,7 +138,7 @@ export class ClockCatalogSyncService {
           externalName: roomType.name,
         });
         if (result === 'inserted') proposed += 1;
-        else updated += 1;
+        else if (result === 'updated') updated += 1;
       }
       for (const room of rooms) {
         const result = await this.upsertMapping(tx, {
@@ -151,8 +151,11 @@ export class ClockCatalogSyncService {
           externalName: room.name,
         });
         if (result === 'inserted') proposed += 1;
-        else updated += 1;
+        else if (result === 'updated') updated += 1;
       }
+      // The background sync runs this every few minutes; an unchanged catalogue
+      // is not an event worth an append-only audit row (Milestone 38, task 3).
+      if (proposed === 0 && updated === 0) return;
       await this.audit.recordInTransaction(tx, {
         tenantId,
         propertyId,
@@ -454,13 +457,16 @@ export class ClockCatalogSyncService {
       externalParentId: string | null;
       externalName: string;
     },
-  ): Promise<'inserted' | 'updated'> {
+  ): Promise<'inserted' | 'updated' | 'unchanged'> {
+    // No row back means the conflict row already held these values: nothing written.
     const rows = await tx.$queryRawUnsafe<Array<{ inserted: boolean }>>(
       `INSERT INTO clock_catalog_mappings
          (tenant_id, property_id, connection_id, entity_type, external_entity_id, external_parent_id, external_name)
        VALUES ($1::uuid, $2::uuid, $3::uuid, $4::"ClockCatalogEntityType", $5, $6, $7)
        ON CONFLICT (tenant_id, connection_id, entity_type, external_entity_id)
        DO UPDATE SET external_name = $7, external_parent_id = $6, updated_at = CURRENT_TIMESTAMP
+       WHERE (clock_catalog_mappings.external_name, clock_catalog_mappings.external_parent_id)
+         IS DISTINCT FROM (EXCLUDED.external_name, EXCLUDED.external_parent_id)
        RETURNING (xmax = 0) AS inserted`,
       input.tenantId,
       input.propertyId,
@@ -470,6 +476,7 @@ export class ClockCatalogSyncService {
       input.externalParentId,
       input.externalName,
     );
+    if (rows.length === 0) return 'unchanged';
     return rows[0]?.inserted ? 'inserted' : 'updated';
   }
 

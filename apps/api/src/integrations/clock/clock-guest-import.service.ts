@@ -108,6 +108,7 @@ export class ClockGuestImportService {
     }
     const remaining = index.ids.filter((id) => BigInt(id) > BigInt(cursor));
     const ids = remaining.slice(0, 5);
+    let changed = 0;
     for (const id of ids) {
       let guest: Record<string, unknown>;
       try {
@@ -142,28 +143,48 @@ export class ClockGuestImportService {
         typeof guest.updated_at === 'string' && !Number.isNaN(Date.parse(guest.updated_at))
           ? new Date(guest.updated_at)
           : null;
-      await this.db.withTenantTransaction(
+      // `prev` reads the row as it was before this statement, so the result says
+      // whether the guest was new or its stored details actually changed.
+      const [row] = await this.db.withTenantTransaction(
         scope,
-        (
-          tx,
-        ) => tx.$executeRaw`INSERT INTO clock_guest_profiles(tenant_id,property_id,connection_id,external_guest_id,email,first_name,last_name,phone,provider_updated_at)
-    VALUES(${scope.tenantId}::uuid,${scope.propertyId}::uuid,${connection.connectionId}::uuid,${String(family)},${text(guest.e_mail, 320)},${text(guest.first_name, 100)},${text(guest.last_name, 100)},${text(guest.phone_number, 100)},${updated})
-    ON CONFLICT(tenant_id,property_id,connection_id,external_guest_id) DO UPDATE SET email=EXCLUDED.email,first_name=EXCLUDED.first_name,last_name=EXCLUDED.last_name,phone=EXCLUDED.phone,provider_updated_at=EXCLUDED.provider_updated_at,synced_at=now()
-    WHERE clock_guest_profiles.provider_updated_at IS NULL OR EXCLUDED.provider_updated_at>=clock_guest_profiles.provider_updated_at`,
+        (tx) => tx.$queryRaw<Array<{ changed: boolean | null }>>`
+    WITH prev AS (
+      SELECT email,first_name,last_name,phone FROM clock_guest_profiles
+      WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND connection_id=${connection.connectionId}::uuid AND external_guest_id=${String(family)}
+    ), up AS (
+      INSERT INTO clock_guest_profiles(tenant_id,property_id,connection_id,external_guest_id,email,first_name,last_name,phone,provider_updated_at)
+      VALUES(${scope.tenantId}::uuid,${scope.propertyId}::uuid,${connection.connectionId}::uuid,${String(family)},${text(guest.e_mail, 320)},${text(guest.first_name, 100)},${text(guest.last_name, 100)},${text(guest.phone_number, 100)},${updated})
+      ON CONFLICT(tenant_id,property_id,connection_id,external_guest_id) DO UPDATE SET email=EXCLUDED.email,first_name=EXCLUDED.first_name,last_name=EXCLUDED.last_name,phone=EXCLUDED.phone,provider_updated_at=EXCLUDED.provider_updated_at,synced_at=now()
+      WHERE clock_guest_profiles.provider_updated_at IS NULL OR EXCLUDED.provider_updated_at>=clock_guest_profiles.provider_updated_at
+      RETURNING email,first_name,last_name,phone
+    )
+    SELECT bool_or(NOT EXISTS (SELECT 1 FROM prev) OR (up.email,up.first_name,up.last_name,up.phone) IS DISTINCT FROM (prev.email,prev.first_name,prev.last_name,prev.phone)) AS changed
+    FROM up LEFT JOIN prev ON true`,
       );
+      if (row?.changed) changed += 1;
     }
-    await this.audit.record({
-      ...scope,
-      actorUserId: scope.userId,
-      action: 'clock.guest_import_batch',
-      targetType: 'property',
-      targetId: scope.propertyId,
-      details: { updatedFrom: from, updatedUntil: until, processed: ids.length },
-    });
+    // One row per batch that created or changed a guest, plus one summary row
+    // when the run finishes. Unchanged batches write nothing (Milestone 38, task 3).
+    const completed = remaining.length <= 5;
+    if (changed > 0 || completed)
+      await this.audit.record({
+        ...scope,
+        actorUserId: scope.userId,
+        action: 'clock.guest_import_batch',
+        targetType: 'property',
+        targetId: scope.propertyId,
+        details: {
+          updatedFrom: from,
+          updatedUntil: until,
+          processed: ids.length,
+          changed,
+          ...(completed ? { completed: true, total: index.ids.length } : {}),
+        },
+      });
     return {
       processed: ids.length,
       total: index.ids.length,
-      completed: remaining.length <= 5,
+      completed,
       cursor: ids.at(-1) ?? cursor,
     };
   }
