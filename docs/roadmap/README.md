@@ -61,6 +61,7 @@ The **one-time documentation initialization** was explicitly authorized outside 
 | [35 - Spa, pool and other services](milestones/35-spa-pool-services.md) | Future plan recorded 2026-11-09; no tasks |
 | [36 - Several payment methods per hotel (PokPay finished first, then Stripe, then Paysera)](milestones/36-multiple-payment-methods.md) | **In progress since 2026-11-12** (owner's new order). Step 1 (free PokPay test/live switching with each payment kept on its own account) is prepared on `release/pokpay-free-switch`; step 2 (test payment labels) is preserved on `feat/pokpay-test-labels` pending validation; then Stripe; Paysera waits for Paysera Albania's documents |
 | [37 - Stripe payments](milestones/37-stripe-payments.md) | Future plan recorded 2026-11-09; no tasks |
+| [38 - Database hardening](milestones/38-database-hardening.md) | Planned 2026-11-13; tasks 1 (repository part), 2, 3, 4 and 5 live 2026-11-13; task 2 live; 6 and 7 wait for a week of query statistics |
 
 ## How work proceeds
 
