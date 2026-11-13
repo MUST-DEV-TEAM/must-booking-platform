@@ -97,13 +97,20 @@ describe('audit rows only for real changes', () => {
     );
   });
 
-  it('keeps one summary row when the run finishes, even if nothing changed', async () => {
+  it('writes nothing for a one-batch run that changed nothing (background sync)', async () => {
     const f = guestFixture([false, false], ['1', '2']);
-    await f.service.batch(scope, { ...range, cursor: '0' });
+    const result = await f.service.batch(scope, { ...range, cursor: '0' });
+    expect(result.completed).toBe(true);
+    expect(f.audit.record).not.toHaveBeenCalled();
+  });
+
+  it('keeps one summary row when a run of several batches finishes, even if nothing changed', async () => {
+    const f = guestFixture([false, false], ['1', '2', '3', '4', '5', '6', '7']);
+    await f.service.batch(scope, { ...range, cursor: '5' });
     expect(f.audit.record).toHaveBeenCalledTimes(1);
     expect(f.audit.record).toHaveBeenCalledWith(
       expect.objectContaining({
-        details: expect.objectContaining({ completed: true, total: 2, changed: 0 }),
+        details: expect.objectContaining({ completed: true, total: 7, changed: 0 }),
       }),
     );
   });
