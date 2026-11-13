@@ -24,6 +24,26 @@ Workers run in the API process; startup of a full AppModule can connect to Redis
 
 Pino supplies request IDs and structured request/response logging. `observability/error-tracking.ts` and the exception filter report to Sentry when configured; Clock failures/manual review/circuit breaking have reporting hooks. A reporting call in code is not proof alerts are delivered to an operator. The [Uptime workflow](../../.github/workflows/uptime.yml) checks `https://booking.must.al/api/health` every 5 minutes from GitHub; after three failed tries it opens one `uptime-alert` issue assigned to the owner (GitHub emails them) and closes it when the site answers again. The [Live booking check](../../.github/workflows/live-booking-check.yml) runs after every successful Deploy and daily at 06:17 UTC: it books a real pay-at-hotel stay for the Must Hotel test property on `booking.must.al` (never Empire Beach Resort; the script refuses other ids), waits for the Clock demo reservation (account 16307), and opens a PokPay staging checkout. Test bookings are kept. On failure it opens one `live-booking-alert` issue assigned to the owner (alert only, no rollback) and closes it when a later run passes. No full metrics/histogram/export system was found. Inspect log payloads and configuration before treating logs as safe to publish.
 
+### Slow queries
+
+Postgres keeps per-statement statistics (`pg_stat_statements`) and logs every statement slower than 500 ms and every lock wait longer than one second (`docker compose logs postgres`). Read the statistics on the server as the owner role, read-only:
+
+```sh
+docker exec -it must-booking-postgres-1 psql -U must_booking -d must_booking
+```
+
+```sql
+-- Where the database spends its time
+SELECT round(total_exec_time) AS total_ms, calls, round(mean_exec_time, 1) AS mean_ms, left(query, 120)
+FROM pg_stat_statements ORDER BY total_exec_time DESC LIMIT 15;
+
+-- The slowest statements per call
+SELECT round(mean_exec_time, 1) AS mean_ms, round(max_exec_time) AS max_ms, calls, left(query, 120)
+FROM pg_stat_statements WHERE calls > 5 ORDER BY mean_exec_time DESC LIMIT 15;
+```
+
+Statement text has its values replaced by `$1`, `$2`, so it holds no guest data; the slow-query log line does include values, so keep those logs on the server. `SELECT pg_stat_statements_reset();` starts a fresh measurement.
+
 Clock recovery, webhook setup and limitations belong in the [Clock runbook](../integrations/clock/runbook.md). Reconciliation finds discrepancies; it does not automatically repair financial records.
 
 ## Verification map
