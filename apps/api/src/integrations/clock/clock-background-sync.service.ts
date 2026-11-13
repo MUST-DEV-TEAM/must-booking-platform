@@ -286,10 +286,22 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
                 this.logger.warn(
                   `Clock sync job ${job.resource} failed (${category}, ${retry ? 'will retry' : 'stopped'}): ${errorText(error)}`,
                 );
+                const lastError =
+                  error instanceof ClockFinancialDataError
+                    ? error.message
+                    : retry
+                      ? 'Clock is temporarily unavailable. Synchronization will retry automatically.'
+                      : 'Synchronization needs connection or room-mapping review (' +
+                        category +
+                        ').';
+                // A currency mismatch is a data problem retrying cannot fix. The first failure retries after a
+                // minute; the same failure again waits 6 hours instead of logging every minute forever. Any
+                // booking change or a staff "run check" clears last_error and re-queues the bill at once.
+                const repeatedCurrencyError = error instanceof ClockFinancialCurrencyError;
                 await this.db.withTenantTransaction(
                   scope,
                   (tx) =>
-                    tx.$executeRaw`UPDATE clock_sync_jobs SET status=${retry ? 'RETRY' : 'FAILED'},last_error=${error instanceof ClockFinancialDataError ? error.message : retry ? 'Clock is temporarily unavailable. Synchronization will retry automatically.' : 'Synchronization needs connection or room-mapping review (' + category + ').'},next_run_at=now()+interval '1 minute',lease_token=NULL,lease_until=NULL,updated_at=now() WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${job.id}::uuid AND lease_token=${job.leaseToken}::uuid`,
+                    tx.$executeRaw`UPDATE clock_sync_jobs SET status=${retry ? 'RETRY' : 'FAILED'},next_run_at=now()+CASE WHEN ${repeatedCurrencyError} AND last_error=${lastError} THEN interval '6 hours' ELSE interval '1 minute' END,last_error=${lastError},lease_token=NULL,lease_until=NULL,updated_at=now() WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${job.id}::uuid AND lease_token=${job.leaseToken}::uuid`,
                 );
               }
             }),
