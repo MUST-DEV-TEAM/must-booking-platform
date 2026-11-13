@@ -164,9 +164,11 @@ export class ClockGuestImportService {
       if (row?.changed) changed += 1;
     }
     // One row per batch that created or changed a guest, plus one summary row
-    // when the run finishes. Unchanged batches write nothing (Milestone 38, task 3).
+    // when a run of several batches finishes. Unchanged batches write nothing,
+    // including the background sync's frequent one-batch runs (Milestone 38, task 3).
     const completed = remaining.length <= 5;
-    if (changed > 0 || completed)
+    const multiBatchRunEnded = completed && cursor !== '0';
+    if (changed > 0 || multiBatchRunEnded)
       await this.audit.record({
         ...scope,
         actorUserId: scope.userId,
