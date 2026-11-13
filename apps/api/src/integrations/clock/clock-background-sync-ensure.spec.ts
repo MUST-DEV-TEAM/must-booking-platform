@@ -14,7 +14,7 @@ function setup() {
     ensure: ReturnType<typeof vi.fn>;
     claim: ReturnType<typeof vi.fn>;
   };
-  const ensure = vi.fn(async () => undefined);
+  const ensure = vi.fn<(scope: unknown) => Promise<void>>(async () => undefined);
   const claim = vi.fn(async () => null);
   Object.assign(service, {
     busy: false,
