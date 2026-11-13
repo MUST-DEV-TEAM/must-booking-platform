@@ -1986,6 +1986,7 @@ model ClockSyncJob {
   requestedAt   DateTime?             @map("requested_at") @db.Timestamptz(6)
 
   @@unique([tenantId, propertyId, connectionId, resource], map: "clock_sync_jobs_scope")
+  @@index([tenantId, propertyId, connectionId, nextRunAt], map: "clock_sync_jobs_claim_idx")
   @@map("clock_sync_jobs")
 }
 
