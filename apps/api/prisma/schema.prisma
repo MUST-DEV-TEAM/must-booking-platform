@@ -295,7 +295,6 @@ model Property {
 
   @@unique([tenantId, id])
   @@unique([tenantId, slug])
-  @@index([tenantId])
   @@map("properties")
 }
 
@@ -338,7 +337,6 @@ model Capability {
 
   @@unique([tenantId, id])
   @@unique([tenantId, key])
-  @@index([tenantId])
   @@map("capabilities")
 }
 
@@ -358,7 +356,6 @@ model PropertyRoleTemplate {
 
   @@unique([tenantId, propertyId, id])
   @@unique([tenantId, propertyId, name])
-  @@index([tenantId, propertyId])
   @@map("property_role_templates")
 }
 
@@ -373,7 +370,6 @@ model PropertyRoleTemplateCapability {
   capability     Capability           @relation(fields: [tenantId, capabilityId], references: [tenantId, id], onDelete: Restrict, map: "property_role_template_capabilities_capability_fkey")
 
   @@unique([tenantId, propertyId, roleTemplateId, capabilityId], map: "property_role_template_capabilities_tenant_id_property_id_role_")
-  @@index([tenantId, propertyId])
   @@map("property_role_template_capabilities")
 }
 
@@ -407,7 +403,6 @@ model PropertyStaffCapabilityOverride {
   updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@unique([tenantId, propertyId, userId, capabilityId])
-  @@index([tenantId, propertyId, userId])
   @@map("property_staff_capability_overrides")
 }
 
@@ -541,7 +536,6 @@ model RoomType {
 
   @@unique([tenantId, propertyId, id])
   @@unique([tenantId, propertyId, name])
-  @@index([tenantId, propertyId])
   @@map("room_types")
 }
 
@@ -720,7 +714,6 @@ model RoomAvailability {
   room        Room     @relation(fields: [tenantId, propertyId, roomId], references: [tenantId, propertyId, id], onDelete: Restrict)
 
   @@id([tenantId, propertyId, roomId, staysOn])
-  @@index([tenantId, propertyId, roomId, staysOn])
   @@map("room_availability")
 }
 
@@ -787,7 +780,6 @@ model InventoryUnit {
   roomType       RoomType @relation(fields: [tenantId, propertyId, roomTypeId], references: [tenantId, propertyId, id], onDelete: Restrict)
 
   @@id([tenantId, propertyId, roomTypeId, staysOn])
-  @@index([tenantId, propertyId, roomTypeId, staysOn])
   @@map("inventory_units")
 }
 
@@ -832,7 +824,6 @@ model RatePlan {
 
   @@unique([tenantId, propertyId, id])
   @@unique([tenantId, propertyId, name])
-  @@index([tenantId, propertyId])
   @@index([tenantId, propertyId, cancellationPolicyId])
   @@map("rate_plans")
 }
@@ -850,7 +841,6 @@ model CancellationPolicy {
 
   @@unique([tenantId, propertyId, id])
   @@unique([tenantId, propertyId, name])
-  @@index([tenantId, propertyId])
   @@map("cancellation_policies")
 }
 
@@ -1092,7 +1082,6 @@ model ClockGuestMapping {
 
   @@unique([tenantId, propertyId, guestId])
   @@unique([tenantId, propertyId, externalGuestId])
-  @@index([tenantId, propertyId])
   @@map("clock_guest_mappings")
 }
 
@@ -1182,7 +1171,6 @@ model PropertyIntegrationConnection {
   updatedAt    DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@unique([tenantId, propertyId, connectionId])
-  @@index([tenantId, propertyId])
   @@index([tenantId, connectionId])
   @@map("property_integration_connections")
 }
@@ -1254,7 +1242,6 @@ model ClockWebsiteHiddenRate {
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@unique([tenantId, propertyId, externalRateId])
-  @@index([tenantId, propertyId])
   @@map("clock_website_hidden_rates")
 }
 
@@ -1379,7 +1366,6 @@ model Amenity {
 
   @@unique([tenantId, propertyId, id])
   @@unique([tenantId, propertyId, name])
-  @@index([tenantId, propertyId])
   @@map("amenities")
 }
 
@@ -2143,7 +2129,6 @@ model Venue {
   @@unique([tenantId, id])
   @@unique([tenantId, slug])
   @@unique([tenantId, propertyId, id], map: "venues_tenant_property_id_key")
-  @@index([tenantId])
   @@map("venues")
 }
 
@@ -2162,7 +2147,6 @@ model VenueService {
 
   @@unique([tenantId, venueId, id], map: "venue_services_tenant_venue_id_key")
   @@unique([tenantId, venueId, name], map: "venue_services_tenant_venue_name_key")
-  @@index([tenantId, venueId], map: "venue_services_tenant_venue_idx")
   @@map("venue_services")
 }
 
@@ -2247,7 +2231,6 @@ model VenueArea {
 
   @@unique([tenantId, venueId, id], map: "venue_areas_tenant_venue_id_key")
   @@unique([tenantId, venueId, name], map: "venue_areas_tenant_venue_name_key")
-  @@index([tenantId, venueId], map: "venue_areas_tenant_venue_idx")
   @@map("venue_areas")
 }
 
