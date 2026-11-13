@@ -873,7 +873,12 @@ describe('collecting a confirmed booking balance', () => {
         .expect(200);
       expect(result.body.amount).toEqual({ amount: '30.00', currency: 'EUR' });
       const stored = { ...snapshot, fetchedAt: new Date().toISOString() };
-      await admin.$executeRaw`INSERT INTO clock_sync_jobs(tenant_id,property_id,connection_id,resource,snapshot,status,last_success_at) VALUES(${tenantId}::uuid,${propertyId}::uuid,${connection}::uuid,${'financial:' + id},${JSON.stringify(stored)}::jsonb,'SYNCED',now())`;
+      // Confirming a Clock booking queues its bill check at once (bookings trigger, Milestone 38 task 2).
+      const queued = await admin.$queryRaw<
+        Array<{ status: string }>
+      >`SELECT status FROM clock_sync_jobs WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND connection_id=${connection}::uuid AND resource=${'financial:' + id}`;
+      expect(queued).toHaveLength(1);
+      await admin.$executeRaw`INSERT INTO clock_sync_jobs(tenant_id,property_id,connection_id,resource,snapshot,status,last_success_at) VALUES(${tenantId}::uuid,${propertyId}::uuid,${connection}::uuid,${'financial:' + id},${JSON.stringify(stored)}::jsonb,'SYNCED',now()) ON CONFLICT (tenant_id,property_id,connection_id,resource) DO UPDATE SET snapshot=EXCLUDED.snapshot,status=EXCLUDED.status,last_success_at=EXCLUDED.last_success_at`;
       const options = await request(app.getHttpServer())
         .get(`${base()}/${id}/collection-options`)
         .set('Cookie', cookie)
