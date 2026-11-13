@@ -46,6 +46,7 @@ Index of durable, cross-cutting, or hard-to-reverse decisions. Routine implement
 | [ADR-0038](ADR-0038-hotel-display-exchange-rates.md) | Hotel display rates override the feed | Accepted owner direction 2026-10-28; display only, new payment annotations snapshot the applicable rate |
 | [ADR-0039](ADR-0039-restaurant-venues.md) | Restaurant venues are their own model | Accepted owner direction 2026-11-03; optional hotel link, equivalent (not generalised) staff tables, plan flag off by default |
 | [ADR-0041](ADR-0041-payment-accounts-test-and-live.md) | Payment accounts: test and live, free switching, each payment keeps its account | Accepted owner direction 2026-11-12; PokPay switching, per-session accounts and test labels built |
+| [ADR-0042](ADR-0042-data-retention-periods.md) | Data retention periods | Periods accepted by the owner 2026-11-13; first release counts only |
 
 ## Interpretation and unresolved implementation details
 
