@@ -1,6 +1,6 @@
 # Milestone 38: Database hardening
 
-Status: **In progress.** Live 2026-11-13: task 1 repository part (#472; host install and destination are Denis's, issue #370), task 3 (#470, #474), task 4 (#471), task 5 (#473). Task 2: precondition #475 and the task #476 in review. Tasks 6 and 7 wait for seven days of query statistics (from 2026-11-13). Tasks 8 and 9 not started.
+Status: **In progress.** Live 2026-11-13: task 1 repository part (#472; host install and destination are Denis's, issue #370), task 3 (#470, #474), task 4 (#471), task 5 (#473). Task 2 (#475 precondition, #476). Tasks 6 and 7 wait for seven days of query statistics (from 2026-11-13). Tasks 8 and 9 not started.
 
 Source: [database review, 2026-11-13](../../audit/database-review-2026-11-13.md). Each task below names the review item it closes. The task table is the spec; the review holds the evidence.
 
@@ -65,6 +65,8 @@ Tasks 1 to 4 are independent and can go in any order. Tasks 6 and 7 wait a week 
 - **Rollback:** set `BACKUP_REMOTE` back; the old dumps stay where they are for 30 days.
 
 ### Task 2. Clock sync loop: stop the once-a-second job seeding
+
+Done 2026-11-13 (#475, #476). Item 2 is a trigger on `bookings` (`bookings_clock_seed_financial_job`) rather than code in each of the eight paths that confirm or import a Clock booking; it skips the insert when the session has no hotel set, and the once-a-minute seed covers that case. Item 4 shipped with task 3 (#470). First live reading (5 minutes, settled): scans on `clock_sync_jobs` about 1,540 a minute from about 22,700 (target under 1,000: not met; the bills lane re-ticks at once while it has due work); a new test booking's bill was queued at once and read after 40 seconds; WAL about 370 MB a day, not yet halved: compare over 24 hours. The once-a-minute bill seed over `bookings` (about 46 ms a call) is now the top statement: look at it in task 7.
 
 - **Where:** `apps/api/src/integrations/clock/clock-background-sync.service.ts`, `tick()` and `ensure()`.
 - **Change:**
