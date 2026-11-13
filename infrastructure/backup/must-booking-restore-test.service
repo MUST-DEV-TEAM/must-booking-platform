@@ -1,0 +1,10 @@
+[Unit]
+Description=MUST Booking weekly restore test of the newest off-site backup
+Wants=network-online.target
+After=network-online.target docker.service
+OnFailure=must-booking-alert@%n.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/must-booking/backup.env
+ExecStart=/opt/must-booking/infrastructure/backup/restore-test.sh

@@ -1,8 +1,10 @@
-# Nightly database backup to Google Drive
+# Nightly database backup and weekly restore test
 
-`backup-postgres.sh` dumps the MUST Booking PostgreSQL database every night and uploads it to Google Drive through [rclone](https://rclone.org). It also keeps a local copy and checks the dump is readable and the upload is complete. Drive copies older than 30 days and local copies older than 7 days are deleted.
+`backup-postgres.sh` dumps the MUST Booking PostgreSQL database every night and uploads it to an [rclone](https://rclone.org) remote. It also keeps a local copy and checks the dump is readable and the upload is complete. Remote copies older than 30 days and local copies older than 7 days are deleted. `restore-test.sh` restores the newest remote copy into a throwaway database every week and fails (with an alert email) if it cannot.
 
-The dump contains guest names, emails and phone numbers, so it is encrypted before it leaves the server (rclone `crypt`). Google sees only scrambled file names and contents.
+The script works with any rclone remote. Today that is Google Drive, a stopgap with little free space. The professional destination is an S3-compatible bucket on a different provider than the server, with versioning and a retention lock (section 3b, GitHub issue #370). Switching is one line, `BACKUP_REMOTE` in `/etc/must-booking/backup.env` (see `backup.env.example`).
+
+The dump contains guest names, emails and phone numbers, so it is encrypted before it leaves the server (rclone `crypt`). The storage provider sees only scrambled file names and contents.
 
 Run these steps on the production server as root. Nothing here changes the database. `pg_dump` only reads.
 
@@ -46,7 +48,44 @@ Check it works:
 echo test | rclone rcat must-backup-crypt:check.txt && rclone cat must-backup-crypt:check.txt && rclone delete must-backup-crypt:check.txt
 ```
 
+## 3b. Professional destination: S3-compatible bucket (issue #370)
+
+Use a bucket on a different provider than the server (for example Backblaze B2, Wasabi, Hetzner or Scaleway object storage), used only for these backups. In the provider's console:
+
+- Create the bucket with **versioning on** and **object lock** (retention lock) in compliance or governance mode, default retention **at least 30 days**. A copy then cannot be changed or deleted before it is 30 days old, even with the server's key. Add a lifecycle rule that removes old versions after 60 days.
+- Create an access key limited to that bucket that can **write and list objects but not delete object versions** (no `DeleteObjectVersion`, no bucket-policy or lock changes). A stolen server key can then add files, but not destroy the history.
+- Turn on the hosting provider's server snapshots as a second, independent layer.
+
+On the server, `rclone config`:
+
+- `n`, name: `must-backup-s3`. Storage: `s3`. Provider: the one you chose. `env_auth`: `false`. Paste the access key and secret. Region and endpoint as the provider shows them.
+- `n`, name: `must-backup-s3-crypt`. Storage: `crypt`. remote: `must-backup-s3:<bucket name>/must-booking`. filename_encryption `standard`, directory_name_encryption `true`. Use the **same two passwords** as `must-backup-crypt`, so one set of passwords opens every copy.
+
+Example result in `/root/.config/rclone/rclone.conf` (values elided; rclone writes them):
+
+```ini
+[must-backup-s3]
+type = s3
+provider = <provider>
+access_key_id = ...
+secret_access_key = ...
+endpoint = <provider endpoint>
+no_check_bucket = true
+
+[must-backup-s3-crypt]
+type = crypt
+remote = must-backup-s3:<bucket name>/must-booking
+filename_encryption = standard
+directory_name_encryption = true
+password = ...
+password2 = ...
+```
+
+`no_check_bucket = true` lets a key without bucket-creation rights upload. Check it with the same `rcat`/`cat` line as above, using `must-backup-s3-crypt:` (the test file stays until the lock expires; that is expected). Then switch `BACKUP_REMOTE=must-backup-s3-crypt:postgres` in `/etc/must-booking/backup.env`. On a locked bucket, the script's 30-day prune only hides old copies; the lifecycle rule removes them.
+
 ## 4. Configure the backup
+
+`backup.env.example` lists every setting. By hand:
 
 ```sh
 docker ps --format '{{.Names}}' | grep postgres   # note the Postgres container name
@@ -88,9 +127,25 @@ systemctl list-timers must-booking-backup.timer      # next run is ~03:15 server
 journalctl -u must-booking-backup.service -n 20      # result of the last run
 ```
 
+## 7. Weekly restore test
+
+`restore-test.sh` takes the newest dump from `BACKUP_REMOTE`, restores it into `must_booking_restore_test` inside the Postgres container, compares the row counts of `bookings`, `payments`, `guests` and `_prisma_migrations` with the live database (allowed difference: 50 rows plus 20 per hour since the dump), and drops the throwaway database. It also fails if the newest dump is older than 36 hours. It only reads the live database. The weekly unit has `OnFailure=must-booking-alert@%n.service` built in, so a failure emails the platform admin (see [../ops](../ops/README.md)).
+
+One-time host steps:
+
+```sh
+cp /opt/must-booking/infrastructure/backup/must-booking-restore-test.{service,timer} /etc/systemd/system/
+systemctl daemon-reload
+systemctl start must-booking-restore-test.service       # run once by hand
+journalctl -u must-booking-restore-test.service -n 20   # expect "Restore test passed: ..."
+systemctl enable --now must-booking-restore-test.timer  # Sundays ~05:00 server time
+```
+
+The restore needs free disk about the size of the live database for a few minutes. To check the script itself against a bad file, point `RESTORE_TEST_FILE` at a local dump (for example a truncated copy): it must exit non-zero.
+
 ## Restore
 
-A backup only counts once a restore has worked. Test one into a scratch database after setup, then monthly.
+A backup only counts once a restore has worked. The weekly test above does this automatically; the steps below are the manual version.
 
 The decrypted dump holds guest data, so keep it readable only by root and delete it even if a step fails:
 

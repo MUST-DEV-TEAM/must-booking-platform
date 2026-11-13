@@ -75,6 +75,9 @@ if [[ "$remote_size" != "$size" ]]; then
 fi
 
 find "$BACKUP_LOCAL_DIR" -maxdepth 1 -name 'must-booking-*.dump' -mtime "+${LOCAL_KEEP_DAYS}" -delete
-rclone delete --min-age "${REMOTE_KEEP_DAYS}d" --include 'must-booking-*.dump' "$BACKUP_REMOTE"
+# --drive-use-trash=false: on Google Drive, pruned copies would otherwise sit in the trash and keep
+# using the space. Other remotes ignore the flag. On a bucket with versioning and a retention lock,
+# the delete only hides the file; the bucket's own lifecycle rule removes it after the lock.
+rclone delete --drive-use-trash=false --min-age "${REMOTE_KEEP_DAYS}d" --include 'must-booking-*.dump' "$BACKUP_REMOTE"
 
 echo "Backup ${name} (${size} bytes) uploaded to ${BACKUP_REMOTE}."
