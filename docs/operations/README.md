@@ -44,6 +44,10 @@ FROM pg_stat_statements WHERE calls > 5 ORDER BY mean_exec_time DESC LIMIT 15;
 
 Statement text has its values replaced by `$1`, `$2`, so it holds no guest data; the slow-query log line does include values, so keep those logs on the server. `SELECT pg_stat_statements_reset();` starts a fresh measurement.
 
+### Data retention
+
+A nightly job (02:41 UTC, `DataRetentionService`) applies the periods in [ADR-0042](../decisions/ADR-0042-data-retention-periods.md). Its first release only counts: one log line per hotel, `Data retention dry run (no data changed): {...}`, with the number of rows each rule would act on. Read them with `docker compose logs api | grep 'Data retention dry run'`. Nothing is deleted until a later release, after the owner has reviewed the counts.
+
 Clock recovery, webhook setup and limitations belong in the [Clock runbook](../integrations/clock/runbook.md). Reconciliation finds discrepancies; it does not automatically repair financial records.
 
 ## Verification map

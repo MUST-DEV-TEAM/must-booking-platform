@@ -1,6 +1,6 @@
 # Milestone 38: Database hardening
 
-Status: **In progress.** Live 2026-11-13: task 1 repository part (#472; host install and destination are Denis's, issue #370), task 3 (#470, #474), task 4 (#471), task 5 (#473). Task 2 (#475 precondition, #476). Tasks 6 and 7 wait for seven days of query statistics (from 2026-11-13). Tasks 8 and 9 not started.
+Status: **In progress.** Live 2026-11-13: task 1 repository part (#472; host install and destination are Denis's, issue #370), task 3 (#470, #474), task 4 (#471), task 5 (#473). Task 2 (#475 precondition, #476). Tasks 6 and 7 wait for seven days of query statistics (from 2026-11-13). Task 8: first release (counts only) in review. Task 9 not started.
 
 Source: [database review, 2026-11-13](../../audit/database-review-2026-11-13.md). Each task below names the review item it closes. The task table is the spec; the review holds the evidence.
 
@@ -127,6 +127,8 @@ Done 2026-11-13 (#473). The extension's views are revoked from `PUBLIC` and from
 - **Verify:** a day after deploy, `seq_scan` on each table has stopped growing at the earlier rate.
 
 ### Task 8. Retention job
+
+First release 2026-11-13: `DataRetentionService` counts only, nightly, per hotel; periods in [ADR-0042](../../decisions/ADR-0042-data-retention-periods.md). On 2026-11-13 nothing on live qualified yet (oldest receipt 2026-10-26; every webhook event under 90 days), so the first non-zero counts appear in late November (receipts) and January (payloads). Seven receipt tables, not every `*_operations` table: `audit_export_operations` and `notification_operations` already expire sooner, and `venue_deposit_*` is money evidence. The Clock deletion check: an import never removes a profile (open follow-up 5c).
 
 - **Change:** one scheduled job, built like the existing `notification-retention.service.ts`, with one rule per table, deleting in batches of 1,000 inside the tenant scope:
   - `provider_events`: after 90 days, for rows in `HYDRATED` or `IGNORED`, replace `raw_payload` with `'{}'`. **Keep the row**: its `(connection_id, event_id)` pair is what stops a re-delivered event from being processed twice.
