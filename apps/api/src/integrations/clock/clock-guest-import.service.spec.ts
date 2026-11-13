@@ -8,7 +8,7 @@ const credentials = {
   apiKey: 'test',
 };
 function setup() {
-  const tx = { $executeRaw: vi.fn().mockResolvedValue(1) };
+  const tx = { $queryRaw: vi.fn().mockResolvedValue([{ changed: true }]) };
   const db = { withTenantTransaction: vi.fn(async (_s, fn) => fn(tx)) };
   const connections = {
     activePmsConnectionCredentials: vi
@@ -45,7 +45,7 @@ describe('Clock guest profile import', () => {
     const { service, tx, reader } = setup();
     const first = await service.batch(scope, range);
     expect(first).toMatchObject({ processed: 5, total: 6, cursor: '5', completed: false });
-    expect(tx.$executeRaw.mock.calls[0].slice(1)).toContain(null);
+    expect(tx.$queryRaw.mock.calls[0].slice(1)).toContain(null);
     const second = await service.batch(scope, { ...range, cursor: first.cursor });
     expect(second.completed).toBe(true);
     expect(reader.guestIds).toHaveBeenCalledTimes(1);
