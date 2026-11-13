@@ -1,4 +1,6 @@
 import { withClockBackgroundWork } from './clock-request-context';
+import { financialRetryDelaySeconds, shouldAlertFinancialBlocked } from './clock-sync-backoff';
+import { ManualReviewService } from '../manual-review.service';
 import {
   BOOKINGS_IMPORT_VERSION,
   buildSyncSummary,
@@ -26,7 +28,10 @@ import {
   ForbiddenException,
   Logger,
 } from '@nestjs/common';
-import { TenantDatabaseService } from '../../tenancy/tenant-database.service';
+import {
+  TenantDatabaseService,
+  type TenantTransaction,
+} from '../../tenancy/tenant-database.service';
 import { CapabilitiesService } from '../../tenancy/capabilities.service';
 import { TenantScoped } from '../../tenancy/tenant-context.decorator';
 import { RequiresCapability } from '../../tenancy/capabilities.decorator';
@@ -58,6 +63,7 @@ type Job = {
   } | null;
   processed: number;
   leaseToken: string;
+  consecutiveFailures?: number;
 };
 const monthOf = (date: Date) => date.toISOString().slice(0, 7);
 const enabled = () => process.env.CLOCK_BACKGROUND_SYNC_ENABLED === 'true';
@@ -102,6 +108,7 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
     @Inject(ClockGuestImportService) private readonly guests: ClockGuestImportService,
     @Inject(ClockRateRankingService) private readonly rankings: ClockRateRankingService,
     @Inject(ClockFinancialService) private readonly financial: ClockFinancialService,
+    @Inject(ManualReviewService) private readonly manualReview: ManualReviewService,
   ) {}
   onModuleInit() {
     if (!enabled()) return;
@@ -242,7 +249,7 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
     await this.db.withTenantTransaction(
       scope,
       (tx) =>
-        tx.$executeRaw`UPDATE clock_sync_jobs SET requested_at=now(),next_run_at=now(),status=CASE WHEN lease_until>now() THEN status ELSE 'READY' END,last_error=NULL WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND connection_id=${scope.connectionId}::uuid`,
+        tx.$executeRaw`UPDATE clock_sync_jobs SET requested_at=now(),next_run_at=now(),status=CASE WHEN lease_until>now() THEN status ELSE 'READY' END,last_error=NULL,consecutive_failures=0 WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND connection_id=${scope.connectionId}::uuid`,
     );
     return { queued: true };
   }
@@ -270,27 +277,7 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
               try {
                 await withClockBackgroundWork(() => this.run(scope, job));
               } catch (error) {
-                const retry =
-                  error instanceof ClockFinancialCurrencyError
-                    ? true
-                    : error instanceof ClockBookingReadError
-                      ? error.classified.retryable
-                      : error instanceof Error &&
-                        /Clock read did not finish|Clock did not finish reading this guest batch|Booking changed during the financial check|Clock bills changed during the financial check/.test(
-                          error.message,
-                        );
-                const category =
-                  error instanceof ClockBookingReadError
-                    ? error.classified.category
-                    : 'configuration';
-                this.logger.warn(
-                  `Clock sync job ${job.resource} failed (${category}, ${retry ? 'will retry' : 'stopped'}): ${errorText(error)}`,
-                );
-                await this.db.withTenantTransaction(
-                  scope,
-                  (tx) =>
-                    tx.$executeRaw`UPDATE clock_sync_jobs SET status=${retry ? 'RETRY' : 'FAILED'},last_error=${error instanceof ClockFinancialDataError ? error.message : retry ? 'Clock is temporarily unavailable. Synchronization will retry automatically.' : 'Synchronization needs connection or room-mapping review (' + category + ').'},next_run_at=now()+interval '1 minute',lease_token=NULL,lease_until=NULL,updated_at=now() WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${job.id}::uuid AND lease_token=${job.leaseToken}::uuid`,
-                );
+                await this.recordFailure(scope, job, error);
               }
             }),
           );
@@ -306,13 +293,88 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
     // Work was done: look for the next step now instead of waiting for the next one-second beat.
     if (worked && this.timer) setImmediate(() => void this.tick());
   }
+  /**
+   * Records a failed job run. A bill whose currencies disagree is a data problem retrying cannot fix, so it
+   * backs off (1 min, 5 min, 30 min, then every 6 hours) instead of logging every minute forever, and raises
+   * one review note for the booking after three failures in a row. Every other failure keeps the 1 minute retry.
+   * A successful check, a staff "run check" or a Clock change event brings the bill back sooner.
+   */
+  private async recordFailure(scope: Scope, job: Job, error: unknown): Promise<void> {
+    const dataProblem = error instanceof ClockFinancialCurrencyError;
+    const retry = dataProblem
+      ? true
+      : error instanceof ClockBookingReadError
+        ? error.classified.retryable
+        : error instanceof Error &&
+          /Clock read did not finish|Clock did not finish reading this guest batch|Booking changed during the financial check|Clock bills changed during the financial check/.test(
+            error.message,
+          );
+    const category =
+      error instanceof ClockBookingReadError ? error.classified.category : 'configuration';
+    this.logger.warn(
+      `Clock sync job ${job.resource} failed (${category}, ${retry ? 'will retry' : 'stopped'}): ${errorText(error)}`,
+    );
+    const lastError =
+      error instanceof ClockFinancialDataError
+        ? error.message
+        : retry
+          ? 'Clock is temporarily unavailable. Synchronization will retry automatically.'
+          : 'Synchronization needs connection or room-mapping review (' + category + ').';
+    const failuresBefore = job.consecutiveFailures ?? 0;
+    const failures = dataProblem ? failuresBefore + 1 : 0;
+    const delaySeconds = dataProblem ? financialRetryDelaySeconds(failuresBefore) : 60;
+    await this.db.withTenantTransaction(scope, async (tx) => {
+      const updated =
+        await tx.$executeRaw`UPDATE clock_sync_jobs SET status=${retry ? 'RETRY' : 'FAILED'},consecutive_failures=${failures},next_run_at=now()+make_interval(secs=>${delaySeconds}),last_error=${lastError},lease_token=NULL,lease_until=NULL,updated_at=now() WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${job.id}::uuid AND lease_token=${job.leaseToken}::uuid`;
+      if (
+        updated === 1 &&
+        dataProblem &&
+        job.resource.startsWith('financial:') &&
+        shouldAlertFinancialBlocked(failures)
+      )
+        await this.raiseBlockedBillNote(tx, scope, job.resource.slice(10), lastError);
+    });
+  }
+
+  /** One OPEN note per booking: a person should look at a bill the system cannot check automatically. */
+  private async raiseBlockedBillNote(
+    tx: TenantTransaction,
+    scope: Scope,
+    bookingId: string,
+    detail: string,
+  ): Promise<void> {
+    const open = await tx.$queryRaw<
+      Array<{ id: string }>
+    >`SELECT id FROM manual_review_items WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND reference_type='booking' AND reference_id=${bookingId} AND status='OPEN' AND context->>'kind'='FINANCIAL_SYNC_BLOCKED' LIMIT 1`;
+    if (open.length) return;
+    await this.manualReview.recordInTransaction(tx, {
+      tenantId: scope.tenantId,
+      propertyId: scope.propertyId,
+      connectionId: scope.connectionId,
+      category: 'PAYMENT_BOOKING_MISMATCH',
+      referenceType: 'booking',
+      referenceId: bookingId,
+      message: `Clock's bill for this booking cannot be checked automatically. ${detail} The check keeps retrying by itself, and this note closes when it works again.`,
+      context: { kind: 'FINANCIAL_SYNC_BLOCKED', detail },
+    });
+  }
+
+  /** The bill can be read again, so the note about it no longer applies. */
+  private async closeBlockedBillNote(scope: Scope, bookingId: string): Promise<void> {
+    await this.db.withTenantTransaction(
+      scope,
+      (tx) =>
+        tx.$executeRaw`UPDATE manual_review_items SET status='RESOLVED',resolved_at=now(),updated_at=now(),context=context||'{"resolution":"The bill can be checked again."}'::jsonb WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND reference_type='booking' AND reference_id=${bookingId} AND status='OPEN' AND context->>'kind'='FINANCIAL_SYNC_BLOCKED'`,
+    );
+  }
+
   private async claim(scope: Scope, lane: 'lists' | 'bills'): Promise<Job | null> {
     const token = randomUUID();
     const bills = lane === 'bills';
     return this.db.withTenantTransaction(scope, async (tx) => {
       const rows = await tx.$queryRaw<
         Job[]
-      >`UPDATE clock_sync_jobs j SET status='RUNNING',requested_at=NULL,lease_token=${token}::uuid,lease_until=now()+interval '5 minutes',updated_at=now() WHERE j.id=(SELECT id FROM clock_sync_jobs WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND connection_id=${scope.connectionId}::uuid AND (status<>'FAILED' OR updated_at<now()-interval '30 minutes') AND (resource LIKE 'financial:%')=${bills} AND next_run_at<=now() AND (lease_until IS NULL OR lease_until<now()) ORDER BY (requested_at IS NOT NULL) DESC,requested_at NULLS LAST,next_run_at,CASE resource WHEN 'catalog' THEN 0 WHEN 'rooms' THEN 1 WHEN 'rates' THEN 2 ELSE 3 END,id FOR UPDATE SKIP LOCKED LIMIT 1) AND j.tenant_id=${scope.tenantId}::uuid AND j.property_id=${scope.propertyId}::uuid RETURNING j.id,j.resource,j.progress,j.snapshot,j.processed,j.lease_token AS "leaseToken"`;
+      >`UPDATE clock_sync_jobs j SET status='RUNNING',requested_at=NULL,lease_token=${token}::uuid,lease_until=now()+interval '5 minutes',updated_at=now() WHERE j.id=(SELECT id FROM clock_sync_jobs WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND connection_id=${scope.connectionId}::uuid AND (status<>'FAILED' OR updated_at<now()-interval '30 minutes') AND (resource LIKE 'financial:%')=${bills} AND next_run_at<=now() AND (lease_until IS NULL OR lease_until<now()) ORDER BY (requested_at IS NOT NULL) DESC,requested_at NULLS LAST,next_run_at,CASE resource WHEN 'catalog' THEN 0 WHEN 'rooms' THEN 1 WHEN 'rates' THEN 2 ELSE 3 END,id FOR UPDATE SKIP LOCKED LIMIT 1) AND j.tenant_id=${scope.tenantId}::uuid AND j.property_id=${scope.propertyId}::uuid RETURNING j.id,j.resource,j.progress,j.snapshot,j.processed,j.consecutive_failures AS "consecutiveFailures",j.lease_token AS "leaseToken"`;
       return rows[0] ?? null;
     });
   }
@@ -364,7 +426,7 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
     await this.db.withTenantTransaction(
       scope,
       (tx) =>
-        tx.$executeRaw`UPDATE clock_sync_jobs SET progress=${JSON.stringify(progress)}::jsonb,snapshot=COALESCE(${snapshot === undefined ? null : JSON.stringify(snapshot)}::jsonb,snapshot),processed=${processed},status=${complete ? 'SYNCED' : 'READY'},last_success_at=CASE WHEN ${complete} THEN now() ELSE last_success_at END,next_run_at=CASE WHEN ${complete} AND requested_at IS NOT NULL THEN now() ELSE now()+make_interval(secs=>${delay}) END,requested_at=CASE WHEN ${complete} THEN NULL ELSE requested_at END,lease_token=NULL,lease_until=NULL,last_error=NULL,updated_at=now() WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${job.id}::uuid AND lease_token=${job.leaseToken}::uuid`,
+        tx.$executeRaw`UPDATE clock_sync_jobs SET progress=${JSON.stringify(progress)}::jsonb,snapshot=COALESCE(${snapshot === undefined ? null : JSON.stringify(snapshot)}::jsonb,snapshot),processed=${processed},status=${complete ? 'SYNCED' : 'READY'},last_success_at=CASE WHEN ${complete} THEN now() ELSE last_success_at END,next_run_at=CASE WHEN ${complete} AND requested_at IS NOT NULL THEN now() ELSE now()+make_interval(secs=>${delay}) END,requested_at=CASE WHEN ${complete} THEN NULL ELSE requested_at END,lease_token=NULL,lease_until=NULL,last_error=NULL,consecutive_failures=0,updated_at=now() WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${job.id}::uuid AND lease_token=${job.leaseToken}::uuid`,
     );
   }
   private async run(scope: Scope, job: Job) {
@@ -379,6 +441,7 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
     if (job.resource.startsWith('financial:')) {
       const bookingId = job.resource.slice(10);
       await this.financial.refresh(scope, bookingId);
+      await this.closeBlockedBillNote(scope, bookingId);
       await this.save(scope, job, {}, true, undefined, 1, await this.billDelay(scope, bookingId));
       return;
     }

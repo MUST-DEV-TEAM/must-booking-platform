@@ -1977,6 +1977,8 @@ model ClockSyncJob {
   leaseUntil    DateTime?             @map("lease_until") @db.Timestamptz(6)
   lastError     String?               @map("last_error") @db.VarChar(300)
   processed     Int                   @default(0)
+  // Consecutive failures of a kind retrying cannot fix (bill currency mismatch). Drives the retry backoff.
+  consecutiveFailures Int             @default(0) @map("consecutive_failures")
   createdAt     DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime              @default(now()) @map("updated_at") @db.Timestamptz(6)
   property      Property              @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction, map: "clock_sync_jobs_property_fk")
