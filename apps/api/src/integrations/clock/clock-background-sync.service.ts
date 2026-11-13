@@ -67,6 +67,7 @@ type Job = {
 };
 const monthOf = (date: Date) => date.toISOString().slice(0, 7);
 const enabled = () => process.env.CLOCK_BACKGROUND_SYNC_ENABLED === 'true';
+export const ENSURE_INTERVAL_MS = 60_000;
 /** Durable local projections only. Provider commands and financial effects are never executed here. */
 /**
  * What may be logged about a failure: the kind of error, its code and the rule that refused a row. Never the
@@ -154,6 +155,20 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
       for (const resource of keys)
         await tx.$executeRaw`INSERT INTO clock_sync_jobs(tenant_id,property_id,connection_id,resource,next_run_at) VALUES(${scope.tenantId}::uuid,${scope.propertyId}::uuid,${scope.connectionId}::uuid,${resource},date_trunc('minute',now())) ON CONFLICT(tenant_id,property_id,connection_id,resource) DO NOTHING`;
     });
+  }
+  /**
+   * The loop ticks every second, but the jobs it seeds only change when a month rolls over or a booking is
+   * confirmed (a database trigger queues that booking's bill at once). Seeding every second was most of the
+   * idle database work, so the loop now seeds at most once a minute per hotel. ensure() is idempotent, so a
+   * second API instance with its own timestamps is harmless. Explicit callers still call ensure() directly.
+   */
+  private readonly lastEnsuredAt = new Map<string, number>();
+  private async ensureAtMostEveryMinute(scope: Scope) {
+    const key = `${scope.tenantId}:${scope.propertyId}`;
+    const now = Date.now();
+    if (now - (this.lastEnsuredAt.get(key) ?? -Infinity) < ENSURE_INTERVAL_MS) return;
+    await this.ensure(scope);
+    this.lastEnsuredAt.set(key, now);
   }
   async status(tenantId: string, propertyId: string) {
     const scope = await this.scope(tenantId, propertyId);
@@ -266,7 +281,7 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
       await Promise.all(
         properties.map(async (scope) => {
           if (!this.allowed(scope.propertyId)) return;
-          await this.ensure(scope);
+          await this.ensureAtMostEveryMinute(scope);
           // Two lanes: the import and refresh of lists, and the bills. Bills used to be served first
           // and, being many and always due, starved the reservation import.
           await Promise.all(
