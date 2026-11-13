@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the MUST Booking restore test every week
+
+[Timer]
+# Sunday morning, after the nightly backup (03:15) has finished.
+OnCalendar=Sun *-*-* 05:00:00
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
