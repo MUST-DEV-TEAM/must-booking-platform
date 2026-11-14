@@ -1,6 +1,6 @@
 # Milestone 39: Backend hardening
 
-Status: **Planned 2026-11-14. Owner decisions in section 2 are open. Nothing built.**
+Status: **Planned 2026-11-14. Owner decisions recorded the same day (section 2). Nothing built. Ready to execute.**
 
 Source: [backend review, 2026-11-13](../../audit/backend-review-2026-11-13.md) (tasks B1 to B13) and items 7, 8, 9 and 11 of the [database review](../../audit/database-review-2026-11-13.md), which [Milestone 38](38-database-hardening.md) handed to this plan. The task table is the spec; the reviews hold the evidence.
 
@@ -17,16 +17,18 @@ Out of scope here, planned elsewhere:
 
 Already done since the review (2026-11-13): the repeated warning about eight test bookings (part of B12) stopped with #475; the database contention behind some failed webhook jobs (B8) was reduced by Milestone 38 task 2.
 
-## 2. Owner decisions needed
+## 2. Owner decisions (2026-11-14)
 
-| # | Question | Recommendation | Blocks |
-| --- | --- | --- | --- |
-| D1 | Empire's 13 website bookings paid by PokPay all ended cancelled, expired or availability-failed. Were they all tests? | If any was a real guest, the paid website flow at Empire is looked at before anything else. | Nothing here; decides urgency of the booking-flow plan |
-| D2 | Should Luxury receive Clock webhooks? Today it is kept current by polling only. | Yes. Changes arrive in seconds, as at Empire. The subscription is created in Luxury's Clock account. | Task 12 |
-| D3 | Close the existing review items nobody can act on (742 at Empire, plus duplicates)? | Yes, after a count-only run is reviewed. Rows are marked resolved with a reason, not deleted. | Task 6 step 3 |
-| D4 | Give the 837 old failed `folio_update` events (last one 2026-10-16) a final state, and clear the 926 old dead-letter jobs and old failed-job lists in Redis? | Yes, after the counts are reviewed. Event rows are kept. | Task 7 step 3, task 8 step 3 |
-| D5 | A Redis restart of a few seconds (task 9). | Yes, outside busy hours. Persistence is switched on first without a restart, so sessions survive it. | Task 9 |
-| D6 | After a password reset by emailed link: sign the account out everywhere. After a password change while signed in: keep only the current session. | Yes, this is standard practice. | Task 2 |
+| # | Question | Decision |
+| --- | --- | --- |
+| D1 | Empire's 13 website bookings paid by PokPay all ended cancelled, expired or availability-failed. Were they all tests? | Yes, all tests. No real guest was affected. |
+| D2 | Should Luxury receive Clock webhooks? | Yes. The subscription is created in Luxury's Clock account (task 12). |
+| D3 | Close the existing review items nobody can act on (742 at Empire, plus duplicates)? | Yes, after a count-only run is reviewed. Rows are marked resolved with a reason, not deleted. |
+| D4 | Give the 837 old failed `folio_update` events a final state, and clear the 926 old dead-letter jobs and old failed-job lists in Redis? | Yes, after the counts are reviewed. Event rows are kept. |
+| D5 | A Redis restart of a few seconds (task 9). | Yes, outside busy hours. Persistence is switched on first without a restart, so sessions survive it. |
+| D6 | After a password reset by emailed link: sign the account out everywhere. After a password change while signed in: keep only the current session. | Yes. |
+
+The decisions approve the approach. Each merge still deploys and needs the owner's go for that task, and steps that change live rows or Redis contents still wait for the owner's review of the counts.
 
 ## 3. Rules for whoever executes
 
