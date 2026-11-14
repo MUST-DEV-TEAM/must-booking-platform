@@ -50,7 +50,7 @@ The decisions approve the approach. Each merge still deploys and needs the owner
 | 7 | Failed webhook events keep a reason; temporary errors retry | B8, database 8 | D4 for step 3 | Low | Opus |
 | 8 | Dead-letter queue: seen, alerted, bounded | B5 | D4 for step 3 | Low | Sonnet |
 | 9 | Redis keeps its data through a crash | B7 | D5 | Low, short restart | Sonnet |
-| 10 | Two security findings, before hotels sign up on their own | B9 (MBA-105, MBA-107) | - | Medium | Opus |
+| 10 | Two security findings: **now**, because sign-up is open | B9 (MBA-105, MBA-107) | - | Medium | Opus |
 | 11 | Tests for the native booking path | B11 | Before Milestone 25 go-live | Low | Opus |
 | 12 | Luxury: missing bookings and webhooks | B4, database 9 | D2; hotel staff | None in code | Owner, hotel staff |
 | 13 | Database owner role without superuser rights: design | Database 11, Milestone 38 task 9 | - | Design, no code | Fable |
@@ -140,7 +140,7 @@ Tasks 1 to 5 are independent of the owner decisions and can start at once; 1 goe
 
 - **Clock host (MBA-105):** `parseClockCredentials` (`apps/api/src/integrations/clock/clock-credentials.ts`) accepts any host an admin types, and the server then sends requests there. Restrict it to Clock's real API domains. Take the allowed pattern from `docs/integrations/clock`; if the docs do not state it, record it as unverified and ask, do not guess. Check the saved connections on live against the pattern first (read-only), so no working hotel is refused.
 - **Invitation activation (MBA-107):** first a test that shows whether the new-account path of `StaffInviteService.activate` accepts a different email than the invited one. If it does, bind the new account to the invited address and refuse a mismatch.
-- **Gate:** not urgent while only platform staff set up hotels; must be merged before self-serve sign-up or PMS connection by hotels opens.
+- **Priority: now.** The owner confirmed on 2026-11-14 that anyone can create a hotel account at `/signup` ([Milestone 41](41-frontend-hardening.md), decision D1), so a new account's admin can already type a Clock host. Do this task right after task 1.
 
 ### Task 11. Tests for the native booking path
 

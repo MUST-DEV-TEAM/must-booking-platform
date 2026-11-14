@@ -1,6 +1,6 @@
 # Milestone 41: Frontend hardening
 
-Status: **Planned 2026-11-14. Owner decisions in section 2 are open. Nothing built.**
+Status: **Planned 2026-11-14. Owner decisions recorded the same day (section 2). Nothing built. Ready to execute; the Astro launch tasks (10 and 11) are first.**
 
 Source: [frontend review, 2026-11-13](../../audit/frontend-review-2026-11-13.md) (tasks F1 to F9, A1 to A4, W1). The task table is the spec; the review holds the evidence. The review read code and requested public pages; it did not sign in, so how the dashboard looks and feels in use is not judged yet (task 12).
 
@@ -16,15 +16,17 @@ Three frontends, three places of work:
 
 Out of scope: the dashboard's visual redesign (Milestone 24), new screens, and the API side of anything (Milestones 39 and 40).
 
-## 2. Owner decisions needed
+## 2. Owner decisions (2026-11-14)
 
-| # | Question | Recommendation | Blocks |
-| --- | --- | --- | --- |
-| D1 | Should anyone on the internet be able to create a hotel account at `/signup` today? | No: close it until self-serve sign-up is a planned launch. Hotels are set up by platform staff. If it must stay open, Milestone 39 task 10 (two security findings) moves to "now". | Task 2 |
-| D2 | Should the staff dashboard be available in Albanian (F8)? | Decide now, build later: if yes, add the translation layer before many more screens are built, as its own milestone; if no, record it and move on. | Nothing here |
-| D3 | Fix the link on Empire's live home page that points to a bare IP address (W1)? It is a change to the live WordPress content. | Yes, now. One link. | Task 13 |
-| D4 | A change on the live proxy so browsers keep the dashboard's script files for a year (F5). | Yes, with task 6. The files are named by their content, so a new release is never served stale. | Task 6 |
-| D5 | When is the Empire Astro launch planned? | Tasks 10 and 11 are scheduled backwards from that date. | Tasks 10, 11 |
+| # | Question | Decision |
+| --- | --- | --- |
+| D1 | Should anyone on the internet be able to create a hotel account at `/signup`? | Yes, it stays open. Because of that, [Milestone 39 task 10](39-backend-hardening.md) (the two open security findings) moves to "now". |
+| D2 | Should the staff dashboard be available in Albanian (F8)? | English only for now. |
+| D3 | Fix the bare-IP link on Empire's live WordPress home page (W1)? | No. The site is being replaced by the Astro site this weekend; task 13 is dropped. |
+| D4 | A change on the live proxy so browsers keep the dashboard's script files for a year (F5). | Yes, with task 6. |
+| D5 | When is the Empire Astro launch planned? | The weekend of 2026-11-14 and 15. Tasks 10 and 11 are therefore first. |
+
+The decisions approve the approach. Each merge still deploys and needs the owner's go for that task.
 
 ## 3. Rules for whoever executes
 
@@ -38,20 +40,20 @@ Out of scope: the dashboard's visual redesign (Milestone 24), new screens, and t
 | # | Task | Closes | Needs | Risk | Runs |
 | --- | --- | --- | --- | --- | --- |
 | 1 | Fix the flaky payments-screen test | Open follow-up 2 | - | Low | Opus |
-| 2 | Security headers; internal pages and search engines kept out | F1, F2 | D1 | Low | Sonnet |
+| 2 | Security headers; internal pages and search engines kept out | F1, F2 | - | Low | Sonnet |
 | 3 | A double click creates one payment link | F7 | - | Low | Sonnet |
 | 4 | One API client; an expired session leads to the login page | F3 (MBA-208) | - | Medium | Opus designs, Sonnet migrates |
 | 5 | A broken part of a screen does not blank the dashboard | F4 | - | Low | Sonnet |
 | 6 | A lighter login page and long-lived script caching | F5 | D4 | Low-medium | Opus analyses, Sonnet applies |
 | 7 | Browser tests for the money screens | F6 | Task 1; Milestone 40 tasks 1 and 2 | Low | Opus |
-| 8 | Language of the dashboard: record the decision | F8 | D2 | None | Owner |
+| 8 | Language of the dashboard | F8 | Decided: English only for now | None | - |
 | 9 | Large screen files and leftover CSS modules | F9 | When a file is next changed | Low | Sonnet |
-| 10 | Astro launch: visitor address behind the proxy, security headers | A1, A2 | D5; Empire repository | Low | Sonnet |
-| 11 | Astro launch: the order of steps for switching the hotel's website address | A3 | D5 | Medium | Opus |
+| 10 | Astro launch: visitor address behind the proxy, security headers | A1, A2 | **Before the launch this weekend**; Empire repository | Low | Sonnet |
+| 11 | Astro launch: the order of steps for switching the hotel's website address | A3 | **Before the launch this weekend** | Medium | Opus |
 | 12 | Look at the dashboard in use, on a computer and a phone | Review's "Not checked" | - | None (reading) | Fable |
-| 13 | Empire's live home page: replace the bare-IP link | W1 | D3 | Low | Owner or Sonnet with the owner's go |
+| 13 | Empire's live home page: replace the bare-IP link | W1 | Dropped (D3) | - | - |
 
-Task 1 goes first because the flaky test fails pull requests that have nothing to do with it (it failed three on 2026-11-13 and 2026-11-14, each passing on a re-run). Tasks 2 and 3 are small and independent. Task 4 is the largest.
+Tasks 10 and 11 go first, because the Astro site launches this weekend. Among the dashboard tasks, task 1 goes first because the flaky test fails pull requests that have nothing to do with it (it failed three on 2026-11-13 and 2026-11-14, each passing on a re-run). Tasks 2 and 3 are small and independent. Task 4 is the largest.
 
 ### Task 1. Fix the flaky payments-screen test
 
@@ -66,7 +68,7 @@ Task 1 goes first because the flaky test fails pull requests that have nothing t
   - `apps/web/next.config.ts`: a `headers()` block with HSTS, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin` and a minimal `Permissions-Policy`; `poweredByHeader: false`. Disable the Express header in the API.
   - A Content-Security-Policy in **report-only** mode first, reporting to Sentry. Enforce it in a later release, after a week without reports from real use.
   - Build the `/design` routes only in development. Add `robots.txt` with `Disallow: /` and a `noindex` meta tag.
-  - Per D1: close `/signup` (the route answers 404 and the API refuses), or leave it and raise Milestone 39 task 10.
+  - `/signup` stays open (D1). It gets the same headers; `robots.txt` may allow it if the owner wants it found.
 - **Check first:** that nothing legitimate frames the dashboard (the WordPress plugin or a hotel site embedding a page), so `DENY` breaks nothing.
 - **Verify:** `curl -I https://booking.must.al/login` shows the headers; `/design` returns 404 on live; `/robots.txt` returns the rule; the PokPay return flow and the photos still work.
 
@@ -104,7 +106,7 @@ Task 1 goes first because the flaky test fails pull requests that have nothing t
 
 ### Task 8. Language of the dashboard
 
-Record D2 in this file. If the answer is yes, the translation layer is its own milestone, planned before more screens are added.
+Decided 2026-11-14: English only for now. If Albanian is wanted later, the translation layer is its own milestone; every screen added before then makes it larger.
 
 ### Task 9. Large screen files and leftover CSS modules
 
@@ -131,12 +133,11 @@ In the Empire Astro repository, before launch:
 ### Task 13. Empire's live home page: replace the bare-IP link
 
 - **Found on live:** the home page of `new.empirebeachresort.al` links to `http://18.185.56.94/booking/`: no HTTPS, no domain. A guest who follows it gets a browser warning.
-- **Change (D3):** replace it with `https://new.empirebeachresort.al/booking/` in the WordPress content. Check the other pages for the same address in one search.
-- **Verify:** the address no longer appears in the page source of the public pages.
+- **Dropped (D3):** the WordPress site is replaced by the Astro site this weekend. If the launch slips by more than a few days, reconsider: the fix is one link.
 
 ## 5. Done when
 
-- `booking.must.al` sends the security headers, and `/design` and (per D1) `/signup` are closed.
+- `booking.must.al` sends the security headers, and `/design` is closed.
 - A signed-out staff member lands on the login page and comes back to the same screen.
 - One broken chart leaves the rest of the dashboard usable.
 - The login page loads under 200 KB of script, and a repeat visit loads none.
