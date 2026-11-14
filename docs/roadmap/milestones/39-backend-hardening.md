@@ -1,6 +1,6 @@
 # Milestone 39: Backend hardening
 
-Status: **Planned 2026-11-14. Owner decisions recorded the same day (section 2). Nothing built. Ready to execute.**
+Status: **Planned 2026-11-14. Owner decisions recorded the same day (section 2). Task 5 (reading) done 2026-11-14. Nothing else built. Ready to execute.**
 
 Source: [backend review, 2026-11-13](../../audit/backend-review-2026-11-13.md) (tasks B1 to B13) and items 7, 8, 9 and 11 of the [database review](../../audit/database-review-2026-11-13.md), which [Milestone 38](38-database-hardening.md) handed to this plan. The task table is the spec; the reviews hold the evidence.
 
@@ -90,6 +90,17 @@ Tasks 1 to 5 are independent of the owner decisions and can start at once; 1 goe
 - **Scope:** MBA-001 to 009, 011 and 013 to 017 in `docs/audit/FINDINGS.md` (checkout rollback, late PokPay capture, multi-room checkout, hydration overwrites, event ordering, connection identity, refund allocation, payment timeouts, email recovery).
 - **Method:** one bounded pass per finding: read the cited code as it is today, mark it fixed or open with file and line, update its status in `FINDINGS.md`. No code changes. Where a finding matches a task of the booking flow review (L1 to L18), link the two instead of describing it twice.
 - **Result:** a short list of what is still open, handed to the booking-flow plan.
+- **Done 2026-11-14** (code reading only; each finding carries a "Re-check" line in `FINDINGS.md`):
+
+  | Result | Findings |
+  | --- | --- |
+  | Fixed | MBA-006 (cancellation terms frozen at booking), MBA-007 (unknown Clock status goes to review) |
+  | Mostly fixed or mitigated | MBA-009, MBA-013, MBA-015, MBA-016 (refunds), MBA-017 |
+  | Open, for the booking-flow plan | MBA-002 (same as L1), MBA-003 (near L16), MBA-004, MBA-008, MBA-014, and the L3 part of MBA-016 |
+  | Open, only matters for Stripe (Milestone 37) | MBA-001, MBA-011 |
+  | Open, only matters for native hotels (Milestone 25) | MBA-005 |
+
+  Parts marked "not re-checked" in `FINDINGS.md` still need a look when their plan is written.
 
 ### Task 6. Review queue: only what a person can act on, never twice
 

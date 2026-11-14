@@ -64,6 +64,7 @@ These are **NEEDS VERIFICATION**, not new accepted defects. Existing source path
 - **Timing:** NOW — before real-money activation.
 - **Dependencies:** Payment/fulfillment transaction design; controlled isolated transaction tests; approved provider evidence for duplicate-reference behavior.
 - **Status:** Open. **VERIFIED FINDING** for source/control-flow rollback, accepted by Astra 2026-09-27 after Sol challenge. **LIKELY FINDING** for conditional retry/expiry consequences; **NEEDS VERIFICATION** for actual external duplication. Application-created Stripe checkout and refund paths enforce test-mode keys (stripe-payment.provider.ts:48); this is not a webhook environment guard, as MBA-011 records. Deployed exposure and runtime failure reproduction remain unverified.
+- **Re-check 2026-11-14 (Milestone 39 task 5, code reading only, nothing run):** **Open, unchanged.** `stripe-webhook.service.ts:143` still throws inside the transaction opened at `:51`, so the charge row rolls back with the Clock failure. No Stripe keys are set on live. Gate for Milestone 37.
 
 
 ## MBA-002 — Late or second PokPay capture can be rejected without a financial record
@@ -80,6 +81,7 @@ These are **NEEDS VERIFICATION**, not new accepted defects. Existing source path
 - **Timing:** NOW
 - **Dependencies:** Provider account binding; financial state model
 - **Status:** Open — VERIFIED source; late capture outcome not exercised against provider.
+- **Re-check 2026-11-14 (Milestone 39 task 5, code reading only, nothing run):** **Open.** `pokpay-payment.service.ts:105-125`: a paid order on a booking that is no longer `PAYMENT_PENDING` and has no recorded payment returns `INVALID_BOOKING_STATE` with no ledger row. Same as booking-flow task L1.
 
 
 ## MBA-003 — Multi-room quote validation drops occupancy while persistence accepts it
@@ -97,6 +99,7 @@ These are **NEEDS VERIFICATION**, not new accepted defects. Existing source path
 - **Timing:** NOW
 - **Dependencies:** Shared checkout validation; occupancy regression tests
 - **Status:** Open. **VERIFIED FINDING** for group occupancy contract divergence and the retained validator counterexample, accepted by Astra 2026-09-27 after Sol challenge. **NEEDS VERIFICATION** for full order persistence/provider consequences. No probe was repeated in unit 005.
+- **Re-check 2026-11-14 (Milestone 39 task 5, code reading only, nothing run):** **Open.** `multi-room-booking.service.ts:125-133` passes no occupancy to `QuoteService.validate`, which then assumes one adult (`quote.service.ts:628`). Related to booking-flow task L16.
 
 
 ## MBA-004 — Multi-room checkout omits single-booking safety and recovery behavior
@@ -114,6 +117,7 @@ These are **NEEDS VERIFICATION**, not new accepted defects. Existing source path
 - **Timing:** NOW
 - **Dependencies:** MBA-003; multi-room lifecycle acceptance tests
 - **Status:** Open. **VERIFIED FINDING** for the bounded guard/branch differences and failed-Result transaction semantics, accepted by Astra 2026-09-27 after Sol challenge. **NEEDS VERIFICATION** for database/provider/expiry runtime consequences; relevant existing stubbed integration tests were inspected, not rerun.
+- **Re-check 2026-11-14 (Milestone 39 task 5, code reading only, nothing run):** **Open, partly re-checked.** A failed checkout Result is still returned from the transaction, which commits (`multi-room-booking.service.ts:254`). The other guard differences were not re-read.
 
 
 ## MBA-005 — Cancelling a room-type booking in PMS recovery states leaks reserved inventory
@@ -131,6 +135,7 @@ These are **NEEDS VERIFICATION**, not new accepted defects. Existing source path
 - **Timing:** NOW
 - **Dependencies:** Inventory ownership design; isolated single/group pooled/physical transaction, replay and provider-failure tests.
 - **Status:** Open. **VERIFIED FINDING** for owned pooled holds and the cancellation control-flow omission, accepted by Astra 2026-09-27 after Sol challenge. **NEEDS VERIFICATION** for committed database counters and deployed consequences; rejected/manual-review status cases remain conditional on hold ownership.
+- **Re-check 2026-11-14 (Milestone 39 task 5, code reading only, nothing run):** **Open.** `local-pms.provider.ts` (cancel path, about `:1337`) still releases booked units only from `PAYMENT_PENDING`, `PMS_CONFIRMATION_PENDING` and `CONFIRMED`. It affects native hotels only; `inventory_units` is empty on live. Milestone 25 and Milestone 39 task 11.
 
 
 ## MBA-006 — Cancellation terms are captured at cancellation, not when the guest accepts them
@@ -147,6 +152,7 @@ These are **NEEDS VERIFICATION**, not new accepted defects. Existing source path
 - **Timing:** BEFORE PILOT
 - **Dependencies:** Owner decision on effective dates and historical bookings
 - **Status:** Open — VERIFIED design gap; no legal conclusion.
+- **Re-check 2026-11-14 (Milestone 39 task 5, code reading only, nothing run):** **Fixed.** `bookings.cancellation_terms` is captured at insert by the trigger `bookings_capture_terms` and cannot be changed (migration `20261023020000`); cancellation evaluates it (`local-pms.provider.ts:1271`, `:1605`). Bookings created before 2026-10-23 have no snapshot and use the current policy.
 
 
 ## MBA-007 — Unknown Clock reservation statuses are treated as confirmed
@@ -163,6 +169,7 @@ These are **NEEDS VERIFICATION**, not new accepted defects. Existing source path
 - **Timing:** NOW
 - **Dependencies:** Confirmed Clock status contract; state ownership decision
 - **Status:** Open — VERIFIED source; specific live unknown values UNVERIFIED.
+- **Re-check 2026-11-14 (Milestone 39 task 5, code reading only, nothing run):** **Fixed.** An unknown Clock status raises an `UNKNOWN_STATUS` review item and is not confirmed (`clock-booking-hydration.service.ts:280-290`).
 
 ## MBA-008 — Clock hydration overwrites commercial records without inventory and refund effects
 
@@ -178,6 +185,7 @@ These are **NEEDS VERIFICATION**, not new accepted defects. Existing source path
 - **Timing:** NOW
 - **Dependencies:** Inventory ownership and PMS authority decisions
 - **Status:** Open — VERIFIED direct writes and missing effects; downstream incident RISK.
+- **Re-check 2026-11-14 (Milestone 39 task 5, code reading only, nothing run):** **Partly addressed, open as a design question.** Hydration still writes the booking row directly (`clock-booking-hydration.service.ts:369-392`). A cancellation made in Clock now has its own refund handling (`hotel-cancellation-refund.service.ts`, #464, #465). The counter part concerns native hotels only. Booking-flow plan and Milestone 25.
 
 
 ## MBA-009 — Event ownership fencing does not order different events for the same resource
@@ -194,6 +202,7 @@ These are **NEEDS VERIFICATION**, not new accepted defects. Existing source path
 - **Timing:** BEFORE PRODUCTION
 - **Dependencies:** Verified provider revision contract or per-resource serialization design
 - **Status:** Open — VERIFIED missing resource ordering; RISK under overlapping execution.
+- **Re-check 2026-11-14 (Milestone 39 task 5, code reading only, nothing run):** **Mitigated.** A fetched snapshot older than the stored `pms_source_updated_at` is treated as stale (`clock-booking-hydration.service.ts:217-241`). Not tested with two overlapping workers; live runs one API process.
 
 
 ## MBA-010 — Clock financial reconciliation still sends a known-rejected filter and misallocates orders
@@ -227,6 +236,7 @@ These are **NEEDS VERIFICATION**, not new accepted defects. Existing source path
 - **Timing:** NOW
 - **Dependencies:** Owner-approved Stripe account/webhook model; isolated persistence tests; separately approved sandbox acceptance.
 - **Status:** Open. **VERIFIED FINDING** for missing source/controller acceptance bindings, accepted by Astra 2026-09-27. **LIKELY FINDING** for delivery incompatibility conditional on independent endpoint secrets; **NEEDS VERIFICATION** for real miscredit/exploitation/loss. Severity narrowed from CRITICAL to HIGH because the stronger exposure claim is not demonstrated.
+- **Re-check 2026-11-14 (Milestone 39 task 5, code reading only, nothing run):** **Open, unchanged.** The Stripe webhook records the total stored on the booking and keeps no issued session (`stripe-webhook.service.ts:55`, `:131`). No Stripe keys on live. Gate for Milestone 37.
 
 
 ## MBA-012 — Refund requests are recorded as completed even when the provider reports pending
@@ -260,6 +270,7 @@ These are **NEEDS VERIFICATION**, not new accepted defects. Existing source path
 - **Timing:** BEFORE PILOT
 - **Dependencies:** Connection lifecycle design; security agent's destructive-delete finding
 - **Status:** Open — VERIFIED schema and lookup behavior; cross-account incident RISK.
+- **Re-check 2026-11-14 (Milestone 39 task 5, code reading only, nothing run):** **Mostly fixed.** Payment sessions record the connection that created the order (ADR-0041, `payment_provider_sessions.connection_id`), and hydration refuses an event for another connection (`clock-booking-hydration.service.ts:150`). Not re-checked: Stripe sessions and the `payments` row itself.
 
 
 ## MBA-014 — Refunds and manual group payments lack charge-level and order-level allocation
@@ -277,6 +288,7 @@ These are **NEEDS VERIFICATION**, not new accepted defects. Existing source path
 - **Timing:** NOW
 - **Dependencies:** Owner-approved order/partial-payment/reversal rules; migration/backfill plan; isolated transaction tests for installments, sibling settlement and cancellation through child two.
 - **Status:** Open. **VERIFIED FINDING** for the three bounded source/control-flow cases and offline arithmetic/recording behavior, accepted by Astra 2026-09-27. **NEEDS VERIFICATION** for PostgreSQL concurrency/commit and actual provider or money outcomes. Pending-capacity reservation alone is not a defect.
+- **Re-check 2026-11-14 (Milestone 39 task 5, code reading only, nothing run):** **Open, partly re-checked.** A refund still selects the latest charge (`payment-refund.service.ts:285`), and the schema has no link from a refund to its charge. The sibling and manual group cases were not re-read.
 
 
 ## MBA-015 — Commercial currency and selected provider offer are not immutable booking facts
@@ -293,6 +305,7 @@ These are **NEEDS VERIFICATION**, not new accepted defects. Existing source path
 - **Timing:** BEFORE PILOT
 - **Dependencies:** MBA-006, MBA-008; provider price-lock contract
 - **Status:** Open — VERIFIED missing snapshots; actual changed-price scenario RISK.
+- **Re-check 2026-11-14 (Milestone 39 task 5, code reading only, nothing run):** **Mostly fixed.** A booking stores its own `currency` and `clock_rate_id` (`schema.prisma`, model `Booking`), guarded by the trigger `bookings_currency_matches_plan`. Not re-checked: whether the paid quote total is compared with the Clock total at attachment.
 
 
 ## MBA-016 — Payment HTTP ambiguity and timeouts lack a durable recovery boundary
@@ -310,6 +323,7 @@ These are **NEEDS VERIFICATION**, not new accepted defects. Existing source path
 - **Timing:** NOW
 - **Dependencies:** Verified provider request/reconciliation contracts; MBA-012; isolated transaction/timeout/replay tests with fake outbound providers.
 - **Status:** Open. **VERIFIED FINDING** for source transaction/transport boundaries, accepted by Astra 2026-09-27. **NEEDS VERIFICATION** for committed failure scenarios, actual timeout budgets, remote idempotency guarantees and duplicate financial effects.
+- **Re-check 2026-11-14 (Milestone 39 task 5, code reading only, nothing run):** **Mostly fixed for refunds.** The attempt is saved before the provider is called, a pending answer is stored as pending, and a recovery sweeper finishes unknown outcomes (`payment-refund.service.ts:45`, `:479`, `:735`); the PokPay refund carries an id built from the idempotency key (`pokpay-payment.provider.ts:219`). Still open: provider calls inside long transactions for confirmation and cancellation, which is booking-flow task L3.
 
 
 ## MBA-017 — Email delivery and group confirmation are not durably recoverable
@@ -326,6 +340,7 @@ These are **NEEDS VERIFICATION**, not new accepted defects. Existing source path
 - **Timing:** BEFORE PILOT
 - **Dependencies:** Order state and financial event definitions
 - **Status:** Open — VERIFIED source; mail-provider delivery not probed.
+- **Re-check 2026-11-14 (Milestone 39 task 5, code reading only, nothing run):** **Mostly fixed.** Emails go through the durable delivery queue (`payment-notification.service.ts:23`), and a multi-room order gets one order-level email (`booking-confirmation-notification.service.ts:92-103`). Not re-checked: the group pay-at-hotel confirmation. Booking-flow task L18 (receipts sent twice) is separate.
 
 
 ## MBA-018 — Operational metrics mix incompatible stock, lifecycle and timezone definitions
