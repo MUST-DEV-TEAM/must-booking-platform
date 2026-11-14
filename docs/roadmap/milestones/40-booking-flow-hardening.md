@@ -1,6 +1,6 @@
 # Milestone 40: Booking and payment flow hardening
 
-Status: **Planned 2026-11-14. Owner decisions in section 2 are open. Nothing built.**
+Status: **Planned 2026-11-14. Owner decisions recorded the same day (section 2). Nothing built. Ready to execute.**
 
 Source: [booking flow review, 2026-11-13](../../audit/booking-flow-review-2026-11-13.md) (tasks L1 to L18, found by walking real test bookings) and the September findings that the [2026-11-14 re-check](../../audit/FINDINGS.md) left open for this plan (MBA-002, 003, 004, 008, 014 and the L3 part of 016). The task table is the spec; the review holds the evidence.
 
@@ -15,18 +15,20 @@ Out of scope here, planned elsewhere:
 - Review-queue duplicates in general, clean shutdown, health check: [Milestone 39](39-backend-hardening.md). Task 5 here builds on its task 6; task 9 here needs its task 1.
 - Bookings made or changed inside Clock, date and room changes, promo codes: not walked in the review. Listed in section 6 as the next walk.
 
-## 2. Owner decisions needed
+## 2. Owner decisions (2026-11-14)
 
-| # | Question | Recommendation | Blocks |
-| --- | --- | --- | --- |
-| D1 | A guest pays after the 30-minute hold expired (L1). What should happen? | Record the money, then confirm the booking if the room is still free at the same price; otherwise refund automatically. Guest and staff are told at once in both cases. | Task 3 |
-| D2 | While a guest pays by card, nothing holds the room in Clock (L7). Hold it? | Yes, if Clock supports a tentative reservation: standard for a hotel that also sells through reception and channels. First step is only to check Clock's documentation; if it is not supported, keep today's order and rely on D1's automatic refund. | Task 13 |
-| D3 | Which address should guest emails come from (L2)? Today it is `noreply@mail.dejvis.dev`, and they land in spam. | A domain that belongs to the product (for example `mail.must.al`), with SPF, DKIM and DMARC. A sender per hotel domain can follow later. | Task 6 |
-| D4 | Should staff be told about an unpaid booking attempt (L8)? | No notice when it is created. One notice when it is confirmed. None when an unpaid attempt simply expires. | Task 7 |
-| D5 | A booking paid part cash, part card is cancelled with a refund (L14). | Refund the card part automatically and tell staff the cash amount to return by hand. | Task 2 |
-| D6 | When the hotel cancels inside Clock and there was no online payment, should MUST clear the room charges in Clock (L4)? | No. That stays reception's job; MUST shows what is still open. | Task 12 |
-| D7 | Bookings still "expected" days after arrival (176 at Empire), and stay emails for Empire (L10). | Flag them for staff after 2 days; do not change them or the reports automatically. Stay emails: owner's call per hotel. | Task 15 |
-| D8 | Owner's note of 2026-11-13: refund the amount received minus the payment provider's commission. | Not in this milestone. It must first be in the booking terms the guest accepts and checked against consumer rules for Albania and the guest's country. Recorded here so it is decided, not forgotten. | Nothing |
+| # | Question | Decision |
+| --- | --- | --- |
+| D1 | A guest pays after the 30-minute hold expired (L1). | Record the money, then confirm the booking if the room is still free at the same price; otherwise refund automatically. Guest and staff are told at once in both cases. |
+| D2 | While a guest pays by card, nothing holds the room in Clock (L7). | Hold it, if Clock supports a tentative reservation. The first step is only to check Clock's documentation; if it is not supported, today's order stays and D1's automatic refund covers the case. |
+| D3 | Which address should guest emails come from (L2)? | Left for now. The sending domain and its DNS records are a task for Denis Zoi, GitHub issue #482. Task 6 waits for it. |
+| D4 | Should staff be told about an unpaid booking attempt (L8)? | No. One notice when a booking is confirmed; none when an attempt is created or simply expires. |
+| D5 | A booking paid part cash, part card is cancelled with a refund (L14). | Refund the card part automatically and tell staff the cash amount to return by hand. |
+| D6 | When the hotel cancels inside Clock and there was no online payment, should MUST clear the room charges in Clock (L4)? | No. That stays reception's job; MUST shows what is still open. |
+| D7 | Bookings still "expected" days after arrival, and stay emails (L10). | Flag them for staff after 2 days; do not change them or the reports automatically. Stay emails stay the owner's call per hotel. |
+| D8 | Refund the amount received minus the payment provider's commission (owner's note of 2026-11-13). | Build it as each hotel's own choice: a setting per hotel, off unless the hotel turns it on (task 17). The hotel is responsible for its booking terms. |
+
+The decisions approve the approach. Each merge still deploys and needs the owner's go for that task.
 
 ## 3. Rules for whoever executes
 
@@ -44,7 +46,7 @@ Out of scope here, planned elsewhere:
 | 3 | A payment after the hold expired is never lost | L1, MBA-002 | D1 | Medium | Opus |
 | 4 | Guest numbers are checked, also for Clock hotels and multi-room | L16, MBA-003 | - | Low | Opus |
 | 5 | A booking's version changes only when the booking does; requests can be approved | L6, L15 | - | Medium | Opus |
-| 6 | Guest emails reach the inbox | L2 | D3 | Low | Owner, then Sonnet |
+| 6 | Guest emails reach the inbox | L2 | Waits for issue #482 (Denis Zoi) | Low | Denis, then Sonnet |
 | 7 | Staff notices and to-dos only when there is something to do | L5, L8 | D4; Milestone 39 task 6 | Low | Opus |
 | 8 | One receipt per payment | L18 | - | Low | Sonnet |
 | 9 | Design: cancellation, payment confirmation and refunds as saved steps | L3 (design), MBA-016, MBA-014, MBA-008 | Milestone 39 task 1 | Design | Fable |
@@ -55,6 +57,7 @@ Out of scope here, planned elsewhere:
 | 14 | A readable history on every booking | L11 | Task 10 | Low | Sonnet |
 | 15 | Stay status and stay emails | L10 | D7 | Low | Sonnet |
 | 16 | Guest-facing wording and small items | L9, L12, L17 | - | Low | Sonnet |
+| 17 | A hotel can choose to refund net of the payment provider's commission | D8 | Tasks 1 and 2 | Medium | Fable checks, Opus builds |
 
 Tasks 1 to 4 are the "now" group: each is a case where money or a promise goes wrong today. They are independent except that 2 follows 1. Task 9 is the main design; nothing in task 10 starts before the owner approves it.
 
@@ -100,7 +103,7 @@ Tasks 1 to 4 are the "now" group: each is a case where money or a promise goes w
 
 ### Task 6. Guest emails reach the inbox
 
-- **Owner (D3):** choose the sending domain; add its SPF, DKIM and DMARC records (Resend shows the exact values). This also closes [open follow-up 4](../open-follow-ups.md).
+- **Waiting (D3):** choosing the sending domain and adding its SPF, DKIM and DMARC records (Resend shows the exact values) is Denis Zoi's task, GitHub issue #482. This also closes [open follow-up 4](../open-follow-ups.md). Until then guest emails keep landing in spam.
 - **Then:** switch the sender; fix Must Hotel's saved website address (`http://127.0.0.1:4321`) and contact address, which make filters stricter on the test hotel.
 - **Verify, with the owner's go for each send:** a test email from Empire's and from Luxury's settings to a Gmail and an Outlook address arrives in the inbox, and the headers show SPF, DKIM and DMARC passing.
 
@@ -167,6 +170,19 @@ Tasks 1 to 4 are the "now" group: each is a case where money or a promise goes w
 - A refused booking answers 409 or 422 instead of 201, and is not stored as a booking; keep refused attempts in their own table if they are worth keeping (L17).
 - Find why the first financial refresh right after a booking fails with "Clock is temporarily unavailable" (L12).
 - Luxury's 3 future bookings whose total differs from Clock's bill: check which side changed, read-only (L12).
+
+### Task 17. A hotel can choose to refund net of the payment provider's commission
+
+- **Decision D8:** when a guest's online payment is refunded, the provider keeps its commission, so a full refund costs the hotel that fee. Each hotel may choose to refund the amount it actually received instead.
+- **Step 1, reading only:** find out from PokPay's documentation (and Stripe's, for later) whether the fee of a payment is reported per order, and whether the provider returns any of it on a refund. Record the answer in the integration docs; mark what is not confirmed as unverified. If the fee is not reported, the hotel enters its commission rate in the setting.
+- **Step 2, build:**
+  - A per-hotel payment setting, off by default: "Refund online payments net of the provider's commission".
+  - When on, the amount is part of the terms the guest accepts: shown before payment, frozen in the booking's `cancellation_terms` at booking time, and repeated in the cancellation preview, the cancellation email and the refund email as three figures: paid, commission kept, refunded. A booking made while the setting was off is always refunded in full.
+  - The ledger keeps the full payment, the refund and the retained commission as separate figures (AGENTS.md: distinguish cancellation, confirmed refund and net retained payment). Reports show the retained commission on its own line.
+  - Clock: post the refund actually sent; the retained amount stays on the bill as a payment, and the reception list of task 12 names it, so it is not mistaken for an error.
+  - Applies to refunds of a cancellation. A refund because MUST or the hotel could not deliver the booking (task 3's late payment, a room that was gone) is always in full.
+- **Not decided by MUST:** whether a hotel may do this for its guests is the hotel's responsibility under its own terms and its guests' consumer rules. The setting's help text says so.
+- **Verify on Must Hotel:** with the setting on, a new paid booking shows the three figures before payment; cancelling it refunds the net amount at PokPay staging, and MUST, the emails and Clock all show the same three figures. With the setting off, and for a booking made before it was turned on, the refund is in full.
 
 ## 5. Done when
 
