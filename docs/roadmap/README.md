@@ -64,6 +64,7 @@ The **one-time documentation initialization** was explicitly authorized outside 
 | [38 - Database hardening](milestones/38-database-hardening.md) | Planned 2026-11-13; tasks 1 (repository part), 2, 3, 4 and 5 live 2026-11-13; task 2 live; task 8 first release (counts only) in review; 6 and 7 wait for a week of query statistics |
 | [39 - Backend hardening](milestones/39-backend-hardening.md) | Planned 2026-11-14 from the backend review; 13 tasks; owner decisions recorded; ready to execute; nothing built |
 | [40 - Booking and payment flow hardening](milestones/40-booking-flow-hardening.md) | Planned 2026-11-14 from the booking flow review; 17 tasks; owner decisions recorded; ready to execute; nothing built |
+| [41 - Frontend hardening](milestones/41-frontend-hardening.md) | Planned 2026-11-14 from the frontend review; 13 tasks; owner decisions recorded; Astro launch tasks first; nothing built |
 
 ## How work proceeds
 
