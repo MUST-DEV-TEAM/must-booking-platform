@@ -1344,6 +1344,8 @@ model ProviderEvent {
   // back from a fresher one purely because its UPDATE reached Postgres
   // late. Cleared alongside processingToken once terminal.
   processingAttempt Int?                @map("processing_attempt")
+  // Why the last failed attempt failed (error name, code, masked first line). Kept as history after a later success.
+  lastError         String?             @map("last_error") @db.VarChar(300)
   createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
