@@ -1,6 +1,6 @@
 # Milestone 40: Booking and payment flow hardening
 
-Status: **Planned 2026-11-14. Owner decisions recorded the same day (section 2). Task 8 closed 2026-11-15 (no change needed). Nothing else built.**
+Status: **Planned 2026-11-14. Owner decisions recorded the same day (section 2). Task 8 closed 2026-11-15 (no change needed). Merged: task 1 first part (#489), task 3 step 1 (#492). Task 4 blocked (see the task).**
 
 Source: [booking flow review, 2026-11-13](../../audit/booking-flow-review-2026-11-13.md) (tasks L1 to L18, found by walking real test bookings) and the September findings that the [2026-11-14 re-check](../../audit/FINDINGS.md) left open for this plan (MBA-002, 003, 004, 008, 014 and the L3 part of 016). The task table is the spec; the review holds the evidence.
 
@@ -26,6 +26,8 @@ Out of scope here, planned elsewhere:
 | D5 | A booking paid part cash, part card is cancelled with a refund (L14). | Refund the card part automatically and tell staff the cash amount to return by hand. |
 | D6 | When the hotel cancels inside Clock and there was no online payment, should MUST clear the room charges in Clock (L4)? | No. That stays reception's job; MUST shows what is still open. |
 | D7 | Bookings still "expected" days after arrival, and stay emails (L10). | Flag them for staff after 2 days; do not change them or the reports automatically. Stay emails stay the owner's call per hotel. |
+| D9 | Stay emails (2026-11-16, replaces the last sentence of D7). | On for all hotels by default, once task 15 stores the check-in time correctly. A hotel can switch them off in its settings. |
+| D10 | Who builds task 10 (2026-11-16). | Opus, from the approved ADR of task 9, with Fable review. |
 | D8 | Refund the amount received minus the payment provider's commission (owner's note of 2026-11-13). | Build it as each hotel's own choice: a setting per hotel, off unless the hotel turns it on (task 17). The hotel is responsible for its booking terms. |
 
 The decisions approve the approach. Each merge still deploys and needs the owner's go for that task.
@@ -95,6 +97,7 @@ Tasks 1 to 4 are the "now" group: each is a case where money or a promise goes w
 - **Change:** refuse a quote above the room type's `max_occupancy` or the hotel's "max guests" setting, for Clock hotels too. Pass each room's adults and children into the quote check of a multi-room order, and store what was quoted.
 - **Check first (read-only):** that no real hotel's room type has a limit lower than what it sells today, so no valid booking starts being refused.
 - **Verify (test 7):** 9 adults in a room for 2 is refused; a family of 4 in two rooms is accepted with the right occupancy on each room.
+- **Blocked 2026-11-16 by the read-only check.** Bookings of the last 12 months above the room type's saved `max_occupancy`: Empire 1 (one room type, 3 guests where the limit is 2); Luxury 1,160, on all ten of its room types, which are all saved with a limit of 2 or 4 while the hotel sells up to 7 guests in them. Luxury's saved limits are not its real ones. Enforcing them would refuse most Luxury bookings. Before this task: take each room type's real capacity from Clock (or have the hotel set it) and repeat the check until it is zero for both hotels. Must Hotel also has 5 test bookings above its limits.
 
 ### Task 5. A booking's version changes only when the booking does; requests can be approved
 
