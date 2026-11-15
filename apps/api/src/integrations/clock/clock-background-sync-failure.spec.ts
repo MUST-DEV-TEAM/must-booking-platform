@@ -9,16 +9,12 @@ const bookingId = '11111111-1111-4111-8111-111111111111';
 type Call = { sql: string; values: unknown[] };
 
 /** A service whose database is a recorder: every tagged-template query is captured, nothing is real. */
-function setup(options: { updated?: number; openNote?: boolean } = {}) {
+function setup(options: { updated?: number } = {}) {
   const calls: Call[] = [];
   const tx = {
     $executeRaw: vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
       calls.push({ sql: strings.join('?'), values });
       return options.updated ?? 1;
-    }),
-    $queryRaw: vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
-      calls.push({ sql: strings.join('?'), values });
-      return options.openNote ? [{ id: 'note-1' }] : [];
     }),
   };
   const manualReview = { recordInTransaction: vi.fn() };
@@ -72,12 +68,6 @@ describe('recordFailure for a bill with inconsistent currencies', () => {
       raised.push(manualReview.recordInTransaction.mock.calls.length);
     }
     expect(raised).toEqual([0, 0, 1, 0, 0]);
-  });
-
-  it('does not duplicate the note while one is still open for the booking', async () => {
-    const { service, job, manualReview } = setup({ openNote: true });
-    await service.recordFailure(scope, job(2), new ClockFinancialCurrencyError());
-    expect(manualReview.recordInTransaction).not.toHaveBeenCalled();
   });
 
   it('writes the note about the right booking, in plain words, with a kind that lets it close itself', async () => {

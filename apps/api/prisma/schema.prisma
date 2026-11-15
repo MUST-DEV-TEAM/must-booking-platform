@@ -1289,6 +1289,9 @@ model ManualReviewItem {
   referenceId      String?              @map("reference_id") @db.VarChar(200)
   message          String               @db.VarChar(1000)
   context          Json?
+  dedupeKey        String?              @map("dedupe_key") @db.VarChar(400)
+  occurrences      Int                  @default(1)
+  lastSeenAt       DateTime?            @map("last_seen_at") @db.Timestamptz(6)
   status           ManualReviewStatus   @default(OPEN)
   resolvedAt       DateTime?            @map("resolved_at") @db.Timestamptz(6)
   resolvedByUserId String?              @map("resolved_by_user_id") @db.Uuid
