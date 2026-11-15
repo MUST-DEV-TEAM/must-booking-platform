@@ -27,6 +27,7 @@ export const LOGIN_FAILURE_LIMIT = 10;
 const LOGIN_FAILURE_WINDOW_SECONDS = 900;
 export const AUTH_EMAIL_REQUEST_LIMIT = 5;
 const AUTH_EMAIL_REQUEST_WINDOW_SECONDS = 3_600;
+const SESSION_TTL_SECONDS = 604_800;
 
 type AuthUserRecord = {
   id: string;
@@ -221,6 +222,8 @@ export class AuthService implements OnModuleDestroy {
     const removed = sessionId
       ? await this.client().then((redis) => redis.del(`auth:session:${sessionId}`))
       : 0;
+    if (sessionId && userId)
+      await this.client().then((redis) => redis.sRem(`auth:user-sessions:${userId}`, sessionId));
     if (userId) {
       await this.auditLogs.record({
         actorUserId: userId,
@@ -318,6 +321,9 @@ export class AuthService implements OnModuleDestroy {
         targetId: userId,
         details: { result: 'succeeded', method: 'Password reset' },
       });
+    });
+    await this.revokeSessionsAfterPasswordChange(userId, 'Password reset', {
+      revokeResetTokens: true,
     });
   }
 
@@ -475,6 +481,9 @@ export class AuthService implements OnModuleDestroy {
         details: { result: 'succeeded', method: 'Account change' },
       });
     });
+    await this.revokeSessionsAfterPasswordChange(userId, 'Password changed', {
+      keepSessionId: sessionId,
+    });
   }
 
   private async requireSessionUserId(sessionId: string | undefined): Promise<string> {
@@ -541,7 +550,15 @@ export class AuthService implements OnModuleDestroy {
 
   private async issueToken(kind: string, userId: string, ttl: number): Promise<string> {
     const token = randomBytes(32).toString('base64url');
-    await this.set(`auth:${kind}:${this.hash(token)}`, userId, ttl);
+    const tokenHash = this.hash(token);
+    await this.set(`auth:${kind}:${tokenHash}`, userId, ttl);
+    if (kind === 'password-reset') {
+      // Index of the user's unused reset tokens, so a completed reset can invalidate the rest.
+      const redis = await this.client();
+      const indexKey = `auth:user-reset-tokens:${userId}`;
+      await redis.sAdd(indexKey, tokenHash);
+      await redis.expire(indexKey, ttl);
+    }
     return token;
   }
 
@@ -573,9 +590,93 @@ export class AuthService implements OnModuleDestroy {
     await this.set(
       `auth:session:${sessionId}`,
       JSON.stringify({ userId } satisfies Session),
-      604_800,
+      SESSION_TTL_SECONDS,
     );
+    // Per-user index, so a password reset or change can find every session of the person.
+    const redis = await this.client();
+    const indexKey = `auth:user-sessions:${userId}`;
+    await redis.sAdd(indexKey, sessionId);
+    await redis.expire(indexKey, SESSION_TTL_SECONDS);
     return sessionId;
+  }
+
+  /**
+   * Deletes every session of the user except `keepSessionId`, and returns how many session keys
+   * were really deleted. Sessions are found through the per-user index, plus a SCAN fallback for
+   * sessions created before the index existed.
+   */
+  private async revokeSessions(userId: string, keepSessionId?: string): Promise<number> {
+    const redis = await this.client();
+    const indexKey = `auth:user-sessions:${userId}`;
+    const sessionIds = new Set(await redis.sMembers(indexKey));
+
+    // The SCAN fallback can be removed after 2026-11-30: sessions created before the index
+    // existed live at most 7 days, so by then they have all expired.
+    let cursor = '0';
+    do {
+      const page = await redis.scan(cursor, { MATCH: 'auth:session:*', COUNT: 500 });
+      cursor = String(page.cursor);
+      for (const key of page.keys) {
+        const value = await redis.get(key);
+        if (!value) continue;
+        try {
+          if ((JSON.parse(value) as Session).userId === userId)
+            sessionIds.add(key.slice('auth:session:'.length));
+        } catch {
+          // A value that is not valid JSON is not a session of this user.
+        }
+      }
+    } while (cursor !== '0');
+
+    let deleted = 0;
+    for (const sessionId of sessionIds) {
+      if (sessionId === keepSessionId) continue;
+      deleted += await redis.del(`auth:session:${sessionId}`);
+    }
+
+    await redis.del(indexKey);
+    if (keepSessionId) {
+      await redis.sAdd(indexKey, keepSessionId);
+      await redis.expire(indexKey, SESSION_TTL_SECONDS);
+    }
+    return deleted;
+  }
+
+  /** Deletes every unused password-reset token of the user. */
+  private async revokeResetTokens(userId: string): Promise<void> {
+    const redis = await this.client();
+    const indexKey = `auth:user-reset-tokens:${userId}`;
+    for (const tokenHash of await redis.sMembers(indexKey))
+      await redis.del(`auth:password-reset:${tokenHash}`);
+    await redis.del(indexKey);
+  }
+
+  /**
+   * Ends the user's sessions after a password change. A failure here must not undo the change
+   * that already committed, so it is logged (never with a password or token) and swallowed.
+   */
+  private async revokeSessionsAfterPasswordChange(
+    userId: string,
+    reason: string,
+    options: { keepSessionId?: string; revokeResetTokens?: boolean },
+  ): Promise<void> {
+    try {
+      const count = await this.revokeSessions(userId, options.keepSessionId);
+      if (options.revokeResetTokens) await this.revokeResetTokens(userId);
+      await this.auditLogs.record({
+        actorUserId: userId,
+        action: 'auth.sessions_revoked',
+        targetType: 'user',
+        targetId: userId,
+        details: { reason, count },
+      });
+    } catch (error: unknown) {
+      this.logger.error(
+        `Could not end the other sessions after a password change (user ${userId}): ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+    }
   }
 
   // Account mail has no hotel account, so its log rows carry no tenant. The first attempt is made
