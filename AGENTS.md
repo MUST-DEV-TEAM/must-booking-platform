@@ -17,6 +17,7 @@ Multi-tenant hotel booking platform: NestJS API (`apps/api`), Next.js staff/plat
 - **PMS boundary:** booking code talks to the `PmsProvider` interface; vendor HTTP calls live only in the adapter's infrastructure layer. Do not invent Clock endpoints or fields — check `docs/integrations/clock/endpoint-matrix.md` and mark unverified assumptions as such.
 - **Idempotency:** booking create/update/cancel, webhooks, refunds and reconciliation must be safe to repeat. Never blind-retry a booking create after a timeout; check the operation record and search Clock by MUST reference first.
 - **Money:** `NUMERIC` or minor units, never floats.
+- **Cancellation and accounting expectations:** the owner wants standard hotel booking and accounting practices, verified against the agreed booking terms and documented provider behavior. Preserve payment/refund history; distinguish cancellation, confirmed refund, net retained payment and settlement of Clock documents. See the [cancellation follow-up](docs/roadmap/open-follow-ups.md#cancellation-refunds-and-clock-settlement) before changing these flows. Do not treat a closed deposit bill as proof of a particular invoice type.
 - **Migrations:** additive, idempotent, safe to re-run; a destructive change needs a written rollback.
 - **Providers and production:** no live requests to Clock, Stripe, PokPay or Resend, and no production deploys, data changes or secret changes, without the owner's explicit go-ahead for that action. Never print or commit secrets.
 
