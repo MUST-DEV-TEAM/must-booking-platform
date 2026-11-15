@@ -121,6 +121,20 @@ describe('AuthService session revocation on password change', () => {
     expect(fakeRedis.sets.get(`auth:user-sessions:${USER.id}`)).toEqual(new Set([a]));
   });
 
+  it('stops an unused reset token when the password is changed while signed in', async () => {
+    const session = await signIn();
+    const token = await requestReset();
+
+    await service.changePassword(session, {
+      currentPassword: OLD_PASSWORD,
+      newPassword: NEW_PASSWORD,
+    });
+
+    await expect(service.resetPassword({ token, password: OLD_PASSWORD })).rejects.toThrow(
+      'Invalid or expired password-reset token.',
+    );
+  });
+
   it('stops the other unused reset tokens once one is used', async () => {
     const first = await requestReset();
     const second = await requestReset();

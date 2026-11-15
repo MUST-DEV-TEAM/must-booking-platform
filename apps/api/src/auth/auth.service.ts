@@ -322,9 +322,7 @@ export class AuthService implements OnModuleDestroy {
         details: { result: 'succeeded', method: 'Password reset' },
       });
     });
-    await this.revokeSessionsAfterPasswordChange(userId, 'Password reset', {
-      revokeResetTokens: true,
-    });
+    await this.revokeSessionsAfterPasswordChange(userId, 'Password reset', {});
   }
 
   /** The signed-in user's own profile (name, email, verification). */
@@ -658,11 +656,13 @@ export class AuthService implements OnModuleDestroy {
   private async revokeSessionsAfterPasswordChange(
     userId: string,
     reason: string,
-    options: { keepSessionId?: string; revokeResetTokens?: boolean },
+    options: { keepSessionId?: string },
   ): Promise<void> {
     try {
+      // Reset links first and for both paths: an emailed link that is still unused must not
+      // outlive a password change, and it must go even if finding the sessions fails.
+      await this.revokeResetTokens(userId);
       const count = await this.revokeSessions(userId, options.keepSessionId);
-      if (options.revokeResetTokens) await this.revokeResetTokens(userId);
       await this.auditLogs.record({
         actorUserId: userId,
         action: 'auth.sessions_revoked',
