@@ -826,6 +826,7 @@ describe('collecting a confirmed booking balance', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
     const claim = worker as unknown as {
       claim: (
