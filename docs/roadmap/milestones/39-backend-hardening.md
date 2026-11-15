@@ -39,6 +39,8 @@ The decisions approve the approach. Each merge still deploys and needs the owner
 
 ## 4. Tasks, in execution order
 
+The tasks are split into one-agent slices, with their order across milestones, in the [hardening execution queue](../hardening-queue.md).
+
 | # | Task | Closes | Needs | Risk | Runs |
 | --- | --- | --- | --- | --- | --- |
 | 1 | Stop the API cleanly on deploy | B2 | - | Low | Sonnet |
