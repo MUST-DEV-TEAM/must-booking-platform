@@ -39,6 +39,8 @@ services:
     logging: *logging
     image: redis:7-alpine
     restart: unless-stopped
+    # Append-only file, flushed once a second: a crash loses at most a second of sessions, links and queued jobs.
+    command: ['redis-server', '--appendonly', 'yes', '--appendfsync', 'everysec']
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
