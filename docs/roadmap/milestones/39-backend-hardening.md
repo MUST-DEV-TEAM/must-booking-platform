@@ -1,6 +1,6 @@
 # Milestone 39: Backend hardening
 
-Status: **Planned 2026-11-14. Owner decisions recorded the same day (section 2). Task 5 (reading) done 2026-11-14. Nothing else built. Ready to execute.**
+Status: **Planned 2026-11-14. Owner decisions recorded the same day (section 2). Task 5 (reading) done 2026-11-14. Merged 2026-11-15: task 1 (#487), task 4 (#488). The rest is not built.**
 
 Source: [backend review, 2026-11-13](../../audit/backend-review-2026-11-13.md) (tasks B1 to B13) and items 7, 8, 9 and 11 of the [database review](../../audit/database-review-2026-11-13.md), which [Milestone 38](38-database-hardening.md) handed to this plan. The task table is the spec; the reviews hold the evidence.
 

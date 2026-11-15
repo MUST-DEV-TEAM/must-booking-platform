@@ -15,7 +15,7 @@ One agent at a time. The steps are the same for every slice.
 2. **Implement.** A Sonnet agent, on a fresh branch from `origin/main`, changes only the files of the slice, adds the slice's test and opens a pull request.
 3. **Check.** The orchestrator runs `npx tsc --noEmit -p tsconfig.build.json` in `apps/api`, eslint on the changed files and every spec of each touched service. The full suite runs in CI, not locally.
 4. **Review.** For a slice marked **Review: Fable**, the orchestrator reads the diff against the task. The answer is approve or a short fix list; at most two rounds, then the slice is re-planned. A slice marked **Review: routine** is merged on green CI and the checks of step 3.
-5. **Merge.** Every merge deploys to production and needs the owner's go for that slice. After the deploy the task's verify step is run on live, read-only, and the result goes in the pull request.
+5. **Merge.** Every merge deploys to production. The owner gave a standing go on 2026-11-15 for slices that are green and reviewed; steps that change live rows or Redis contents, design approvals and anything on a real hotel still wait for the owner. Merge one slice at a time and let its deploy finish before the next merge: the pipeline deploys only the newest commit, so two quick merges share one deploy. After the deploy the task's verify step is run on live, read-only, and the result goes in the pull request.
 
 Review is required for anything that touches money, refunds, payments, Clock writes, migrations, authentication or the deploy path. Everything else is routine.
 
@@ -27,7 +27,7 @@ Send this text with the slice id filled in. Add the exact change below it for a 
 
 > Repo: `c:\Users\devim\Desktop\Must-Booking`. Read `AGENTS.md` first.
 > Do slice **<id>** of `docs/roadmap/hardening-queue.md`. Its task in the milestone file is the spec: follow its change, its limits ("do not change") and its verify step.
-> Work in a new git worktree on a new branch from `origin/main`, named as the slice says. Change only what the slice needs. Add the test the slice names.
+> Work in the main checkout (one agent at a time, so no second worktree and no second `node_modules`): `git fetch origin`, check `git status` is clean, then create the branch the slice names from `origin/main`. Use the Edit tool, not scripts, so line endings stay LF. Change only what the slice needs. Add the test the slice names.
 > Before you finish: in `apps/api`, run `npx tsc --noEmit -p tsconfig.build.json`, eslint on the files you changed, and the specs of every service you touched. Do not run the full suite.
 > Commit with pathspecs (the git index is shared), push, open a pull request. Do not merge. Do not touch a live host, a real hotel's data, Clock or PokPay.
 > Report only: the pull request link, the files changed, the test results, and anything in the task you could not do or had to decide.
@@ -40,10 +40,10 @@ The order is by risk removed per unit of work, then by dependency. A slice can s
 
 | Slice | What | Milestone task | Branch | Likely files | Test | Needs | Brief | Review |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 39-1 | Stop the API cleanly on deploy | M39 task 1 | `fix/m39-clean-shutdown` | `apps/api/src/main.ts`, worker `onModuleDestroy` methods, `infrastructure/containers/compose.homelab.yaml` | A spec that a worker's `onModuleDestroy` awaits `close()`; `docker stop` on the local stack | - | Fable (list the workers and timers first) | Fable |
+| 39-1 | Stop the API cleanly on deploy **Merged 2026-11-15, #487.** | M39 task 1 | `fix/m39-clean-shutdown` | `apps/api/src/main.ts`, worker `onModuleDestroy` methods, `infrastructure/containers/compose.homelab.yaml` | A spec that a worker's `onModuleDestroy` awaits `close()`; `docker stop` on the local stack | - | Fable (list the workers and timers first) | Fable |
 | 39-3 | Readiness check for Postgres and Redis; the deploy gate uses it | M39 task 3 | `feat/m39-readiness-check` | `apps/api/src/health/health.controller.ts`, `infrastructure/containers/deploy-release.sh`, the compose file, `.github/workflows/uptime.yml` | Controller spec: 200 when both answer, 503 naming the failed part; the deploy script test | 39-1 | Standard | Fable |
 | 39-9 | Redis keeps its data through a crash | M39 task 9 | `ops/m39-redis-appendonly` | `infrastructure/containers/compose.homelab.yaml` | None in code; the live order in the task | Owner's go for the live `CONFIG SET` | Standard | Fable |
-| 39-4 | Quieter logs | M39 task 4 | `chore/m39-quieter-logs` | `apps/api/src/integrations/clock/clock-http-client.ts`, the request logger | Spec: a GET logs at debug, a failed call still logs at its level | - | Standard | Routine |
+| 39-4 | Quieter logs **Merged 2026-11-15, #488.** | M39 task 4 | `chore/m39-quieter-logs` | `apps/api/src/integrations/clock/clock-http-client.ts`, the request logger | Spec: a GET logs at debug, a failed call still logs at its level | - | Standard | Routine |
 
 ### Group B. Money or a promise goes wrong today (Milestone 40)
 
@@ -70,7 +70,7 @@ The order is by risk removed per unit of work, then by dependency. A slice can s
 | 39-8a | Dead-letter count and age in the console, one alert, `removeOnFail` age limit | M39 task 8, step 1 | `feat/m39-dead-letter-visible` | The Clock queue setup, `apps/api/src/platform/console`, the platform alert email | Spec: a forced failure raises one alert | - | Standard | Routine |
 | 40-5a | Hydration raises the booking version only on a real change | M40 task 5 | `fix/m40-version-only-on-change` | `apps/api/src/integrations/clock/clock-booking-hydration.service.ts` | Spec: an echo webhook with the same data leaves the version; a date change raises it | - | Fable | Fable |
 | 40-5b | Approval compares dates, total and payments; the guest gets a "request received" email | M40 task 5 | `fix/m40-approve-cancellation-requests` | `apps/api/src/booking/local-pms.provider.ts` (lines 1285 to 1300), the request approval service, a mail template | Spec: approve a request whose version moved but whose data did not | 40-5a | Fable | Fable |
-| 40-8 | One receipt per payment | M40 task 8 | `fix/m40-one-receipt-per-payment` | `apps/api/src/mail/payment-notification.service.ts` | Spec: two triggers for one payment, one email queued | - | Standard | Routine |
+| 40-8 | One receipt per payment **Closed 2026-11-15, no change needed: see the task.** | M40 task 8 | `fix/m40-one-receipt-per-payment` | `apps/api/src/mail/payment-notification.service.ts` | Spec: two triggers for one payment, one email queued | - | Standard | Routine |
 | 40-7a | "Booking created" notice on confirmation, none for an unpaid attempt or its expiry | M40 task 7, D4 | `fix/m40-notify-on-confirmation` | `apps/api/src/tenancy/notifications.service.ts`, the booking create and confirm paths | Spec: an expired unpaid attempt sends staff nothing | - | Standard | Routine |
 | 40-7b | Deposit Adjustment item only when the deposit folio is closed or converted | M40 task 7 | `fix/m40-deposit-adjustment-item-when-needed` | `apps/api/src/payments/payment-refund.service.ts`, `manual-review.service.ts` | Spec: refund with an open folio at 0.00 raises no item | 39-6b | Fable | Fable |
 

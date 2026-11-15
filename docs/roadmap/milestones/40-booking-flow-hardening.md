@@ -1,6 +1,6 @@
 # Milestone 40: Booking and payment flow hardening
 
-Status: **Planned 2026-11-14. Owner decisions recorded the same day (section 2). Nothing built. Ready to execute.**
+Status: **Planned 2026-11-14. Owner decisions recorded the same day (section 2). Task 8 closed 2026-11-15 (no change needed). Nothing else built.**
 
 Source: [booking flow review, 2026-11-13](../../audit/booking-flow-review-2026-11-13.md) (tasks L1 to L18, found by walking real test bookings) and the September findings that the [2026-11-14 re-check](../../audit/FINDINGS.md) left open for this plan (MBA-002, 003, 004, 008, 014 and the L3 part of 016). The task table is the spec; the review holds the evidence.
 
@@ -119,6 +119,7 @@ Tasks 1 to 4 are the "now" group: each is a case where money or a promise goes w
 - **Seen:** two payments produced four "payment received" emails; a repeated click and the payment re-check each sent it again.
 - **Change:** key the receipt email on the payment id, so the delivery queue sends it once.
 - **Verify (tests 24, 25):** two payments, two receipts.
+- **Closed 2026-11-15, no change needed.** The receipt is already sent once per payment: the delivery queue keys it on the PokPay order (`balance-receipt/<order>` for the guest, `balance-receipt/staff/<order>/<staff user>` for each staff member) and never re-sends a key. Read on live for the test booking (Must Hotel): 1 guest receipt and 6 staff receipts, one per staff user, 7 emails with 7 different keys. The "four emails" of the review were the guest copy and staff copies arriving in one test inbox.
 
 ### Task 9. Design: cancellation, payment confirmation and refunds as saved steps
 
