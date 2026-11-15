@@ -7,6 +7,7 @@ import { BookingConfirmationNotificationService } from '../mail/booking-confirma
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
 import { VenueDepositPaymentsService } from './venue-deposit-payments.service';
 import { PaymentProviderRegistry } from './payment-provider-registry';
+import { ManualReviewService } from '../integrations/manual-review.service';
 
 type SessionCandidate = { bookingId: string | null; tenantId: string; propertyId: string };
 type PendingCandidate = SessionCandidate & { externalPaymentId: string };
@@ -27,6 +28,7 @@ export class PokPayPaymentService {
     @Inject(BookingConfirmationNotificationService)
     private readonly confirmations: BookingConfirmationNotificationService,
     @Inject(PaymentCollectionService) private readonly collections: PaymentCollectionService,
+    @Inject(ManualReviewService) private readonly manualReview: ManualReviewService,
     @Optional()
     @Inject(VenueDepositPaymentsService)
     private readonly venueDeposits?: VenueDepositPaymentsService,
@@ -119,10 +121,33 @@ export class PokPayPaymentService {
             }
             return { ok: true, value: { duplicate: true } };
           }
-          return this.failure(
-            'INVALID_BOOKING_STATE',
-            `Booking cannot accept payment from ${booking.status}.`,
-          );
+          // The money is at PokPay but the booking no longer awaits payment (hold
+          // expired, unpaid hold cancelled, or a second order on a confirmed booking).
+          // Record the payment so it is never lost and raise one review item; do not
+          // confirm, change the booking, email the guest or refund here.
+          const late = await tx.$queryRaw<Array<{ id: string }>>`
+          INSERT INTO payments (tenant_id, property_id, booking_id, kind, provider, external_payment_id, status, amount, currency, note)
+          VALUES (${context.tenantId}::uuid, ${context.propertyId}::uuid, ${booking.id}::uuid,
+            'CHARGE'::"PaymentKind", 'pokpay', ${orderId}, 'PAID', ${payment.amount.amount}::numeric, ${payment.amount.currency},
+            'Received after the booking was no longer awaiting payment.')
+          ON CONFLICT (tenant_id, external_payment_id) DO NOTHING RETURNING id
+        `;
+          if (late[0])
+            await this.manualReview.recordInTransaction(tx, {
+              ...context,
+              category: 'PAYMENT_BOOKING_MISMATCH',
+              referenceType: 'booking',
+              referenceId: booking.id,
+              message:
+                'A PokPay payment arrived after this booking stopped awaiting payment. The money is recorded; the booking was not confirmed. Refund the payment or rebook the guest.',
+              context: {
+                orderId,
+                bookingStatus: booking.status,
+                amount: payment.amount.amount,
+                currency: payment.amount.currency,
+              },
+            });
+          return { ok: true, value: { duplicate: !late[0] } };
         }
         const inserted = await tx.$queryRaw<Array<{ id: string }>>`
         INSERT INTO payments (tenant_id, property_id, booking_id, kind, provider, external_payment_id, status, amount, currency)
