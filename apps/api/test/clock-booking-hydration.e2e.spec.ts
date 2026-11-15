@@ -315,6 +315,50 @@ describe('Clock booking hydration', () => {
     expect(rows[0]!.endsOn.toISOString().slice(0, 10)).toBe('2026-09-25');
   });
 
+  it('raises the booking version only when something that matters changed', async () => {
+    const hydration = app!.get(ClockBookingHydrationService);
+    const id = '38144020';
+    const base = { id: 38144020, number: '380' };
+    const versionOf = async () =>
+      (
+        await admin.$queryRaw<
+          Array<{ version: number }>
+        >`SELECT version FROM bookings WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND external_booking_id=${id}`
+      )[0]!.version;
+    const hydrate = async (overrides: Record<string, unknown>) => {
+      queuedResponses = [{ status: 200, body: realBookingDetail({ ...base, ...overrides }) }];
+      await hydration.hydrateBooking(tenantId, propertyId, connectionId, id);
+      return versionOf();
+    };
+
+    const first = await hydrate({});
+    // Same detail again (an echo webhook): nothing changed, so the version stays.
+    expect(await hydrate({})).toBe(first);
+    expect(await hydrate({})).toBe(first);
+
+    // Each of these is a real change and raises the version by exactly one.
+    const afterDeparture = await hydrate({ departure: '2026-09-25' });
+    expect(afterDeparture).toBe(first + 1);
+    const afterTotal = await hydrate({
+      departure: '2026-09-25',
+      total_booking_value: { cents: 90000, currency: 'EUR' },
+    });
+    expect(afterTotal).toBe(afterDeparture + 1);
+    const afterAdults = await hydrate({
+      departure: '2026-09-25',
+      total_booking_value: { cents: 90000, currency: 'EUR' },
+      adults: 2,
+    });
+    expect(afterAdults).toBe(afterTotal + 1);
+    const afterStatus = await hydrate({
+      departure: '2026-09-25',
+      total_booking_value: { cents: 90000, currency: 'EUR' },
+      adults: 2,
+      status: 'canceled',
+    });
+    expect(afterStatus).toBe(afterAdults + 1);
+  });
+
   it('creates a real Guest when Clock has captured a real email, reusing it on re-hydration', async () => {
     queuedResponses = [
       {

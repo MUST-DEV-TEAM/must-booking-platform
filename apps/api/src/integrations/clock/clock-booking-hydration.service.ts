@@ -390,7 +390,15 @@ export class ClockBookingHydrationService {
            nightly_rates = EXCLUDED.nightly_rates,
            pms_stay_status = EXCLUDED.pms_stay_status,
            pms_source_updated_at = COALESCE(EXCLUDED.pms_source_updated_at,bookings.pms_source_updated_at),
-           version = bookings.version + 1,
+           version = bookings.version + CASE WHEN (
+             bookings.status, bookings.starts_on, bookings.ends_on, bookings.room_type_id, bookings.room_id,
+             bookings.total_amount, bookings.adults, bookings.children, bookings.children_ages,
+             bookings.guest_id
+           ) IS DISTINCT FROM (
+             EXCLUDED.status, EXCLUDED.starts_on, EXCLUDED.ends_on, EXCLUDED.room_type_id, EXCLUDED.room_id,
+             EXCLUDED.total_amount, EXCLUDED.adults, EXCLUDED.children, EXCLUDED.children_ages,
+             COALESCE(EXCLUDED.guest_id, bookings.guest_id)
+           ) THEN 1 ELSE 0 END,
            created_at = CASE WHEN $18::boolean AND bookings.external_reference LIKE 'CLOCK-%' THEN COALESCE($19::timestamptz,bookings.created_at) ELSE bookings.created_at END,
            updated_at = CASE WHEN $18::boolean THEN COALESCE($20::timestamptz,bookings.updated_at) ELSE CURRENT_TIMESTAMP END
          RETURNING id, (xmax = 0) AS inserted`,
