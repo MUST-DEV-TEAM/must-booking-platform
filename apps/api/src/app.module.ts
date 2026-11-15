@@ -294,6 +294,8 @@ import { ClockWebhookService } from './integrations/clock/clock-webhook.service'
 import { ClockWebhookHealthService } from './integrations/clock/clock-webhook-health.service';
 import { ClockWebhookController } from './integrations/clock/clock-webhook.controller';
 
+const healthPaths = new Set(['/health', '/health/ready']);
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -304,7 +306,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
       pinoHttp: {
         // Health checks run every few seconds; they are not worth a log line.
         autoLogging: {
-          ignore: (request) => requestLogPath(request.url) === '/health',
+          ignore: (request) => healthPaths.has(requestLogPath(request.url) ?? ''),
         },
         customAttributeKeys: {
           req: 'request',

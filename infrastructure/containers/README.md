@@ -42,7 +42,7 @@ Production deploys from GitHub, so the server never builds anything (it has 1 vC
       free (`KEEP_RELEASE_IMAGES` and `MIN_FREE_KB` change this). The same cleanup runs again after a good
       deploy. Then it pulls the images, runs migrations and `db:set-app-password`, and restarts api and web
       (`compose.release.yaml` swaps their `build:` for the GHCR images);
-   4. waits for `/api/health`. If it fails, it starts the previous release again and the
+   4. waits for `/api/health/ready` (Postgres and Redis both answer). If it fails, it starts the previous release again and the
       workflow goes red.
 
 Migrations are not rolled back, so a migration must keep working with the previous release.
