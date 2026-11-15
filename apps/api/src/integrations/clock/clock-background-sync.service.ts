@@ -1,3 +1,4 @@
+import { errorText } from './clock-failure-reason';
 import { withClockBackgroundWork } from './clock-request-context';
 import { financialRetryDelaySeconds, shouldAlertFinancialBlocked } from './clock-sync-backoff';
 import { ManualReviewService } from '../manual-review.service';
@@ -70,26 +71,7 @@ const enabled = () => process.env.CLOCK_BACKGROUND_SYNC_ENABLED === 'true';
 export const ENSURE_INTERVAL_MS = 60_000;
 export const TICK_SHUTDOWN_WAIT_MS = 20_000;
 /** Durable local projections only. Provider commands and financial effects are never executed here. */
-/**
- * What may be logged about a failure: the kind of error, its code and the rule that refused a row. Never the
- * message itself, because a database message can quote the failing row, which holds guest details.
- */
-export const errorText = (error: unknown) => {
-  if (!(error instanceof Error)) return 'unknown error';
-  const code = (error as { code?: unknown }).code;
-  const dbCode = (error as { meta?: { code?: unknown } }).meta?.code;
-  const constraint = /constraint "([A-Za-z0-9_]{1,80})"/.exec(error.message)?.[1];
-  return [
-    error.name,
-    typeof code === 'string' ? `code ${code}` : null,
-    typeof dbCode === 'string' ? `database code ${dbCode}` : null,
-    constraint ? `rule ${constraint}` : null,
-    // A financial refusal carries fixed text that never quotes Clock or guest data, so the cause can be logged.
-    error instanceof ClockFinancialDataError ? error.message : null,
-  ]
-    .filter(Boolean)
-    .join(', ');
-};
+export { errorText };
 /** The database refused the row by one of its rules (check constraint 23514), so retrying cannot help. */
 const isUnsavableBooking = (error: unknown) =>
   error instanceof Error && /violates check constraint|\b23514\b/.test(error.message);

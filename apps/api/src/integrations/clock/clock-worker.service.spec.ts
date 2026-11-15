@@ -462,6 +462,38 @@ describe('ClockWorkerService — provider_events durable status (ownership + exp
     expect(lastCall[0]).toContain('processing_token = NULL');
   });
 
+  it('saves the reason of a failed attempt with a plain last_error write, nothing else', async () => {
+    const { worker, transaction } = makeWorker({ id: 'row-16a', status: 'QUEUED' });
+    await (
+      worker as never as {
+        recordHydrateEventFailureReason: (d: unknown, e: unknown) => Promise<void>;
+      }
+    ).recordHydrateEventFailureReason(
+      jobData,
+      new Error('Unable to start a transaction in the given time.'),
+    );
+
+    const [sql, tenantId, rowId, reason] = transaction.$executeRawUnsafe.mock.calls.at(
+      -1,
+    ) as string[];
+    expect(sql).toContain('SET last_error = $3');
+    expect(sql).not.toMatch(/status|attempts|processing_token/);
+    expect([tenantId, rowId]).toEqual(['tenant-1', 'row-16a']);
+    expect(reason).toBe('Error: Unable to start a transaction in the given time.');
+  });
+
+  it('does not throw out of the listener when saving the reason fails', async () => {
+    const { worker, transaction } = makeWorker({ id: 'row-16b', status: 'QUEUED' });
+    transaction.$executeRawUnsafe.mockRejectedValueOnce(new Error('database is down'));
+    await expect(
+      (
+        worker as never as {
+          recordHydrateEventFailureReason: (d: unknown, e: unknown) => Promise<void>;
+        }
+      ).recordHydrateEventFailureReason(jobData, new Error('boom')),
+    ).resolves.toBeUndefined();
+  });
+
   it('markHydrateEventFailed does nothing (no crash, no write) when the job carried no token', async () => {
     const { worker, transaction } = makeWorker({ id: 'row-15c', status: 'QUEUED' });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
