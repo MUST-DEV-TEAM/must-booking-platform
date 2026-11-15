@@ -66,10 +66,14 @@ export class ClockHttpError extends Error {
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
+const SUMMARY_INTERVAL_MS = 60_000;
 
 @Injectable()
 export class ClockHttpClient implements OnModuleDestroy {
   private readonly logger = new Logger(ClockHttpClient.name);
+  // Calls since the last summary line, per Clock connection (account/subscription).
+  private readonly callCounts = new Map<string, number>();
+  private summaryTimer: NodeJS.Timeout | undefined;
   // One pooled, keep-alive agent shared across every Clock call in the
   // process — this is the actual "connection pooling" requirement; a fresh
   // Agent per request would mean a fresh TCP+TLS handshake every time.
@@ -94,6 +98,7 @@ export class ClockHttpClient implements OnModuleDestroy {
     const url = this.buildUrl(credentials, options);
     const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     const requestPath = url.pathname + url.search;
+    this.countCall(credentials);
 
     const challengeAttempt = await this.send(url, options, undefined, timeoutMs);
     if (challengeAttempt.statusCode !== 401) {
@@ -124,7 +129,29 @@ export class ClockHttpClient implements OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
+    if (this.summaryTimer) clearInterval(this.summaryTimer);
+    this.summaryTimer = undefined;
+    this.flushCallSummary();
     await this.agent.close();
+  }
+
+  /** Logs one info line per hotel connection (Clock account/subscription ids,
+   * no credentials, URLs or guest data) with the calls made since the last
+   * flush, then resets the counters. Does nothing when there were no calls. */
+  flushCallSummary(): void {
+    for (const [connection, calls] of this.callCounts) {
+      this.logger.log(`Clock calls in the last minute: ${calls} (connection ${connection})`);
+    }
+    this.callCounts.clear();
+  }
+
+  private countCall(credentials: ClockConnectionCredentials): void {
+    const key = `${credentials.accountId}/${credentials.subscriptionId}`;
+    this.callCounts.set(key, (this.callCounts.get(key) ?? 0) + 1);
+    if (!this.summaryTimer) {
+      this.summaryTimer = setInterval(() => this.flushCallSummary(), SUMMARY_INTERVAL_MS);
+      this.summaryTimer.unref();
+    }
   }
 
   private async send(
@@ -163,7 +190,14 @@ export class ClockHttpClient implements OnModuleDestroy {
     method: string,
   ): Promise<ClockResponse<T>> {
     const text = await response.body.text();
-    this.logger.log(`Clock ${method} ${url.pathname} -> ${response.statusCode}`);
+    const line = `Clock ${method} ${url.pathname} -> ${response.statusCode}`;
+    // Successful reads are routine volume (summarised once a minute); anything
+    // else keeps its normal level.
+    if (method === 'GET' && response.statusCode >= 200 && response.statusCode < 300) {
+      this.logger.debug(line);
+    } else {
+      this.logger.log(line);
+    }
     if (!text) return { status: response.statusCode, body: undefined as T };
     try {
       return { status: response.statusCode, body: JSON.parse(text) as T };

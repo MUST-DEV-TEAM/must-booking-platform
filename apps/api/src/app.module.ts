@@ -302,6 +302,10 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     }),
     LoggerModule.forRoot({
       pinoHttp: {
+        // Health checks run every few seconds; they are not worth a log line.
+        autoLogging: {
+          ignore: (request) => requestLogPath(request.url) === '/health',
+        },
         customAttributeKeys: {
           req: 'request',
           res: 'response',

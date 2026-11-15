@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
-import { afterEach, describe, expect, it } from 'vitest';
+import { Logger } from '@nestjs/common';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   ClockHttpClient,
@@ -22,6 +23,7 @@ let server: Server | undefined;
 let client: ClockHttpClient | undefined;
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await client?.onModuleDestroy();
   if (server) await new Promise<void>((resolve) => server!.close(() => resolve()));
   server = undefined;
@@ -207,6 +209,64 @@ describe('ClockHttpClient', () => {
     // Confirmed against undici's own real error codes (not guessed) — see
     // ClockHttpError.isTimeout's doc comment in clock-http-client.ts.
     expect((error as ClockHttpError).isTimeout).toBe(true);
+  });
+
+  describe('log volume', () => {
+    async function callOnce(method: 'GET' | 'POST', status: number) {
+      const host = await startMockServer((_req, res) => {
+        res.writeHead(status, { 'Content-Type': 'application/json' });
+        res.end('{}');
+      });
+      client = new ClockHttpClient('http:');
+      await client.request({ ...credentials, host }, { api: 'pms_api', method, path: '/x' });
+    }
+
+    it('logs a successful GET at debug, not at info', async () => {
+      const log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+      const debug = vi.spyOn(Logger.prototype, 'debug').mockImplementation(() => undefined);
+      await callOnce('GET', 200);
+      expect(debug).toHaveBeenCalledWith('Clock GET /pms_api/172528/16307/x -> 200');
+      expect(log).not.toHaveBeenCalled();
+    });
+
+    it('keeps a failed GET at info', async () => {
+      const log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+      vi.spyOn(Logger.prototype, 'debug').mockImplementation(() => undefined);
+      await callOnce('GET', 500);
+      expect(log).toHaveBeenCalledWith('Clock GET /pms_api/172528/16307/x -> 500');
+    });
+
+    it('keeps a successful POST at info', async () => {
+      const log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+      vi.spyOn(Logger.prototype, 'debug').mockImplementation(() => undefined);
+      await callOnce('POST', 200);
+      expect(log).toHaveBeenCalledWith('Clock POST /pms_api/172528/16307/x -> 200');
+    });
+
+    it('reports the call count per connection in one summary line, then resets', async () => {
+      const log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+      vi.spyOn(Logger.prototype, 'debug').mockImplementation(() => undefined);
+      const host = await startMockServer((_req, res) => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end('[]');
+      });
+      client = new ClockHttpClient('http:');
+      for (let i = 0; i < 3; i += 1) {
+        await client.request(
+          { ...credentials, host },
+          { api: 'pms_api', method: 'GET', path: '/x', query: { secret: 'guest@example.com' } },
+        );
+      }
+      client.flushCallSummary();
+      expect(log).toHaveBeenCalledTimes(1);
+      const line = log.mock.calls[0]![0] as string;
+      expect(line).toBe('Clock calls in the last minute: 3 (connection 172528/16307)');
+      expect(line).not.toContain('guest@example.com');
+      expect(line).not.toContain(credentials.apiKey);
+      log.mockClear();
+      client.flushCallSummary();
+      expect(log).not.toHaveBeenCalled();
+    });
   });
 });
 
