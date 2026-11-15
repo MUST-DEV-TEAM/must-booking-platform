@@ -104,6 +104,12 @@ Tasks 1 to 4 are the "now" group: each is a case where money or a promise goes w
   2. Clock hotels: refuse a quote above the chosen rate's own `max_adults` / `max_children` when Clock states them, before the guest reaches payment. Check first whether the quote already gets this refusal from Clock's pricing answer; if it does, only the missing-occupancy default (line 628) and the multi-room path need fixing.
   3. A rate with no limit in Clock: keep the hotel's "max guests" setting as the only upper bound. The limit itself is set by the hotel on the rate in Clock. Not verified: whether Luxury's website rates carry limits (its saved values of 2 and 4 suggest they do not).
   4. Hotels without Clock: `max_occupancy` is enforced as today.
+- **Plan agreed 2026-11-16 (owner: do it by industry standard).** Capacity belongs to the room type, a rate may only be stricter, and MUST holds the room type's capacity because Clock does not. In order:
+  - **4a. Multi-room occupancy.** Point 1 above. Independent of the rest; goes first.
+  - **4b. Capacity the hotel can edit and confirm.** Unlock the capacity field for Clock hotels. Add `room_types.capacity_confirmed_at` (nullable; additive migration). Show a suggested value next to the field: the largest rate limit from Clock when there is one, otherwise the most guests sold in that room type in the last 12 months. Saving the field sets the confirmation. The rates job stops overwriting a confirmed value.
+  - **4c. Enforce.** A quote is refused when the guests exceed the rate's limit from Clock, or the room type's capacity when it is confirmed. An unconfirmed room type is not enforced, so nothing changes for a hotel until it has checked its numbers. Hotels without Clock: enforced as today.
+  - **4d. Per hotel, read-only, before telling a hotel it is on:** the count of last-12-months bookings above each confirmed capacity is zero, or each case is explained.
+  - The dashboard shows the room types still unconfirmed, so the list shrinks to nothing.
 
 ### Task 5. A booking's version changes only when the booking does; requests can be approved
 
