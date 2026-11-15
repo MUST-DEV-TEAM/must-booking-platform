@@ -1,4 +1,4 @@
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, OnApplicationShutdown } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
 
 export interface TenantDatabaseContext {
@@ -15,7 +15,7 @@ export type TenantTransaction = Prisma.TransactionClient;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 @Injectable()
-export class TenantDatabaseService extends PrismaClient implements OnModuleDestroy {
+export class TenantDatabaseService extends PrismaClient implements OnApplicationShutdown {
   async withTenantTransaction<T>(
     context: TenantDatabaseContext,
     operation: (transaction: TenantTransaction) => Promise<T>,
@@ -157,7 +157,8 @@ export class TenantDatabaseService extends PrismaClient implements OnModuleDestr
     });
   }
 
-  async onModuleDestroy(): Promise<void> {
+  /** Runs after every onModuleDestroy has finished, so workers and syncs can still use the database while they stop. */
+  async onApplicationShutdown(): Promise<void> {
     await this.$disconnect();
   }
 

@@ -55,6 +55,8 @@ services:
       context: ../..
       dockerfile: infrastructure/containers/api.Dockerfile
     restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
     depends_on:
       postgres:
         condition: service_healthy

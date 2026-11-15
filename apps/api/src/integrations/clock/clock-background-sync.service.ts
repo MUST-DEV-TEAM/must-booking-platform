@@ -68,6 +68,7 @@ type Job = {
 const monthOf = (date: Date) => date.toISOString().slice(0, 7);
 const enabled = () => process.env.CLOCK_BACKGROUND_SYNC_ENABLED === 'true';
 export const ENSURE_INTERVAL_MS = 60_000;
+export const TICK_SHUTDOWN_WAIT_MS = 20_000;
 /** Durable local projections only. Provider commands and financial effects are never executed here. */
 /**
  * What may be logged about a failure: the kind of error, its code and the rule that refused a row. Never the
@@ -97,6 +98,8 @@ const isUnsavableBooking = (error: unknown) =>
 export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy {
   private timer?: ReturnType<typeof setInterval>;
   private busy = false;
+  private stopping = false;
+  private running?: Promise<void>;
   private readonly logger = new Logger(ClockBackgroundSyncService.name);
   constructor(
     @Inject(TenantDatabaseService) private readonly db: TenantDatabaseService,
@@ -116,8 +119,22 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
     this.timer = setInterval(() => void this.tick(), 1000);
     this.timer.unref();
   }
-  onModuleDestroy() {
+  async onModuleDestroy() {
+    this.stopping = true;
     if (this.timer) clearInterval(this.timer);
+    this.timer = undefined;
+    const running = this.running;
+    if (!running) return;
+    // Wait for the tick in progress, but never longer than the container's stop grace period allows.
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const limit = new Promise<void>((resolve) => {
+      timeout = setTimeout(resolve, TICK_SHUTDOWN_WAIT_MS);
+    });
+    try {
+      await Promise.race([running.catch(() => undefined), limit]);
+    } finally {
+      clearTimeout(timeout);
+    }
     this.timer = undefined;
   }
   private allowed(propertyId: string) {
@@ -268,8 +285,13 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
     );
     return { queued: true };
   }
-  async tick() {
-    if (this.busy || !enabled()) return;
+  tick(): Promise<void> {
+    if (this.busy || this.stopping || !enabled()) return Promise.resolve();
+    const running = this.runTick();
+    this.running = running;
+    return running;
+  }
+  private async runTick() {
     this.busy = true;
     let worked = false;
     try {
@@ -306,7 +328,7 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
       this.busy = false;
     }
     // Work was done: look for the next step now instead of waiting for the next one-second beat.
-    if (worked && this.timer) setImmediate(() => void this.tick());
+    if (worked && this.timer && !this.stopping) setImmediate(() => void this.tick());
   }
   /**
    * Records a failed job run. A bill whose currencies disagree is a data problem retrying cannot fix, so it

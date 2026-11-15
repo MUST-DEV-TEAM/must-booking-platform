@@ -67,6 +67,9 @@ async function bootstrap(): Promise<void> {
   // stricter application/json-only content-type matching.
   app.use('/clock-webhooks', parseAnyContentTypeAsJson);
 
+  // Without this, SIGTERM skips every onModuleDestroy and running jobs are cut off.
+  app.enableShutdownHooks();
+
   await app.listen(configService.getOrThrow<number>('APP_PORT'));
 }
 
