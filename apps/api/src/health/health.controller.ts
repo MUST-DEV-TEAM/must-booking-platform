@@ -53,7 +53,8 @@ export class HealthController implements OnModuleDestroy {
 
   private async pingRedis(): Promise<unknown> {
     if (!this.redis) {
-      this.redis = createClient({ url: process.env.REDIS_URL });
+      // No offline queue: while Redis is down a PING fails at once instead of piling up.
+      this.redis = createClient({ url: process.env.REDIS_URL, disableOfflineQueue: true });
       // Without a listener a connection error would crash the process.
       this.redis.on('error', () => undefined);
     }

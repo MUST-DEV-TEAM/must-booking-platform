@@ -120,7 +120,8 @@ finish() {
     else
       docker compose -f compose.homelab.yaml --env-file .env up -d --no-build api web
     fi
-    if healthy; then
+    # The previous release may be older than the readiness path: fall back to the liveness path for it.
+    if healthy || HEALTH_URL="${HEALTH_URL%/ready}" healthy; then
       echo "Rolled back to ${PREVIOUS_TAG:-the previous local images}; the site is healthy." >&2
     else
       echo "Rollback is not healthy either. Check the server now." >&2
