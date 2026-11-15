@@ -317,8 +317,9 @@ describe('Clock booking hydration', () => {
 
   it('raises the booking version only when something that matters changed', async () => {
     const hydration = app!.get(ClockBookingHydrationService);
-    const id = '38144020';
-    const base = { id: 38144020, number: '380' };
+    // Its own reservation: later tests reuse 38144020 and must find it untouched.
+    const id = '38144777';
+    const base = { id: 38144777, number: '777' };
     const versionOf = async () =>
       (
         await admin.$queryRaw<
