@@ -314,10 +314,14 @@ export class ClockBookingHydrationService {
         // Never assume a currency: a total in an unknown currency is worse than a booking waiting for review.
         const billedIn = billedCurrency(detail.total_booking_value);
         if (!billedIn) {
-          // A cancelled or zero-value reservation MUST never held has nothing for a person to do:
-          // there is no booking to protect and no amount to check. Only a held or live one is raised.
+          // Nothing for a person to do in two cases: a cancelled or zero-value reservation MUST never
+          // held (no booking to protect, no amount to check), and a reservation that is cancelled on both
+          // sides already (743 open items at Empire were of this kind, 2026-11-16). Anything live is raised.
           const cents = detail.total_booking_value?.cents;
-          if (!existing && (mappedStatus === 'CANCELLED' || !cents)) {
+          const neverHeld = !existing && (mappedStatus === 'CANCELLED' || !cents);
+          const cancelledOnBothSides =
+            existing?.status === 'CANCELLED' && mappedStatus === 'CANCELLED';
+          if (neverHeld || cancelledOnBothSides) {
             if (ownership) await this.finalizeOwnedEvent(tx, tenantId, ownership, 'IGNORED');
             return { outcome: 'unknown_status' };
           }

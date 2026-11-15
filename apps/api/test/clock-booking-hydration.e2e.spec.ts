@@ -720,6 +720,25 @@ describe('Clock booking hydration', () => {
     expect(await currencyReviews('38145001')).toHaveLength(0);
   });
 
+  it('raises no review item when a reservation cancelled on both sides comes back with no valid currency', async () => {
+    const hydration = app!.get(ClockBookingHydrationService);
+    const cancelled = { id: 38145004, number: '384', status: 'canceled' };
+    queuedResponses = [{ status: 200, body: realBookingDetail(cancelled) }];
+    await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38145004');
+    expect(await bookingState('38145004')).toMatchObject({ status: 'CANCELLED' });
+
+    queuedResponses = [
+      {
+        status: 200,
+        body: realBookingDetail({ ...cancelled, total_booking_value: { cents: 0, currency: '' } }),
+      },
+    ];
+    await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38145004');
+
+    expect(await bookingState('38145004')).toMatchObject({ status: 'CANCELLED' });
+    expect(await currencyReviews('38145004')).toHaveLength(0);
+  });
+
   it('still raises a review item for a new live reservation with a real amount and no valid currency', async () => {
     const hydration = app!.get(ClockBookingHydrationService);
     queuedResponses = [
