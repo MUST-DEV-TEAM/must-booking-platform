@@ -39,4 +39,13 @@ describe('the reason saved on a failed webhook event', () => {
   it('handles a value that is not an error', () => {
     expect(failureReason('boom')).toBe('unknown error');
   });
+  it('drops a value the database quotes from the failing row', () => {
+    const reason = failureReason(
+      new Error(
+        'duplicate key value violates a rule. Key (guest_name)=(Ada Lovelace) already exists.',
+      ),
+    );
+    expect(reason).toContain('Key (guest_name)=([value])');
+    expect(reason).not.toContain('Lovelace');
+  });
 });

@@ -38,6 +38,8 @@ export const failureReason = (error: unknown): string => {
       .split(/\r?\n/, 1)[0]
       ?.replace(/[^\s@]+@[^\s@]+\.[^\s@]+/g, '[email]')
       .replace(/(https?:\/\/[^\s?#]*)[?#]\S*/gi, '$1')
+      // A database message can quote a row's values as `Key (column)=(value)`: keep the column, drop the value.
+      .replace(/=\([^)]*\)/g, '=([value])')
       .replace(/\d{6,}/g, '[number]')
       .trim() ?? '';
   const reason = firstLine && !head.includes(firstLine) ? `${head}: ${firstLine}` : head;
