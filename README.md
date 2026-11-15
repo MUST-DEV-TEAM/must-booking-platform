@@ -6,14 +6,14 @@ Production runs at [booking.must.al](https://booking.must.al).
 
 ## What it does
 
-| Area | What is there |
-| --- | --- |
-| Guest booking | Live prices and availability, single and multi-room bookings, a "manage my booking" page, cancellation by the hotel's own rules |
-| Payments | Card payments through PokPay and Stripe on each hotel's own account, pay at hotel, manual settlement, full and partial refunds |
-| Staff dashboard | Bookings, calendar, payments, guests, staff and roles, reports, settings, email templates |
-| Clock PMS+ | Rooms and rates from Clock, live pricing, bookings created in Clock, webhooks, payments and refunds posted to the guest's bill |
-| Hotel websites | A WordPress plugin, and a public guest API for sites built with Astro |
-| Platform administration | A separate console for MUST staff: hotels, plans, support, health |
+| Area                    | What is there                                                                                                                   |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Guest booking           | Live prices and availability, single and multi-room bookings, a "manage my booking" page, cancellation by the hotel's own rules |
+| Payments                | Card payments through PokPay and Stripe on each hotel's own account, pay at hotel, manual settlement, full and partial refunds  |
+| Staff dashboard         | Bookings, calendar, payments, guests, staff and roles, reports, settings, email templates                                       |
+| Clock PMS+              | Rooms and rates from Clock, live pricing, bookings created in Clock, webhooks, payments and refunds posted to the guest's bill  |
+| Hotel websites          | A WordPress plugin, and a public guest API for sites built with Astro                                                           |
+| Platform administration | A separate console for MUST staff: hotels, plans, support, health                                                               |
 
 Some areas are partial or planned (restaurant reservations, paid platform subscriptions, a direct channel manager). The [product overview](docs/product-overview.md) lists each area with its real state.
 
@@ -29,15 +29,15 @@ The [documentation](docs/README.md) has the architecture, the decisions behind i
 
 ## Repository layout
 
-| Path | Contents |
-| --- | --- |
-| `apps/api` | The API, the database schema and migrations, background workers |
-| `apps/web` | The staff dashboard and the platform console |
-| `apps/wordpress-plugin` | The guest booking plugin for WordPress sites |
-| `apps/restaurant-demo` | A demo Astro site |
-| `packages/` | Shared types, domain contracts and UI components |
-| `infrastructure/containers` | Docker Compose files and the deploy scripts |
-| `docs/` | Architecture, decisions, integrations, operations, roadmap, reviews |
+| Path                        | Contents                                                            |
+| --------------------------- | ------------------------------------------------------------------- |
+| `apps/api`                  | The API, the database schema and migrations, background workers     |
+| `apps/web`                  | The staff dashboard and the platform console                        |
+| `apps/wordpress-plugin`     | The guest booking plugin for WordPress sites                        |
+| `apps/restaurant-demo`      | A demo Astro site                                                   |
+| `packages/`                 | Shared types, domain contracts and UI components                    |
+| `infrastructure/containers` | Docker Compose files and the deploy scripts                         |
+| `docs/`                     | Architecture, decisions, integrations, operations, roadmap, reviews |
 
 ## Run it locally
 
