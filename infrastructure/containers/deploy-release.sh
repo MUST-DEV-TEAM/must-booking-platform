@@ -15,7 +15,7 @@ REPO_ROOT="$(cd ../.. && pwd)"
 SHA="${1:-}"
 REGISTRY_USER="${2:-must-deploy}"
 STATE_FILE="$PWD/.deployed-release"
-HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:4011/api/health}"
+HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:4011/api/health/ready}"
 # In the deploy user's own home: /var/backups/must-booking is root-only (the backup script uses umask 077).
 PRE_DEPLOY_BACKUP_DIR="${PRE_DEPLOY_BACKUP_DIR:-$HOME/pre-deploy-backups}"
 
