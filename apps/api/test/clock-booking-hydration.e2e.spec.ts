@@ -691,6 +691,78 @@ describe('Clock booking hydration', () => {
     expect(rows[0].ages).toEqual([2]);
   });
 
+  async function currencyReviews(clockBookingId: string) {
+    return admin.$queryRaw<Array<{ status: string; resolution: string | null }>>`
+      SELECT status::text AS status, context->>'resolution' AS resolution FROM manual_review_items
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND category = 'UNKNOWN_RESULT'::"ManualReviewCategory"
+        AND reference_type = 'clock_booking' AND reference_id = ${clockBookingId}
+    `;
+  }
+
+  it('raises no review item for a new cancelled reservation with no valid currency', async () => {
+    const hydration = app!.get(ClockBookingHydrationService);
+    queuedResponses = [
+      {
+        status: 200,
+        body: realBookingDetail({
+          id: 38145001,
+          number: '380',
+          status: 'canceled',
+          total_booking_value: { cents: 45000, currency: '' },
+        }),
+      },
+    ];
+    const outcome = await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38145001');
+
+    expect(outcome.outcome).toBe('unknown_status');
+    expect(await bookingState('38145001')).toBeUndefined();
+    expect(await currencyReviews('38145001')).toHaveLength(0);
+  });
+
+  it('still raises a review item for a new live reservation with a real amount and no valid currency', async () => {
+    const hydration = app!.get(ClockBookingHydrationService);
+    queuedResponses = [
+      {
+        status: 200,
+        body: realBookingDetail({
+          id: 38145002,
+          number: '381',
+          total_booking_value: { cents: 45000, currency: '' },
+        }),
+      },
+    ];
+    const outcome = await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38145002');
+
+    expect(outcome.outcome).toBe('unknown_status');
+    expect(await bookingState('38145002')).toBeUndefined();
+    expect(await currencyReviews('38145002')).toEqual([{ status: 'OPEN', resolution: null }]);
+  });
+
+  it('closes the currency review item when the booking imports on a later sync', async () => {
+    const hydration = app!.get(ClockBookingHydrationService);
+    queuedResponses = [
+      {
+        status: 200,
+        body: realBookingDetail({
+          id: 38145003,
+          number: '382',
+          total_booking_value: { cents: 45000, currency: '' },
+        }),
+      },
+    ];
+    await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38145003');
+    expect(await currencyReviews('38145003')).toEqual([{ status: 'OPEN', resolution: null }]);
+
+    queuedResponses = [{ status: 200, body: realBookingDetail({ id: 38145003, number: '382' }) }];
+    const outcome = await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38145003');
+
+    expect(outcome.outcome).toBe('created');
+    expect(await currencyReviews('38145003')).toEqual([
+      { status: 'RESOLVED', resolution: 'The booking imported successfully on a later sync.' },
+    ]);
+  });
+
   it('does not overwrite a cancellation committed while the remote read was in flight', async () => {
     const hydration = app!.get(ClockBookingHydrationService);
     const detail = realBookingDetail({
