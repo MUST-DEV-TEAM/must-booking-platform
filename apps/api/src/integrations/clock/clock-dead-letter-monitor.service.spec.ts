@@ -16,7 +16,9 @@ function setup(options: { told?: number; sent?: boolean } = {}) {
   };
   const queues = { deadLetterStats: vi.fn() };
   const alerts = {
-    sendPlatformNotice: vi.fn(async (_event: unknown, _key: string) => options.sent ?? true),
+    sendPlatformNotice: vi.fn<(event: unknown, key: string) => Promise<boolean>>(
+      async () => options.sent ?? true,
+    ),
   };
   const service = new ClockDeadLetterMonitorService(queues as never, alerts as never);
   (service as unknown as { redis: unknown }).redis = redis;
