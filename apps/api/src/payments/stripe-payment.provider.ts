@@ -1,3 +1,4 @@
+import { isStripeTestKey } from '../integrations/connection-mode';
 import { Inject, Injectable } from '@nestjs/common';
 import {
   type CheckoutSession,
@@ -42,10 +43,10 @@ export class StripePaymentProvider implements PaymentProvider {
     const configured = await this.tenantConnection(context);
     if (!configured.ok) return configured;
     const { secretKey, connectionId } = configured.value;
-    if (!secretKey.startsWith('sk_test_')) {
+    if (!isStripeTestKey(secretKey)) {
       return this.failure(
         'STRIPE_TEST_MODE_REQUIRED',
-        'Only a Stripe test-mode secret key may be used at this stage.',
+        'Only a Stripe test-mode key (sk_test_ or rk_test_) may be used at this stage.',
       );
     }
 
@@ -161,10 +162,10 @@ export class StripePaymentProvider implements PaymentProvider {
     const configured = await this.tenantConnection(context, command.paymentId);
     if (!configured.ok) return configured;
     const secretKey = configured.value.secretKey;
-    if (!secretKey.startsWith('sk_test_')) {
+    if (!isStripeTestKey(secretKey)) {
       return this.failure(
         'STRIPE_TEST_MODE_REQUIRED',
-        'Only a Stripe test-mode secret key may be used at this stage.',
+        'Only a Stripe test-mode key (sk_test_ or rk_test_) may be used at this stage.',
       );
     }
 

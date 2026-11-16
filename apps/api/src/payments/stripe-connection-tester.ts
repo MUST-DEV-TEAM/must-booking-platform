@@ -1,6 +1,7 @@
 import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
 import Stripe from 'stripe';
 
+import { isStripeTestKey } from '../integrations/connection-mode';
 import { ConnectionTestRegistry, type ConnectionTester } from '../integrations/connection-tester';
 
 /** Registers itself with ConnectionTestRegistry on boot so the tenant-facing
@@ -19,10 +20,10 @@ export class StripeConnectionTester implements ConnectionTester, OnModuleInit {
   async test(credentials: Record<string, string>): Promise<{ ok: boolean; message: string }> {
     const secretKey = credentials.secretKey?.trim();
     if (!secretKey) return { ok: false, message: 'secretKey is required.' };
-    if (!secretKey.startsWith('sk_test_'))
+    if (!isStripeTestKey(secretKey))
       return {
         ok: false,
-        message: 'Only a Stripe test-mode secret key may be used at this stage.',
+        message: 'Only a Stripe test-mode key (sk_test_ or rk_test_) may be used at this stage.',
       };
 
     try {
