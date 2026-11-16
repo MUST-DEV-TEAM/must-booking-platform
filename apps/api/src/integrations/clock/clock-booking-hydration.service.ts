@@ -314,6 +314,17 @@ export class ClockBookingHydrationService {
         // Never assume a currency: a total in an unknown currency is worse than a booking waiting for review.
         const billedIn = billedCurrency(detail.total_booking_value);
         if (!billedIn) {
+          // Nothing for a person to do in two cases: a cancelled or zero-value reservation MUST never
+          // held (no booking to protect, no amount to check), and a reservation that is cancelled on both
+          // sides already (743 open items at Empire were of this kind, 2026-11-16). Anything live is raised.
+          const cents = detail.total_booking_value?.cents;
+          const neverHeld = !existing && (mappedStatus === 'CANCELLED' || !cents);
+          const cancelledOnBothSides =
+            existing?.status === 'CANCELLED' && mappedStatus === 'CANCELLED';
+          if (neverHeld || cancelledOnBothSides) {
+            if (ownership) await this.finalizeOwnedEvent(tx, tenantId, ownership, 'IGNORED');
+            return { outcome: 'unknown_status' };
+          }
           await this.manualReview.recordInTransaction(tx, {
             tenantId,
             propertyId,
@@ -438,6 +449,8 @@ export class ClockBookingHydrationService {
         );
 
         const row = rows[0]!;
+        // The import worked, so an earlier "no valid currency" note for this reservation no longer applies.
+        await tx.$executeRaw`UPDATE manual_review_items SET status='RESOLVED',resolved_at=now(),updated_at=now(),context=COALESCE(context,'{}'::jsonb)||'{"resolution":"The booking imported successfully on a later sync."}'::jsonb WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND category='UNKNOWN_RESULT' AND reference_type='clock_booking' AND reference_id=${String(detail.id)} AND status='OPEN'`;
         if (ownership) await this.finalizeOwnedEvent(tx, tenantId, ownership, 'HYDRATED');
         const changed =
           existing !== undefined &&
@@ -543,7 +556,7 @@ export class ClockBookingHydrationService {
     tx: TenantTransaction,
     tenantId: string,
     ownership: EventOwnership,
-    status: 'HYDRATED' | 'FAILED',
+    status: 'HYDRATED' | 'FAILED' | 'IGNORED',
   ): Promise<void> {
     const [sql, params] = guardedTransitionSql({
       tenantId,
