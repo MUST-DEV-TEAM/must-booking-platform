@@ -42,7 +42,7 @@ The order is by risk removed per unit of work, then by dependency. A slice can s
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 39-1 | Stop the API cleanly on deploy **Merged 2026-11-15, #487.** | M39 task 1 | `fix/m39-clean-shutdown` | `apps/api/src/main.ts`, worker `onModuleDestroy` methods, `infrastructure/containers/compose.homelab.yaml` | A spec that a worker's `onModuleDestroy` awaits `close()`; `docker stop` on the local stack | - | Fable (list the workers and timers first) | Fable |
 | 39-3 | Readiness check for Postgres and Redis; the deploy gate uses it **Merged 2026-11-15, #490.** | M39 task 3 | `feat/m39-readiness-check` | `apps/api/src/health/health.controller.ts`, `infrastructure/containers/deploy-release.sh`, the compose file, `.github/workflows/uptime.yml` | Controller spec: 200 when both answer, 503 naming the failed part; the deploy script test | 39-1 | Standard | Fable |
-| 39-9 | Redis keeps its data through a crash **Live `CONFIG SET` done 2026-11-15; #496 open.** | M39 task 9 | `ops/m39-redis-appendonly` | `infrastructure/containers/compose.homelab.yaml` | None in code; the live order in the task | Owner's go for the live `CONFIG SET` | Standard | Fable |
+| 39-9 | Redis keeps its data through a crash **Live `CONFIG SET` done 2026-11-15; merged 2026-11-16, #496.** | M39 task 9 | `ops/m39-redis-appendonly` | `infrastructure/containers/compose.homelab.yaml` | None in code; the live order in the task | Owner's go for the live `CONFIG SET` | Standard | Fable |
 | 39-4 | Quieter logs **Merged 2026-11-15, #488.** | M39 task 4 | `chore/m39-quieter-logs` | `apps/api/src/integrations/clock/clock-http-client.ts`, the request logger | Spec: a GET logs at debug, a failed call still logs at its level | - | Standard | Routine |
 
 ### Group B. Money or a promise goes wrong today (Milestone 40)
@@ -63,12 +63,12 @@ The order is by risk removed per unit of work, then by dependency. A slice can s
 
 | Slice | What | Milestone task | Branch | Likely files | Test | Needs | Brief | Review |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 39-2 | A password reset or change ends the other sessions **#493 open.** | M39 task 2 | `fix/m39-revoke-sessions-on-password-change` | `apps/api/src/auth/auth.service.ts`, the session store | The three tests in the task | - | Fable (decide backfill or next sign-in, state it) | Fable |
+| 39-2 | A password reset or change ends the other sessions **Merged 2026-11-16, #493.** | M39 task 2 | `fix/m39-revoke-sessions-on-password-change` | `apps/api/src/auth/auth.service.ts`, the session store | The three tests in the task | - | Fable (decide backfill or next sign-in, state it) | Fable |
 | 39-6a | No review item for a cancelled or zero-total import; auto-close when the condition clears **Merged 2026-11-16, #498.** | M39 task 6, step 1, first and third points | `fix/m39-review-items-actionable-only` | `apps/api/src/integrations/manual-review.service.ts`, the callers that raise the currency item | Specs for each rule | - | Fable | Fable |
 | 39-6b | `dedupe_key` column; raising an open item's key updates it **Merged 2026-11-16, #501 (key also carries `operationKey`).** | M39 task 6, step 1, second point | `feat/m39-review-item-dedupe-key` | `apps/api/prisma/schema.prisma`, a migration, `manual-review.service.ts`, the `FINANCIAL_SYNC_BLOCKED` note from #475 | Spec: same key twice, one row with a count of 2 | 39-6a | Fable | Fable |
-| 39-7a | Failed webhook events keep a reason; pool and transaction-start timeouts retry **#495 open.** | M39 task 7, step 1 | `fix/m39-webhook-failure-reason` | `apps/api/prisma/schema.prisma`, a migration, the Clock webhook worker, `clock-provider-event-status.ts` | The injected transaction-start error test in the task | - | Fable | Fable |
+| 39-7a | Failed webhook events keep a reason; pool and transaction-start timeouts retry **Merged 2026-11-16, #495.** | M39 task 7, step 1 | `fix/m39-webhook-failure-reason` | `apps/api/prisma/schema.prisma`, a migration, the Clock webhook worker, `clock-provider-event-status.ts` | The injected transaction-start error test in the task | - | Fable | Fable |
 | 39-8a | Dead-letter count and age in the console, one alert, `removeOnFail` age limit **Merged 2026-11-16, #507.** | M39 task 8, step 1 | `feat/m39-dead-letter-visible` | The Clock queue setup, `apps/api/src/platform/console`, the platform alert email | Spec: a forced failure raises one alert | - | Standard | Routine |
-| 40-5a | Hydration raises the booking version only on a real change **#494 open.** | M40 task 5 | `fix/m40-version-only-on-change` | `apps/api/src/integrations/clock/clock-booking-hydration.service.ts` | Spec: an echo webhook with the same data leaves the version; a date change raises it | - | Fable | Fable |
+| 40-5a | Hydration raises the booking version only on a real change **Merged 2026-11-16, #494.** | M40 task 5 | `fix/m40-version-only-on-change` | `apps/api/src/integrations/clock/clock-booking-hydration.service.ts` | Spec: an echo webhook with the same data leaves the version; a date change raises it | - | Fable | Fable |
 | 40-5b | Approval compares dates, total and payments; the guest gets a "request received" email | M40 task 5 | `fix/m40-approve-cancellation-requests` | `apps/api/src/booking/local-pms.provider.ts` (lines 1285 to 1300), the request approval service, a mail template | Spec: approve a request whose version moved but whose data did not | 40-5a | Fable | Fable |
 | 40-8 | One receipt per payment **Closed 2026-11-15, no change needed: see the task.** | M40 task 8 | `fix/m40-one-receipt-per-payment` | `apps/api/src/mail/payment-notification.service.ts` | Spec: two triggers for one payment, one email queued | - | Standard | Routine |
 | 40-7a | "Booking created" notice on confirmation, none for an unpaid attempt or its expiry **Merged 2026-11-16 (single-room and Clock paths; multi-room orders never had the notice).** | M40 task 7, D4 | `fix/m40-notify-on-confirmation` | `apps/api/src/tenancy/notifications.service.ts`, the booking create and confirm paths | Spec: an expired unpaid attempt sends staff nothing | - | Standard | Routine |
@@ -80,8 +80,8 @@ Each pair is two releases. The second changes live rows or Redis contents and wa
 
 | Slice | What | Milestone task | Branch | Needs | Review |
 | --- | --- | --- | --- | --- | --- |
-| 39-6c | Count per hotel what the clean-up would close, and why **Script `infrastructure/ops/review-queue-count.sql`; first numbers 2026-11-16, owner review pending.** | M39 task 6, step 2 | `chore/m39-review-queue-count` | 39-6b | Routine |
-| 39-6d | Resolve those rows (Must Hotel first), then the partial unique index **Rows resolved live 2026-11-16 (Must Hotel 6, Empire 773, Luxury 0; Empire 23 and Luxury 32 stay open); index migration in the pull request.** | M39 task 6, step 3 | `fix/m39-review-queue-cleanup` | 39-6c reviewed by the owner | Fable |
+| 39-6c | Count per hotel what the clean-up would close, and why **Merged 2026-11-16, #502; the owner approved the numbers.** | M39 task 6, step 2 | `chore/m39-review-queue-count` | 39-6b | Routine |
+| 39-6d | Resolve those rows (Must Hotel first), then the partial unique index **Merged 2026-11-16, #503; rows resolved live (Must Hotel 6, Empire 773, Luxury 0; Empire 23 and Luxury 32 stay open); the unique index is live.** | M39 task 6, step 3 | `fix/m39-review-queue-cleanup` | 39-6c reviewed by the owner | Fable |
 | 39-7b | Count failed events by type and age, and whether the booking already matches Clock | M39 task 7, step 2 | `chore/m39-failed-events-count` | 39-7a | Routine |
 | 39-7c | Give old, consistent failures a final state | M39 task 7, step 3 | `fix/m39-failed-events-final-state` | 39-7b reviewed by the owner | Fable |
 | 39-8b | Log dead-letter jobs by name and month | M39 task 8, step 2 | `chore/m39-dead-letter-count` | 39-8a | Routine |
@@ -120,6 +120,10 @@ Waiting on people, no slice: M39 task 12 (Luxury mappings and webhooks: hotel st
 - **CI:** `apps/web/app/dashboard/reports.test.tsx` failed 4 runs on 2026-11-15 ("The requested date field did not open its calendar"). #491 makes the helper click again; not reproduced locally, so if it returns, log the trigger's `aria-expanded` at the failure.
 - **Deploys:** the pipeline deploys only the newest commit of `main`; a failed CI run on `main` skips the deploy until it is re-run.
 - **Off-site backup:** fails at every deploy since 2026-11-13 (noted on issue #370). The local pre-deploy dump still works.
+
+## Progress (2026-11-16, evening)
+
+Of the 39 slices in groups A to D and F: **18 done** (A 4 of 4, B 4 of 9, C 8 of 10, D 2 of 6, F 0 of 10; one of them, 40-8, was closed because no change was needed), **2 deferred** (40-1b, 40-1c) and **19 open**. Open: 40-3b, 40-3c, 40-4 (Group B); 40-5b, 40-7b (C); 39-7b, 39-7c, 39-8b, 39-8c (D, each waits for an owner review of counts before the change); the ten gated or small slices of group F. Not yet sliced: the five design items of group E, Milestone 38's open tasks and Milestone 41. Gaps found along the way are in [the gaps log](../audit/hardening-gaps-log.md).
 
 ## 4. Keeping this file true
 
