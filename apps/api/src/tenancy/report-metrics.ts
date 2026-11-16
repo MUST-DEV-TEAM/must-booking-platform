@@ -170,6 +170,15 @@ export const REPORT_METRICS: readonly MetricDefinition[] = [
     'One currency per figure; negative net is valid.',
   ),
   definition(
+    'testNetCollected',
+    'Test payments (not real money)',
+    'Collected − refunded through provider test accounts',
+    'Property-local ledger posting date',
+    true,
+    'payments.is_test with the successful payment/refund ledger',
+    'Left out of Collected, Refunded and Net collected; shown only when there are test payments.',
+  ),
+  definition(
     'outstanding',
     'Outstanding',
     'What stays that have started still owe: Clock’s own balance where Clock holds the bill, otherwise max(Booking gross − matching-currency net collected, 0)',

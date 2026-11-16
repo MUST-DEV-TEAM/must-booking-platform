@@ -9,6 +9,7 @@ import { ArrowLeft, CircleDot, Landmark, Undo2 } from 'lucide-react';
 import { useState } from 'react';
 import { ActivityFeed, type ActivityEntry } from '../../components/ui/activity-feed';
 import { Badge } from '../../components/ui/badge';
+import { PaymentModeBadge } from '../../components/ui/payment-mode-badge';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { DetailHeader } from '../../components/ui/detail-header';
@@ -47,6 +48,8 @@ export type LedgerEntry = {
   fxRate?: string | null;
   fxRateDate?: string | null;
   note: string | null;
+  /** Taken or returned through a provider test account: not real money. */
+  isTest?: boolean;
   createdAt: string;
   actorEmail: string | null;
 };
@@ -412,7 +415,10 @@ export function PaymentDetail({
                     {formatTime(entry.createdAt)}
                   </TableCell>
                   <TableCell className="px-2 py-2">
-                    {entry.kind === 'REFUND' ? 'Refund' : 'Payment'}
+                    <span className="inline-flex items-center gap-1.5">
+                      {entry.kind === 'REFUND' ? 'Refund' : 'Payment'}
+                      {entry.isTest ? <PaymentModeBadge mode="TEST" /> : null}
+                    </span>
                   </TableCell>
                   <TableCell className="px-2 py-2 text-right font-semibold whitespace-nowrap">
                     {entry.kind === 'REFUND' ? '' : '+'}

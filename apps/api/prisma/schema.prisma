@@ -1005,6 +1005,8 @@ model Payment {
   /// database for a payment in another currency than its booking; absent for older payments.
   fxRateToBooking   Decimal?    @map("fx_rate_to_booking") @db.Decimal(20, 8)
   fxRateDate        DateTime?   @map("fx_rate_date") @db.Date
+  /// Taken through a provider test account (ADR-0041). Set by the database from the order's connection.
+  isTest            Boolean     @default(false) @map("is_test")
   createdAt         DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
   property          Property    @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
   booking           Booking     @relation(fields: [tenantId, propertyId, bookingId], references: [tenantId, propertyId, id], onDelete: Restrict)
@@ -1134,6 +1136,8 @@ model IntegrationConnection {
   name                  String                      @db.VarChar(200)
   encryptedCredentials  String                      @map("encrypted_credentials") @db.Text
   status                IntegrationConnectionStatus @default(PENDING)
+  /// TEST or LIVE for a payment connection: a copy of what its own keys say (ADR-0041); null for a PMS one.
+  mode                  String?                     @db.VarChar(4)
   lastTestedAt          DateTime?                   @map("last_tested_at") @db.Timestamptz(6)
   lastTestResult        String?                     @map("last_test_result") @db.VarChar(500)
   // Set on every real, signature-verified SNS message (any envelope Type â€”

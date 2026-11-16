@@ -18,6 +18,8 @@ export type PaymentLedgerEntry = {
   fxRate: string | null;
   fxRateDate: string | null;
   note: string | null;
+  /** Taken or returned through a provider test account: not real money (ADR-0041). */
+  isTest: boolean;
   createdAt: string;
   /** Who recorded it, when an audit entry ties the payment to a staff user. */
   actorEmail: string | null;
@@ -88,7 +90,7 @@ export class PaymentLedgerService {
         SELECT p.id, p.kind::text AS kind, p.provider, p.method,
           p.external_payment_id AS "externalPaymentId", p.status, p.amount::text AS amount,
           p.currency, p.fx_rate_to_booking::text AS "fxRate", p.fx_rate_date::text AS "fxRateDate",
-          p.note, p.created_at AS "createdAt"
+          p.note, p.is_test AS "isTest", p.created_at AS "createdAt"
         FROM payments p
         WHERE p.booking_id = ${bookingId}::uuid AND p.tenant_id = ${context.tenantId}::uuid
           AND p.property_id = ${context.propertyId}::uuid

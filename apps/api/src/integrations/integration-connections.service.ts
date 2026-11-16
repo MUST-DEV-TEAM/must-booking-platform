@@ -1,4 +1,11 @@
-import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  Logger,
+  type OnApplicationBootstrap,
+} from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 
 import { AuditLogService } from '../tenancy/audit-log.service';
@@ -58,13 +65,51 @@ const SUMMARY_SOURCE = `${SUMMARY_COLUMNS}, encrypted_credentials AS "encryptedC
 type ConnectionRow = Omit<ConnectionSummary, 'mode'> & { encryptedCredentials: string };
 
 @Injectable()
-export class IntegrationConnectionsService {
+export class IntegrationConnectionsService implements OnApplicationBootstrap {
+  private readonly logger = new Logger(IntegrationConnectionsService.name);
+
   constructor(
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
     @Inject(AuditLogService) private readonly audit: AuditLogService,
     @Inject(CredentialCipherService) private readonly cipher: CredentialCipherService,
     @Inject(ConnectionTestRegistry) private readonly testers: ConnectionTestRegistry,
   ) {}
+
+  /** Fills in the stored mode of payment connections saved before it existed (once; idempotent). */
+  async onApplicationBootstrap(): Promise<void> {
+    await this.fillMissingModes().catch((error: unknown) =>
+      this.logger.warn(`Payment connection modes could not be filled in: ${String(error)}`),
+    );
+  }
+
+  /**
+   * `integration_connections.mode` is a plain copy of what each payment connection's own keys say
+   * (TEST or LIVE), so the database can mark test payments. Setting it re-marks that connection's
+   * earlier payments (database trigger). Runs per tenant under row-level security.
+   */
+  async fillMissingModes(): Promise<number> {
+    const tenants = await this.database.withPlatformAdminTransaction(
+      { role: 'platform_admin' },
+      (tx) => tx.$queryRaw<Array<{ tenantId: string }>>`SELECT id AS "tenantId" FROM organizations`,
+    );
+    let filled = 0;
+    for (const { tenantId } of tenants)
+      filled += await this.database.withTenantTransaction({ tenantId }, async (tx) => {
+        const rows = await tx.$queryRaw<
+          Array<{ id: string; provider: ConnectionProvider; encrypted: string }>
+        >`SELECT id, provider, encrypted_credentials AS encrypted FROM integration_connections
+          WHERE tenant_id = ${tenantId}::uuid AND kind = 'PAYMENT' AND mode IS NULL`;
+        let count = 0;
+        for (const row of rows) {
+          const mode = this.modeOf(row.provider, row.encrypted);
+          if (!mode) continue;
+          count += await tx.$executeRaw`UPDATE integration_connections SET mode = ${mode}
+            WHERE tenant_id = ${tenantId}::uuid AND id = ${row.id}::uuid AND mode IS NULL`;
+        }
+        return count;
+      });
+    return filled;
+  }
 
   async list(tenantId: string): Promise<ConnectionSummary[]> {
     const rows = await this.database.withTenantTransaction({ tenantId }, (tx) =>
@@ -140,8 +185,8 @@ export class IntegrationConnectionsService {
       }
       const encrypted = this.cipher.encrypt(input.credentials);
       const rows = await tx.$queryRawUnsafe<ConnectionRow[]>(
-        `INSERT INTO integration_connections (id, tenant_id, kind, provider, name, encrypted_credentials)
-         VALUES ($1::uuid, $2::uuid, $3::"IntegrationConnectionKind", $4::"IntegrationProvider", $5, $6)
+        `INSERT INTO integration_connections (id, tenant_id, kind, provider, name, encrypted_credentials, mode)
+         VALUES ($1::uuid, $2::uuid, $3::"IntegrationConnectionKind", $4::"IntegrationProvider", $5, $6, $7)
          RETURNING ${SUMMARY_SOURCE}`,
         id,
         tenantId,
@@ -149,6 +194,7 @@ export class IntegrationConnectionsService {
         input.provider,
         input.name,
         encrypted,
+        input.kind === 'PAYMENT' ? connectionMode(input.provider, input.credentials) : null,
       );
       await this.audit.recordInTransaction(tx, {
         tenantId,

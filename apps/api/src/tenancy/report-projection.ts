@@ -160,14 +160,16 @@ function financial(
   available: number | null,
   snapshots: Map<ReportBooking, ReturnType<typeof nightlySnapshot>>,
 ) {
-  const accrual = accrualMetrics(rows, q.from, q.to, snapshots),
-    cash = cashMetrics(
-      payments.filter(
-        (p) =>
-          (!q.currency || p.currency === q.currency) &&
-          inRange(propertyDay(p.createdAt, f.context.timezone), q),
-      ),
-    );
+  // Test payments (provider test accounts) behave like real ones on each booking, but the money
+  // figures leave them out and show them on their own line (ADR-0041).
+  const inWindow = payments.filter(
+      (p) =>
+        (!q.currency || p.currency === q.currency) &&
+        inRange(propertyDay(p.createdAt, f.context.timezone), q),
+    ),
+    accrual = accrualMetrics(rows, q.from, q.to, snapshots),
+    cash = cashMetrics(inWindow.filter((p) => !p.isTest)),
+    testCash = cashMetrics(inWindow.filter((p) => p.isTest));
   const cohort = rows.filter(
     (b) => inRange(propertyDay(b.createdAt, f.context.timezone), q) && b.status === 'CONFIRMED',
   );
@@ -175,6 +177,7 @@ function financial(
     ...new Set([
       ...accrual.map((r) => r.currency),
       ...cash.map((r) => r.currency),
+      ...testCash.map((r) => r.currency),
       ...cohort.map((b) => b.currency),
     ]),
   ].sort();
@@ -183,7 +186,9 @@ function financial(
       c = cash.find((r) => r.currency === currency);
     const bookings = cohort.filter((b) => b.currency === currency),
       bookingIds = new Set(bookings.map((b) => b.id)),
-      linked = payments.filter((p) => bookingIds.has(p.bookingId) && p.currency === currency);
+      linked = payments.filter(
+        (p) => bookingIds.has(p.bookingId) && p.currency === currency && !p.isTest,
+      );
     const net = cashMetrics(linked)[0]?.netCollected ?? '0.00';
     const gross = sum(bookings.map((b) => b.totalAmount));
     const balances = bookings.map((b) => {
@@ -212,6 +217,7 @@ function financial(
       collected: c?.collected ?? '0.00',
       refunded: c?.refunded ?? '0.00',
       netCollected: c?.netCollected ?? '0.00',
+      testNetCollected: testCash.find((r) => r.currency === currency)?.netCollected ?? null,
       bookingCohortValue: gross,
       cohortNetCollected: net,
       collectionRate: moneyPercent(net, gross),

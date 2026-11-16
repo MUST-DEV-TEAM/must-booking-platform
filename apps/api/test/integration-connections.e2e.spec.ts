@@ -485,5 +485,46 @@ describe('integration connections', () => {
       [liveAccount.id, { provider: 'POKPAY', mode: 'LIVE', switchedFrom: [testAccount.id] }],
     ]);
     expect(JSON.stringify(logs)).not.toContain('private-value');
+
+    // Test payments are marked from the account that took their order, and their refunds follow.
+    await admin.$executeRaw`INSERT INTO payment_provider_sessions(tenant_id,property_id,booking_id,provider,external_payment_id,connection_id) VALUES(${tenantId}::uuid,${propertyId}::uuid,${olderBooking}::uuid,'pokpay','order-test-1',${testAccount.id}::uuid)`;
+    await admin.$executeRaw`INSERT INTO payments(tenant_id,property_id,booking_id,kind,provider,external_payment_id,status,amount,currency) VALUES
+      (${tenantId}::uuid,${propertyId}::uuid,${olderBooking}::uuid,'CHARGE','pokpay','order-test-1','PAID',100,'EUR'),
+      (${tenantId}::uuid,${propertyId}::uuid,${olderBooking}::uuid,'REFUND','pokpay','order-test-1:refund:k1','REFUNDED',40,'EUR'),
+      (${tenantId}::uuid,${propertyId}::uuid,${olderBooking}::uuid,'CHARGE','pokpay','order-older-1','PAID',100,'EUR')`;
+    const marks = async () =>
+      Object.fromEntries(
+        (
+          await admin.$queryRaw<Array<{ id: string; isTest: boolean }>>`
+            SELECT external_payment_id AS id, is_test AS "isTest" FROM payments
+            WHERE tenant_id=${tenantId}::uuid AND provider='pokpay' ORDER BY external_payment_id`
+        ).map((row) => [row.id, row.isTest]),
+      );
+    expect(await marks()).toEqual({
+      'order-live-1': false,
+      'order-older-1': false,
+      'order-test-1': true,
+      'order-test-1:refund:k1': true,
+    });
+
+    // An account saved before modes were stored gets its mode when the API starts, and its earlier
+    // payments are re-marked; so does an older order once its account is found.
+    await admin.$executeRaw`UPDATE integration_connections SET mode=NULL WHERE tenant_id=${tenantId}::uuid AND id=${testAccount.id}::uuid`;
+    await admin.$executeRaw`UPDATE payments SET is_test=false WHERE tenant_id=${tenantId}::uuid AND provider='pokpay'`;
+    await connections.fillMissingModes();
+    await admin.$executeRaw`UPDATE payment_provider_sessions SET connection_id=NULL WHERE tenant_id=${tenantId}::uuid AND external_payment_id='order-older-1'`;
+    await connections.rememberSessionConnection(
+      tenantId,
+      propertyId,
+      'POKPAY',
+      'order-older-1',
+      testAccount.id,
+    );
+    expect(await marks()).toEqual({
+      'order-live-1': false,
+      'order-older-1': true,
+      'order-test-1': true,
+      'order-test-1:refund:k1': true,
+    });
   });
 });
