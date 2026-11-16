@@ -792,37 +792,14 @@ describe('LocalPmsProvider', () => {
           { date: '2027-09-02', amount: '90.00' },
         ]);
       });
-    const createdNotifications = await admin.$queryRaw<Array<{ type: string }>>`
-      SELECT type FROM notifications
-      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
-        AND type = 'BOOKING_CREATED' AND payload->>'bookingId' = ${created.value.id}
-    `;
-    expect(createdNotifications).toEqual([{ type: 'BOOKING_CREATED' }]);
-    const notificationPage = await request(app!.getHttpServer())
-      .get(`${propertyUrl}/notifications?page=1&pageSize=20`)
-      .set('Cookie', cookie)
-      .expect(200);
-    const createdNotification = notificationPage.body.items.find(
-      (item: { type: string; booking: { id?: string } | null }) =>
-        item.type === 'BOOKING_CREATED' && item.booking?.id === created.value.id,
-    );
-    expect(createdNotification).toEqual(expect.objectContaining({ readAt: null }));
-    if (!createdNotification) throw new Error('Expected booking-created notification.');
-    const notificationReadKey = randomUUID();
-    const firstMarkRead = await request(app!.getHttpServer())
-      .patch(`${propertyUrl}/notifications/${createdNotification.id}`)
-      .set('Cookie', cookie)
-      .set('Idempotency-Key', notificationReadKey)
-      .send({ version: notificationPage.body.version })
-      .expect(200);
-    const secondMarkRead = await request(app!.getHttpServer())
-      .patch(`${propertyUrl}/notifications/${createdNotification.id}`)
-      .set('Cookie', cookie)
-      .set('Idempotency-Key', notificationReadKey)
-      .send({ version: notificationPage.body.version })
-      .expect(200);
-    expect(secondMarkRead.body).toEqual(firstMarkRead.body);
-    expect(firstMarkRead.body.updated).toBe(1);
+    // An unpaid attempt tells staff nothing (decision D4): the notice comes with the confirmation.
+    await expect(
+      admin.$queryRaw<Array<{ type: string }>>`
+        SELECT type FROM notifications
+        WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+          AND type = 'BOOKING_CREATED' AND payload->>'bookingId' = ${created.value.id}
+      `,
+    ).resolves.toEqual([]);
     const otherGuestQuote = await request(app!.getHttpServer())
       .post(`${propertyUrl}/quotes`)
       .send({ roomTypeId, ratePlanId, startsOn: '2027-09-01', endsOn: '2027-09-03' })
@@ -1235,6 +1212,38 @@ describe('LocalPmsProvider', () => {
       status: 'CONFIRMED',
       total: { amount: '180.00', currency: 'EUR' },
     });
+    // The confirmation is what tells staff: one notice, which they can read and mark as read.
+    const createdNotifications = await admin.$queryRaw<Array<{ type: string }>>`
+      SELECT type FROM notifications
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND type = 'BOOKING_CREATED' AND payload->>'bookingId' = ${created.value.id}
+    `;
+    expect(createdNotifications).toEqual([{ type: 'BOOKING_CREATED' }]);
+    const notificationPage = await request(app!.getHttpServer())
+      .get(`${propertyUrl}/notifications?page=1&pageSize=20`)
+      .set('Cookie', cookie)
+      .expect(200);
+    const createdNotification = notificationPage.body.items.find(
+      (item: { type: string; booking: { id?: string } | null }) =>
+        item.type === 'BOOKING_CREATED' && item.booking?.id === created.value.id,
+    );
+    expect(createdNotification).toEqual(expect.objectContaining({ readAt: null }));
+    if (!createdNotification) throw new Error('Expected booking-created notification.');
+    const notificationReadKey = randomUUID();
+    const firstMarkRead = await request(app!.getHttpServer())
+      .patch(`${propertyUrl}/notifications/${createdNotification.id}`)
+      .set('Cookie', cookie)
+      .set('Idempotency-Key', notificationReadKey)
+      .send({ version: notificationPage.body.version })
+      .expect(200);
+    const secondMarkRead = await request(app!.getHttpServer())
+      .patch(`${propertyUrl}/notifications/${createdNotification.id}`)
+      .set('Cookie', cookie)
+      .set('Idempotency-Key', notificationReadKey)
+      .send({ version: notificationPage.body.version })
+      .expect(200);
+    expect(secondMarkRead.body).toEqual(firstMarkRead.body);
+    expect(firstMarkRead.body.updated).toBe(1);
     // A failed send no longer blocks confirmation: the durable mail queue
     // (Milestone 22) retries it, and it is delivered exactly once.
     await settleMail();

@@ -449,12 +449,6 @@ export class LocalPmsProvider implements PmsProvider {
                 targetId: bookingId,
                 details: { guestId },
               });
-              await this.notificationsService.recordInTransaction(tx, {
-                tenantId: context.tenantId,
-                propertyId: context.propertyId,
-                type: 'BOOKING_CREATED',
-                payload: { bookingId, guestId },
-              });
               let status = BookingStatus.DRAFT;
               status = await this.transition(tx, context, bookingId, status, BookingStatus.QUOTED);
               status = await this.transition(
@@ -2000,6 +1994,13 @@ export class LocalPmsProvider implements PmsProvider {
         payload: { bookingId, from, status },
       });
     }
+    // Staff hear about a booking once it is confirmed, not about an attempt that may never be paid.
+    if (status === BookingStatus.CONFIRMED)
+      await this.notificationsService.recordBookingConfirmedInTransaction(tx, {
+        tenantId: context.tenantId,
+        propertyId: context.propertyId,
+        bookingId,
+      });
     return status;
   }
 
