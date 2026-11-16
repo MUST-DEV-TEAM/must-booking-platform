@@ -362,10 +362,7 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
     bookingId: string,
     detail: string,
   ): Promise<void> {
-    const open = await tx.$queryRaw<
-      Array<{ id: string }>
-    >`SELECT id FROM manual_review_items WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND reference_type='booking' AND reference_id=${bookingId} AND status='OPEN' AND context->>'kind'='FINANCIAL_SYNC_BLOCKED' LIMIT 1`;
-    if (open.length) return;
+    // The review service raises it once: a repeat only counts on the open item.
     await this.manualReview.recordInTransaction(tx, {
       tenantId: scope.tenantId,
       propertyId: scope.propertyId,

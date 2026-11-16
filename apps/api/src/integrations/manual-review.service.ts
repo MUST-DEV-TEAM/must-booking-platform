@@ -34,6 +34,25 @@ export interface RecordManualReviewInput {
   context?: unknown;
 }
 
+/**
+ * `<category>:<kind>:<referenceType>:<referenceId>`, plus `:<operationKey>` when the caller names one;
+ * no key (always a new item) without a reference id. Resolvers close items by `context.operationKey`,
+ * so two operations on one booking must never share an item.
+ */
+function buildDedupeKey(input: RecordManualReviewInput): string | null {
+  if (!input.referenceId) return null;
+  const context =
+    typeof input.context === 'object' && input.context !== null
+      ? (input.context as { kind?: unknown; operationKey?: unknown })
+      : {};
+  const kind = typeof context.kind === 'string' ? context.kind : '';
+  const operation =
+    typeof context.operationKey === 'string' && context.operationKey
+      ? `:${context.operationKey}`
+      : '';
+  return `${input.category}:${kind}:${input.referenceType}:${input.referenceId}${operation}`;
+}
+
 // Source brief section 26: an unknown/ambiguous Clock result must never be
 // silently treated as success — this is where it lands instead. Generic
 // naming (not Clock-specific) to match provider_events.
@@ -49,10 +68,34 @@ export class ManualReviewService {
   }
 
   async recordInTransaction(tx: TenantTransaction, input: RecordManualReviewInput): Promise<void> {
+    const context = input.context === undefined ? null : JSON.stringify(input.context);
+    const dedupeKey = buildDedupeKey(input);
+    if (dedupeKey !== null) {
+      // Two writers for the same thing must not both insert: serialise them on the key.
+      await tx.$executeRawUnsafe(
+        'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+        `${input.tenantId}:${input.propertyId}:${dedupeKey}`,
+      );
+      const updated = await tx.$executeRawUnsafe(
+        `UPDATE manual_review_items
+         SET occurrences = occurrences + 1, last_seen_at = now(), message = $4, context = $5::jsonb,
+             updated_at = now()
+         WHERE tenant_id = $1::uuid AND property_id = $2::uuid AND dedupe_key = $3 AND status = 'OPEN'`,
+        input.tenantId,
+        input.propertyId,
+        dedupeKey,
+        input.message,
+        context,
+      );
+      // A repeat of an item a person has not dealt with yet: counted, not alerted again.
+      if (updated > 0) return;
+    }
     await tx.$executeRawUnsafe(
       `INSERT INTO manual_review_items (
-         tenant_id, property_id, connection_id, category, reference_type, reference_id, message, context
-       ) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::"ManualReviewCategory", $5, $6, $7, $8::jsonb)`,
+         tenant_id, property_id, connection_id, category, reference_type, reference_id, message, context,
+         dedupe_key, occurrences, last_seen_at
+       ) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::"ManualReviewCategory", $5, $6, $7, $8::jsonb,
+         $9, 1, now())`,
       input.tenantId,
       input.propertyId,
       input.connectionId ?? null,
@@ -60,7 +103,8 @@ export class ManualReviewService {
       input.referenceType,
       input.referenceId ?? null,
       input.message,
-      input.context === undefined ? null : JSON.stringify(input.context),
+      context,
+      dedupeKey,
     );
     // Every category here means something needs a human to look — Clock
     // certification gap (docs/CLOCK_CERTIFICATION_GAPS_PLAN.md): the row was
