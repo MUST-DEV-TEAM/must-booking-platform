@@ -209,7 +209,8 @@ describe('Reports R2 real scoped projections, cache and export audit', () => {
     expect(eur(before.body).testNetCollected).toBeNull();
     await admin.$executeRaw`INSERT INTO payments(tenant_id,property_id,booking_id,kind,provider,external_payment_id,status,amount,currency,created_at,is_test) VALUES(${tenant}::uuid,${property}::uuid,${b1}::uuid,'CHARGE','manual','r2-test-charge','PAID',50,'EUR','2026-03-29T12:00:00Z',true)`;
     try {
-      const after = await get({ report: 'overview' }).expect(200);
+      // A different grouping skips the short snapshot cache; period totals do not change with it.
+      const after = await get({ report: 'overview', group: 'week' }).expect(200);
       expect(eur(after.body)).toMatchObject({
         collected: eur(before.body).collected,
         netCollected: eur(before.body).netCollected,

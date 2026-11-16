@@ -37,8 +37,10 @@ CREATE TRIGGER payments_mark_test BEFORE INSERT ON payments
   FOR EACH ROW EXECUTE FUNCTION payments_mark_test();
 
 -- Re-marks the ledger rows of one connection's orders (or of one session's order) from the connection's mode.
+-- SECURITY DEFINER because the payments ledger has no UPDATE policy for the application role (append-only):
+-- only this database-side re-mark may change is_test, and only to what the connection's mode says.
 CREATE OR REPLACE FUNCTION payment_marks_refresh(target_connection UUID, target_session UUID) RETURNS void
-LANGUAGE sql AS $$
+LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
   UPDATE payments p SET is_test = (c.mode = 'TEST')
   FROM payment_provider_sessions s
   JOIN integration_connections c ON c.tenant_id = s.tenant_id AND c.id = s.connection_id
@@ -49,9 +51,11 @@ LANGUAGE sql AS $$
     AND p.is_test IS DISTINCT FROM (c.mode = 'TEST')
 $$;
 
+REVOKE ALL ON FUNCTION payment_marks_refresh(UUID, UUID) FROM PUBLIC;
+
 -- When a connection's mode is filled in, its earlier payments get the matching mark.
 CREATE OR REPLACE FUNCTION payments_follow_connection_mode() RETURNS trigger
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
   PERFORM payment_marks_refresh(NEW.id, NULL);
   RETURN NULL;
@@ -64,7 +68,7 @@ CREATE TRIGGER integration_connections_mode_marks_payments
 
 -- When an older session learns its connection, that order's payments get the matching mark.
 CREATE OR REPLACE FUNCTION payments_follow_session_connection() RETURNS trigger
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
   PERFORM payment_marks_refresh(NULL, NEW.id);
   RETURN NULL;

@@ -5,6 +5,9 @@ import { BookingPaymentMethod } from '@must/domain-contracts';
 import { ClockBookingService } from './clock-booking.service';
 import type { ClockConnectionCredentials } from './clock-http-client';
 
+/** A database transaction that reports no test payments (the Clock note is only added for test money). */
+const noTestPayments = { $queryRaw: async () => [] };
+
 type PostRefund = (
   tx: unknown,
   context: { tenantId: string; propertyId: string },
@@ -111,7 +114,7 @@ describe('ClockBookingService.postRefund', () => {
     await expect(
       postRefund.call(
         service,
-        {},
+        noTestPayments,
         context,
         'booking-1',
         { amount: '25.50', currency: 'EUR' },
@@ -161,7 +164,7 @@ describe('ClockBookingService.postRefund', () => {
     await expect(
       postRefund.call(
         service,
-        {},
+        noTestPayments,
         context,
         'booking-1',
         { amount: '25.50', currency: 'EUR' },
@@ -195,7 +198,7 @@ describe('ClockBookingService.postRefund', () => {
     await expect(
       postRefund.call(
         service,
-        {},
+        noTestPayments,
         context,
         'booking-1',
         { amount: '25.50', currency: 'EUR' },
