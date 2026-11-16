@@ -9,7 +9,8 @@
 -- Reasons, first match wins:
 --   cancelled_booking  an UNKNOWN_RESULT item ("no valid currency") whose booking is CANCELLED
 --   zero_total         an UNKNOWN_RESULT item whose booking has a total of 0
---   duplicate          an older OPEN item exists for the same thing (the oldest is kept)
+--   duplicate          an older OPEN item with the same message exists for the same thing (the oldest is kept;
+--                      items with a different message are different problems and stay open)
 --   stays_open         none of the above: a person still has to look at it
 -- Only UNKNOWN_RESULT items follow the first two rules. Other categories on a cancelled booking (a refund
 -- not confirmed, a Deposit Adjustment to issue, a Clock bill still open) are real work and stay open.
@@ -21,14 +22,14 @@ BEGIN READ ONLY;
 
 WITH open_items AS (
   SELECT m.id, m.tenant_id, m.property_id, m.category::text AS category, m.created_at,
-         m.reference_type, m.reference_id, COALESCE(m.context ->> 'kind', '') AS kind
+         m.reference_type, m.reference_id, m.message, COALESCE(m.context ->> 'kind', '') AS kind
   FROM manual_review_items m
   WHERE m.status = 'OPEN'
 ),
 linked AS (
   SELECT o.*, b.status::text AS booking_status, b.total_amount,
          row_number() OVER (
-           PARTITION BY o.tenant_id, o.property_id, o.category, o.kind, o.reference_type, o.reference_id
+           PARTITION BY o.tenant_id, o.property_id, o.category, o.kind, o.reference_type, o.reference_id, o.message
            ORDER BY o.created_at, o.id
          ) AS nth
   FROM open_items o

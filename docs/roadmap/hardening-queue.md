@@ -81,7 +81,7 @@ Each pair is two releases. The second changes live rows or Redis contents and wa
 | Slice | What | Milestone task | Branch | Needs | Review |
 | --- | --- | --- | --- | --- | --- |
 | 39-6c | Count per hotel what the clean-up would close, and why **Script `infrastructure/ops/review-queue-count.sql`; first numbers 2026-11-16, owner review pending.** | M39 task 6, step 2 | `chore/m39-review-queue-count` | 39-6b | Routine |
-| 39-6d | Resolve those rows (Must Hotel first), then the partial unique index | M39 task 6, step 3 | `fix/m39-review-queue-cleanup` | 39-6c reviewed by the owner | Fable |
+| 39-6d | Resolve those rows (Must Hotel first), then the partial unique index **Rows resolved live 2026-11-16 (Must Hotel 6, Empire 773, Luxury 0; Empire 23 and Luxury 32 stay open); index migration in the pull request.** | M39 task 6, step 3 | `fix/m39-review-queue-cleanup` | 39-6c reviewed by the owner | Fable |
 | 39-7b | Count failed events by type and age, and whether the booking already matches Clock | M39 task 7, step 2 | `chore/m39-failed-events-count` | 39-7a | Routine |
 | 39-7c | Give old, consistent failures a final state | M39 task 7, step 3 | `fix/m39-failed-events-final-state` | 39-7b reviewed by the owner | Fable |
 | 39-8b | Log dead-letter jobs by name and month | M39 task 8, step 2 | `chore/m39-dead-letter-count` | 39-8a | Routine |
