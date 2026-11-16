@@ -1212,9 +1212,10 @@ export class LocalPmsProvider implements PmsProvider {
     command: CancelBookingCommand & {
       notifyGuest?: boolean;
       singleBooking?: boolean;
-      /** Set only when a reviewer approved a saved cancellation request (the request service has just compared
-       * the booking's dates, total and payments with the request): cancel the booking as it is now. */
-      approvedRequest?: boolean;
+      /** Set only when a reviewer approved a saved cancellation request. The booking's version may have moved
+       * for harmless reasons, so it is not compared; instead the dates and total the request was made on (when
+       * it saved them) are checked here, under the booking's row lock, and must still be the same. */
+      approvedRequest?: { startsOn?: string; endsOn?: string; total?: string };
     },
   ): Promise<Result<Booking>> {
     const refundConfirmations: RefundConfirmation[] = [];
@@ -1230,11 +1231,26 @@ export class LocalPmsProvider implements PmsProvider {
           command.bookingId,
           null,
           async () => {
+            if (command.approvedRequest)
+              await tx.$queryRaw`SELECT id FROM bookings WHERE id = ${command.bookingId}::uuid
+                AND tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid FOR UPDATE`;
             const row = await this.bookingById(tx, context, command.bookingId);
             if (!row) return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
             if (!command.staffActorId && row.guestSessionId !== command.guestSessionId)
               return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
-            const expectedVersion = command.approvedRequest ? row.version : command.expectedVersion;
+            const approved = command.approvedRequest;
+            if (
+              approved &&
+              ((approved.startsOn !== undefined && approved.startsOn !== row.startsOn) ||
+                (approved.endsOn !== undefined && approved.endsOn !== row.endsOn) ||
+                (approved.total !== undefined && approved.total !== row.totalAmount))
+            )
+              return this.failure(
+                'VERSION_CONFLICT',
+                'The booking changed since the request was made; reject it and create a fresh request.',
+                true,
+              );
+            const expectedVersion = approved ? row.version : command.expectedVersion;
             if (row.version !== expectedVersion)
               return this.failure(
                 'VERSION_CONFLICT',

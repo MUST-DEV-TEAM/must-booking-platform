@@ -109,7 +109,6 @@ it('counts a change of state, dates, total or payments as a change', () => {
     { paid: '150.00' },
     { alreadyRefunded: '10.00' },
     { currency: 'USD' },
-    { cutoffAt: '2030-07-10T22:00:00.000Z' },
   ])
     expect(bookingChangedSinceRequest({ ...frozen, ...change }, frozen)).toBe(true);
 });
@@ -123,4 +122,8 @@ it('compares a request saved before dates and total were recorded on what it doe
     false,
   );
   expect(bookingChangedSinceRequest({ ...frozen, paid: '1.00' }, old)).toBe(true);
+  // With no saved dates, a moved cutoff (it follows the arrival date) is the sign of a changed arrival.
+  expect(bookingChangedSinceRequest({ ...frozen, cutoffAt: '2030-07-10T22:00:00.000Z' }, old)).toBe(
+    true,
+  );
 });

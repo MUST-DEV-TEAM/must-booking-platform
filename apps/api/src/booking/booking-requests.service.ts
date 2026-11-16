@@ -147,19 +147,25 @@ export function cancellationRefundOutcome(
  * Whether the booking changed in a way that matters since a cancellation request was made: its state, its dates,
  * its total, or its payments. A rising version number alone does not count (Clock's echo webhooks used to raise it
  * within seconds, which made every request impossible to approve). The refund preview and `isFree` depend on the
- * time of reading, so they are not compared; the cutoff depends on the arrival date, so it is.
+ * time of reading, so they are not compared.
  */
 export function bookingChangedSinceRequest(
   current: CancellationEvidence,
   frozen: CancellationEvidence,
 ): boolean {
-  const same = <K extends keyof CancellationEvidence>(key: K) => current[key] === frozen[key];
   if (
-    !['status', 'currency', 'paid', 'alreadyRefunded', 'cutoffAt'].every((key) =>
-      same(key as keyof CancellationEvidence),
-    )
+    current.status !== frozen.status ||
+    current.currency !== frozen.currency ||
+    current.paid !== frozen.paid ||
+    current.alreadyRefunded !== frozen.alreadyRefunded
   )
     return true;
+  // Saved dates and total, when the request has them. An older request has no saved dates, so the cutoff
+  // (which follows the arrival date) stands in for them, as long as the policy is still the same kind.
+  if (frozen.startsOn === undefined) {
+    if (current.policySource === frozen.policySource && current.cutoffAt !== frozen.cutoffAt)
+      return true;
+  }
   return (['startsOn', 'endsOn', 'total'] as const).some(
     (key) => frozen[key] !== undefined && current[key] !== frozen[key],
   );
@@ -437,7 +443,8 @@ export class BookingRequestsService {
     };
   }
   /** `approved`: a reviewer approved a saved request. The booking was checked against the request just before, so
-   * its version may have moved (a harmless change) and the cancellation is applied to the current version. */
+   * its version may have moved (a harmless change); the provider re-checks the saved dates and total under the
+   * booking's row lock and applies the cancellation to the current version. */
   private async execute(
     c: RequestContext,
     snapshot: Snapshot,
@@ -454,7 +461,9 @@ export class BookingRequestsService {
       reason: input.details!,
       skipAutomaticRefund: true,
       ...(e.orderReference ? { singleBooking: true } : {}),
-      ...(approved ? { approvedRequest: true } : {}),
+      ...(approved
+        ? { approvedRequest: { startsOn: e.startsOn, endsOn: e.endsOn, total: e.total } }
+        : {}),
       notifyGuest: input.notifyGuest,
     });
     if (!result.ok) {
