@@ -945,7 +945,9 @@ export class PaymentRefundService {
         WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
           AND idempotency_key = ${command.idempotencyKey}`;
       const earlier = prior[0]?.result;
-      if (earlier?.ok) return { onlinePart: this.minorUnits(earlier.value.amount.amount) };
+      const earlierAmount = earlier?.ok ? earlier.value?.amount?.amount : undefined;
+      if (earlierAmount && this.validMoney(earlierAmount))
+        return { onlinePart: this.minorUnits(earlierAmount) };
       const onlineRemaining =
         this.minorUnits(onlineCharge.amount) -
         (await this.refundedAmount(tx, context, command.bookingId, true));
