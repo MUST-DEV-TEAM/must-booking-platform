@@ -123,6 +123,7 @@ describe('email templates (a property’s own wording for guest emails)', () => 
     expect(list.body.map((t: { key: string }) => t.key)).toEqual([
       'booking_confirmed',
       'booking_cancelled',
+      'cancellation_request_received',
       'refund_processed',
       'pre_arrival',
       'booking_changed',
@@ -718,6 +719,7 @@ describe('email templates (a property’s own wording for guest emails)', () => 
       'booking_confirmed',
       'booking_confirmed_pay_at_hotel',
       'booking_cancelled',
+      'cancellation_request_received',
       'refund_processed',
       'pre_arrival',
       'booking_changed',

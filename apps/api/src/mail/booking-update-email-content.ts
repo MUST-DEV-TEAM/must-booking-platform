@@ -118,6 +118,40 @@ export function bookingChangedEmail(
   });
 }
 
+/** The guest asked online to cancel; the hotel has not decided yet. */
+export function cancellationRequestReceivedEmail(
+  stay: GuestStay,
+  brand: MailBrand,
+  message: {
+    subject: string;
+    html: string;
+    text: string;
+    previewText?: string;
+    hasStayBlock?: boolean;
+  },
+): Omit<RenderedEmailCommand, 'idempotencyKey'> {
+  const rows = [
+    { label: 'Booking reference', value: stay.reference },
+    { label: stay.rooms.length === 1 ? 'Room' : 'Rooms', value: roomsValue(stay) },
+    ...(!message.hasStayBlock
+      ? [{ label: 'Dates', value: dates(stay.startsOn, stay.endsOn) }]
+      : []),
+  ];
+  return guestEmail({
+    stay,
+    brand,
+    subject: message.subject,
+    preheader:
+      message.previewText ||
+      'We received your request. Your reservation stays active until it is confirmed.',
+    heading: 'We received your cancellation request',
+    message,
+    rows,
+    cta: null,
+    eventType: 'guest.cancellation_request_received',
+  });
+}
+
 /** The guest started a booking but the payment was not completed in time. */
 export function paymentNotCompletedEmail(
   stay: GuestStay,
