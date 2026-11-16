@@ -37,3 +37,29 @@ it('reports a cancellation refund as refunded, pending or not made, never as suc
     errorCode: 'REFUND_ALLOCATION_REVIEW_REQUIRED',
   });
 });
+
+it('names the in-person part of a cash plus card cancellation instead of calling it done (D5)', () => {
+  const byHand = { amount: '100.00', currency: 'EUR' };
+  const card = {
+    ok: true as const,
+    value: { status: 'REFUNDED', amount: { amount: '140.00', currency: 'EUR' } },
+  };
+  expect(cancellationRefundOutcome(card, byHand)).toEqual({
+    ok: false,
+    status: 'return_by_hand',
+    message:
+      'The online part (140.00 EUR) was refunded. Return 100.00 EUR to the guest by hand: it was paid in person.',
+    returnByHand: byHand,
+  });
+  expect(cancellationRefundOutcome(null, byHand)).toMatchObject({
+    status: 'return_by_hand',
+    returnByHand: byHand,
+  });
+  expect(
+    cancellationRefundOutcome({ ok: true, value: { status: 'REFUND_PENDING' } }, byHand),
+  ).toMatchObject({
+    status: 'pending',
+    returnByHand: byHand,
+  });
+  expect(cancellationRefundOutcome(card, null)).toEqual({ ok: true, status: 'refunded' });
+});

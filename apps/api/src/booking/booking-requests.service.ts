@@ -86,32 +86,56 @@ export function refundPreview(paid: string, refunded: string, total: string, isF
     eligible: money(remaining > penalty ? remaining - penalty : 0n),
   };
 }
-/** What a cancellation's refund really did. `ok` is true only for a refund that is complete. */
-export type CancellationRefundOutcome =
+/** Money only staff can give back (paid in person: cash, POS, bank transfer), by hand. */
+type ReturnByHand = { returnByHand?: { amount: string; currency: string } };
+/** What a cancellation's refund really did. `ok` is true only for a refund that is complete and leaves nothing
+ * to return by hand. */
+export type CancellationRefundOutcome = (
   | { ok: true; status: 'refunded' }
   | { ok: false; status: 'pending'; message: string }
-  | { ok: false; status: 'not_made'; message: string; errorCode: string };
+  | { ok: false; status: 'not_made'; message: string; errorCode: string }
+  | { ok: false; status: 'return_by_hand'; message: string }
+) &
+  ReturnByHand;
 
-/** Turns the answer of `manualRefund` into the outcome staff are told. A pending refund (the provider has
- * not confirmed it) is not "done", and a refund that was not made is never reported as success. */
+/** Turns the answer of the refund into the outcome staff are told. A pending refund (the provider has not
+ * confirmed it) is not "done", a refund that was not made is never reported as success, and an in-person part
+ * (D5) is named with its amount. `refund` is null when there was nothing to send to the gateway. */
 export function cancellationRefundOutcome(
   refund:
-    | { ok: true; value: { status: string } }
-    | { ok: false; error: { code: string; message: string } },
+    | { ok: true; value: { status: string; amount?: { amount: string; currency: string } } }
+    | { ok: false; error: { code: string; message: string } }
+    | null,
+  returnByHand: { amount: string; currency: string } | null = null,
 ): CancellationRefundOutcome {
-  if (!refund.ok)
+  const byHand: ReturnByHand = returnByHand ? { returnByHand } : {};
+  const handNote = returnByHand
+    ? ` Return ${returnByHand.amount} ${returnByHand.currency} to the guest by hand: it was paid in person.`
+    : '';
+  if (refund && !refund.ok)
     return {
       ok: false,
       status: 'not_made',
-      message: refund.error.message,
+      message: refund.error.message + handNote,
       errorCode: refund.error.code,
+      ...byHand,
     };
-  if (['REFUNDED', 'succeeded'].includes(refund.value.status))
-    return { ok: true, status: 'refunded' };
+  if (refund && !['REFUNDED', 'succeeded'].includes(refund.value.status))
+    return {
+      ok: false,
+      status: 'pending',
+      message: `The refund was sent, but the payment provider has not confirmed it yet.${handNote}`,
+      ...byHand,
+    };
+  if (!returnByHand) return { ok: true, status: 'refunded' };
+  const online = refund?.value.amount;
   return {
     ok: false,
-    status: 'pending',
-    message: 'The refund was sent, but the payment provider has not confirmed it yet.',
+    status: 'return_by_hand',
+    message: online
+      ? `The online part (${online.amount} ${online.currency}) was refunded.${handNote}`
+      : `Nothing is left to refund online.${handNote}`,
+    ...byHand,
   };
 }
 export function needsApproval(
@@ -410,16 +434,17 @@ export class BookingRequestsService {
       return result;
     }
     if (minor(refundAmount) === 0n) return result;
-    const refund = await this.refunds.manualRefund(c, {
+    const split = await this.refunds.cancellationRefund(c, {
       bookingId: e.bookingId,
       idempotencyKey: `${key}:refund`,
       amount: { amount: refundAmount, currency: e.currency },
       actorUserId: actorId,
       note: `Cancellation: ${input.details}`.slice(0, 500),
     });
-    const refundOutcome = cancellationRefundOutcome(refund);
-    // The cancellation stands either way. A refund that was not made is one review item, which alerts staff;
-    // a pending one already raised its own item where it was submitted.
+    const refundOutcome = cancellationRefundOutcome(split.refund, split.returnByHand);
+    // The cancellation stands either way. A refund that was not made, or an in-person part to return by hand,
+    // is one review item each, which alerts staff; a pending refund already raised its own item where it was
+    // submitted.
     if (refundOutcome.status === 'not_made')
       await this.manualReview.record({
         ...c,
@@ -432,6 +457,15 @@ export class BookingRequestsService {
           cancellationRequest: key,
           errorCode: refundOutcome.errorCode,
         },
+      });
+    if (split.returnByHand)
+      await this.manualReview.record({
+        ...c,
+        category: 'PAYMENT_BOOKING_MISMATCH',
+        referenceType: 'booking',
+        referenceId: e.bookingId,
+        message: `The booking was cancelled. ${split.returnByHand.amount} ${split.returnByHand.currency} was paid in person and must be returned to the guest by hand.`,
+        context: { kind: 'CANCELLATION_RETURN_BY_HAND', cancellationRequest: key },
       });
     return { ...result, refundOutcome };
   }
