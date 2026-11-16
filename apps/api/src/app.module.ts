@@ -270,6 +270,7 @@ import { ClockPermissionsController } from './integrations/clock/clock-permissio
 import { ClockPermissionsService } from './integrations/clock/clock-permissions.service';
 import { ClockPermissionsMonitorService } from './integrations/clock/clock-permissions-monitor.service';
 import { ClockDeadLetterMonitorService } from './integrations/clock/clock-dead-letter-monitor.service';
+import { ClockLiveUpdatesService } from './integrations/clock/clock-live-updates.service';
 import { DisplayPriceStore } from './integrations/clock/display-price-store';
 import { ClockAvailabilityService } from './integrations/clock/clock-availability.service';
 import { ClockPrePaymentAvailability } from './integrations/clock/clock-pre-payment-availability';
@@ -570,6 +571,7 @@ const healthPaths = new Set(['/health', '/health/ready']);
     ClockPermissionsService,
     ClockPermissionsMonitorService,
     ClockDeadLetterMonitorService,
+    ClockLiveUpdatesService,
     ClockAvailabilityService,
     DisplayPriceStore,
     ClockPrePaymentAvailability,
