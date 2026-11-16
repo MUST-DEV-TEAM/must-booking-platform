@@ -122,3 +122,12 @@ Manual-review resolution is not automatic recovery. No general queue replay/reco
 The [archived sandbox report](../../archive/clock-sandbox-validation-2026-08-05.md), [test log](../../archive/clock-test-evidence-2026-09-04.md) and [Milestone 21](../../roadmap/milestones/21-clock-certification-fixes.md) record past observations. They do not certify today's deployment. Current deposit behavior leaves folios open; old close instructions are superseded. Retain the distinction between local tests, sandbox observations and production verification in every new report.
 
 - [Clock booking status survey script](status-survey-script.md): the read-only script used on 2026-10-09 to see which statuses Clock returns for the sandbox property.
+
+## Clock refuses every request (expired trial or disabled API user)
+
+First seen 2026-11-16: the Clock demo account 16307 ("Must Hotel Testing") answered 403 "The trial period of this account has expired." to every call, which opened the circuit breaker and produced 899 Sentry alerts overnight. Nothing was broken on our side.
+
+- A 401/403 is a refusal, not an outage: it no longer counts toward the circuit breaker, and the breaker alerts once per opening only.
+- The daily permissions monitor detects "every probe refused, none names a right" and records one `CLOCK_ACCESS_LOST` in-app notification (with Clock's reason) when it starts. The owners' problem-alert email (topic `owner_alerts`, off by default for older properties) carries it too.
+- Fix: renew the account or its API user with Clock, then run the permissions check on the hotel. The sandbox behaves like any other hotel here.
+- Check without the dashboard (read-only GET probe through the app's own code) is how the rights change of 2026-11-16 was confirmed; see [the reply to Clock](correspondence/2026-11-16-endpoint-list-reply.md).

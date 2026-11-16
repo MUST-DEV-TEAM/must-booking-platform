@@ -2765,7 +2765,7 @@ export class ClockBookingService {
         timeoutMs: 15_000,
       });
       if (response.status < 200 || response.status >= 300) {
-        this.circuitBreaker.recordFailure(breakerKey);
+        this.circuitBreaker.recordFailure(breakerKey, response.status);
         // Clock's documented optimistic-concurrency conflict is a plain
         // HTTP 500 with this exact message, not a 409 — must be special-
         // cased or it would otherwise be misclassified as a permanent error.
