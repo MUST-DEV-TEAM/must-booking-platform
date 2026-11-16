@@ -94,7 +94,7 @@ it('shows the three payment methods, validates hold bounds and saves the setting
       {
         onlinePaymentHoldMinutes: 45,
         autoRefundOnFreeCancellation: true,
-        deductPaymentFeeOnGuestRefund: false,
+        deductPaymentFeeOnGuestRefund: true,
       },
       { stripe: true, pokpay: true, payAtHotel: false },
     );

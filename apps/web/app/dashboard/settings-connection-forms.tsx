@@ -227,14 +227,14 @@ export function PaymentSettings({
   useEffect(() => setDraft(property.paymentGateways), [property.paymentGateways]);
   const [hold, setHold] = useState(String(property.onlinePaymentHoldMinutes ?? 30)),
     [autoRefund, setAutoRefund] = useState(property.autoRefundOnFreeCancellation ?? true),
-    [keepFee, setKeepFee] = useState(property.deductPaymentFeeOnGuestRefund ?? false),
+    [keepFee, setKeepFee] = useState(property.deductPaymentFeeOnGuestRefund ?? true),
     [clockRefund, setClockRefund] = useState<ClockCancelRefundPolicy>(
       property.clockCancelRefundPolicy ?? 'NEVER',
     );
   useEffect(() => {
     setHold(String(property.onlinePaymentHoldMinutes ?? 30));
     setAutoRefund(property.autoRefundOnFreeCancellation ?? true);
-    setKeepFee(property.deductPaymentFeeOnGuestRefund ?? false);
+    setKeepFee(property.deductPaymentFeeOnGuestRefund ?? true);
     setClockRefund(property.clockCancelRefundPolicy ?? 'NEVER');
   }, [
     property.onlinePaymentHoldMinutes,
@@ -250,7 +250,7 @@ export function PaymentSettings({
     JSON.stringify(draft) !== JSON.stringify(property.paymentGateways) ||
     hold !== String(property.onlinePaymentHoldMinutes ?? 30) ||
     autoRefund !== (property.autoRefundOnFreeCancellation ?? true) ||
-    keepFee !== (property.deductPaymentFeeOnGuestRefund ?? false) ||
+    keepFee !== (property.deductPaymentFeeOnGuestRefund ?? true) ||
     clockRefund !== (property.clockCancelRefundPolicy ?? 'NEVER');
   useUnsavedChanges(canWrite && dirty);
   // There is no independent online-booking enable switch in the property contract.
@@ -331,7 +331,7 @@ export function PaymentSettings({
           layout="toggle"
           label="A guest who cancels pays the payment fee"
           htmlFor="payment-keep-fee"
-          hint="When a guest cancels on their own, the card payment fee is kept back from their refund. When the hotel cancels, the guest is always refunded in full. Turn this on only after your booking terms say so."
+          hint="When a guest cancels on their own, the card payment fee is kept back from their refund. When the hotel cancels, the guest is always refunded in full. It is on unless you turn it off here. Say so in your booking terms, so guests know before they book."
         >
           <Switch
             id="payment-keep-fee"
@@ -382,7 +382,7 @@ export function PaymentSettings({
             setDraft(property.paymentGateways);
             setHold(String(property.onlinePaymentHoldMinutes ?? 30));
             setAutoRefund(property.autoRefundOnFreeCancellation ?? true);
-            setKeepFee(property.deductPaymentFeeOnGuestRefund ?? false);
+            setKeepFee(property.deductPaymentFeeOnGuestRefund ?? true);
             setClockRefund(property.clockCancelRefundPolicy ?? 'NEVER');
           }}
           onSave={() =>
