@@ -11,12 +11,16 @@ const context = {
 };
 const bookingId = '33333333-3333-4333-8333-333333333333';
 
-function makeProvider(tenantSecretKey = secretKey, sessionSecretKey: string | null = null) {
+function makeProvider(
+  tenantSecretKey = secretKey,
+  sessionSecretKey: string | null = null,
+  publishableKey?: string,
+) {
   const connections = {
     activePaymentConnection: vi.fn().mockResolvedValue({
       connectionId: 'conn-in-use',
       mode: 'TEST',
-      credentials: { secretKey: tenantSecretKey },
+      credentials: { secretKey: tenantSecretKey, ...(publishableKey ? { publishableKey } : {}) },
     }),
     sessionPaymentConnection: vi.fn().mockResolvedValue(
       sessionSecretKey
@@ -171,6 +175,60 @@ describe('StripePaymentProvider accounts (the connection that took the payment)'
         connectionId: 'conn-in-use',
       },
     });
+  });
+});
+
+describe('StripePaymentProvider embedded checkout', () => {
+  const command = {
+    idempotencyKey: 'k',
+    bookingId,
+    amount: { amount: '10.00', currency: 'EUR' },
+    successUrl: 'https://x.test/s',
+    cancelUrl: 'https://x.test/c',
+  };
+  const spyCreate = (result: Partial<Stripe.Checkout.Session>) => {
+    const sessions = Object.getPrototypeOf(new Stripe(secretKey).checkout.sessions) as {
+      create: (...args: unknown[]) => Promise<Stripe.Checkout.Session>;
+    };
+    return vi.spyOn(sessions, 'create').mockResolvedValue(result as Stripe.Checkout.Session);
+  };
+
+  it('returns a client secret and the publishable key when the website asks and the hotel saved one', async () => {
+    const create = spyCreate({ id: 'cs_test_emb', client_secret: 'cs_test_emb_secret_x' });
+    await expect(
+      makeProvider(secretKey, null, 'pk_test_abc').createCheckoutSession(context, {
+        ...command,
+        embedded: true,
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      value: {
+        id: 'cs_test_emb',
+        url: '',
+        connectionId: 'conn-in-use',
+        clientSecret: 'cs_test_emb_secret_x',
+        publishableKey: 'pk_test_abc',
+      },
+    });
+    const sent = create.mock.calls[0]![0] as Record<string, unknown>;
+    expect(sent).toMatchObject({ ui_mode: 'embedded', return_url: 'https://x.test/s' });
+    expect(sent).not.toHaveProperty('success_url');
+    expect(sent).not.toHaveProperty('cancel_url');
+  });
+
+  it("falls back to Stripe's own page when the hotel has no publishable key", async () => {
+    const create = spyCreate({ id: 'cs_test_host', url: 'https://checkout.stripe.test/x' });
+    await expect(
+      makeProvider().createCheckoutSession(context, { ...command, embedded: true }),
+    ).resolves.toMatchObject({ ok: true, value: { url: 'https://checkout.stripe.test/x' } });
+    expect(create.mock.calls[0]![0]).toMatchObject({ success_url: 'https://x.test/s' });
+    expect(create.mock.calls[0]![0]).not.toHaveProperty('ui_mode');
+  });
+
+  it('keeps the normal page when the website did not ask for the embedded one', async () => {
+    const create = spyCreate({ id: 'cs_test_host', url: 'https://checkout.stripe.test/x' });
+    await makeProvider(secretKey, null, 'pk_test_abc').createCheckoutSession(context, command);
+    expect(create.mock.calls[0]![0]).not.toHaveProperty('ui_mode');
   });
 });
 

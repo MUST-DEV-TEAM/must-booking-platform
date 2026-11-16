@@ -42,7 +42,7 @@ export class StripePaymentProvider implements PaymentProvider {
   ): Promise<Result<CheckoutSession>> {
     const configured = await this.tenantConnection(context);
     if (!configured.ok) return configured;
-    const { secretKey, connectionId } = configured.value;
+    const { secretKey, connectionId, publishableKey } = configured.value;
     if (!isStripeTestKey(secretKey)) {
       return this.failure(
         'STRIPE_TEST_MODE_REQUIRED',
@@ -51,13 +51,17 @@ export class StripePaymentProvider implements PaymentProvider {
     }
 
     try {
+      // The website can show Stripe's checkout inside its own page when this hotel saved its
+      // publishable key; without one, the guest goes to Stripe's own page as before.
+      const embedded = command.embedded === true && !!publishableKey;
       const session = await new Stripe(secretKey).checkout.sessions.create(
         {
           mode: 'payment',
           submit_type: 'book',
           client_reference_id: command.bookingId,
-          success_url: command.successUrl,
-          cancel_url: command.cancelUrl,
+          ...(embedded
+            ? { ui_mode: 'embedded' as const, return_url: command.successUrl }
+            : { success_url: command.successUrl, cancel_url: command.cancelUrl }),
           metadata: this.bookingMetadata(context, command.bookingId),
           payment_intent_data: {
             metadata: this.bookingMetadata(context, command.bookingId),
@@ -75,6 +79,24 @@ export class StripePaymentProvider implements PaymentProvider {
         },
         { idempotencyKey: command.idempotencyKey },
       );
+      if (embedded) {
+        if (!session.client_secret)
+          return this.failure(
+            'STRIPE_CHECKOUT_URL_MISSING',
+            'Stripe did not return an embedded checkout.',
+            true,
+          );
+        return {
+          ok: true,
+          value: {
+            id: session.id,
+            url: '',
+            connectionId,
+            clientSecret: session.client_secret,
+            publishableKey: publishableKey!,
+          },
+        };
+      }
       if (!session.url) {
         return this.failure(
           'STRIPE_CHECKOUT_URL_MISSING',
@@ -216,7 +238,7 @@ export class StripePaymentProvider implements PaymentProvider {
   private async tenantConnection(
     context: PaymentProviderContext,
     externalPaymentId?: string,
-  ): Promise<Result<{ secretKey: string; connectionId: string }>> {
+  ): Promise<Result<{ secretKey: string; connectionId: string; publishableKey?: string }>> {
     const connection =
       (externalPaymentId
         ? await this.connections.sessionPaymentConnection(
@@ -237,7 +259,15 @@ export class StripePaymentProvider implements PaymentProvider {
         'STRIPE_NOT_CONFIGURED',
         'Stripe checkout is not configured for this property.',
       );
-    return { ok: true, value: { secretKey, connectionId: connection.connectionId } };
+    const publishableKey = connection.credentials.publishableKey?.trim();
+    return {
+      ok: true,
+      value: {
+        secretKey,
+        connectionId: connection.connectionId,
+        ...(publishableKey ? { publishableKey } : {}),
+      },
+    };
   }
 
   private amountInCents(amount: string): Stripe.Decimal {

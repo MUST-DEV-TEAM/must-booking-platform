@@ -133,7 +133,7 @@ export class IntegrationConnectionsService implements OnApplicationBootstrap {
           ? ['host', 'accountId', 'subscriptionId', 'apiUser', 'apiKey']
           : rows[0].provider === 'POKPAY'
             ? ['keyId', 'keySecret', 'merchantId', 'webhookUrl', 'baseUrl']
-            : ['secretKey', 'webhookSecret'];
+            : ['secretKey', 'webhookSecret', 'publishableKey'];
       const secretKeys = new Set(['apiKey', 'keySecret', 'secretKey', 'webhookSecret']);
       return {
         provider: rows[0].provider,
@@ -248,7 +248,7 @@ export class IntegrationConnectionsService implements OnApplicationBootstrap {
         : before[0].provider === 'POKPAY'
           ? ['keyId', 'keySecret']
           : before[0].provider === 'STRIPE'
-            ? ['secretKey', 'webhookSecret']
+            ? ['secretKey', 'webhookSecret', 'publishableKey']
             : [];
     if (Object.keys(supplied).some((k) => !allowed.includes(k)))
       throw new BadRequestException(

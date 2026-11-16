@@ -542,7 +542,9 @@ export function IntegrationSettings({
                 Test and live are two separate sets of keys: a key starting with sk_test_ or
                 rk_test_ is a test (sandbox) account, sk_live_ or rk_live_ takes real money. Both
                 stay saved and you switch between them on the Stripe cards. Live keys are accepted
-                once Stripe is opened for real hotels.
+                once Stripe is opened for real hotels. The publishable key (pk_test_ or pk_live_,
+                public by design) is optional: with it, the hotel&apos;s website can show
+                Stripe&apos;s payment window inside its own page instead of opening a new tab.
               </p>
             ) : (
               <p className="text-xs text-muted-foreground">
@@ -614,7 +616,11 @@ export function IntegrationSettings({
                           aria-label={f.label}
                           type={f.secret ? 'password' : 'text'}
                           required={
-                            !edit.id && !(edit.provider === 'STRIPE' && f.key === 'webhookSecret')
+                            !edit.id &&
+                            !(
+                              edit.provider === 'STRIPE' &&
+                              ['webhookSecret', 'publishableKey'].includes(f.key)
+                            )
                           }
                           readOnly={!editable}
                           disabled={!!edit.id && storedCredentials.isPending}
@@ -691,7 +697,7 @@ const INTEGRATIONS = [
 /** The credential fields that can be replaced on a saved connection (the account itself cannot). */
 function editableKeys(provider: 'CLOCK_PMS' | 'POKPAY' | 'STRIPE'): string[] {
   if (provider === 'CLOCK_PMS') return ['apiUser', 'apiKey'];
-  if (provider === 'STRIPE') return ['secretKey', 'webhookSecret'];
+  if (provider === 'STRIPE') return ['secretKey', 'webhookSecret', 'publishableKey'];
   return ['keyId', 'keySecret'];
 }
 

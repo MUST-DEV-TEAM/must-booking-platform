@@ -64,6 +64,8 @@ export type LocalCreateBookingCommand = CreateBookingCommand & {
   /** Only the local development demo seed sets this, to create booking history in the past. */
   allowPastStay?: boolean;
   returnUrl?: string;
+  /** The website shows the card checkout inside its own page (Stripe, when the hotel saved its publishable key). */
+  embeddedCheckout?: boolean;
 };
 
 export type ResendPokPayCheckoutCommand = {
@@ -105,7 +107,13 @@ type IntegrationOperationRow = {
   result: Result<BookingWithCheckout> | null;
 };
 
-type BookingWithCheckout = Booking & { checkoutUrl?: string; checkoutOrderId?: string };
+type BookingWithCheckout = Booking & {
+  checkoutUrl?: string;
+  checkoutOrderId?: string;
+  /** Set when the checkout is shown inside the website's page: the website's script mounts it. */
+  checkoutClientSecret?: string;
+  stripePublishableKey?: string;
+};
 
 type ConfirmedPaymentDetails = {
   reference: string;
@@ -612,6 +620,7 @@ export class LocalPmsProvider implements PmsProvider {
                   amount: command.total,
                   successUrl: this.checkoutReturnUrl(bookingId, 'success', guestReturnUrl, context),
                   cancelUrl: this.checkoutReturnUrl(bookingId, 'cancel', guestReturnUrl, context),
+                  ...(command.embeddedCheckout ? { embedded: true } : {}),
                 });
                 if (!checkout.ok) throw new CheckoutSessionCreationError(checkout);
                 {
@@ -635,6 +644,12 @@ export class LocalPmsProvider implements PmsProvider {
                         ...booking,
                         checkoutUrl: checkout.value.url,
                         checkoutOrderId: checkout.value.id,
+                        ...(checkout.value.clientSecret && checkout.value.publishableKey
+                          ? {
+                              checkoutClientSecret: checkout.value.clientSecret,
+                              stripePublishableKey: checkout.value.publishableKey,
+                            }
+                          : {}),
                       },
                     }
                   : this.failure('BOOKING_NOT_FOUND', 'Created booking could not be loaded.');

@@ -478,6 +478,8 @@ export interface CreateCheckoutSessionCommand {
   cancelUrl: string;
   /** How long the payment page stays usable. Omitted: the provider default. */
   expiresAfterMinutes?: number;
+  /** Ask for a checkout the website shows inside its own page (a provider that cannot, ignores this). */
+  embedded?: boolean;
 }
 
 export interface CheckoutSession {
@@ -485,6 +487,10 @@ export interface CheckoutSession {
   url: string;
   /** The hotel's payment connection (provider account) that created it; stored on the payment session. */
   connectionId?: string;
+  /** Set instead of a usable `url` when the checkout is shown inside the website's own page. */
+  clientSecret?: string;
+  /** The key the website's script needs to show an embedded checkout (public by design). */
+  publishableKey?: string;
 }
 
 export interface RefundCommand {
