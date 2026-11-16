@@ -585,6 +585,21 @@ describe('integration connections', () => {
       'order-test-1:refund:k1': true,
     });
 
+    // A refund whose id does not carry the order id (Stripe's "re_...") takes the mark of its booking's charge.
+    await admin.$executeRaw`INSERT INTO payments(tenant_id,property_id,booking_id,kind,provider,external_payment_id,status,amount,currency) VALUES(${tenantId}::uuid,${propertyId}::uuid,${booking}::uuid,'REFUND','pokpay','re_without_order_id','REFUNDED',10,'EUR')`;
+    const bookingMark = async (id: string) =>
+      (
+        await admin.$queryRaw<Array<{ isTest: boolean }>>`
+          SELECT is_test AS "isTest" FROM payments WHERE tenant_id=${tenantId}::uuid AND external_payment_id=${id}`
+      )[0]?.isTest;
+    // `booking` carries the live account's charge: its refund is real money.
+    expect(await bookingMark('re_without_order_id')).toBe(false);
+    await admin.$executeRaw`DELETE FROM payments WHERE tenant_id=${tenantId}::uuid AND external_payment_id='re_without_order_id'`;
+    await admin.$executeRaw`INSERT INTO payments(tenant_id,property_id,booking_id,kind,provider,external_payment_id,status,amount,currency) VALUES(${tenantId}::uuid,${propertyId}::uuid,${olderBooking}::uuid,'REFUND','pokpay','re_without_order_id','REFUNDED',10,'EUR')`;
+    // `olderBooking` has a test charge (and a real one): any test charge makes its refund a test refund.
+    expect(await bookingMark('re_without_order_id')).toBe(true);
+    await admin.$executeRaw`DELETE FROM payments WHERE tenant_id=${tenantId}::uuid AND external_payment_id='re_without_order_id'`;
+
     // An account saved before modes were stored gets its mode when the API starts, and its earlier
     // payments are re-marked; so does an older order once its account is found.
     await admin.$executeRaw`UPDATE integration_connections SET mode=NULL WHERE tenant_id=${tenantId}::uuid AND id=${testAccount.id}::uuid`;

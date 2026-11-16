@@ -98,7 +98,10 @@ export class StripeWebhookService {
               'This payment belongs to a different Stripe connection.',
             );
         }
-        if (booking.status === BookingStatus.EXPIRED) {
+        // A paid event the booking can no longer accept (the hold expired, or staff or the guest cancelled it
+        // before payment, or it is already paid another way) is recorded and refunded in full, never left as
+        // an error that Stripe retries while the guest's money sits uncredited.
+        if (booking.status !== BookingStatus.PAYMENT_PENDING) {
           const inserted = await tx.$queryRaw<Array<{ id: string }>>`
           INSERT INTO payments (
             tenant_id, property_id, booking_id, kind, provider, external_payment_id, status, amount, currency
@@ -118,7 +121,10 @@ export class StripeWebhookService {
               action: 'payment.late_webhook_rejected',
               targetType: 'booking',
               targetId: booking.id,
-              details: { externalPaymentId: event.externalPaymentId },
+              details: {
+                externalPaymentId: event.externalPaymentId,
+                bookingStatus: booking.status,
+              },
             });
             const refunded = await this.refunds.refundCharge(
               tx,
@@ -140,19 +146,6 @@ export class StripeWebhookService {
           }
           return { ok: true, value: { duplicate: !inserted[0] } };
         }
-        if (booking.status !== BookingStatus.PAYMENT_PENDING) {
-          const existing = await tx.$queryRaw<Array<{ id: string }>>`
-          SELECT id FROM payments
-          WHERE tenant_id = ${context.tenantId}::uuid
-            AND external_payment_id = ${event.externalPaymentId}
-        `;
-          if (existing[0]) return { ok: true, value: { duplicate: true } };
-          return this.failure(
-            'INVALID_BOOKING_STATE',
-            `Booking cannot accept payment from ${booking.status}.`,
-          );
-        }
-
         const inserted = await tx.$queryRaw<Array<{ id: string }>>`
         INSERT INTO payments (
           tenant_id, property_id, booking_id, kind, provider, external_payment_id, status, amount, currency
