@@ -149,7 +149,7 @@ describe('email templates (a property’s own wording for guest emails)', () => 
       'staff_invitation',
       'staff_account_created',
     ]);
-    expect(list.body[3]).toMatchObject({
+    expect(list.body.find((t: { key: string }) => t.key === 'pre_arrival')).toMatchObject({
       key: 'pre_arrival',
       custom: false,
       language: 'en',
