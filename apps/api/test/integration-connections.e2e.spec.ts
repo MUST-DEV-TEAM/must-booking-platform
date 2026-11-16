@@ -419,6 +419,12 @@ describe('integration connections', () => {
       .set('Cookie', cookie)
       .send({ credentials: { accountId: 'acct_other' } })
       .expect(400);
+    // Keys of the other mode are a new connection, never a replacement: the stored mark stays true.
+    await request(app!.getHttpServer())
+      .patch(`${tenantUrl}/integration-connections/${testAccount.id}/credentials`)
+      .set('Cookie', cookie)
+      .send({ credentials: { secretKey: 'sk_live_swapped-in' } })
+      .expect(400);
     // A connection with no webhook secret saved cannot receive webhooks.
     await expect(
       app!.get(IntegrationConnectionsService).stripeWebhookConnection(liveAccount.webhookPublicId),

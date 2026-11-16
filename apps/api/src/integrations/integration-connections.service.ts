@@ -255,6 +255,16 @@ export class IntegrationConnectionsService implements OnApplicationBootstrap {
         'Use a new connection to change the provider account. Only authentication credentials can be replaced here.',
       );
     const credentials = { ...previous, ...(supplied as Record<string, string>) };
+    // Test or live is stored with the connection and marks every payment it takes, so replacing keys
+    // may never move a connection from one to the other: that is a new connection.
+    if (
+      before[0].provider !== 'CLOCK_PMS' &&
+      connectionMode(before[0].provider, previous) !==
+        connectionMode(before[0].provider, credentials)
+    )
+      throw new BadRequestException(
+        'These keys are for a different mode (test or live). Add them as a new connection instead.',
+      );
     const result = await this.testers.test(before[0].provider, credentials);
     if (!result.ok)
       throw new BadRequestException(
