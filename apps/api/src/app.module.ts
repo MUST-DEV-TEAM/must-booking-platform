@@ -69,6 +69,7 @@ import { RolesGuard } from './tenancy/roles.guard';
 import { PlatformAccessGuard } from './platform/console/platform-access.guard';
 import { PlatformAuditService } from './platform/console/platform-audit.service';
 import { PlatformAuditController } from './platform/console/platform-audit.controller';
+import { PlatformSystemController } from './platform/console/platform-system.controller';
 import { PlatformHotelsController } from './platform/console/platform-hotels.controller';
 import { PlatformHotelsService } from './platform/console/platform-hotels.service';
 import { PlatformLifecycleService } from './platform/console/platform-lifecycle.service';
@@ -269,6 +270,8 @@ import { ClockCatalogSyncController } from './integrations/clock/clock-catalog-s
 import { ClockPermissionsController } from './integrations/clock/clock-permissions.controller';
 import { ClockPermissionsService } from './integrations/clock/clock-permissions.service';
 import { ClockPermissionsMonitorService } from './integrations/clock/clock-permissions-monitor.service';
+import { ClockDeadLetterMonitorService } from './integrations/clock/clock-dead-letter-monitor.service';
+import { ClockLiveUpdatesService } from './integrations/clock/clock-live-updates.service';
 import { DisplayPriceStore } from './integrations/clock/display-price-store';
 import { ClockAvailabilityService } from './integrations/clock/clock-availability.service';
 import { ClockPrePaymentAvailability } from './integrations/clock/clock-pre-payment-availability';
@@ -420,6 +423,7 @@ const healthPaths = new Set(['/health', '/health/ready']);
     PlatformAuthController,
     PlatformTeamController,
     PlatformAuditController,
+    PlatformSystemController,
     PlatformHotelsController,
     PlatformSupportController,
     HotelSupportController,
@@ -568,6 +572,8 @@ const healthPaths = new Set(['/health', '/health/ready']);
     ClockCatalogSyncService,
     ClockPermissionsService,
     ClockPermissionsMonitorService,
+    ClockDeadLetterMonitorService,
+    ClockLiveUpdatesService,
     ClockAvailabilityService,
     DisplayPriceStore,
     ClockPrePaymentAvailability,

@@ -38,6 +38,9 @@ type ManualRefundCommand = {
   reasonCode?: RefundReason;
   note?: string;
   actorUserId: string;
+  /** Refund against the online (gateway) charge only and count only online refunds. For a booking paid partly
+   * in person (cash, POS, bank transfer), whose in-person part can only be returned by hand. */
+  onlineChargeOnly?: boolean;
 };
 
 type OperationRow = { requestHash: string; result: Result<Payment> | null };
@@ -527,7 +530,8 @@ export class PaymentRefundService {
         amount: command.amount,
         idempotencyKey: command.idempotencyKey,
         alreadyRefunded: {
-          amount: this.money(await this.refundedAmount(tx, context, bookingId)),
+          // A gateway only knows its own refunds: an in-person refund made by hand is not one of them.
+          amount: this.money(await this.refundedAmount(tx, context, bookingId, true)),
           currency: charge.currency,
         },
       },
@@ -910,18 +914,25 @@ export class PaymentRefundService {
               'INVALID_REFUND_PERCENTAGE',
               'Refund percentage must be between 1 and 100.',
             );
-          const charge = await this.chargeForBooking(tx, context, command.bookingId, [
-            'PAID',
-            'LATE_AFTER_EXPIRY',
-            'succeeded',
-          ]);
+          const charge = await this.chargeForBooking(
+            tx,
+            context,
+            command.bookingId,
+            ['PAID', 'LATE_AFTER_EXPIRY', 'succeeded'],
+            command.onlineChargeOnly === true,
+          );
           if (!charge) return this.failure('CHARGE_NOT_FOUND', 'No refundable charge was found.');
           if ((charge.chargeCount ?? 1) > 1)
             return this.failure(
               'REFUND_ALLOCATION_REVIEW_REQUIRED',
               'This booking has several payments. Review the original payments before refunding; no money has been returned.',
             );
-          const alreadyRefunded = await this.refundedAmount(tx, context, command.bookingId);
+          const alreadyRefunded = await this.refundedAmount(
+            tx,
+            context,
+            command.bookingId,
+            command.onlineChargeOnly === true,
+          );
           const remaining = this.minorUnits(charge.amount) - alreadyRefunded;
           if (remaining <= 0n)
             return this.failure(
@@ -978,6 +989,85 @@ export class PaymentRefundService {
     if (confirmation)
       await this.notifications.sendRefundConfirmationEmailSafely(confirmation, context);
     return result;
+  }
+
+  /**
+   * A staff cancellation with a refund (Milestone 40 task 2, decision D5). A booking paid only online, or only in
+   * person, is refunded exactly as before. A booking paid online AND in person (cash, POS, bank transfer) gets
+   * the online part refunded at the gateway and the rest reported as `returnByHand`: money only staff can give
+   * back. A replay of the same attempt reuses the amount of the first one, so the gateway is never asked twice.
+   */
+  async cancellationRefund(
+    context: PaymentProviderContext,
+    command: {
+      bookingId: string;
+      idempotencyKey: string;
+      amount: Money;
+      actorUserId: string;
+      note: string;
+    },
+  ): Promise<{ refund: Result<Payment> | null; returnByHand: Money | null }> {
+    const requested = this.minorUnits(command.amount.amount);
+    const plan = await this.database.withTenantTransaction(context, async (tx) => {
+      const charges = await tx.$queryRaw<Array<{ provider: string; currency: string }>>`
+        SELECT provider, currency FROM payments
+        WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+          AND booking_id = ${command.bookingId}::uuid AND kind = 'CHARGE'::"PaymentKind"
+          AND status IN ('PAID', 'LATE_AFTER_EXPIRY', 'succeeded')`;
+      const online = charges.filter((row) => row.provider !== 'manual');
+      const inPerson = charges.filter((row) => row.provider === 'manual');
+      const mixed =
+        online.length === 1 &&
+        inPerson.length >= 1 &&
+        charges.every((row) => row.currency === command.amount.currency);
+      if (!mixed) return null;
+      const onlineCharge = await this.chargeForBooking(
+        tx,
+        context,
+        command.bookingId,
+        ['PAID', 'LATE_AFTER_EXPIRY', 'succeeded'],
+        true,
+      );
+      if (!onlineCharge) return null;
+      const prior = await tx.$queryRaw<Array<{ result: Result<Payment> | null }>>`
+        SELECT result FROM integration_operations
+        WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+          AND idempotency_key = ${command.idempotencyKey}`;
+      const earlier = prior[0]?.result;
+      const earlierAmount = earlier?.ok ? earlier.value?.amount?.amount : undefined;
+      if (earlierAmount && this.validMoney(earlierAmount))
+        return { onlinePart: this.minorUnits(earlierAmount) };
+      const onlineRemaining =
+        this.minorUnits(onlineCharge.amount) -
+        (await this.refundedAmount(tx, context, command.bookingId, true));
+      const onlinePart =
+        onlineRemaining <= 0n ? 0n : requested < onlineRemaining ? requested : onlineRemaining;
+      return { onlinePart };
+    });
+    if (!plan)
+      return {
+        refund: await this.manualRefund(context, {
+          bookingId: command.bookingId,
+          idempotencyKey: command.idempotencyKey,
+          amount: command.amount,
+          actorUserId: command.actorUserId,
+          note: command.note,
+        }),
+        returnByHand: null,
+      };
+    const rest = requested - plan.onlinePart;
+    const returnByHand =
+      rest > 0n ? { amount: this.money(rest), currency: command.amount.currency } : null;
+    if (plan.onlinePart <= 0n) return { refund: null, returnByHand };
+    const refund = await this.manualRefund(context, {
+      bookingId: command.bookingId,
+      idempotencyKey: command.idempotencyKey,
+      amount: { amount: this.money(plan.onlinePart), currency: command.amount.currency },
+      actorUserId: command.actorUserId,
+      note: command.note,
+      onlineChargeOnly: true,
+    });
+    return { refund, returnByHand };
   }
 
   private async recordManualRefund(
@@ -1123,6 +1213,7 @@ export class PaymentRefundService {
     context: PaymentProviderContext,
     bookingId: string,
     statuses: string[],
+    onlineOnly = false,
   ): Promise<Charge | null> {
     const rows = await tx.$queryRaw<Charge[]>`
       SELECT id, provider, external_payment_id AS "externalPaymentId", amount::text AS amount,
@@ -1132,7 +1223,9 @@ export class PaymentRefundService {
         AND booking_id = ${bookingId}::uuid AND kind = 'CHARGE'::"PaymentKind"
       ORDER BY created_at DESC
     `;
-    const eligible = rows.filter((row) => statuses.includes(row.status));
+    const eligible = rows.filter(
+      (row) => statuses.includes(row.status) && (!onlineOnly || row.provider !== 'manual'),
+    );
     return eligible[0] ? { ...eligible[0], chargeCount: eligible.length } : null;
   }
 
@@ -1140,12 +1233,14 @@ export class PaymentRefundService {
     tx: TenantTransaction,
     context: PaymentProviderContext,
     bookingId: string,
+    onlineOnly = false,
   ): Promise<bigint> {
     const rows = await tx.$queryRaw<Array<{ amount: string }>>`
       SELECT COALESCE(SUM(amount), 0)::text AS amount
       FROM payments
       WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
         AND booking_id = ${bookingId}::uuid AND kind = 'REFUND'::"PaymentKind"
+        AND (NOT ${onlineOnly}::boolean OR provider <> 'manual')
     `;
     return this.minorUnits(rows[0]?.amount ?? '0');
   }

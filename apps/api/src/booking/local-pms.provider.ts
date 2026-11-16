@@ -457,12 +457,6 @@ export class LocalPmsProvider implements PmsProvider {
                 targetId: bookingId,
                 details: { guestId },
               });
-              await this.notificationsService.recordInTransaction(tx, {
-                tenantId: context.tenantId,
-                propertyId: context.propertyId,
-                type: 'BOOKING_CREATED',
-                payload: { bookingId, guestId },
-              });
               let status = BookingStatus.DRAFT;
               status = await this.transition(tx, context, bookingId, status, BookingStatus.QUOTED);
               status = await this.transition(
@@ -1231,7 +1225,14 @@ export class LocalPmsProvider implements PmsProvider {
 
   async cancelBooking(
     context: PmsProviderContext,
-    command: CancelBookingCommand & { notifyGuest?: boolean; singleBooking?: boolean },
+    command: CancelBookingCommand & {
+      notifyGuest?: boolean;
+      singleBooking?: boolean;
+      /** Set only when a reviewer approved a saved cancellation request. The booking's version may have moved
+       * for harmless reasons, so it is not compared; instead the dates and total the request was made on (when
+       * it saved them) are checked here, under the booking's row lock, and must still be the same. */
+      approvedRequest?: { startsOn?: string; endsOn?: string; total?: string };
+    },
   ): Promise<Result<Booking>> {
     const refundConfirmations: RefundConfirmation[] = [];
     const cancelledBookingIds: string[] = [];
@@ -1246,11 +1247,27 @@ export class LocalPmsProvider implements PmsProvider {
           command.bookingId,
           null,
           async () => {
+            if (command.approvedRequest)
+              await tx.$queryRaw`SELECT id FROM bookings WHERE id = ${command.bookingId}::uuid
+                AND tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid FOR UPDATE`;
             const row = await this.bookingById(tx, context, command.bookingId);
             if (!row) return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
             if (!command.staffActorId && row.guestSessionId !== command.guestSessionId)
               return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
-            if (row.version !== command.expectedVersion)
+            const approved = command.approvedRequest;
+            if (
+              approved &&
+              ((approved.startsOn !== undefined && approved.startsOn !== row.startsOn) ||
+                (approved.endsOn !== undefined && approved.endsOn !== row.endsOn) ||
+                (approved.total !== undefined && approved.total !== row.totalAmount))
+            )
+              return this.failure(
+                'VERSION_CONFLICT',
+                'The booking changed since the request was made; reject it and create a fresh request.',
+                true,
+              );
+            const expectedVersion = approved ? row.version : command.expectedVersion;
+            if (row.version !== expectedVersion)
               return this.failure(
                 'VERSION_CONFLICT',
                 'Booking has changed; reload it before cancelling.',
@@ -1376,7 +1393,7 @@ export class LocalPmsProvider implements PmsProvider {
         WHERE id = ${row.id}::uuid
           AND tenant_id = ${context.tenantId}::uuid
           AND property_id = ${context.propertyId}::uuid
-          AND version = ${command.expectedVersion}
+          AND version = ${expectedVersion}
       `;
             await this.audit.recordInTransaction(tx, {
               tenantId: context.tenantId,
@@ -2020,6 +2037,13 @@ export class LocalPmsProvider implements PmsProvider {
         payload: { bookingId, from, status },
       });
     }
+    // Staff hear about a booking once it is confirmed, not about an attempt that may never be paid.
+    if (status === BookingStatus.CONFIRMED)
+      await this.notificationsService.recordBookingConfirmedInTransaction(tx, {
+        tenantId: context.tenantId,
+        propertyId: context.propertyId,
+        bookingId,
+      });
     return status;
   }
 

@@ -1,7 +1,7 @@
 -- A refund takes the test mark of the charge it refunds (ADR-0041). PokPay refund ids ("<order>:refund:<key>")
 -- carry their order id, so they were already marked; Stripe refund ids ("re_...") do not, so every Stripe refund
 -- of a test payment was counted as real money. Additive and safe to re-run.
--- Rollback: restore the two functions from migration 20261116140000_test_payment_marks (their bodies are in it);
+-- Rollback: restore the two functions from migration 20261116145000_test_payment_marks (their bodies are in it);
 --           the corrected is_test values are plain data and need no rollback.
 
 -- New ledger rows: a refund is marked from the charge(s) of its booking (same provider); a charge as before.

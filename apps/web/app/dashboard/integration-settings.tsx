@@ -93,12 +93,19 @@ export function IntegrationSettings({
   const refresh = async () => {
     await client.invalidateQueries({ queryKey: ['dashboard'] });
   };
+  // What happened to Clock's live updates (webhook) when a Clock connection was linked or the setup was run again.
+  const liveUpdatesNotice = (result?: { state?: string; message?: string }) => {
+    if (!result?.state) return;
+    if (result.state === 'enabled') toast.success('Live updates from Clock are on.');
+    else toast.warning(result.message || 'Live updates from Clock are not on yet.');
+  };
   const action = useMutation({
     mutationFn: async ({ path, method, body }: { path: string; method: string; body?: unknown }) =>
       request(path, method, body),
     onSuccess: async (data) => {
       if (data.status === 'FAILED')
         toast.error('Connection verification failed. Review the connection details.');
+      else if (data.state && data.message) liveUpdatesNotice(data);
       else toast.success('Connection updated');
       await refresh();
     },
@@ -196,13 +203,14 @@ export function IntegrationSettings({
           );
         }
         try {
-          await request(
+          const linked = await request(
             `/properties/${propertyId}/integration-connections/${created.id}`,
             'PATCH',
             {
               enabled: true,
             },
           );
+          liveUpdatesNotice(linked.liveUpdates);
         } catch (e) {
           await discard();
           await refresh();
@@ -671,6 +679,31 @@ export function IntegrationSettings({
                 <p className="m-0 text-xs text-muted-foreground" role="status">
                   {query.data?.connections.find((c) => c.id === edit.id)?.lastTestResult ||
                     'Checks the credentials that are saved now, without changing anything.'}
+                </p>
+              </div>
+            ) : null}
+            {edit?.id && edit.provider === 'CLOCK_PMS' ? (
+              <div className="space-y-1 rounded-lg border px-3 py-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm font-semibold">Live updates from Clock</span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={action.isPending || save.isPending}
+                    onClick={() =>
+                      action.mutate({
+                        path: `/integration-connections/${edit.id}/live-updates`,
+                        method: 'POST',
+                      })
+                    }
+                  >
+                    {action.isPending ? 'Working...' : 'Turn on live updates'}
+                  </Button>
+                </div>
+                <p className="m-0 text-xs text-muted-foreground">
+                  Switched on by itself when the connection is saved. Use this if Clock was not
+                  ready then, for example before it granted the webhook right.
                 </p>
               </div>
             ) : null}

@@ -72,6 +72,12 @@ export const consolePost = <T>(path: string, body: unknown = {}) =>
 export const consolePatch = <T>(path: string, body: unknown) =>
   consoleRequest<T>('PATCH', path, body);
 
+export type DeadLetterStats = {
+  count: number;
+  oldestAgeSeconds: number | null;
+  alertedCount: number;
+};
+
 export type LifecycleState =
   'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'SUSPENDED' | 'CANCELLED' | 'ARCHIVED';
 

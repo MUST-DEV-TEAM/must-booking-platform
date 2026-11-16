@@ -14,6 +14,7 @@ export type AlertEvent = {
     | 'clock_review'
     | 'clock_event_failed'
     | 'clock_access_lost'
+    | 'clock_dead_letter'
     | 'refund'
     | 'new_hotel'
     | 'email_failed';
@@ -82,6 +83,8 @@ export function platformAlertLine(event: AlertEvent): string {
       return `New hotel signed up: ${event.tenantName ?? event.itemId}`;
     case 'email_failed':
       return `${hotelLabel(event)}: email "${event.reference}" ${event.detail}`;
+    case 'clock_dead_letter':
+      return `Clock dead-letter queue: ${event.detail}`;
     default:
       return `${hotelLabel(event)}: ${ownerAlertLine(event)}`;
   }

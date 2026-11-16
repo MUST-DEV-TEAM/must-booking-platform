@@ -11,6 +11,7 @@ import { ErrorPanel } from '../../../components/ui/state-panel';
 import { StatTile } from '../../../components/ui/stat-tile';
 import {
   type AuditRow,
+  type DeadLetterStats,
   ConsoleApiError,
   consoleGet,
   type HotelDirectory,
@@ -19,6 +20,12 @@ import {
 import { actionLabel, formatDateTime } from '../../../lib/platform-format';
 import { LifecycleBadge } from '../lifecycle-badge';
 import { useConsoleSession } from './console-frame';
+
+function formatWaiting(seconds: number): string {
+  if (seconds < 3600) return `${Math.max(1, Math.round(seconds / 60))} min`;
+  if (seconds < 86_400) return `${Math.round(seconds / 3600)} h`;
+  return `${Math.round(seconds / 86_400)} days`;
+}
 
 export default function PlatformOverviewPage() {
   const { me, can } = useConsoleSession();
@@ -36,6 +43,12 @@ export default function PlatformOverviewPage() {
     queryKey: ['platform-console', 'audit', 'overview'],
     enabled: can('platform.audit.view'),
     queryFn: () => consoleGet<{ items: AuditRow[] }>('/audit?pageSize=8'),
+  });
+
+  const deadLetter = useQuery({
+    queryKey: ['platform-console', 'system', 'dead-letter'],
+    enabled: can('platform.connections.view'),
+    queryFn: () => consoleGet<DeadLetterStats>('/system/dead-letter'),
   });
 
   const counts = hotels.data?.lifecycleCounts;
@@ -84,6 +97,26 @@ export default function PlatformOverviewPage() {
               tone={attention > 0 ? 'warning' : 'default'}
               note="Past due or suspended"
             />
+            {can('platform.connections.view') ? (
+              <StatTile
+                label="Clock failed jobs"
+                value={
+                  deadLetter.isLoading
+                    ? '–'
+                    : deadLetter.isError
+                      ? '?'
+                      : (deadLetter.data?.count ?? 0)
+                }
+                tone={deadLetter.data && deadLetter.data.count > 0 ? 'warning' : 'default'}
+                note={
+                  deadLetter.data &&
+                  deadLetter.data.count > 0 &&
+                  deadLetter.data.oldestAgeSeconds !== null
+                    ? `Oldest waiting ${formatWaiting(deadLetter.data.oldestAgeSeconds)}`
+                    : 'Dead-letter queue is empty'
+                }
+              />
+            ) : null}
           </div>
         )
       ) : null}

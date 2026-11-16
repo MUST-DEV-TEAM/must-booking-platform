@@ -13,6 +13,10 @@ import { TenantDatabaseService } from '../tenancy/tenant-database.service';
 import { connectionMode, type ConnectionMode } from './connection-mode';
 import { ConnectionTestRegistry } from './connection-tester';
 import { CredentialCipherService } from './credential-cipher';
+import {
+  ClockLiveUpdatesService,
+  type LiveUpdatesResult,
+} from './clock/clock-live-updates.service';
 
 export type ConnectionKind = 'PAYMENT' | 'PMS';
 export type ConnectionProvider = 'STRIPE' | 'POKPAY' | 'CLOCK_PMS';
@@ -73,6 +77,7 @@ export class IntegrationConnectionsService implements OnApplicationBootstrap {
     @Inject(AuditLogService) private readonly audit: AuditLogService,
     @Inject(CredentialCipherService) private readonly cipher: CredentialCipherService,
     @Inject(ConnectionTestRegistry) private readonly testers: ConnectionTestRegistry,
+    @Inject(ClockLiveUpdatesService) private readonly liveUpdates: ClockLiveUpdatesService,
   ) {}
 
   /** Fills in the stored mode of payment connections saved before it existed (once; idempotent). */
@@ -367,6 +372,15 @@ export class IntegrationConnectionsService implements OnApplicationBootstrap {
     });
   }
 
+  /** Runs the live-updates setup again for a Clock connection, for example after Clock granted the right. */
+  async enableLiveUpdates(
+    tenantId: string,
+    actorUserId: string,
+    connectionId: string,
+  ): Promise<LiveUpdatesResult> {
+    return this.liveUpdates.enableSafely(tenantId, connectionId, actorUserId);
+  }
+
   async listForProperty(
     tenantId: string,
     propertyId: string,
@@ -627,7 +641,8 @@ export class IntegrationConnectionsService implements OnApplicationBootstrap {
     actorUserId: string,
     connectionId: string,
     enabled: boolean,
-  ): Promise<void> {
+  ): Promise<{ liveUpdates?: LiveUpdatesResult }> {
+    let clockEnabled = false;
     await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       let switchedFrom: string[] = [];
       await tx.$queryRaw`SELECT id FROM properties WHERE tenant_id=${tenantId}::uuid AND id=${propertyId}::uuid FOR UPDATE`;
@@ -640,6 +655,7 @@ export class IntegrationConnectionsService implements OnApplicationBootstrap {
         connectionId,
       );
       if (!connection[0]) throw new BadRequestException('Connection not found.');
+      clockEnabled = enabled && connection[0].provider === 'CLOCK_PMS';
       if (!enabled && connection[0].provider === 'CLOCK_PMS') {
         const active = await tx.$queryRaw<Array<{ unsafe: boolean }>>`
           SELECT EXISTS(SELECT 1 FROM property_integration_connections pc
@@ -714,6 +730,12 @@ export class IntegrationConnectionsService implements OnApplicationBootstrap {
           : {}),
       });
     });
+    // Once the connection is saved as the hotel's Clock connection, its live updates (webhook) are switched on.
+    // The change above never depends on it: the answer says what happened, and it can be run again.
+    if (!clockEnabled) return {};
+    return {
+      liveUpdates: await this.liveUpdates.enableSafely(tenantId, connectionId, actorUserId),
+    };
   }
 
   private summarize({ encryptedCredentials, ...summary }: ConnectionRow): ConnectionSummary {

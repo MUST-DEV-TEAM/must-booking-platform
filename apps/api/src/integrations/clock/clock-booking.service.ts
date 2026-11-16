@@ -2561,6 +2561,12 @@ export class ClockBookingService {
         payload: { bookingId, from, status },
       });
     }
+    if (status === BookingStatus.CONFIRMED)
+      await this.notifications.recordBookingConfirmedInTransaction(tx, {
+        tenantId: context.tenantId,
+        propertyId: context.propertyId,
+        bookingId,
+      });
     return status;
   }
 
