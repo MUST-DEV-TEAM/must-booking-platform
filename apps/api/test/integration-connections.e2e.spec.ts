@@ -360,6 +360,70 @@ describe('integration connections', () => {
       .send({ enabled: true })
       .expect(200);
   });
+  it('switches Stripe between its test and live keys, one in use at a time, and keeps both saved', async () => {
+    app!
+      .get(ConnectionTestRegistry)
+      .register({ provider: 'STRIPE', test: async () => ({ ok: true, message: 'Verified' }) });
+    const tenantUrl = `/tenants/${tenantId}`;
+    const propertyUrl = `${tenantUrl}/properties/${propertyId}`;
+    const create = (name: string, secretKey: string) =>
+      request(app!.getHttpServer())
+        .post(`${tenantUrl}/integration-connections`)
+        .set('Cookie', cookie)
+        .send({ kind: 'PAYMENT', provider: 'STRIPE', name, credentials: { secretKey } })
+        .expect(201);
+    const testAccount = (await create('Stripe Sandbox', 'rk_test_stripe-private-value')).body;
+    const liveAccount = (await create('Stripe Live', 'sk_live_stripe-private-value')).body;
+    expect(testAccount.mode).toBe('TEST');
+    expect(liveAccount.mode).toBe('LIVE');
+    const use = (id: string) =>
+      request(app!.getHttpServer())
+        .patch(`${propertyUrl}/integration-connections/${id}`)
+        .set('Cookie', cookie)
+        .send({ enabled: true })
+        .expect(200);
+    const modes = async () =>
+      (
+        await request(app!.getHttpServer())
+          .get(`${propertyUrl}/payment-modes`)
+          .set('Cookie', cookie)
+          .expect(200)
+      ).body.filter((row: { provider: string }) => row.provider === 'STRIPE');
+
+    await use(testAccount.id);
+    expect(await modes()).toEqual([{ provider: 'STRIPE', name: 'Stripe Sandbox', mode: 'TEST' }]);
+    await use(liveAccount.id);
+    expect(await modes()).toEqual([{ provider: 'STRIPE', name: 'Stripe Live', mode: 'LIVE' }]);
+    await use(testAccount.id);
+    expect(await modes()).toEqual([{ provider: 'STRIPE', name: 'Stripe Sandbox', mode: 'TEST' }]);
+    expect(JSON.stringify(await modes())).not.toContain('private-value');
+
+    // The webhook signing secret is saved after the connection exists (its address needs the
+    // connection's id first); the key can be replaced the same way, and only those two fields.
+    await request(app!.getHttpServer())
+      .patch(`${tenantUrl}/integration-connections/${testAccount.id}/credentials`)
+      .set('Cookie', cookie)
+      .send({ credentials: { webhookSecret: 'whsec_private-value' } })
+      .expect(200);
+    const stored = await app!
+      .get(IntegrationConnectionsService)
+      .stripeWebhookConnection(testAccount.webhookPublicId);
+    expect(stored).toMatchObject({
+      tenantId,
+      connectionId: testAccount.id,
+      secretKey: 'rk_test_stripe-private-value',
+      webhookSecret: 'whsec_private-value',
+    });
+    await request(app!.getHttpServer())
+      .patch(`${tenantUrl}/integration-connections/${testAccount.id}/credentials`)
+      .set('Cookie', cookie)
+      .send({ credentials: { accountId: 'acct_other' } })
+      .expect(400);
+    // A connection with no webhook secret saved cannot receive webhooks.
+    await expect(
+      app!.get(IntegrationConnectionsService).stripeWebhookConnection(liveAccount.webhookPublicId),
+    ).resolves.toBeNull();
+  });
   it('switches PokPay freely between test and live accounts and keeps each payment on its own account', async () => {
     app!
       .get(ConnectionTestRegistry)

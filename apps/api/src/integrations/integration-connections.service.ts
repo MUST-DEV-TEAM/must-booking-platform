@@ -157,6 +157,8 @@ export class IntegrationConnectionsService implements OnApplicationBootstrap {
     return {
       pokpayWebhookUrl:
         explicit || (origin ? new URL('/api/webhooks/pokpay', origin).toString() : ''),
+      // Each Stripe connection adds its own random id to this address (`<base>/<webhookPublicId>`).
+      stripeWebhookBase: origin ? new URL('/api/webhooks/stripe', origin).toString() : '',
     };
   }
 
@@ -245,7 +247,9 @@ export class IntegrationConnectionsService implements OnApplicationBootstrap {
         ? ['apiUser', 'apiKey']
         : before[0].provider === 'POKPAY'
           ? ['keyId', 'keySecret']
-          : [];
+          : before[0].provider === 'STRIPE'
+            ? ['secretKey', 'webhookSecret']
+            : [];
     if (Object.keys(supplied).some((k) => !allowed.includes(k)))
       throw new BadRequestException(
         'Use a new connection to change the provider account. Only authentication credentials can be replaced here.',
@@ -288,7 +292,8 @@ export class IntegrationConnectionsService implements OnApplicationBootstrap {
           JOIN integration_connections ic ON ic.tenant_id=pc.tenant_id AND ic.id=pc.connection_id
           WHERE pc.tenant_id=${tenantId}::uuid AND pc.connection_id=${connectionId}::uuid
           AND ((ic.provider='CLOCK_PMS' AND EXISTS(SELECT 1 FROM bookings b WHERE b.tenant_id=pc.tenant_id AND b.property_id=pc.property_id AND b.external_booking_id IS NOT NULL))
-            OR (ic.provider='POKPAY' AND EXISTS(SELECT 1 FROM payments p WHERE p.tenant_id=pc.tenant_id AND p.property_id=pc.property_id AND p.provider='pokpay')))) AS used`;
+            OR (ic.provider='POKPAY' AND EXISTS(SELECT 1 FROM payments p WHERE p.tenant_id=pc.tenant_id AND p.property_id=pc.property_id AND p.provider='pokpay'))
+            OR (ic.provider='STRIPE' AND EXISTS(SELECT 1 FROM payments p WHERE p.tenant_id=pc.tenant_id AND p.property_id=pc.property_id AND p.provider='stripe')))) AS used`;
       if (history[0]?.used)
         throw new ConflictException(
           'Keep this connection for existing bookings and payments. Disable it or replace its credentials instead of deleting its history.',
@@ -651,12 +656,12 @@ export class IntegrationConnectionsService implements OnApplicationBootstrap {
             'This hotel already has history with another Clock connection. Replace credentials on that connection; moving to another Clock account requires a reviewed migration.',
           );
       }
-      if (enabled && connection[0].provider === 'POKPAY') {
-        // One PokPay account in use at a time. The others stay saved with their keys, so the hotel
+      if (enabled && (connection[0].provider === 'POKPAY' || connection[0].provider === 'STRIPE')) {
+        // One account per payment provider in use at a time (Stripe: test and live keys of the same hotel). The others stay saved with their keys, so the hotel
         // can switch back whenever it wants.
         const previous = await tx.$queryRaw<Array<{ id: string }>>`
           UPDATE property_integration_connections pc SET enabled=false,updated_at=now() FROM integration_connections c
-          WHERE pc.tenant_id=${tenantId}::uuid AND pc.property_id=${propertyId}::uuid AND pc.connection_id=c.id AND c.tenant_id=pc.tenant_id AND c.provider='POKPAY' AND c.id<>${connectionId}::uuid AND pc.enabled
+          WHERE pc.tenant_id=${tenantId}::uuid AND pc.property_id=${propertyId}::uuid AND pc.connection_id=c.id AND c.tenant_id=pc.tenant_id AND c.provider=${connection[0].provider}::"IntegrationProvider" AND c.id<>${connectionId}::uuid AND pc.enabled
           RETURNING pc.connection_id AS id`;
         switchedFrom = previous.map((row) => row.id);
       }
