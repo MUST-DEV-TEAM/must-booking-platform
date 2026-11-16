@@ -119,6 +119,17 @@ describe('ManualReviewService', () => {
       ]);
     });
 
+    it('two operations on one booking are two items, so resolving one never closes the other', async () => {
+      const { service, sqls } = makeService(0);
+      await service.record({ ...base, context: { kind: 'X', operationKey: 'op-1' } });
+      await service.record({ ...base, context: { kind: 'X', operationKey: 'op-2' } });
+      const keys = inserts(sqls).map((c) => c.values[8]);
+      expect(keys).toEqual([
+        'PAYMENT_BOOKING_MISMATCH:X:booking:b-1:op-1',
+        'PAYMENT_BOOKING_MISMATCH:X:booking:b-1:op-2',
+      ]);
+    });
+
     it('without a reference id it always inserts and takes no lock', async () => {
       const { service, sqls } = makeService(1);
       reportOperationalFailure.mockClear();

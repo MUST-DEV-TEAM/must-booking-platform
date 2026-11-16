@@ -34,17 +34,23 @@ export interface RecordManualReviewInput {
   context?: unknown;
 }
 
-/** `<category>:<kind>:<referenceType>:<referenceId>`; no key (always a new item) without a reference id. */
+/**
+ * `<category>:<kind>:<referenceType>:<referenceId>`, plus `:<operationKey>` when the caller names one;
+ * no key (always a new item) without a reference id. Resolvers close items by `context.operationKey`,
+ * so two operations on one booking must never share an item.
+ */
 function buildDedupeKey(input: RecordManualReviewInput): string | null {
   if (!input.referenceId) return null;
-  const context = input.context;
-  const kind =
-    typeof context === 'object' &&
-    context !== null &&
-    typeof (context as { kind?: unknown }).kind === 'string'
-      ? (context as { kind: string }).kind
+  const context =
+    typeof input.context === 'object' && input.context !== null
+      ? (input.context as { kind?: unknown; operationKey?: unknown })
+      : {};
+  const kind = typeof context.kind === 'string' ? context.kind : '';
+  const operation =
+    typeof context.operationKey === 'string' && context.operationKey
+      ? `:${context.operationKey}`
       : '';
-  return `${input.category}:${kind}:${input.referenceType}:${input.referenceId}`;
+  return `${input.category}:${kind}:${input.referenceType}:${input.referenceId}${operation}`;
 }
 
 // Source brief section 26: an unknown/ambiguous Clock result must never be
