@@ -9,12 +9,23 @@ import {
   type ClockQueueName,
 } from './clock-queue-names';
 
+/** Failed webhook and reconciliation jobs are kept for 30 days, so the failed lists stop growing for ever. The
+ * dead-letter copy is made the moment a job fails, so nothing needs the failed job after that. */
+const FAILED_JOB_RETENTION_SECONDS = 30 * 24 * 60 * 60;
+const FAILED_RETENTION_QUEUES = new Set<string>(['clock.webhooks', 'clock.reconciliation']);
+
 const DEFAULT_JOB_OPTIONS: JobsOptions = {
   attempts: 3,
   backoff: { type: 'exponential', delay: 2_000 },
   removeOnComplete: { age: 24 * 60 * 60 },
   removeOnFail: false, // kept so the dead-letter path (ClockWorkerService) can read attemptsMade/failedReason.
 };
+
+export function defaultJobOptions(queueName: string): JobsOptions {
+  return FAILED_RETENTION_QUEUES.has(queueName)
+    ? { ...DEFAULT_JOB_OPTIONS, removeOnFail: { age: FAILED_JOB_RETENTION_SECONDS } }
+    : DEFAULT_JOB_OPTIONS;
+}
 
 /**
  * hydrate-event retries must outlast the circuit breaker's 30s cooldown. With
@@ -79,7 +90,7 @@ export class ClockQueueService implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     const queue = this.requireQueue(queueName);
     await queue.add(jobName, data, {
-      ...DEFAULT_JOB_OPTIONS,
+      ...defaultJobOptions(queueName),
       priority: CLOCK_QUEUE_PRIORITY[queueName],
       ...options,
     });
@@ -98,7 +109,7 @@ export class ClockQueueService implements OnModuleInit, OnModuleDestroy {
       name: jobName,
       data,
       opts: {
-        ...DEFAULT_JOB_OPTIONS,
+        ...defaultJobOptions(queueName),
         priority: CLOCK_QUEUE_PRIORITY[queueName],
         ...options,
       },
@@ -136,6 +147,20 @@ export class ClockQueueService implements OnModuleInit, OnModuleDestroy {
     const dlq = this.requireQueue(CLOCK_DEAD_LETTER_QUEUE_NAME);
     const payload: DeadLetterJobData = { originalQueue, originalJobName, data, reason };
     await dlq.add(originalJobName, payload);
+  }
+
+  /** How many jobs wait on the dead-letter queue and how old the oldest one is. */
+  async deadLetterStats(): Promise<{ count: number; oldestAgeSeconds: number | null }> {
+    const dlq = this.requireQueue(CLOCK_DEAD_LETTER_QUEUE_NAME);
+    const count = await dlq.count();
+    if (count === 0) return { count: 0, oldestAgeSeconds: null };
+    const [oldest] = await dlq.getJobs(['waiting'], 0, 0, true);
+    return {
+      count,
+      oldestAgeSeconds: oldest
+        ? Math.max(0, Math.floor((Date.now() - oldest.timestamp) / 1000))
+        : null,
+    };
   }
 
   private requireQueue(name: string): Queue {
