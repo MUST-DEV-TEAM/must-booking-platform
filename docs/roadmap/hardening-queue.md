@@ -64,8 +64,8 @@ The order is by risk removed per unit of work, then by dependency. A slice can s
 | Slice | What | Milestone task | Branch | Likely files | Test | Needs | Brief | Review |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 39-2 | A password reset or change ends the other sessions **#493 open.** | M39 task 2 | `fix/m39-revoke-sessions-on-password-change` | `apps/api/src/auth/auth.service.ts`, the session store | The three tests in the task | - | Fable (decide backfill or next sign-in, state it) | Fable |
-| 39-6a | No review item for a cancelled or zero-total import; auto-close when the condition clears | M39 task 6, step 1, first and third points | `fix/m39-review-items-actionable-only` | `apps/api/src/integrations/manual-review.service.ts`, the callers that raise the currency item | Specs for each rule | - | Fable | Fable |
-| 39-6b | `dedupe_key` column; raising an open item's key updates it | M39 task 6, step 1, second point | `feat/m39-review-item-dedupe-key` | `apps/api/prisma/schema.prisma`, a migration, `manual-review.service.ts`, the `FINANCIAL_SYNC_BLOCKED` note from #475 | Spec: same key twice, one row with a count of 2 | 39-6a | Fable | Fable |
+| 39-6a | No review item for a cancelled or zero-total import; auto-close when the condition clears **Merged 2026-11-16, #498.** | M39 task 6, step 1, first and third points | `fix/m39-review-items-actionable-only` | `apps/api/src/integrations/manual-review.service.ts`, the callers that raise the currency item | Specs for each rule | - | Fable | Fable |
+| 39-6b | `dedupe_key` column; raising an open item's key updates it **Merged 2026-11-16, #501 (key also carries `operationKey`).** | M39 task 6, step 1, second point | `feat/m39-review-item-dedupe-key` | `apps/api/prisma/schema.prisma`, a migration, `manual-review.service.ts`, the `FINANCIAL_SYNC_BLOCKED` note from #475 | Spec: same key twice, one row with a count of 2 | 39-6a | Fable | Fable |
 | 39-7a | Failed webhook events keep a reason; pool and transaction-start timeouts retry **#495 open.** | M39 task 7, step 1 | `fix/m39-webhook-failure-reason` | `apps/api/prisma/schema.prisma`, a migration, the Clock webhook worker, `clock-provider-event-status.ts` | The injected transaction-start error test in the task | - | Fable | Fable |
 | 39-8a | Dead-letter count and age in the console, one alert, `removeOnFail` age limit | M39 task 8, step 1 | `feat/m39-dead-letter-visible` | The Clock queue setup, `apps/api/src/platform/console`, the platform alert email | Spec: a forced failure raises one alert | - | Standard | Routine |
 | 40-5a | Hydration raises the booking version only on a real change **#494 open.** | M40 task 5 | `fix/m40-version-only-on-change` | `apps/api/src/integrations/clock/clock-booking-hydration.service.ts` | Spec: an echo webhook with the same data leaves the version; a date change raises it | - | Fable | Fable |
@@ -80,7 +80,7 @@ Each pair is two releases. The second changes live rows or Redis contents and wa
 
 | Slice | What | Milestone task | Branch | Needs | Review |
 | --- | --- | --- | --- | --- | --- |
-| 39-6c | Count per hotel what the clean-up would close, and why | M39 task 6, step 2 | `chore/m39-review-queue-count` | 39-6b | Routine |
+| 39-6c | Count per hotel what the clean-up would close, and why **Script `infrastructure/ops/review-queue-count.sql`; first numbers 2026-11-16, owner review pending.** | M39 task 6, step 2 | `chore/m39-review-queue-count` | 39-6b | Routine |
 | 39-6d | Resolve those rows (Must Hotel first), then the partial unique index | M39 task 6, step 3 | `fix/m39-review-queue-cleanup` | 39-6c reviewed by the owner | Fable |
 | 39-7b | Count failed events by type and age, and whether the booking already matches Clock | M39 task 7, step 2 | `chore/m39-failed-events-count` | 39-7a | Routine |
 | 39-7c | Give old, consistent failures a final state | M39 task 7, step 3 | `fix/m39-failed-events-final-state` | 39-7b reviewed by the owner | Fable |
@@ -115,6 +115,7 @@ Waiting on people, no slice: M39 task 12 (Luxury mappings and webhooks: hotel st
 
 ### Found while executing
 
+- **CI (2026-11-16):** Clock staging is red on every PR (Clock demo account 16307, expired trial) and is a required check, so merges need `--admin` and the automatic deploy is skipped; deploy by hand with the deploy workflow's `workflow_dispatch`. A stuck queued dispatch is displaced by dispatching again. #499 (Clock refusal is one notice, not a breaker storm) is also merged.
 - **CI:** the Clock staging job allows one run at a time and GitHub keeps only one waiting run per group, so with three or more pull requests open at once the waiting ones are cancelled and show as failed. Re-run them one at a time, or keep at most two pull requests in CI.
 - **CI:** `apps/web/app/dashboard/reports.test.tsx` failed 4 runs on 2026-11-15 ("The requested date field did not open its calendar"). #491 makes the helper click again; not reproduced locally, so if it returns, log the trigger's `aria-expanded` at the failure.
 - **Deploys:** the pipeline deploys only the newest commit of `main`; a failed CI run on `main` skips the deploy until it is re-run.
