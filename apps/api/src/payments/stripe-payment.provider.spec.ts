@@ -211,7 +211,11 @@ describe('StripePaymentProvider embedded checkout', () => {
       },
     });
     const sent = create.mock.calls[0]![0] as Record<string, unknown>;
-    expect(sent).toMatchObject({ ui_mode: 'embedded', return_url: 'https://x.test/s' });
+    expect(sent).toMatchObject({
+      ui_mode: 'embedded_page',
+      return_url: 'https://x.test/s',
+      redirect_on_completion: 'if_required',
+    });
     expect(sent).not.toHaveProperty('success_url');
     expect(sent).not.toHaveProperty('cancel_url');
   });

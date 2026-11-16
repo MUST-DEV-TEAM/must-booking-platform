@@ -1,5 +1,5 @@
 import { isStripeTestKey } from '../integrations/connection-mode';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
   type CheckoutSession,
   type CreateCheckoutSessionCommand,
@@ -16,6 +16,8 @@ import { IntegrationConnectionsService } from '../integrations/integration-conne
 
 @Injectable()
 export class StripePaymentProvider implements PaymentProvider {
+  private readonly logger = new Logger(StripePaymentProvider.name);
+
   constructor(
     @Inject(IntegrationConnectionsService)
     private readonly connections: IntegrationConnectionsService,
@@ -60,7 +62,12 @@ export class StripePaymentProvider implements PaymentProvider {
           submit_type: 'book',
           client_reference_id: command.bookingId,
           ...(embedded
-            ? { ui_mode: 'embedded' as const, return_url: command.successUrl }
+            ? {
+                ui_mode: 'embedded_page' as const,
+                return_url: command.successUrl,
+                // Cards finish inside the page (the page is told); redirect methods use return_url.
+                redirect_on_completion: 'if_required' as const,
+              }
             : { success_url: command.successUrl, cancel_url: command.cancelUrl }),
           metadata: this.bookingMetadata(context, command.bookingId),
           payment_intent_data: {
@@ -105,7 +112,11 @@ export class StripePaymentProvider implements PaymentProvider {
         );
       }
       return { ok: true, value: { id: session.id, url: session.url, connectionId } };
-    } catch {
+    } catch (error) {
+      // Stripe's own error text names the problem (and never contains a key); keep it for the operator.
+      this.logger.warn(
+        `Stripe checkout could not be created: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
       return this.failure(
         'STRIPE_CHECKOUT_CREATION_FAILED',
         'Stripe checkout could not be created.',
