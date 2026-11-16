@@ -69,6 +69,12 @@ Read from the code, not yet exercised end to end for Stripe:
 
 **Push plan (owner, 2026-11-16):** push 1 is the TEST labels together with the shared multi-method work (gaps 1 to 4); push 2 is Stripe working end to end with the picker (gaps 5 and 6); Stripe going live for a real hotel stays [Milestone 37](37-stripe-payments.md); Paysera later.
 
+## Status 2026-11-16 (Stripe in the sandbox)
+
+Gaps 1 to 6 above are built and were tested against the owner's Stripe sandbox with real test payments (hosted page, in-page popup, declined card, 3D Secure, late and cancelled-booking payments, duplicate and forged events, refunds, cancellations, fees, a hotel priced in USD). Two defects found by those tests were fixed: a payment for a cancelled booking is now refunded instead of failing, and Stripe refunds are marked TEST like their payments. Decisions taken the same day are in [ADR-0042](../../decisions/ADR-0042-stripe-payments-currency-closing-and-refund-fee.md): guests pay in the hotel's own currency, an ended booking closes its Stripe page, and a guest who cancels can bear the payment fee (hotel setting, off by default).
+
+Not yet tested: PokPay and Stripe switched on together for one hotel (needs PokPay credentials), Clock hotels paid through Stripe (Clock sandbox expired), a guest who really pays in lek (the offer is now off), and zero-decimal currencies (not supported by the refund code).
+
 ## Not in this milestone
 
 Stripe going live for a real hotel (Milestone 37), the payment-method picker design on the public booking page (needs a design pass), per-guest method choice rules.

@@ -3,6 +3,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
   type CheckoutSession,
   type CreateCheckoutSessionCommand,
+  type Money,
   type Payment,
   type PaymentProvider,
   type PaymentProviderContext,
@@ -257,6 +258,48 @@ export class StripePaymentProvider implements PaymentProvider {
         `Stripe checkout could not be closed: ${stripeError.message ?? 'unknown error'}`,
       );
       return { ok: true, value: { closed: false } };
+    }
+  }
+
+  /**
+   * Stripe's processing fee for one paid Checkout session, in the currency the guest paid in. Stripe reports
+   * the fee in the currency it settles in; when that differs, the balance transaction's own exchange rate
+   * converts it back.
+   */
+  async getPaymentFee(
+    context: PaymentProviderContext,
+    externalPaymentId: string,
+  ): Promise<Result<Money | null>> {
+    const configured = await this.tenantConnection(context, externalPaymentId);
+    if (!configured.ok) return configured;
+    try {
+      const session = await new Stripe(configured.value.secretKey).checkout.sessions.retrieve(
+        externalPaymentId,
+        { expand: ['payment_intent.latest_charge.balance_transaction'] },
+      );
+      const intent = session.payment_intent;
+      const charge = intent && typeof intent === 'object' ? intent.latest_charge : null;
+      const settlement = charge && typeof charge === 'object' ? charge.balance_transaction : null;
+      if (!charge || typeof charge !== 'object' || !settlement || typeof settlement !== 'object')
+        return { ok: true, value: null };
+      let feeMinorUnits = settlement.fee;
+      if (settlement.currency !== charge.currency) {
+        if (!settlement.exchange_rate) return { ok: true, value: null };
+        feeMinorUnits = Math.round(feeMinorUnits / settlement.exchange_rate);
+      }
+      return {
+        ok: true,
+        value: {
+          amount: `${Math.floor(feeMinorUnits / 100)}.${String(feeMinorUnits % 100).padStart(2, '0')}`,
+          currency: charge.currency.toUpperCase(),
+        },
+      };
+    } catch {
+      return this.failure(
+        'STRIPE_FEE_UNAVAILABLE',
+        'Stripe could not report the payment fee.',
+        true,
+      );
     }
   }
 

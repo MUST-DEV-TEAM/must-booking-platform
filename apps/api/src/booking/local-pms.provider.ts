@@ -1343,6 +1343,8 @@ export class LocalPmsProvider implements PmsProvider {
                 context,
                 row.id,
                 `cancellation-refund:${command.idempotencyKey}`,
+                // A guest who cancels on their own bears the payment fee (when the hotel says so).
+                { guestDecision: !command.staffActorId },
               );
               if (!refunded.result.ok)
                 await this.recordAutomaticRefundFailure(tx, context, row.id, refunded.result.error);
@@ -1538,6 +1540,8 @@ export class LocalPmsProvider implements PmsProvider {
         anchor.id,
         amount,
         `order-cancellation-refund:${command.idempotencyKey}`,
+        undefined,
+        { guestDecision: !command.staffActorId },
       );
       if (!refunded.result.ok)
         await this.recordAutomaticRefundFailure(tx, context, anchor.id, refunded.result.error, {

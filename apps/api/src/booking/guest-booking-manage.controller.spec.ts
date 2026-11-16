@@ -38,6 +38,8 @@ function fixture(overrides: Record<string, unknown> = {}) {
   };
   const requests = {
     guestRequest: vi.fn().mockResolvedValue({ requested: true, requestId: 'request' }),
+    // No payment fee is kept back unless a test sets one.
+    guestRefundFee: vi.fn().mockResolvedValue(null),
   };
   const financial = {
     read: vi.fn().mockResolvedValue({ status: 'NOT_CONNECTED', data: null }),
@@ -53,12 +55,20 @@ function fixture(overrides: Record<string, unknown> = {}) {
   return { controller, provider, requests, financial, db, token, row };
 }
 describe('signed guest booking management', () => {
+  it('shows the refund after the payment fee the hotel keeps back, and the fee itself', async () => {
+    const f = fixture();
+    f.requests.guestRefundFee.mockResolvedValue({ amount: '12.85', currency: 'EUR' });
+    const result = await f.controller.preview({ tenantContext: scope }, 'booking', f.token);
+    expect(result).toMatchObject({ refundAmount: '87.14', providerFee: '12.85' });
+  });
+
   it('shows exact refund and saved terms on GET without cancelling or moving money', async () => {
     const f = fixture();
     const result = await f.controller.preview({ tenantContext: scope }, 'booking', f.token);
     expect(result).toMatchObject({
       automaticAllowed: true,
       refundAmount: '99.99',
+      providerFee: null,
       policyKnown: true,
     });
     expect(f.provider.cancelBooking).not.toHaveBeenCalled();

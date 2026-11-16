@@ -38,6 +38,8 @@ export type CancellationEvidence = {
   alreadyRefunded: string;
   penalty: string;
   eligible: string;
+  /** The payment fee a guest-requested cancellation keeps back from `eligible` (null when none applies). */
+  providerFee?: string | null;
   method: string;
   legacyPolicy: boolean;
   policySource?: 'MUST' | 'CLOCK_PMS';
@@ -124,6 +126,16 @@ export class BookingRequestsService {
     if (!caps.includes(key)) throw new ForbiddenException(`Requires ${key}.`);
     return caps;
   }
+  /** What a refund the guest decided on keeps back as the payment fee (null when none applies). */
+  async guestRefundFee(
+    scope: Pick<RequestContext, 'tenantId' | 'propertyId'>,
+    bookingId: string,
+    amount: { amount: string; currency: string },
+  ): Promise<{ amount: string; currency: string } | null> {
+    return this.db.withTenantTransaction(scope, (tx) =>
+      this.refunds.keptProviderFee(tx, scope, bookingId, amount),
+    );
+  }
   async preview(c: RequestContext, bookingId: string): Promise<CancellationEvidence> {
     this.uuid(bookingId);
     await this.require(c, 'bookings.view');
@@ -189,9 +201,17 @@ export class BookingRequestsService {
         [share, eligible, orderRemaining].reduce((a, b) => (a < b ? a : b)),
       );
     }
+    const kept =
+      minor(evidence.eligible) > 0n
+        ? await this.refunds.keptProviderFee(tx, c, bookingId, {
+            amount: evidence.eligible,
+            currency: evidence.currency,
+          })
+        : null;
+    const withFee = { ...evidence, providerFee: kept?.amount ?? null };
     return {
-      ...evidence,
-      previewHash: createHash('sha256').update(JSON.stringify(evidence)).digest('hex'),
+      ...withFee,
+      previewHash: createHash('sha256').update(JSON.stringify(withFee)).digest('hex'),
     };
   }
   /** A booking-owned charge is an explicit split. Do not infer allocations for
@@ -296,7 +316,13 @@ export class BookingRequestsService {
             ? '0.00'
             : input.refund === 'custom'
               ? money(minor(input.customAmount!))
-              : evidence.eligible;
+              : input.reasonCategory === 'guest_request' && evidence.providerFee
+                ? money(
+                    minor(evidence.eligible) > minor(evidence.providerFee)
+                      ? minor(evidence.eligible) - minor(evidence.providerFee)
+                      : 0n,
+                  )
+                : evidence.eligible;
         if (minor(refundAmount) > minor(evidence.paid) - minor(evidence.alreadyRefunded))
           throw new BadRequestException('Refund exceeds the remaining payment.');
         const snapshot: Snapshot = { evidence, input, refundAmount };
@@ -415,8 +441,17 @@ export class BookingRequestsService {
       >`SELECT id FROM booking_requests WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND booking_id=${bookingId}::uuid AND type='cancellation' AND status='Pending'`;
       if (existing[0]) return { requested: true, requestId: existing[0].id };
       const evidence = await this.evidence(tx, scope, bookingId);
+      // The guest asks to cancel, so (when the hotel says so) the payment fee comes off what they ask back.
+      const wanted = minor(evidence.paid) - minor(evidence.alreadyRefunded);
+      const keptFee =
+        requestRefund && wanted > 0n
+          ? await this.refunds.keptProviderFee(tx, scope, bookingId, {
+              amount: money(wanted),
+              currency: evidence.currency,
+            })
+          : null;
       const refundAmount = requestRefund
-        ? money(minor(evidence.paid) - minor(evidence.alreadyRefunded))
+        ? money(keptFee && wanted > minor(keptFee.amount) ? wanted - minor(keptFee.amount) : wanted)
         : '0.00';
       const input = {
         expectedVersion: evidence.version,

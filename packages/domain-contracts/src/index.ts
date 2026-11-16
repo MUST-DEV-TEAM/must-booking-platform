@@ -538,6 +538,14 @@ export interface PaymentProvider {
     context: PaymentProviderContext,
     externalPaymentId: string,
   ): Promise<Result<{ closed: boolean }>>;
+  /**
+   * What the provider kept as its fee for one payment, in the payment's own currency; null when it is not
+   * known (yet). Used to keep the fee back from a refund the guest asked for.
+   */
+  getPaymentFee?(
+    context: PaymentProviderContext,
+    externalPaymentId: string,
+  ): Promise<Result<Money | null>>;
 }
 
 /** Email plan Step 1: who receives each notification at a property. */

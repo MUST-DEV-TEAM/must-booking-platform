@@ -227,16 +227,19 @@ export function PaymentSettings({
   useEffect(() => setDraft(property.paymentGateways), [property.paymentGateways]);
   const [hold, setHold] = useState(String(property.onlinePaymentHoldMinutes ?? 30)),
     [autoRefund, setAutoRefund] = useState(property.autoRefundOnFreeCancellation ?? true),
+    [keepFee, setKeepFee] = useState(property.deductPaymentFeeOnGuestRefund ?? false),
     [clockRefund, setClockRefund] = useState<ClockCancelRefundPolicy>(
       property.clockCancelRefundPolicy ?? 'NEVER',
     );
   useEffect(() => {
     setHold(String(property.onlinePaymentHoldMinutes ?? 30));
     setAutoRefund(property.autoRefundOnFreeCancellation ?? true);
+    setKeepFee(property.deductPaymentFeeOnGuestRefund ?? false);
     setClockRefund(property.clockCancelRefundPolicy ?? 'NEVER');
   }, [
     property.onlinePaymentHoldMinutes,
     property.autoRefundOnFreeCancellation,
+    property.deductPaymentFeeOnGuestRefund,
     property.clockCancelRefundPolicy,
   ]);
   const holdError =
@@ -247,10 +250,11 @@ export function PaymentSettings({
     JSON.stringify(draft) !== JSON.stringify(property.paymentGateways) ||
     hold !== String(property.onlinePaymentHoldMinutes ?? 30) ||
     autoRefund !== (property.autoRefundOnFreeCancellation ?? true) ||
+    keepFee !== (property.deductPaymentFeeOnGuestRefund ?? false) ||
     clockRefund !== (property.clockCancelRefundPolicy ?? 'NEVER');
   useUnsavedChanges(canWrite && dirty);
   // There is no independent online-booking enable switch in the property contract.
-  const error = !(draft.payAtHotel || draft.pokpay)
+  const error = !(draft.payAtHotel || draft.pokpay || draft.stripe)
     ? 'Keep at least one payment method on so guests can complete an online booking.'
     : null;
   return (
@@ -259,7 +263,7 @@ export function PaymentSettings({
         title="Payment methods"
         description="Choose how guests can pay for bookings at this hotel."
       >
-        {(['pokpay', 'payAtHotel'] as const).map((key) => (
+        {(['stripe', 'pokpay', 'payAtHotel'] as const).map((key) => (
           <FormField
             key={key}
             layout="toggle"
@@ -283,7 +287,7 @@ export function PaymentSettings({
             />
             {key !== 'payAtHotel' ? (
               <Badge variant="outline">
-                {connectedProviders.has('POKPAY')
+                {connectedProviders.has(key === 'stripe' ? 'STRIPE' : 'POKPAY')
                   ? 'Connected to this hotel'
                   : 'Not connected - unavailable to guests'}
               </Badge>
@@ -321,6 +325,19 @@ export function PaymentSettings({
             checked={autoRefund}
             disabled={!canWrite}
             onCheckedChange={setAutoRefund}
+          />
+        </FormField>
+        <FormField
+          layout="toggle"
+          label="A guest who cancels pays the payment fee"
+          htmlFor="payment-keep-fee"
+          hint="When a guest cancels on their own, the card payment fee is kept back from their refund. When the hotel cancels, the guest is always refunded in full. Turn this on only after your booking terms say so."
+        >
+          <Switch
+            id="payment-keep-fee"
+            checked={keepFee}
+            disabled={!canWrite}
+            onCheckedChange={setKeepFee}
           />
         </FormField>
         {clockConnected ? (
@@ -365,6 +382,7 @@ export function PaymentSettings({
             setDraft(property.paymentGateways);
             setHold(String(property.onlinePaymentHoldMinutes ?? 30));
             setAutoRefund(property.autoRefundOnFreeCancellation ?? true);
+            setKeepFee(property.deductPaymentFeeOnGuestRefund ?? false);
             setClockRefund(property.clockCancelRefundPolicy ?? 'NEVER');
           }}
           onSave={() =>
@@ -372,6 +390,7 @@ export function PaymentSettings({
               {
                 onlinePaymentHoldMinutes: Number(hold),
                 autoRefundOnFreeCancellation: autoRefund,
+                deductPaymentFeeOnGuestRefund: keepFee,
                 ...(clockConnected ? { clockCancelRefundPolicy: clockRefund } : {}),
               },
               draft,
