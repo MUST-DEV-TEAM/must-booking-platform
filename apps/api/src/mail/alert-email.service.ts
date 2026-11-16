@@ -217,6 +217,20 @@ export class AlertEmailService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  /** One alert for the system owner outside the 5-minute sweep. Returns false when no address is set. The key
+   * makes a repeat of the same notice a no-op. */
+  async sendPlatformNotice(event: AlertEvent, key: string): Promise<boolean> {
+    const to = this.platformAlertEmail();
+    if (!to) return false;
+    const email = platformAlertEmail([event], to, this.platformTimeZone(), this.dashboardUrl());
+    await this.delivery.dispatch(
+      'rendered',
+      { ...email, idempotencyKey: `platform-alert/${key}` },
+      { tenantId: null, propertyId: null },
+    );
+    return true;
+  }
+
   async sendPlatformSummary(now: Date): Promise<void> {
     const to = this.platformAlertEmail();
     if (!to) return;
