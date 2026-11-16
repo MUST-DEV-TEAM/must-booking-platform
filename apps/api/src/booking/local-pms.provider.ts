@@ -614,13 +614,14 @@ export class LocalPmsProvider implements PmsProvider {
                   cancelUrl: this.checkoutReturnUrl(bookingId, 'cancel', guestReturnUrl, context),
                 });
                 if (!checkout.ok) throw new CheckoutSessionCreationError(checkout);
-                if (paymentMethod.value === BookingPaymentMethod.POKPAY) {
+                {
                   await tx.$executeRaw`
                   INSERT INTO payment_provider_sessions (
                     tenant_id, property_id, booking_id, provider, external_payment_id, connection_id
                   ) VALUES (
                     ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${bookingId}::uuid,
-                    'pokpay', ${checkout.value.id}, ${checkout.value.connectionId ?? null}::uuid
+                    ${paymentMethod.value === BookingPaymentMethod.POKPAY ? 'pokpay' : 'stripe'},
+                    ${checkout.value.id}, ${checkout.value.connectionId ?? null}::uuid
                   )
                   ON CONFLICT (tenant_id, provider, external_payment_id) DO NOTHING
                 `;

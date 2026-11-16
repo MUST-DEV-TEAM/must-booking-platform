@@ -252,13 +252,13 @@ export class MultiRoomBookingService {
                 cancelUrl: this.checkoutReturnUrl(bookings[0]!.id, 'cancel'),
               });
               if (!checkout.ok) return checkout;
-              if (paymentMethod.value === BookingPaymentMethod.POKPAY)
-                await tx.$executeRaw`
+              await tx.$executeRaw`
                   INSERT INTO payment_provider_sessions (
                     tenant_id, property_id, booking_id, provider, external_payment_id, connection_id
                   ) VALUES (
                     ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${bookings[0]!.id}::uuid,
-                    'pokpay', ${checkout.value.id}, ${checkout.value.connectionId ?? null}::uuid
+                    ${paymentMethod.value === BookingPaymentMethod.POKPAY ? 'pokpay' : 'stripe'},
+                    ${checkout.value.id}, ${checkout.value.connectionId ?? null}::uuid
                   )
                   ON CONFLICT (tenant_id, provider, external_payment_id) DO NOTHING
                 `;

@@ -59,7 +59,7 @@ describe('StripeWebhookController (one endpoint and secret per hotel connection)
       expect.anything(),
       't=1,v1=x',
     );
-    expect(processPaymentSucceeded).toHaveBeenCalledWith(paidEvent);
+    expect(processPaymentSucceeded).toHaveBeenCalledWith(paidEvent, connection.connectionId);
   });
 
   it('rejects a bad signature and records nothing', async () => {
@@ -79,6 +79,15 @@ describe('StripeWebhookController (one endpoint and secret per hotel connection)
     });
     await expect(receive()).rejects.toBeInstanceOf(BadRequestException);
     expect(processPaymentSucceeded).not.toHaveBeenCalled();
+  });
+
+  it("answers 400, not a retry, when the payment belongs to another connection's account", async () => {
+    const { receive, processPaymentSucceeded } = build();
+    processPaymentSucceeded.mockResolvedValueOnce({
+      ok: false,
+      error: { code: 'STRIPE_CONNECTION_MISMATCH', message: 'different connection' },
+    } as never);
+    await expect(receive()).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('refuses a paid event that names no tenant at all', async () => {

@@ -11,11 +11,24 @@ const context = {
 };
 const bookingId = '33333333-3333-4333-8333-333333333333';
 
-function makeProvider(tenantSecretKey = secretKey) {
+function makeProvider(tenantSecretKey = secretKey, sessionSecretKey: string | null = null) {
   const connections = {
-    activePaymentConnectionCredentials: vi.fn().mockResolvedValue({ secretKey: tenantSecretKey }),
+    activePaymentConnection: vi.fn().mockResolvedValue({
+      connectionId: 'conn-in-use',
+      mode: 'TEST',
+      credentials: { secretKey: tenantSecretKey },
+    }),
+    sessionPaymentConnection: vi.fn().mockResolvedValue(
+      sessionSecretKey
+        ? {
+            connectionId: 'conn-of-order',
+            mode: 'TEST',
+            credentials: { secretKey: sessionSecretKey },
+          }
+        : null,
+    ),
   };
-  return new StripePaymentProvider(connections as never);
+  return Object.assign(new StripePaymentProvider(connections as never), { mocks: connections });
 }
 
 const payload = JSON.stringify({
@@ -80,6 +93,84 @@ describe('StripePaymentProvider.refund', () => {
       { payment_intent: 'pi_test_original', amount: 1234 },
       { idempotencyKey: 'refund-attempt-1' },
     );
+  });
+});
+
+describe('StripePaymentProvider accounts (the connection that took the payment)', () => {
+  it('sends a refund through the account that took the payment, not the one now in use', async () => {
+    const stripe = new Stripe(secretKey);
+    const sessions = Object.getPrototypeOf(stripe.checkout.sessions) as {
+      retrieve: (id: string) => Promise<Stripe.Checkout.Session>;
+    };
+    vi.spyOn(sessions, 'retrieve').mockResolvedValue({
+      payment_intent: 'pi_test_original',
+    } as Stripe.Checkout.Session);
+    const refunds = Object.getPrototypeOf(stripe.refunds) as {
+      create: (...args: unknown[]) => Promise<Stripe.Refund>;
+    };
+    vi.spyOn(refunds, 'create').mockResolvedValue({
+      id: 're_test_refund',
+      status: 'succeeded',
+    } as Stripe.Refund);
+    const provider = makeProvider('sk_test_in_use', 'sk_test_of_order');
+
+    await provider.refund(context, {
+      idempotencyKey: 'refund-attempt-2',
+      paymentId: 'cs_test_original',
+      amount: { amount: '5.00', currency: 'EUR' },
+    });
+
+    expect(provider.mocks.sessionPaymentConnection).toHaveBeenCalledWith(
+      context.tenantId,
+      context.propertyId,
+      'STRIPE',
+      'cs_test_original',
+    );
+    expect(provider.mocks.activePaymentConnection).not.toHaveBeenCalled();
+  });
+
+  it('uses the account in use for a payment whose account was never recorded', async () => {
+    const provider = makeProvider('sk_test_in_use', null);
+    vi.spyOn(
+      Object.getPrototypeOf(new Stripe(secretKey).checkout.sessions),
+      'retrieve',
+    ).mockResolvedValue({
+      payment_intent: 'pi_x',
+    });
+    await provider.refund(context, {
+      idempotencyKey: 'refund-attempt-3',
+      paymentId: 'cs_test_old',
+      amount: { amount: '1.00', currency: 'EUR' },
+    });
+    expect(provider.mocks.activePaymentConnection).toHaveBeenCalled();
+  });
+
+  it('reports which account created a checkout session', async () => {
+    const stripe = new Stripe(secretKey);
+    const sessions = Object.getPrototypeOf(stripe.checkout.sessions) as {
+      create: (...args: unknown[]) => Promise<Stripe.Checkout.Session>;
+    };
+    vi.spyOn(sessions, 'create').mockResolvedValue({
+      id: 'cs_test_new',
+      url: 'https://checkout.stripe.test/cs_test_new',
+    } as Stripe.Checkout.Session);
+
+    await expect(
+      makeProvider().createCheckoutSession(context, {
+        idempotencyKey: 'k',
+        bookingId,
+        amount: { amount: '10.00', currency: 'EUR' },
+        successUrl: 'https://x.test/s',
+        cancelUrl: 'https://x.test/c',
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      value: {
+        id: 'cs_test_new',
+        url: 'https://checkout.stripe.test/cs_test_new',
+        connectionId: 'conn-in-use',
+      },
+    });
   });
 });
 

@@ -69,11 +69,15 @@ export class StripeWebhookController {
       // names no tenant, or another one, is refused; it is never trusted on its own say-so.
       if (event.tenantId !== connection.tenantId)
         throw new BadRequestException('This event does not belong to this Stripe connection.');
-      const processed = await this.webhooks.processPaymentSucceeded({
-        ...event,
-        tenantId: connection.tenantId,
-      });
-      if (!processed.ok) throw new InternalServerErrorException(processed.error.message);
+      const processed = await this.webhooks.processPaymentSucceeded(
+        { ...event, tenantId: connection.tenantId },
+        connection.connectionId,
+      );
+      if (!processed.ok) {
+        if (processed.error.code === 'STRIPE_CONNECTION_MISMATCH')
+          throw new BadRequestException(processed.error.message);
+        throw new InternalServerErrorException(processed.error.message);
+      }
     }
     return { received: true };
   }

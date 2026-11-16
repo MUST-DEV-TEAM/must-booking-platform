@@ -39,9 +39,9 @@ export class StripePaymentProvider implements PaymentProvider {
     context: PaymentProviderContext,
     command: CreateCheckoutSessionCommand,
   ): Promise<Result<CheckoutSession>> {
-    const configured = await this.tenantSecretKey(context);
+    const configured = await this.tenantConnection(context);
     if (!configured.ok) return configured;
-    const secretKey = configured.value;
+    const { secretKey, connectionId } = configured.value;
     if (!secretKey.startsWith('sk_test_')) {
       return this.failure(
         'STRIPE_TEST_MODE_REQUIRED',
@@ -81,7 +81,7 @@ export class StripePaymentProvider implements PaymentProvider {
           true,
         );
       }
-      return { ok: true, value: { id: session.id, url: session.url } };
+      return { ok: true, value: { id: session.id, url: session.url, connectionId } };
     } catch {
       return this.failure(
         'STRIPE_CHECKOUT_CREATION_FAILED',
@@ -156,9 +156,11 @@ export class StripePaymentProvider implements PaymentProvider {
   }
 
   async refund(context: PaymentProviderContext, command: RefundCommand): Promise<Result<Payment>> {
-    const configured = await this.tenantSecretKey(context);
+    // A refund goes through the account that took the payment, even if the hotel has since switched
+    // to another one (test or live). Older sessions without a recorded account use the one in use.
+    const configured = await this.tenantConnection(context, command.paymentId);
     if (!configured.ok) return configured;
-    const secretKey = configured.value;
+    const secretKey = configured.value.secretKey;
     if (!secretKey.startsWith('sk_test_')) {
       return this.failure(
         'STRIPE_TEST_MODE_REQUIRED',
@@ -207,22 +209,34 @@ export class StripePaymentProvider implements PaymentProvider {
     return value || null;
   }
 
-  /** Reads the tenant's own Stripe connection for this property (ADR-0026) —
-   * never the server environment. A property with no enabled Stripe
-   * connection cannot take Stripe payments, same as having none configured. */
-  private async tenantSecretKey(context: PaymentProviderContext): Promise<Result<string>> {
-    const credentials = await this.connections.activePaymentConnectionCredentials(
-      context.tenantId,
-      context.propertyId,
-      'STRIPE',
-    );
-    const secretKey = credentials?.secretKey?.trim();
-    if (!secretKey)
+  /** Reads the tenant's own Stripe connection for this property (ADR-0026), never the server
+   * environment: the account that took the given payment if it is recorded, otherwise the one in
+   * use. A property with no usable Stripe connection cannot take Stripe payments. */
+  private async tenantConnection(
+    context: PaymentProviderContext,
+    externalPaymentId?: string,
+  ): Promise<Result<{ secretKey: string; connectionId: string }>> {
+    const connection =
+      (externalPaymentId
+        ? await this.connections.sessionPaymentConnection(
+            context.tenantId,
+            context.propertyId,
+            'STRIPE',
+            externalPaymentId,
+          )
+        : null) ??
+      (await this.connections.activePaymentConnection(
+        context.tenantId,
+        context.propertyId,
+        'STRIPE',
+      ));
+    const secretKey = connection?.credentials.secretKey?.trim();
+    if (!connection || !secretKey)
       return this.failure(
         'STRIPE_NOT_CONFIGURED',
         'Stripe checkout is not configured for this property.',
       );
-    return { ok: true, value: secretKey };
+    return { ok: true, value: { secretKey, connectionId: connection.connectionId } };
   }
 
   private amountInCents(amount: string): Stripe.Decimal {
