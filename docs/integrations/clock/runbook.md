@@ -47,6 +47,16 @@ Open questions to settle from that capture: Clock's event name for folio create 
 
 Status, executed 2026-09-30 with the owner's explicit approval: steps 1-3 done. Clock returned subscription `PUSH_14688_EMPIRE_BEACH_RESORT` (account 14688), the bare topic ARN `arn:aws:sns:eu-west-1:006467213368:PUSH_14688_EMPIRE_BEACH_RESORT` was pinned in the connection's encrypted credentials (prior encrypted blob backed up inside the API container at `/tmp/cred-backup-<connectionId>.txt`, lost on rebuild), the re-POST was sent, and two signed deliveries to the webhook URL returned 200 with no "Rejected Clock webhook" warning. `GET /webhook_subscription` then showed `pending_confirmation: false`. Step 4 (a real folio/booking event reaching `provider_events` and being applied) is still to do. The one-off scripts were not committed, per the 2026-09-03 convention.
 
+### Luxury production: webhook subscription (2026-11-16)
+
+Clock granted `base_api_webhook_subscription_show` and `pms_api_booking_folios_create` on 2026-11-16 (the permissions monitor's daily re-check at 14:39 UTC showed Luxury equal to Empire on every shared right). `GET /webhook_subscription` answered `400 webhook_subscription_not_found`: the right works, no subscription existed.
+
+Executed with the owner's yes, the same procedure as Empire: POST create (`PUSH_15668_Luxury_Premium_Finese_-_SPA`), pin the topic ARN as `snsTopicArn` in the connection's encrypted credentials, re-POST. The first delivery before the pin was rejected with 400 (topic mismatch, expected); after the pin the next delivery returned 200, `GET` shows `pending_confirmation: false` and `last_webhook_received_at` is set. No `provider_events` row yet: the first real Clock event is still to be seen.
+
+Lesson: the one-off script printed the new encrypted blob on stdout, but the app's logger also writes to stdout, so log lines ended up inside the stored blob and Luxury's credentials were unreadable for a few minutes. They were restored from the backup (the ciphertext backup is `/root/cred-backup-luxury-<connectionId>.txt` on the host, root only). No sync ran in that window (no decrypt errors logged). Rule for any such edit: write the new blob to a file, check it by decrypting before the database is touched, update with `WHERE encrypted_credentials = <old blob>`, and read it back.
+
+Not automatic: nothing in the app creates the subscription or pins `snsTopicArn` when a Clock connection is added; every new hotel needs this procedure by hand, and until the topic is pinned every delivery is rejected. A guided "turn on live updates" step in the connection setup (create, read the topic, pin, re-send, verify) is proposed as its own slice.
+
 ## Inspecting a live booking read-only (lessons from 2026-09-30)
 
 Use this to compare a MUST booking with what the hotel sees in Clock. It performs GETs only.
