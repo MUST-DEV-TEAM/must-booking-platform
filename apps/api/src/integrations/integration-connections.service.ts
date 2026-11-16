@@ -555,6 +555,38 @@ export class IntegrationConnectionsService implements OnApplicationBootstrap {
     });
   }
 
+  /**
+   * The Stripe connection a public webhook call is addressed to, found by its random webhook id (before
+   * any tenant is known). Returns the keys the call must be verified with, or null for an unknown id,
+   * a connection that is not Stripe, or keys that cannot be read.
+   */
+  async stripeWebhookConnection(webhookPublicId: string): Promise<{
+    tenantId: string;
+    connectionId: string;
+    secretKey: string;
+    webhookSecret: string;
+  } | null> {
+    if (!/^[0-9a-f-]{36}$/i.test(webhookPublicId)) return null;
+    const rows = await this.database.withWebhookGatewayLookup(
+      (tx) =>
+        tx.$queryRaw<Array<{ tenantId: string; connectionId: string; encrypted: string }>>`
+        SELECT tenant_id AS "tenantId", id AS "connectionId", encrypted_credentials AS encrypted
+        FROM integration_connections
+        WHERE webhook_public_id = ${webhookPublicId}::uuid AND kind = 'PAYMENT' AND provider = 'STRIPE'`,
+    );
+    const row = rows[0];
+    if (!row) return null;
+    try {
+      const credentials = this.cipher.decrypt(row.encrypted);
+      const secretKey = credentials.secretKey?.trim();
+      const webhookSecret = credentials.webhookSecret?.trim();
+      if (!secretKey || !webhookSecret) return null;
+      return { tenantId: row.tenantId, connectionId: row.connectionId, secretKey, webhookSecret };
+    } catch {
+      return null;
+    }
+  }
+
   /** Internal-only: records which connection an older session belongs to, once it has been found. */
   async rememberSessionConnection(
     tenantId: string,

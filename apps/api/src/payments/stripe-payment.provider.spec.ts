@@ -98,16 +98,16 @@ describe('StripePaymentProvider.checkHealth', () => {
 });
 
 describe('StripePaymentProvider.verifyWebhookEvent', () => {
+  const withSecrets = { ...context, stripeWebhook: { secretKey, webhookSecret } };
+
   it('accepts a valid signed Checkout payment event and returns only verified metadata', async () => {
-    process.env.STRIPE_SECRET_KEY = secretKey;
-    process.env.STRIPE_WEBHOOK_SECRET = webhookSecret;
     const signature = new Stripe(secretKey).webhooks.generateTestHeaderString({
       payload,
       secret: webhookSecret,
     });
 
     await expect(
-      makeProvider().verifyWebhookEvent(context, Buffer.from(payload), signature),
+      makeProvider().verifyWebhookEvent(withSecrets, Buffer.from(payload), signature),
     ).resolves.toEqual({
       ok: true,
       value: {
@@ -123,8 +123,6 @@ describe('StripePaymentProvider.verifyWebhookEvent', () => {
   });
 
   it('rejects missing and tampered Stripe signatures', async () => {
-    process.env.STRIPE_SECRET_KEY = secretKey;
-    process.env.STRIPE_WEBHOOK_SECRET = webhookSecret;
     const signature = new Stripe(secretKey).webhooks.generateTestHeaderString({
       payload,
       secret: webhookSecret,
@@ -132,16 +130,29 @@ describe('StripePaymentProvider.verifyWebhookEvent', () => {
     const provider = makeProvider();
 
     await expect(
-      provider.verifyWebhookEvent(context, Buffer.from(payload), ''),
+      provider.verifyWebhookEvent(withSecrets, Buffer.from(payload), ''),
     ).resolves.toMatchObject({
       ok: false,
       error: { code: 'STRIPE_SIGNATURE_MISSING' },
     });
     await expect(
-      provider.verifyWebhookEvent(context, Buffer.from(`${payload} `), signature),
+      provider.verifyWebhookEvent(withSecrets, Buffer.from(`${payload} `), signature),
     ).resolves.toMatchObject({
       ok: false,
       error: { code: 'STRIPE_SIGNATURE_INVALID' },
     });
+  });
+
+  it('refuses to verify when the connection has no webhook secret, never falling back to the environment', async () => {
+    process.env.STRIPE_SECRET_KEY = secretKey;
+    process.env.STRIPE_WEBHOOK_SECRET = webhookSecret;
+    const signature = new Stripe(secretKey).webhooks.generateTestHeaderString({
+      payload,
+      secret: webhookSecret,
+    });
+
+    await expect(
+      makeProvider().verifyWebhookEvent(context, Buffer.from(payload), signature),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'STRIPE_WEBHOOK_NOT_CONFIGURED' } });
   });
 });

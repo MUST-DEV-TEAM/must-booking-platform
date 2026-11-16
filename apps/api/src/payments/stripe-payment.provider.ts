@@ -91,24 +91,22 @@ export class StripePaymentProvider implements PaymentProvider {
     }
   }
 
-  // Deliberately still platform-wide, not tenant-owned: the webhook secret is
-  // what proves which tenant sent this event in the first place (the caller,
-  // stripe-webhook.controller.ts, has no real tenant context yet at this
-  // point — see WEBHOOK_VERIFICATION_CONTEXT there). Routing this per tenant
-  // (mirroring Clock's webhookPublicId-per-connection pattern) is real,
-  // separate follow-up work, not part of Milestone 11.5 Task 1's scope.
+  // Each hotel's Stripe connection has its own webhook secret. The public endpoint finds the
+  // connection by its random webhook id, then passes that connection's keys here; nothing is read
+  // from the server environment, so one hotel's secret can never verify another hotel's events.
   async verifyWebhookEvent(
-    context: PaymentProviderContext,
+    context: PaymentProviderContext & {
+      stripeWebhook?: { secretKey: string; webhookSecret: string };
+    },
     rawBody: Uint8Array,
     signature: string,
   ): Promise<Result<PaymentWebhookEvent>> {
-    void context;
-    const secretKey = this.platformSecretKey();
-    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
+    const secretKey = context.stripeWebhook?.secretKey.trim();
+    const webhookSecret = context.stripeWebhook?.webhookSecret.trim();
     if (!secretKey || !webhookSecret) {
       return this.failure(
         'STRIPE_WEBHOOK_NOT_CONFIGURED',
-        'Stripe webhook verification is not configured for this environment.',
+        'This Stripe connection has no webhook secret saved.',
       );
     }
     if (!signature.trim()) {

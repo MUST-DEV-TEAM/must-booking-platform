@@ -1,4 +1,5 @@
 import * as crypto from 'node:crypto';
+import { CredentialCipherService } from '../src/integrations/credential-cipher';
 import { randomUUID } from 'node:crypto';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -72,6 +73,8 @@ const admin = new PrismaClient({
 
 const stripeSecretKey = 'sk_test_webhook_e2e';
 const stripeWebhookSecret = 'whsec_webhook_e2e';
+// Each Stripe connection has its own webhook address; set once the connection is saved below.
+let stripeWebhookPublicId = '';
 
 let mailRedis: IORedis | undefined;
 let mailQueue: Queue | undefined;
@@ -238,7 +241,6 @@ describe('LocalPmsProvider', () => {
     process.env.REDIS_URL = 'redis://localhost:6379';
     process.env.WEB_APP_URL = 'http://localhost:3001';
     process.env.STRIPE_SECRET_KEY = stripeSecretKey;
-    process.env.STRIPE_WEBHOOK_SECRET = stripeWebhookSecret;
     await clearSignupRateLimits();
     const { AppModule } = await import('../src/app.module');
     const moduleBuilder = Test.createTestingModule({ imports: [AppModule] })
@@ -719,14 +721,18 @@ describe('LocalPmsProvider', () => {
     // guests when the property also has a real, connected integration --
     // the enabled toggle alone (above) is no longer enough. The payment
     // *provider* stays mocked for this test (see PAYMENT_PROVIDER override),
-    // so a direct row insert is sufficient; nothing here ever decrypts it.
+    // so a direct row insert is sufficient. Its keys are real (encrypted) because the webhook
+    // endpoint verifies each call with the connection's own webhook secret.
     const stripeConnectionId = randomUUID();
+    const stripeCredentials = app!
+      .get(CredentialCipherService)
+      .encrypt({ secretKey: stripeSecretKey, webhookSecret: stripeWebhookSecret });
     await admin.$executeRaw`
       INSERT INTO integration_connections
         (id, tenant_id, kind, provider, name, encrypted_credentials, status)
       VALUES (
         ${stripeConnectionId}::uuid, ${tenantId}::uuid, 'PAYMENT', 'STRIPE',
-        'Stripe (e2e)', 'not-decrypted-in-this-test', 'CONNECTED'
+        'Stripe (e2e)', ${stripeCredentials}, 'CONNECTED'
       )
     `;
     await admin.$executeRaw`
@@ -734,6 +740,10 @@ describe('LocalPmsProvider', () => {
         (tenant_id, property_id, connection_id, kind, enabled)
       VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${stripeConnectionId}::uuid, 'PAYMENT', true)
     `;
+    stripeWebhookPublicId = (
+      await admin.$queryRaw<Array<{ id: string }>>`
+        SELECT webhook_public_id::text AS id FROM integration_connections WHERE id = ${stripeConnectionId}::uuid`
+    )[0]!.id;
     await request(app!.getHttpServer())
       .get(`${propertyUrl}/public/catalog`)
       .set('Cookie', guestCookie)
@@ -1224,7 +1234,7 @@ describe('LocalPmsProvider', () => {
     });
     failPaymentConfirmationDelivery = true;
     await request(app!.getHttpServer())
-      .post('/webhooks/stripe')
+      .post(`/webhooks/stripe/${stripeWebhookPublicId}`)
       .set('Content-Type', 'application/json')
       .set('Stripe-Signature', stripeSignature)
       .send(webhookPayload)
@@ -1266,7 +1276,7 @@ describe('LocalPmsProvider', () => {
     ]);
 
     await request(app!.getHttpServer())
-      .post('/webhooks/stripe')
+      .post(`/webhooks/stripe/${stripeWebhookPublicId}`)
       .set('Content-Type', 'application/json')
       .set('Stripe-Signature', stripeSignature)
       .send(webhookPayload)
@@ -1401,7 +1411,7 @@ describe('LocalPmsProvider', () => {
       secret: stripeWebhookSecret,
     });
     await request(app!.getHttpServer())
-      .post('/webhooks/stripe')
+      .post(`/webhooks/stripe/${stripeWebhookPublicId}`)
       .set('Content-Type', 'application/json')
       .set('Stripe-Signature', failedRefundWebhookSignature)
       .send(failedRefundWebhookPayload)
@@ -1537,7 +1547,7 @@ describe('LocalPmsProvider', () => {
     await Promise.all(
       [1, 2].map(() =>
         request(app!.getHttpServer())
-          .post('/webhooks/stripe')
+          .post(`/webhooks/stripe/${stripeWebhookPublicId}`)
           .set('Content-Type', 'application/json')
           .set('Stripe-Signature', concurrentWebhookSignature)
           .send(concurrentWebhookPayload)
@@ -2044,7 +2054,7 @@ describe('LocalPmsProvider', () => {
       secret: stripeWebhookSecret,
     });
     await request(app!.getHttpServer())
-      .post('/webhooks/stripe')
+      .post(`/webhooks/stripe/${stripeWebhookPublicId}`)
       .set('Content-Type', 'application/json')
       .set('Stripe-Signature', manualRefundSignature)
       .send(manualRefundWebhookPayload)
@@ -2744,14 +2754,14 @@ describe('LocalPmsProvider', () => {
       secret: stripeWebhookSecret,
     });
     await request(app!.getHttpServer())
-      .post('/webhooks/stripe')
+      .post(`/webhooks/stripe/${stripeWebhookPublicId}`)
       .set('Content-Type', 'application/json')
       .set('Stripe-Signature', lateStripeSignature)
       .send(lateWebhookPayload)
       .expect(200)
       .expect({ received: true });
     await request(app!.getHttpServer())
-      .post('/webhooks/stripe')
+      .post(`/webhooks/stripe/${stripeWebhookPublicId}`)
       .set('Content-Type', 'application/json')
       .set('Stripe-Signature', lateStripeSignature)
       .send(lateWebhookPayload)
