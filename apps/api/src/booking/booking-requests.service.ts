@@ -38,6 +38,11 @@ export type CancellationEvidence = {
   alreadyRefunded: string;
   penalty: string;
   eligible: string;
+  /** Arrival, departure and booking total: compared when a request is approved. Requests saved before these
+   * existed do not have them and are compared on the rest. */
+  startsOn?: string;
+  endsOn?: string;
+  total?: string;
   method: string;
   legacyPolicy: boolean;
   policySource?: 'MUST' | 'CLOCK_PMS';
@@ -138,6 +143,33 @@ export function cancellationRefundOutcome(
     ...byHand,
   };
 }
+/**
+ * Whether the booking changed in a way that matters since a cancellation request was made: its state, its dates,
+ * its total, or its payments. A rising version number alone does not count (Clock's echo webhooks used to raise it
+ * within seconds, which made every request impossible to approve). The refund preview and `isFree` depend on the
+ * time of reading, so they are not compared.
+ */
+export function bookingChangedSinceRequest(
+  current: CancellationEvidence,
+  frozen: CancellationEvidence,
+): boolean {
+  if (
+    current.status !== frozen.status ||
+    current.currency !== frozen.currency ||
+    current.paid !== frozen.paid ||
+    current.alreadyRefunded !== frozen.alreadyRefunded
+  )
+    return true;
+  // Saved dates and total, when the request has them. An older request has no saved dates, so the cutoff
+  // (which follows the arrival date) stands in for them, as long as the policy is still the same kind.
+  if (frozen.startsOn === undefined) {
+    if (current.policySource === frozen.policySource && current.cutoffAt !== frozen.cutoffAt)
+      return true;
+  }
+  return (['startsOn', 'endsOn', 'total'] as const).some(
+    (key) => frozen[key] !== undefined && current[key] !== frozen[key],
+  );
+}
 export function needsApproval(
   caps: string[],
   evidence: Pick<CancellationEvidence, 'isFree' | 'policySource'> &
@@ -207,7 +239,7 @@ export class BookingRequestsService {
             AND pc.enabled AND pc.kind='PMS' AND c.provider='CLOCK_PMS'
         ) THEN 'CLOCK_PMS' ELSE 'MUST' END AS "policySource",
         b.order_reference AS "orderReference", rp.name AS "ratePlan", COALESCE(b.cancellation_terms->>'timezone',p.timezone) AS timezone, rp.currency,
-        b.total_amount::text AS total,
+        b.total_amount::text AS total, b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn",
         COALESCE((SELECT concat(provider,' / ',COALESCE(method,'')) FROM payments WHERE tenant_id=b.tenant_id AND property_id=b.property_id AND booking_id=b.id AND kind='CHARGE' AND status IN ('PAID','LATE_AFTER_EXPIRY','succeeded') ORDER BY created_at DESC,id DESC LIMIT 1),b.payment_method::text) AS method,
         CASE WHEN b.cancellation_terms->>'arrivalDate'=b.starts_on::text THEN b.cancellation_terms->>'cutoffAt' ELSE ((b.starts_on::timestamp AT TIME ZONE p.timezone) - make_interval(hours =>
           COALESCE(cp.free_cancellation_days_before_arrival*24,rp.free_cancellation_until_hours)))::text END AS "cutoffAt",
@@ -228,6 +260,7 @@ export class BookingRequestsService {
     const isFree = !clockTerms && withinFreeWindow(row.cutoffAt, evaluatedAt);
     const evidence = {
       ...base,
+      total,
       isFree,
       cutoffAt: !clockTerms && row.cutoffAt ? new Date(row.cutoffAt).toISOString() : null,
       ...refundPreview(row.paid, row.alreadyRefunded, total, isFree),
@@ -409,7 +442,16 @@ export class BookingRequestsService {
       clockTermsConfirmed: input.clockTermsConfirmed === true,
     };
   }
-  private async execute(c: RequestContext, snapshot: Snapshot, key: string, actorId: string) {
+  /** `approved`: a reviewer approved a saved request. The booking was checked against the request just before, so
+   * its version may have moved (a harmless change); the provider re-checks the saved dates and total under the
+   * booking's row lock and applies the cancellation to the current version. */
+  private async execute(
+    c: RequestContext,
+    snapshot: Snapshot,
+    key: string,
+    actorId: string,
+    approved = false,
+  ) {
     const { evidence: e, input, refundAmount } = snapshot;
     const result = await this.provider.cancelBooking(c, {
       bookingId: e.bookingId,
@@ -419,6 +461,9 @@ export class BookingRequestsService {
       reason: input.details!,
       skipAutomaticRefund: true,
       ...(e.orderReference ? { singleBooking: true } : {}),
+      ...(approved
+        ? { approvedRequest: { startsOn: e.startsOn, endsOn: e.endsOn, total: e.total } }
+        : {}),
       notifyGuest: input.notifyGuest,
     });
     if (!result.ok) {
@@ -616,12 +661,7 @@ export class BookingRequestsService {
         if (body.decision === 'Approved' && !execution.executionActorId) {
           const current = await this.evidence(tx, c, q.bookingId);
           const frozen = q.payload.evidence;
-          if (
-            current.version !== frozen.version ||
-            current.paid !== frozen.paid ||
-            current.alreadyRefunded !== frozen.alreadyRefunded ||
-            current.currency !== frozen.currency
-          )
+          if (bookingChangedSinceRequest(current, frozen))
             throw new ConflictException(
               'The booking or payments changed since this request. Reject it and create a fresh request.',
             );
@@ -642,6 +682,7 @@ export class BookingRequestsService {
             q.payload,
             `b1-request:${q.id}`,
             q.requesterId ?? c.userId,
+            true,
           );
           if (!outcome.ok) {
             await this.notifications.recordInTransaction(tx, {
