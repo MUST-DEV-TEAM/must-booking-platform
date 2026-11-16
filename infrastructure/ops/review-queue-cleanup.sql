@@ -15,6 +15,15 @@
 \set ON_ERROR_STOP on
 BEGIN;
 
+-- Stop unless the name picks exactly one property, so a clean-up never touches two hotels.
+SELECT count(*) = 1 AS one_property FROM properties WHERE name = :hotel \gset
+\if :one_property
+\else
+  \echo 'The hotel name must match exactly one property. Nothing was changed.'
+  ROLLBACK;
+  \quit
+\endif
+
 CREATE TEMP TABLE cleanup_plan ON COMMIT DROP AS
 WITH open_items AS (
   SELECT m.id, m.tenant_id, m.property_id, m.category::text AS category, m.created_at, m.message,
