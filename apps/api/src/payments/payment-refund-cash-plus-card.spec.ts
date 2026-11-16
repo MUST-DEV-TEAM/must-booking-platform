@@ -43,12 +43,10 @@ async function run(options: {
     {} as never,
     {} as never,
   );
-  const manualRefund = vi
-    .spyOn(service, 'manualRefund')
-    .mockResolvedValue({
-      ok: true,
-      value: { id: 'r', bookingId, amount: { amount: '0', currency: 'EUR' }, status: 'REFUNDED' },
-    } as never);
+  const manualRefund = vi.spyOn(service, 'manualRefund').mockResolvedValue({
+    ok: true,
+    value: { id: 'r', bookingId, amount: { amount: '0', currency: 'EUR' }, status: 'REFUNDED' },
+  } as never);
   const answer = await service.cancellationRefund(context, {
     bookingId,
     idempotencyKey: 'key:refund',
