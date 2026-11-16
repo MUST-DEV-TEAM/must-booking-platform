@@ -86,6 +86,34 @@ export function refundPreview(paid: string, refunded: string, total: string, isF
     eligible: money(remaining > penalty ? remaining - penalty : 0n),
   };
 }
+/** What a cancellation's refund really did. `ok` is true only for a refund that is complete. */
+export type CancellationRefundOutcome =
+  | { ok: true; status: 'refunded' }
+  | { ok: false; status: 'pending'; message: string }
+  | { ok: false; status: 'not_made'; message: string; errorCode: string };
+
+/** Turns the answer of `manualRefund` into the outcome staff are told. A pending refund (the provider has
+ * not confirmed it) is not "done", and a refund that was not made is never reported as success. */
+export function cancellationRefundOutcome(
+  refund:
+    | { ok: true; value: { status: string } }
+    | { ok: false; error: { code: string; message: string } },
+): CancellationRefundOutcome {
+  if (!refund.ok)
+    return {
+      ok: false,
+      status: 'not_made',
+      message: refund.error.message,
+      errorCode: refund.error.code,
+    };
+  if (['REFUNDED', 'succeeded'].includes(refund.value.status))
+    return { ok: true, status: 'refunded' };
+  return {
+    ok: false,
+    status: 'pending',
+    message: 'The refund was sent, but the payment provider has not confirmed it yet.',
+  };
+}
 export function needsApproval(
   caps: string[],
   evidence: Pick<CancellationEvidence, 'isFree' | 'policySource'> &
@@ -389,10 +417,23 @@ export class BookingRequestsService {
       actorUserId: actorId,
       note: `Cancellation: ${input.details}`.slice(0, 500),
     });
-    return {
-      ...result,
-      refundOutcome: refund.ok ? { ok: true } : { ok: false, message: refund.error.message },
-    };
+    const refundOutcome = cancellationRefundOutcome(refund);
+    // The cancellation stands either way. A refund that was not made is one review item, which alerts staff;
+    // a pending one already raised its own item where it was submitted.
+    if (refundOutcome.status === 'not_made')
+      await this.manualReview.record({
+        ...c,
+        category: 'PAYMENT_BOOKING_MISMATCH',
+        referenceType: 'booking',
+        referenceId: e.bookingId,
+        message: `The booking was cancelled, but the refund of ${refundAmount} ${e.currency} was not made: ${refundOutcome.message} Refund it by hand. The guest was not told a refund is coming.`,
+        context: {
+          kind: 'CANCELLATION_REFUND_NOT_MADE',
+          cancellationRequest: key,
+          errorCode: refundOutcome.errorCode,
+        },
+      });
+    return { ...result, refundOutcome };
   }
   async guestRequest(
     scope: { tenantId: string; propertyId: string },
