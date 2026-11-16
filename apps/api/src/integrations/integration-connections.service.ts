@@ -640,7 +640,9 @@ export class IntegrationConnectionsService {
     // Once the connection is saved as the hotel's Clock connection, its live updates (webhook) are switched on.
     // The change above never depends on it: the answer says what happened, and it can be run again.
     if (!clockEnabled) return {};
-    return { liveUpdates: await this.liveUpdates.enableSafely(tenantId, connectionId, actorUserId) };
+    return {
+      liveUpdates: await this.liveUpdates.enableSafely(tenantId, connectionId, actorUserId),
+    };
   }
 
   private summarize({ encryptedCredentials, ...summary }: ConnectionRow): ConnectionSummary {
