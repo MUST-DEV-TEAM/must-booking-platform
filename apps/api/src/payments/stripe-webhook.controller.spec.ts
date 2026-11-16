@@ -80,4 +80,12 @@ describe('StripeWebhookController (one endpoint and secret per hotel connection)
     await expect(receive()).rejects.toBeInstanceOf(BadRequestException);
     expect(processPaymentSucceeded).not.toHaveBeenCalled();
   });
+
+  it('refuses a paid event that names no tenant at all', async () => {
+    const { receive, processPaymentSucceeded } = build({
+      verified: { ok: true, value: { ...paidEvent, tenantId: undefined } },
+    });
+    await expect(receive()).rejects.toBeInstanceOf(BadRequestException);
+    expect(processPaymentSucceeded).not.toHaveBeenCalled();
+  });
 });

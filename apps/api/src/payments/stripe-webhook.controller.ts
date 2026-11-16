@@ -60,14 +60,19 @@ export class StripeWebhookController {
     if (!verified.ok) throw new BadRequestException(verified.error.message);
 
     const event = verified.value;
-    if (event.tenantId && event.tenantId !== connection.tenantId)
-      throw new BadRequestException('This event does not belong to this Stripe connection.');
     if (
       (event.type === 'checkout.session.completed' ||
         event.type === 'checkout.session.async_payment_succeeded') &&
       event.paymentStatus === 'paid'
     ) {
-      const processed = await this.webhooks.processPaymentSucceeded(event);
+      // The tenant always comes from the connection that verified the signature. A paid event that
+      // names no tenant, or another one, is refused; it is never trusted on its own say-so.
+      if (event.tenantId !== connection.tenantId)
+        throw new BadRequestException('This event does not belong to this Stripe connection.');
+      const processed = await this.webhooks.processPaymentSucceeded({
+        ...event,
+        tenantId: connection.tenantId,
+      });
       if (!processed.ok) throw new InternalServerErrorException(processed.error.message);
     }
     return { received: true };
