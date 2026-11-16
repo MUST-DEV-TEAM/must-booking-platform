@@ -50,6 +50,25 @@ Source files are saved in [docs/integrations/paysera/](../../integrations/payser
 2. **Stripe next,** on the same pattern (test and live keys both kept, free switching, refunds through the account that took the payment), plus several methods switched on at once so the guest picks. Stripe's go-live for real hotels is [Milestone 37](37-stripe-payments.md); Stripe does not serve Albanian businesses.
 3. **Paysera later,** once Paysera's documents, test credentials and the answers above are in.
 
+## What the code already has (checked 2026-11-16)
+
+Read from the code, not yet exercised end to end for Stripe:
+
+- A hotel already has one switch per method (`stripe_enabled`, `pokpay_enabled`, `pay_at_hotel_enabled`); the public catalog returns every enabled method that also has a saved connection, and a booking carries the method the guest chose. So "several methods at once" exists at the data and API level.
+- A Stripe provider exists (Checkout session, refund, payment lookup, tenant-owned secret key, 35-test spec), wired into the app; the settings screen still shows Stripe as "Coming soon".
+- The TEST label machinery already covers `stripe` (database trigger, Clock note, reports).
+
+**Gaps that make Stripe a real second method (the work):**
+
+1. **Stripe webhook secret is platform-wide** (an environment variable), not per connection. It must become per connection (a webhook id in the URL, like Clock) so each hotel's own account verifies its own events.
+2. **No per-order account for Stripe.** PokPay records which account took each order (`connection_id` on the payment session); Stripe needs the same, so a refund goes through the account that took the payment.
+3. **No free test/live switch for Stripe.** Generalise the PokPay switch (both key sets saved, one in use, confirmed and recorded switch) so it is provider-neutral, then use it for Stripe. Mode already comes from the key prefix (`sk_test_` is test).
+4. **Settings screen:** turn the Stripe "Coming soon" card into a real connection panel (keys, test button, TEST/LIVE badge, switch), reusing the PokPay panel pieces.
+5. **Guest picker:** the Astro and WordPress booking pages must show every enabled method and let the guest choose; needs a design pass (owner approves the look first).
+6. **Sandbox end-to-end test** against the owner's Stripe test account: pay, webhook, refund, test label, report line, Clock deposit note.
+
+**Push plan (owner, 2026-11-16):** push 1 is the TEST labels together with the shared multi-method work (gaps 1 to 4); push 2 is Stripe working end to end with the picker (gaps 5 and 6); Stripe going live for a real hotel stays [Milestone 37](37-stripe-payments.md); Paysera later.
+
 ## Not in this milestone
 
 Stripe going live for a real hotel (Milestone 37), the payment-method picker design on the public booking page (needs a design pass), per-guest method choice rules.
