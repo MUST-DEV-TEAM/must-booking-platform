@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="360" viewBox="0 0 1280 360" role="img" aria-labelledby="t d">
+  <title id="t">MUST Booking Platform</title>
+  <desc id="d">Direct bookings, payments and PMS sync for hotels</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#16382d"/>
+      <stop offset="1" stop-color="#245442"/>
+    </linearGradient>
+    <clipPath id="clip"><rect width="1280" height="360" rx="24"/></clipPath>
+  </defs>
+  <g clip-path="url(#clip)">
+    <rect width="1280" height="360" fill="url(#bg)"/>
+    <circle cx="1120" cy="20" r="250" fill="#ffffff" opacity="0.07"/>
+    <circle cx="1210" cy="390" r="170" fill="none" stroke="#ffffff" stroke-width="44" opacity="0.06"/>
+    <circle cx="70" cy="400" r="150" fill="none" stroke="#ffffff" stroke-width="36" opacity="0.05"/>
+
+    <g transform="translate(88 78)">
+      <rect width="92" height="92" rx="20" fill="#0f2a22"/>
+      <g transform="translate(13 13) scale(1.5)" fill="none" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8.25 38.5V20.625C8.25 12.2719 15.0219 5.5 23.375 5.5C31.7281 5.5 38.5 12.2719 38.5 20.625V38.5" stroke="#ffffff"/>
+        <path d="M15.125 35.75V19.9375L23.375 29.5625L31.625 19.9375V35.75" stroke="#C9953C"/>
+        <path d="M12.375 38.5H34.375" stroke="#ffffff"/>
+      </g>
+    </g>
+
+    <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" fill="#ffffff">
+      <text x="208" y="118" font-size="52" font-weight="700" letter-spacing="-0.5">MUST Booking Platform</text>
+      <text x="210" y="158" font-size="23" opacity="0.82">Direct bookings, payments and PMS sync for hotels</text>
+
+      <g font-size="17" font-weight="600">
+        <g transform="translate(88 232)">
+          <rect width="218" height="46" rx="23" fill="#ffffff" opacity="0.1"/>
+          <circle cx="26" cy="23" r="5" fill="#C9953C"/>
+          <text x="44" y="29">Guest booking engine</text>
+        </g>
+        <g transform="translate(322 232)">
+          <rect width="176" height="46" rx="23" fill="#ffffff" opacity="0.1"/>
+          <circle cx="26" cy="23" r="5" fill="#C9953C"/>
+          <text x="44" y="29">Staff dashboard</text>
+        </g>
+        <g transform="translate(514 232)">
+          <rect width="214" height="46" rx="23" fill="#ffffff" opacity="0.1"/>
+          <circle cx="26" cy="23" r="5" fill="#C9953C"/>
+          <text x="44" y="29">Payments and refunds</text>
+        </g>
+        <g transform="translate(744 232)">
+          <rect width="180" height="46" rx="23" fill="#ffffff" opacity="0.1"/>
+          <circle cx="26" cy="23" r="5" fill="#C9953C"/>
+          <text x="44" y="29">Clock PMS+ sync</text>
+        </g>
+        <g transform="translate(940 232)">
+          <rect width="150" height="46" rx="23" fill="#ffffff" opacity="0.1"/>
+          <circle cx="26" cy="23" r="5" fill="#C9953C"/>
+          <text x="44" y="29">Multi-hotel</text>
+        </g>
+      </g>
+    </g>
+  </g>
+</svg>
