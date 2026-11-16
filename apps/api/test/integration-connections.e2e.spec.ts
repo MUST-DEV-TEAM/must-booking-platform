@@ -423,6 +423,14 @@ describe('integration connections', () => {
     await expect(
       app!.get(IntegrationConnectionsService).stripeWebhookConnection(liveAccount.webhookPublicId),
     ).resolves.toBeNull();
+
+    // Leave the shared test hotel as found: no Stripe account in use.
+    await request(app!.getHttpServer())
+      .patch(`${propertyUrl}/integration-connections/${testAccount.id}`)
+      .set('Cookie', cookie)
+      .send({ enabled: false })
+      .expect(200);
+    expect(await modes()).toEqual([]);
   });
   it('switches PokPay freely between test and live accounts and keeps each payment on its own account', async () => {
     app!
