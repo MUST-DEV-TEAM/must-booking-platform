@@ -12,6 +12,7 @@ import { CapabilitiesService } from '../tenancy/capabilities.service';
 import { NotificationsService } from '../tenancy/notifications.service';
 import { AuditLogService } from '../tenancy/audit-log.service';
 import { LocalPmsProvider } from './local-pms.provider';
+import { BookingUpdateNotificationService } from '../mail/booking-update-notification.service';
 import { PaymentRefundService } from '../payments/payment-refund.service';
 import { ManualReviewService } from '../integrations/manual-review.service';
 import { NOTIFICATION_UUID } from '../tenancy/notification-registry';
@@ -199,6 +200,8 @@ export class BookingRequestsService {
     @Inject(NotificationsService) private readonly notifications: NotificationsService,
     @Inject(ManualReviewService) private readonly manualReview: ManualReviewService,
     @Inject(AuditLogService) private readonly audit: AuditLogService,
+    @Inject(BookingUpdateNotificationService)
+    private readonly guestEmails: BookingUpdateNotificationService,
   ) {}
   private uuid(id: string) {
     if (!NOTIFICATION_UUID.test(id)) throw new BadRequestException('Invalid id.');
@@ -521,7 +524,7 @@ export class BookingRequestsService {
     details: string,
     requestRefund: boolean,
   ) {
-    return this.db.withTenantTransaction(scope, async (tx) => {
+    const made = await this.db.withTenantTransaction(scope, async (tx) => {
       const owner = await tx.$queryRaw<
         Array<{ status: string }>
       >`SELECT status::text FROM bookings WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${bookingId}::uuid AND guest_session_id=${guestSessionId}::uuid FOR UPDATE`;
@@ -533,7 +536,7 @@ export class BookingRequestsService {
       const existing = await tx.$queryRaw<
         Array<{ id: string }>
       >`SELECT id FROM booking_requests WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND booking_id=${bookingId}::uuid AND type='cancellation' AND status='Pending'`;
-      if (existing[0]) return { requested: true, requestId: existing[0].id };
+      if (existing[0]) return { requested: true, requestId: existing[0].id, isNew: false };
       const evidence = await this.evidence(tx, scope, bookingId);
       const refundAmount = requestRefund
         ? money(minor(evidence.paid) - minor(evidence.alreadyRefunded))
@@ -566,8 +569,12 @@ export class BookingRequestsService {
         targetId: bookingId,
         details: { requestId: rows[0].id, requestRefund },
       });
-      return { requested: true, requestId: rows[0].id };
+      return { requested: true, requestId: rows[0].id, isNew: true };
     });
+    // After the request is saved: tell the guest it arrived (once per request; never fails the request).
+    if (made.isNew)
+      await this.guestEmails.sendCancellationRequestReceived(scope, bookingId, made.requestId);
+    return { requested: true, requestId: made.requestId };
   }
   async list(c: RequestContext) {
     await this.require(c, 'requests.review');

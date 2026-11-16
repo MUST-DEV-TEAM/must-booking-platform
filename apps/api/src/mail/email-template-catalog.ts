@@ -4,6 +4,7 @@ const triggers: Partial<Record<EmailTemplateKey, string>> = {
   booking_confirmed: 'booking.confirmed',
   booking_confirmed_pay_at_hotel: 'booking.confirmed',
   booking_cancelled: 'booking.cancelled',
+  cancellation_request_received: 'guest.cancellation_request_received',
   refund_processed: 'booking.refund_processed',
   pre_arrival: 'guest.pre_arrival',
   booking_changed: 'guest.booking_changed',

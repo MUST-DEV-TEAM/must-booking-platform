@@ -54,6 +54,7 @@ const clock = {
 };
 const email = { sendRefundConfirmationEmailSafely: vi.fn(async () => {}) };
 const cancellationEmail = { sendAfterCancellation: vi.fn(async () => {}) };
+const guestEmails = { sendCancellationRequestReceived: vi.fn(async () => {}) };
 let service: BookingRequestsService, refunds: PaymentRefundService, audit: AuditLogService;
 const tables = [
   'users',
@@ -216,6 +217,7 @@ beforeAll(async () => {
     notifications,
     manual,
     audit,
+    guestEmails as never,
   );
 });
 afterAll(async () => {
@@ -740,6 +742,13 @@ it('freezes new MUST policy terms, preserves original terms after settings chang
     true,
   );
   expect(two.requestId).toBe(one.requestId);
+  // The guest is told once that the request arrived, not again when the same pending request is repeated.
+  expect(guestEmails.sendCancellationRequestReceived).toHaveBeenCalledTimes(1);
+  expect(guestEmails.sendCancellationRequestReceived).toHaveBeenCalledWith(
+    { tenantId, propertyId },
+    id,
+    one.requestId,
+  );
   const listed = await service.list({ ...context, userId: reviewer });
   expect(
     listed.items.some((q) => q.id === one.requestId && q.requesterName === 'Guest (email link)'),
