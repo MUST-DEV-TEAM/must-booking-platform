@@ -85,14 +85,30 @@ describe('ClockCircuitBreakerService', () => {
     expect(context).toEqual({ component: 'clock', operation: 'circuit-breaker-opened' });
   });
 
-  it('alerts again when a half-open trial call fails and re-opens it', () => {
+  it('does not alert again when a half-open trial call fails and re-opens it', () => {
     for (let i = 0; i < CIRCUIT_BREAKER_FAILURE_THRESHOLD; i += 1) breaker.recordFailure('user-a');
     reportOperationalFailure.mockClear();
-    vi.advanceTimersByTime(CIRCUIT_BREAKER_COOLDOWN_MS + 1);
-    breaker.assertClosed('user-a');
+    for (let cycle = 0; cycle < 5; cycle += 1) {
+      vi.advanceTimersByTime(CIRCUIT_BREAKER_COOLDOWN_MS + 1);
+      breaker.assertClosed('user-a');
+      breaker.recordFailure('user-a');
+      expect(breaker.stateOf('user-a')).toBe('OPEN');
+    }
+    expect(reportOperationalFailure).not.toHaveBeenCalled();
+  });
 
-    breaker.recordFailure('user-a');
-    expect(reportOperationalFailure).toHaveBeenCalledTimes(1);
+  it('treats a 401 or 403 refusal as Clock being reachable, not as an outage', () => {
+    for (let i = 0; i < CIRCUIT_BREAKER_FAILURE_THRESHOLD * 3; i += 1) {
+      breaker.recordFailure('user-a', i % 2 ? 401 : 403);
+    }
+    expect(breaker.stateOf('user-a')).toBe('CLOSED');
+    expect(reportOperationalFailure).not.toHaveBeenCalled();
+  });
+
+  it('still counts a 5xx answer as a failure', () => {
+    for (let i = 0; i < CIRCUIT_BREAKER_FAILURE_THRESHOLD; i += 1)
+      breaker.recordFailure('user-a', 503);
+    expect(breaker.stateOf('user-a')).toBe('OPEN');
   });
 
   it('keeps breakers independent per key', () => {

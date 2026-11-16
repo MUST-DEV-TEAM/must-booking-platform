@@ -483,7 +483,7 @@ export class ClockBookingConsistencyService {
           continue;
         }
         if (response.status < 200 || response.status >= 300) {
-          this.circuitBreaker.recordFailure(breakerKey);
+          this.circuitBreaker.recordFailure(breakerKey, response.status);
           throw new ClockBookingReadError(
             classifyClockHttpResponse(response.status, response.body),
           );

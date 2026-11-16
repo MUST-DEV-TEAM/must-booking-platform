@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { ClockPermissionsMonitorService, blockedRights } from './clock-permissions-monitor.service';
+import {
+  ClockPermissionsMonitorService,
+  accessLostReason,
+  blockedRights,
+} from './clock-permissions-monitor.service';
 import type { ClockPermissionReport } from './clock-permissions.service';
 
 type Status = 'allowed' | 'missing' | 'pending';
@@ -107,5 +111,62 @@ describe('blockedRights', () => {
     expect(blocked.get('pms_api_rooms_index')).toEqual(['Importing rooms and room types']);
     expect(blocked.size).toBe(2);
     expect(blockedRights(report('x', [entry(PLANS, 'missing')]), true).size).toBe(0);
+  });
+});
+
+describe('access lost (expired trial, disabled API user)', () => {
+  const TRIAL = 'The trial period of this account has expired.';
+  const refusedAll = (checkedAt: string) =>
+    report(
+      checkedAt,
+      Array.from({ length: 12 }, (_, index) => ({
+        ...entry(`GET pms_api/thing${index}/`, 'missing'),
+        message: TRIAL,
+      })),
+    );
+  const healthy = (checkedAt: string) =>
+    report(
+      checkedAt,
+      Array.from({ length: 12 }, (_, index) => entry(`GET pms_api/thing${index}/`, 'allowed')),
+    );
+
+  it('tells the hotel once, with the reason Clock gave, when everything starts being refused', async () => {
+    const { service, notifications } = setup(
+      healthy('2026-11-15T14:00:00Z'),
+      refusedAll('2026-11-16T14:00:00Z'),
+    );
+
+    await expect(service.checkProperty(scope)).resolves.toBe(true);
+
+    expect(notifications.record).toHaveBeenCalledTimes(1);
+    expect(notifications.record).toHaveBeenCalledWith('t1', 'p1', 'CLOCK_ACCESS_LOST', {
+      reason: TRIAL,
+    });
+  });
+
+  it('does not repeat while access stays lost, and does not list every missing right', async () => {
+    const { service, notifications } = setup(
+      refusedAll('2026-11-16T14:00:00Z'),
+      refusedAll('2026-11-17T14:00:00Z'),
+    );
+
+    await expect(service.checkProperty(scope)).resolves.toBe(false);
+
+    expect(notifications.record).not.toHaveBeenCalled();
+  });
+
+  it('is not access lost when a refusal names a right, when something is allowed, or when too little was checked', () => {
+    const named = report(
+      'x',
+      Array.from({ length: 12 }, (_, i) => entry(`GET a${i}`, 'missing', 'some_right')),
+    );
+    const partlyAllowed = report('x', [
+      ...Array.from({ length: 11 }, (_, i) => entry(`GET a${i}`, 'missing')),
+      entry('GET b', 'allowed'),
+    ]);
+    const tooFew = report('x', [entry('GET a', 'missing'), entry('GET b', 'missing')]);
+    expect(accessLostReason(named)).toBeNull();
+    expect(accessLostReason(partlyAllowed)).toBeNull();
+    expect(accessLostReason(tooFew)).toBeNull();
   });
 });

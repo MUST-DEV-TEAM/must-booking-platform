@@ -51,6 +51,14 @@ export const NOTIFICATION_REGISTRY = {
     priority: 'High',
     capability: 'settings.manage',
   },
+  CLOCK_ACCESS_LOST: {
+    title: 'Clock is no longer accepting this connection',
+    description:
+      'Clock refuses every request for this hotel (for example an expired trial or a disabled API user). Nothing is lost, but syncing and prices stop until Clock restores access. Open System health for the details.',
+    category: 'Providers',
+    priority: 'High',
+    capability: 'settings.manage',
+  },
   STAFF_SEAT_CAP_REACHED: {
     title: 'Staff seat cap reached',
     description: 'The staff limit of the plan was reached.',

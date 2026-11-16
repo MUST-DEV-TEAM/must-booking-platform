@@ -100,7 +100,8 @@ export class NotificationInboxService {
             ? `/dashboard/${c.tenantId}?propertyId=${c.propertyId}&section=reservations&reservation=${row.bookingId}`
             : row.type === 'STAFF_SEAT_CAP_REACHED' && canStaff
               ? `/dashboard/${c.tenantId}?propertyId=${c.propertyId}&section=staff`
-              : row.type === 'CLOCK_RIGHT_MISSING' && caps.includes('settings.manage')
+              : (row.type === 'CLOCK_RIGHT_MISSING' || row.type === 'CLOCK_ACCESS_LOST') &&
+                  caps.includes('settings.manage')
                 ? `/dashboard/${c.tenantId}?propertyId=${c.propertyId}&section=overview&tab=system-health`
                 : null;
     return {
@@ -131,7 +132,7 @@ export class NotificationInboxService {
             : !href
               ? 'Related email is unavailable'
               : null
-          : row.type === 'CLOCK_RIGHT_MISSING'
+          : row.type === 'CLOCK_RIGHT_MISSING' || row.type === 'CLOCK_ACCESS_LOST'
             ? null
             : !canBooking && row.type !== 'STAFF_SEAT_CAP_REACHED'
               ? 'bookings.view'

@@ -505,7 +505,7 @@ export function NotificationsInbox({
                   <a href={href}>
                     {row.type === 'STAFF_SEAT_CAP_REACHED'
                       ? 'Open staff'
-                      : row.type === 'CLOCK_RIGHT_MISSING'
+                      : row.type === 'CLOCK_RIGHT_MISSING' || row.type === 'CLOCK_ACCESS_LOST'
                         ? 'Open System health'
                         : 'Open reservation'}
                   </a>
