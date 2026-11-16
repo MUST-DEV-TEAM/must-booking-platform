@@ -83,7 +83,7 @@ describe('ClockBookingService postDeposit folio handling', () => {
     expect(fetch.mock.calls.some((call) => call[1]?.path === '/document_types')).toBe(false);
 
     expect(audit.recordInTransaction).toHaveBeenCalledWith(
-      {},
+      noTestPayments,
       expect.objectContaining({
         action: 'booking.clock_deposit_posted',
         details: expect.objectContaining({
@@ -118,7 +118,7 @@ describe('ClockBookingService postDeposit folio handling', () => {
 
     expect(fetch).not.toHaveBeenCalled();
     expect(audit.recordInTransaction).toHaveBeenCalledWith(
-      {},
+      noTestPayments,
       expect.objectContaining({
         details: expect.objectContaining({ idempotentReplay: true }),
       }),

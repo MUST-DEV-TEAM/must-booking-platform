@@ -134,9 +134,11 @@ describe('ClockBookingService.postRefund', () => {
       'PokPay',
       'must-refund:re_1',
       'refund',
+      'on-line',
+      undefined,
     );
     expect(manualReview.recordInTransaction).toHaveBeenCalledWith(
-      {},
+      noTestPayments,
       expect.objectContaining({
         category: 'PAYMENT_BOOKING_MISMATCH',
         referenceId: 'booking-1',
@@ -145,13 +147,13 @@ describe('ClockBookingService.postRefund', () => {
       }),
     );
     expect(notifications.recordInTransaction).toHaveBeenCalledWith(
-      {},
+      noTestPayments,
       expect.objectContaining({
         payload: { bookingId: 'booking-1', reason: 'clock_refund_deposit_adjustment_required' },
       }),
     );
     expect(audit.recordInTransaction).toHaveBeenCalledWith(
-      {},
+      noTestPayments,
       expect.objectContaining({ action: 'payment.clock_refund_posted' }),
     );
   });
@@ -174,11 +176,11 @@ describe('ClockBookingService.postRefund', () => {
 
     expect(postCreditItem).not.toHaveBeenCalled();
     expect(manualReview.recordInTransaction).toHaveBeenCalledWith(
-      {},
+      noTestPayments,
       expect.objectContaining({ context: expect.objectContaining({ idempotentReplay: true }) }),
     );
     expect(audit.recordInTransaction).toHaveBeenCalledWith(
-      {},
+      noTestPayments,
       expect.objectContaining({ details: expect.objectContaining({ idempotentReplay: true }) }),
     );
   });
@@ -207,7 +209,7 @@ describe('ClockBookingService.postRefund', () => {
     ).resolves.toMatchObject({ ok: false, error: { code: 'clock_original_deposit_missing' } });
 
     expect(manualReview.recordInTransaction).toHaveBeenCalledWith(
-      {},
+      noTestPayments,
       expect.objectContaining({
         message: expect.stringContaining(
           "MUST refunded the guest, but Clock's original deposit folio could not be found",
@@ -215,7 +217,7 @@ describe('ClockBookingService.postRefund', () => {
       }),
     );
     expect(notifications.recordInTransaction).toHaveBeenCalledWith(
-      {},
+      noTestPayments,
       expect.objectContaining({
         payload: {
           bookingId: 'booking-1',
