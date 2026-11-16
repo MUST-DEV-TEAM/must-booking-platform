@@ -300,6 +300,40 @@ describe('B1 risky cancellation paths', () => {
       ),
     ).rejects.toThrow('decision changed');
   });
+  it('approves a request after the booking version moved with no real change, and cancels it', async () => {
+    const id = await fixture(),
+      q = await request(id, 'custom');
+    // Clock's echo webhooks used to raise the version within seconds without changing the booking.
+    await admin.$executeRaw`UPDATE bookings SET version = version + 4 WHERE id=${id}::uuid`;
+    await approve(q);
+    const booking = await admin.$queryRaw<
+      { status: string }[]
+    >`SELECT status::text FROM bookings WHERE id=${id}::uuid`;
+    expect(booking[0]?.status).toBe('CANCELLED');
+    const refunds = await admin.$queryRaw<
+      { count: bigint }[]
+    >`SELECT count(*) AS count FROM payments WHERE booking_id=${id}::uuid AND kind='REFUND'`;
+    expect(Number(refunds[0]?.count)).toBe(1);
+  });
+  it('still refuses to approve when the dates, total or payments changed since the request', async () => {
+    for (const change of [
+      (id: string) =>
+        admin.$executeRaw`UPDATE bookings SET total_amount = 150 WHERE id=${id}::uuid`,
+      (id: string) =>
+        admin.$executeRaw`UPDATE bookings SET starts_on='2030-07-11', ends_on='2030-07-13' WHERE id=${id}::uuid`,
+      (id: string) =>
+        admin.$executeRaw`INSERT INTO payments(tenant_id,property_id,booking_id,kind,provider,external_payment_id,status,amount,currency) VALUES(${tenantId}::uuid,${propertyId}::uuid,${id}::uuid,'REFUND','manual',${randomUUID()},'REFUNDED',10,'EUR')`,
+    ]) {
+      const id = await fixture(),
+        q = await request(id, 'custom');
+      await change(id);
+      await expect(approve(q)).rejects.toThrow('changed since this request');
+      const booking = await admin.$queryRaw<
+        { status: string }[]
+      >`SELECT status::text FROM bookings WHERE id=${id}::uuid`;
+      expect(booking[0]?.status).toBe('CONFIRMED');
+    }
+  });
   it('requires finance permission for custom amounts and forbids self-approval', async () => {
     const id = await fixture(),
       e = await service.preview(context, id);

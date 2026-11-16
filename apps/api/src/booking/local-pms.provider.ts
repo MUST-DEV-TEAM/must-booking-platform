@@ -1209,7 +1209,13 @@ export class LocalPmsProvider implements PmsProvider {
 
   async cancelBooking(
     context: PmsProviderContext,
-    command: CancelBookingCommand & { notifyGuest?: boolean; singleBooking?: boolean },
+    command: CancelBookingCommand & {
+      notifyGuest?: boolean;
+      singleBooking?: boolean;
+      /** Set only when a reviewer approved a saved cancellation request (the request service has just compared
+       * the booking's dates, total and payments with the request): cancel the booking as it is now. */
+      approvedRequest?: boolean;
+    },
   ): Promise<Result<Booking>> {
     const refundConfirmations: RefundConfirmation[] = [];
     const cancelledBookingIds: string[] = [];
@@ -1228,7 +1234,8 @@ export class LocalPmsProvider implements PmsProvider {
             if (!row) return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
             if (!command.staffActorId && row.guestSessionId !== command.guestSessionId)
               return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
-            if (row.version !== command.expectedVersion)
+            const expectedVersion = command.approvedRequest ? row.version : command.expectedVersion;
+            if (row.version !== expectedVersion)
               return this.failure(
                 'VERSION_CONFLICT',
                 'Booking has changed; reload it before cancelling.',
@@ -1352,7 +1359,7 @@ export class LocalPmsProvider implements PmsProvider {
         WHERE id = ${row.id}::uuid
           AND tenant_id = ${context.tenantId}::uuid
           AND property_id = ${context.propertyId}::uuid
-          AND version = ${command.expectedVersion}
+          AND version = ${expectedVersion}
       `;
             await this.audit.recordInTransaction(tx, {
               tenantId: context.tenantId,
