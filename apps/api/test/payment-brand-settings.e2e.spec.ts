@@ -17,6 +17,7 @@ import { IntegrationConnectionsController } from '../src/integrations/integratio
 import { IntegrationConnectionsService } from '../src/integrations/integration-connections.service';
 import { CredentialCipherService } from '../src/integrations/credential-cipher';
 import { ConnectionTestRegistry } from '../src/integrations/connection-tester';
+import { ClockLiveUpdatesService } from '../src/integrations/clock/clock-live-updates.service';
 import { renderBrandedEmail } from '../src/mail/email-layout';
 const schema = 'settings_test_' + randomUUID().replaceAll('-', '');
 const admin = new PrismaClient({
@@ -122,6 +123,10 @@ beforeAll(async () => {
       { provide: TenantDatabaseService, useValue: db },
       { provide: PropertyRoleTemplatesService, useValue: {} },
       { provide: ConnectionTestRegistry, useValue: tester },
+      {
+        provide: ClockLiveUpdatesService,
+        useValue: { enableSafely: async () => ({ state: 'failed', message: '' }) },
+      },
     ],
   }).compile();
   app = module.createNestApplication();
