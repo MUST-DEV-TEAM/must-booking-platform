@@ -61,6 +61,9 @@ export class StripePaymentProvider implements PaymentProvider {
           mode: 'payment',
           submit_type: 'book',
           client_reference_id: command.bookingId,
+          // The guest pays in the hotel's own currency: no local-currency offer with a conversion fee, so the
+          // ledger, the refunds and the hotel's balance all count the same amount (owner, 2026-11-16).
+          adaptive_pricing: { enabled: false },
           ...(embedded
             ? {
                 ui_mode: 'embedded_page' as const,
@@ -229,6 +232,31 @@ export class StripePaymentProvider implements PaymentProvider {
       };
     } catch {
       return this.failure('STRIPE_REFUND_FAILED', 'Stripe refund could not be completed.', true);
+    }
+  }
+
+  /**
+   * Closes the guest's still-open Stripe page. A session that is already closed or paid counts as closed;
+   * only a failure to reach Stripe asks the caller to try again.
+   */
+  async expireCheckout(
+    context: PaymentProviderContext,
+    externalPaymentId: string,
+  ): Promise<Result<{ closed: boolean }>> {
+    const configured = await this.tenantConnection(context, externalPaymentId);
+    if (!configured.ok) return configured;
+    try {
+      await new Stripe(configured.value.secretKey).checkout.sessions.expire(externalPaymentId);
+      return { ok: true, value: { closed: true } };
+    } catch (error) {
+      const stripeError = error as { type?: string; statusCode?: number; message?: string };
+      // "Only open sessions can be expired": it is already expired or paid, nothing is left to close.
+      if (stripeError.type === 'StripeInvalidRequestError' && stripeError.statusCode === 400)
+        return { ok: true, value: { closed: true } };
+      this.logger.warn(
+        `Stripe checkout could not be closed: ${stripeError.message ?? 'unknown error'}`,
+      );
+      return { ok: true, value: { closed: false } };
     }
   }
 

@@ -236,6 +236,67 @@ describe('StripePaymentProvider embedded checkout', () => {
   });
 });
 
+describe('StripePaymentProvider currency and closing a checkout', () => {
+  const sessions = () =>
+    Object.getPrototypeOf(new Stripe(secretKey).checkout.sessions) as {
+      create: (...args: unknown[]) => Promise<Stripe.Checkout.Session>;
+      expire: (...args: unknown[]) => Promise<Stripe.Checkout.Session>;
+    };
+
+  it('turns off Stripe’s local-currency offer on every checkout', async () => {
+    const create = vi
+      .spyOn(sessions(), 'create')
+      .mockResolvedValue({
+        id: 'cs_test_x',
+        url: 'https://checkout.stripe.test/x',
+      } as Stripe.Checkout.Session);
+    await makeProvider().createCheckoutSession(context, {
+      idempotencyKey: 'k',
+      bookingId,
+      amount: { amount: '10.00', currency: 'EUR' },
+      successUrl: 'https://x.test/s',
+      cancelUrl: 'https://x.test/c',
+    });
+    expect(create.mock.calls[0]![0]).toMatchObject({ adaptive_pricing: { enabled: false } });
+  });
+
+  it('closes an open checkout with the account that created it', async () => {
+    const expire = vi.spyOn(sessions(), 'expire').mockResolvedValue({} as Stripe.Checkout.Session);
+    const provider = makeProvider('sk_test_in_use', 'sk_test_of_order');
+    await expect(provider.expireCheckout!(context, 'cs_test_open')).resolves.toEqual({
+      ok: true,
+      value: { closed: true },
+    });
+    expect(provider.mocks.sessionPaymentConnection).toHaveBeenCalledWith(
+      context.tenantId,
+      context.propertyId,
+      'STRIPE',
+      'cs_test_open',
+    );
+    expect(expire).toHaveBeenCalledWith('cs_test_open');
+  });
+
+  it('counts an already closed or paid checkout as closed', async () => {
+    const error = Object.assign(new Error('Only open sessions can be expired.'), {
+      type: 'StripeInvalidRequestError',
+      statusCode: 400,
+    });
+    vi.spyOn(sessions(), 'expire').mockRejectedValue(error);
+    await expect(makeProvider().expireCheckout!(context, 'cs_test_done')).resolves.toEqual({
+      ok: true,
+      value: { closed: true },
+    });
+  });
+
+  it('asks to try again when Stripe cannot be reached', async () => {
+    vi.spyOn(sessions(), 'expire').mockRejectedValue(new Error('connection reset'));
+    await expect(makeProvider().expireCheckout!(context, 'cs_test_open')).resolves.toEqual({
+      ok: true,
+      value: { closed: false },
+    });
+  });
+});
+
 describe('StripePaymentProvider.checkHealth', () => {
   it('uses the Stripe balance endpoint', async () => {
     process.env.STRIPE_SECRET_KEY = secretKey;

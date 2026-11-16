@@ -530,6 +530,14 @@ export interface PaymentProvider {
   ): Promise<Result<PaymentWebhookEvent>>;
   refund(context: PaymentProviderContext, command: RefundCommand): Promise<Result<Payment>>;
   getPayment(context: PaymentProviderContext, paymentId: string): Promise<Payment | null>;
+  /**
+   * Closes a checkout the guest has not paid, so a cancelled or expired booking cannot be paid afterwards.
+   * `closed: false` means the provider could not be reached and the caller should try again later.
+   */
+  expireCheckout?(
+    context: PaymentProviderContext,
+    externalPaymentId: string,
+  ): Promise<Result<{ closed: boolean }>>;
 }
 
 /** Email plan Step 1: who receives each notification at a property. */

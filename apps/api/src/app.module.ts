@@ -238,6 +238,7 @@ import { PokPayWebhookController } from './payments/pokpay-webhook.controller';
 import { StripeWebhookController } from './payments/stripe-webhook.controller';
 import { StripeWebhookService } from './payments/stripe-webhook.service';
 import { PaymentExpiryService } from './payments/payment-expiry.service';
+import { StripeCheckoutCloserService } from './payments/stripe-checkout-closer.service';
 import { PokPayReconciliationService } from './payments/pokpay-reconciliation.service';
 import { PaymentRefundRecoveryService } from './payments/payment-refund-recovery.service';
 import { ClockRefundMirrorCheckService } from './integrations/clock/clock-refund-mirror-check.service';
@@ -542,6 +543,7 @@ const healthPaths = new Set(['/health', '/health/ready']);
     PokPayPaymentService,
     StripeWebhookService,
     PaymentExpiryService,
+    StripeCheckoutCloserService,
     PokPayReconciliationService,
     PaymentRefundRecoveryService,
     ClockRefundMirrorCheckService,
