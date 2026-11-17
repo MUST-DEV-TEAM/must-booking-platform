@@ -108,7 +108,7 @@ These are not sliced yet, because the slices depend on a design or a reading tha
 | 39-10b | Invitation activation: test first, bind to the invited address if needed | M39 task 10 | Before self-serve sign-up | Fable |
 | 39-11 | Concurrency tests for the native booking path | M39 task 11 | Before the first native hotel (Milestone 25) | Fable |
 | 40-12 | Reception list of cancelled bookings Clock still shows a balance for **40-12a (re-check the bill when a booking is cancelled, plus a one-time catch-up) in PR #526 (merged); 40-12b (CSV export of the open Clock bills, a button on Needs attention) in PR #527.** The existing Needs attention note already covers the list; the gap was that cancelled bookings were never re-checked. | M40 task 12 | - | Routine |
-| 40-15 | Flag "expected" bookings after 2 days; store Clock's check-in time | M40 task 15 | - | Routine |
+| 40-15 | Flag "expected" bookings after 2 days; store Clock's check-in time **40-15a (store Clock's check-in time from `status_changed_at`) built, see its pull request; 40-15b (flag bookings still expected) open: counting arrivals 2 to 60 days ago, Empire 6, Luxury 3, Must Hotel 28; Empire has 170 older that need a one-time clean-up decision.** | M40 task 15 | - | Routine |
 | 40-16a to 40-16d | Guest-facing wording: PokPay description; return page and status label; one subject format; 409 or 422 for a refused booking **16a merged 2026-11-17 (#521), 16b merged (#522), 16c merged (#523); 16d open.** | M40 task 16 | One pull request each | Routine, except 16d (Fable) |
 | 40-16e | Why the first financial refresh fails; Luxury's 3 differing totals (reading, read-only) | M40 task 16 | - | Done by Fable |
 
