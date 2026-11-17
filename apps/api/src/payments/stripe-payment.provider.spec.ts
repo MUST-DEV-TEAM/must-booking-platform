@@ -244,12 +244,10 @@ describe('StripePaymentProvider currency and closing a checkout', () => {
     };
 
   it('turns off Stripe’s local-currency offer on every checkout', async () => {
-    const create = vi
-      .spyOn(sessions(), 'create')
-      .mockResolvedValue({
-        id: 'cs_test_x',
-        url: 'https://checkout.stripe.test/x',
-      } as Stripe.Checkout.Session);
+    const create = vi.spyOn(sessions(), 'create').mockResolvedValue({
+      id: 'cs_test_x',
+      url: 'https://checkout.stripe.test/x',
+    } as Stripe.Checkout.Session);
     await makeProvider().createCheckoutSession(context, {
       idempotencyKey: 'k',
       bookingId,
