@@ -51,6 +51,10 @@ function serviceForPostDeposit() {
     ok: true,
     value: { status: 'ready', folio: { id: 77 } },
   });
+  internals.paymentFolio = vi.fn().mockResolvedValue({
+    ok: true,
+    value: { status: 'ready', folio: { id: 77 }, placement: 'deposit' },
+  });
   internals.postCreditItem = vi.fn().mockResolvedValue({ ok: true, value: { id: 88 } });
   internals.withRetry = vi.fn(async (attempt: () => Promise<unknown>) => attempt());
   internals.manualReview = { recordInTransaction: vi.fn().mockResolvedValue(undefined) };
@@ -103,12 +107,13 @@ describe('ClockBookingService postDeposit folio handling', () => {
   it('is a full no-op when a matching credit item is already on a closed deposit folio', async () => {
     const { service, fetch, audit } = serviceForPostDeposit();
     const internals = service as unknown as Record<string, unknown>;
-    internals.depositFolio = vi.fn().mockResolvedValue({
+    internals.paymentFolio = vi.fn().mockResolvedValue({
       ok: true,
       value: {
         status: 'already_completed',
         folio: { id: 77, closed_at: '2026-09-04T00:00:00Z' },
         creditItem: { id: 88 },
+        placement: 'deposit',
       },
     });
 
@@ -123,5 +128,147 @@ describe('ClockBookingService postDeposit folio handling', () => {
         details: expect.objectContaining({ idempotentReplay: true }),
       }),
     );
+  });
+});
+
+describe('ClockBookingService where a website payment is posted', () => {
+  const paymentFolio = (
+    ClockBookingService.prototype as unknown as {
+      paymentFolio: (
+        c: ClockConnectionCredentials,
+        externalBookingId: string,
+        reference: string,
+        preferMainFolio: boolean,
+      ) => Promise<unknown>;
+    }
+  ).paymentFolio;
+
+  function folios(list: Array<Record<string, unknown>>, existing: Record<number, unknown> = {}) {
+    const service = Object.create(ClockBookingService.prototype) as ClockBookingService;
+    const internals = service as unknown as Record<string, unknown>;
+    internals.bookingFolios = vi.fn().mockResolvedValue({ ok: true, value: list });
+    internals.creditItemByReference = vi.fn(async (_c: unknown, id: number) => ({
+      ok: true,
+      value: existing[id] ?? null,
+    }));
+    internals.depositFolio = vi.fn().mockResolvedValue({
+      ok: true,
+      value: { status: 'ready', folio: { id: 999, deposit: true } },
+    });
+    return { service, internals };
+  }
+
+  it('prefers the open main folio of the booking, so the hotel has nothing to convert', async () => {
+    const { service, internals } = folios([
+      { id: 5, deposit: false, closed_at: null },
+      { id: 9, deposit: true, closed_at: null },
+    ]);
+    await expect(
+      paymentFolio.call(service, credentials, '1', 'REF-1', true),
+    ).resolves.toMatchObject({
+      ok: true,
+      value: { status: 'ready', placement: 'main', folio: { id: 5 } },
+    });
+    expect(internals.depositFolio).not.toHaveBeenCalled();
+  });
+
+  it('uses a deposit folio even when a main folio is open, when the hotel chose the deposit folio', async () => {
+    const { service } = folios([
+      { id: 5, deposit: false, closed_at: null },
+      { id: 9, deposit: true, closed_at: null },
+    ]);
+    await expect(
+      paymentFolio.call(service, credentials, '1', 'REF-1', false),
+    ).resolves.toMatchObject({ ok: true, value: { placement: 'deposit', folio: { id: 999 } } });
+  });
+
+  it('falls back to a deposit folio when the booking has no open main folio', async () => {
+    const { service } = folios([{ id: 5, deposit: false, closed_at: '2026-10-01T00:00:00Z' }]);
+    await expect(
+      paymentFolio.call(service, credentials, '1', 'REF-1', true),
+    ).resolves.toMatchObject({
+      ok: true,
+      value: { placement: 'deposit', folio: { id: 999 } },
+    });
+  });
+
+  it('finds a payment already posted anywhere, so a replay is never posted twice', async () => {
+    const { service } = folios(
+      [
+        { id: 5, deposit: false, closed_at: null },
+        { id: 9, deposit: true, closed_at: null },
+      ],
+      { 9: { id: 88 } },
+    );
+    await expect(
+      paymentFolio.call(service, credentials, '1', 'REF-1', true),
+    ).resolves.toMatchObject({
+      ok: true,
+      value: { status: 'already_completed', placement: 'deposit', creditItem: { id: 88 } },
+    });
+  });
+
+  it('reads the hotel choice: main folio only when the property says MAIN', async () => {
+    const postsToMainFolio = (
+      ClockBookingService.prototype as unknown as {
+        postsToMainFolio: (tx: unknown, context: unknown) => Promise<boolean>;
+      }
+    ).postsToMainFolio;
+    const service = Object.create(ClockBookingService.prototype) as ClockBookingService;
+    const answer = (folio?: string) => ({ $queryRaw: async () => (folio ? [{ folio }] : []) });
+    await expect(postsToMainFolio.call(service, answer('MAIN'), context)).resolves.toBe(true);
+    await expect(postsToMainFolio.call(service, answer('DEPOSIT'), context)).resolves.toBe(false);
+    await expect(postsToMainFolio.call(service, answer(), context)).resolves.toBe(false);
+  });
+
+  it('posts to a deposit folio instead when Clock refuses the main folio (no right to post there)', async () => {
+    const { service, fetch, audit } = serviceForPostDeposit();
+    const internals = service as unknown as Record<string, unknown>;
+    internals.paymentFolio = vi.fn().mockResolvedValue({
+      ok: true,
+      value: { status: 'ready', folio: { id: 5 }, placement: 'main' },
+    });
+    internals.postCreditItem = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        error: { category: 'authorization', code: 'x', message: 'no right', retryable: false },
+      })
+      .mockResolvedValueOnce({ ok: true, value: { id: 88 } });
+
+    await expect(
+      postDeposit.call(service, noTestPayments, context, 'booking-3', amount, 'Stripe', 'MUST-3'),
+    ).resolves.toMatchObject({ ok: true });
+
+    const post = internals.postCreditItem as ReturnType<typeof vi.fn>;
+    expect(post.mock.calls.map((call) => call[1])).toEqual([5, 77]);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(audit.recordInTransaction).toHaveBeenCalledWith(
+      noTestPayments,
+      expect.objectContaining({
+        details: expect.objectContaining({ folioId: 77, placement: 'deposit' }),
+      }),
+    );
+  });
+
+  it('does not fall back on other failures, it asks staff to look instead', async () => {
+    const { service } = serviceForPostDeposit();
+    const internals = service as unknown as Record<string, unknown>;
+    internals.paymentFolio = vi.fn().mockResolvedValue({
+      ok: true,
+      value: { status: 'ready', folio: { id: 5 }, placement: 'main' },
+    });
+    internals.postCreditItem = vi.fn().mockResolvedValue({
+      ok: false,
+      error: { category: 'validation', code: 'x', message: 'bad', retryable: false },
+    });
+    await expect(
+      postDeposit.call(service, noTestPayments, context, 'booking-4', amount, 'Stripe', 'MUST-4'),
+    ).resolves.toMatchObject({ ok: false });
+    expect((internals.postCreditItem as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
+    expect(
+      (internals.manualReview as { recordInTransaction: ReturnType<typeof vi.fn> })
+        .recordInTransaction,
+    ).toHaveBeenCalled();
   });
 });

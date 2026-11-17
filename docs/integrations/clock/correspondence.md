@@ -104,3 +104,15 @@ MUST asked whether Clock's own Stripe integration avoids the manual "Convert to 
 1. Our Stripe design (separate account per hotel, refunds on our side, ADR-0042) matches Clock's recommendation.
 2. Posting Stripe payments to the main folio instead of a deposit folio would remove the manual conversion for Stripe. Not built; needs the call sequence and rights confirmed first, and the effect on refund mirroring checked.
 3. No external use of Clock's Stripe connection; do not plan for it.
+
+### Sandbox test of Clock's suggestion, and what we built (2026-11-17)
+
+Run against the Clock sandbox (subscription 16307, never Empire), on throwaway bookings that were cancelled afterwards:
+
+1. A new booking has one open, non-deposit folio (the main folio) and no deposit folio.
+2. A payment posted to the main folio (`POST /folios/{id}/credit_items`, `on-line`, sub type `Stripe`) was accepted. The booking balance went to 0 and the folio stayed open. Nothing needs converting.
+3. A negative payment (a refund) posted to the same folio was accepted and the balance rose again. A real Stripe payment and two real Stripe refunds (100.00, then 150.00) behaved the same.
+
+**Built:** with the setting on `MAIN`, `postDeposit` posts a website payment to the booking's open main folio. The deposit folio is then only the fallback: when the booking has no open main folio, or Clock answers 403 (the login has no right to post there). With `DEPOSIT` nothing changes. A payment already carrying the same reference on any folio is a replay and is never posted twice. A refund looks for the original payment on every folio of the booking and posts the negative payment there. **A per-hotel setting decides** (Settings > Payments, shown when Clock is connected): "Where Clock records a website payment", `DEPOSIT` (default, what every hotel has always had) or `MAIN`. Empire needs the deposit folio, because its reception converts each one to an advance invoice (owner, 2026-11-17), so it stays on `DEPOSIT`; a hotel that needs no advance invoice can choose `MAIN`.
+
+**Before any hotel switches to `MAIN`:** that hotel's Clock login must be allowed to post a payment and a negative payment on a main folio (the sandbox allows everything; Empire was only measured for deposit folios; if refused, the fallback keeps today's behaviour and the log says why), and the hotel's accountant should confirm how a payment on the main folio appears in their invoicing: converting a deposit issues an advance invoice (a closed deposit folio with an invoice number, counted as revenue, read on Empire's June bookings); a payment on the main folio issues none until the final invoice.

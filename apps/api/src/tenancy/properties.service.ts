@@ -20,6 +20,8 @@ import { AuditLogService } from './audit-log.service';
 import { PropertyRoleTemplatesService } from './property-role-templates.service';
 
 export type ClockCancelRefundPolicy = 'NEVER' | 'FREE_WINDOW' | 'ALWAYS';
+export type ClockPaymentFolio = 'DEPOSIT' | 'MAIN';
+const CLOCK_PAYMENT_FOLIOS: ClockPaymentFolio[] = ['DEPOSIT', 'MAIN'];
 const CLOCK_CANCEL_REFUND_POLICIES: ClockCancelRefundPolicy[] = ['NEVER', 'FREE_WINDOW', 'ALWAYS'];
 type BookingMode = 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
 type Property = HotelSettings & {
@@ -32,6 +34,8 @@ type Property = HotelSettings & {
   /** A refund the guest asked for keeps back the payment provider's fee (the hotel's terms say so). */
   deductPaymentFeeOnGuestRefund: boolean;
   clockCancelRefundPolicy: ClockCancelRefundPolicy;
+  /** Where a website payment is posted in Clock: a deposit folio (converted to an advance invoice by the hotel) or the booking's own folio. */
+  clockPaymentFolio: ClockPaymentFolio;
   brandColour: string | null;
   emailFooterText: string | null;
   termsUrl: string | null;
@@ -85,7 +89,7 @@ export class PropertiesService {
             WHERE pic.tenant_id=p.tenant_id AND pic.property_id=p.id AND pic.enabled AND ic.status='CONNECTED'
             ORDER BY ic.provider::text) AS "connectedProviders",
           EXISTS(SELECT 1 FROM rate_rules rr WHERE rr.tenant_id=p.tenant_id AND rr.property_id=p.id UNION ALL SELECT 1 FROM pricing_daily_prices dp WHERE dp.tenant_id=p.tenant_id AND dp.property_id=p.id UNION ALL SELECT 1 FROM room_price_overrides ro WHERE ro.tenant_id=p.tenant_id AND ro.property_id=p.id UNION ALL SELECT 1 FROM property_exchange_rates fx WHERE fx.tenant_id=p.tenant_id AND fx.property_id=p.id) AS "defaultCurrencyLocked",
-          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",deduct_payment_fee_on_guest_refund AS "deductPaymentFeeOnGuestRefund",clock_cancel_refund_policy AS "clockCancelRefundPolicy",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
+          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",deduct_payment_fee_on_guest_refund AS "deductPaymentFeeOnGuestRefund",clock_cancel_refund_policy AS "clockCancelRefundPolicy",clock_payment_folio AS "clockPaymentFolio",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
@@ -149,7 +153,7 @@ export class PropertiesService {
       const rows = await tx.$queryRaw<
         Property[]
       >`INSERT INTO properties (id, tenant_id, name, slug, address, timezone, logo_url, phone, support_email) VALUES (${id}::uuid, ${tenantId}::uuid, ${input.name}, ${slug}, ${input.address}, ${input.timezone}, ${input.logoUrl}, ${input.phone}, ${input.supportEmail}) RETURNING id, name, address, timezone,
-        online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",deduct_payment_fee_on_guest_refund AS "deductPaymentFeeOnGuestRefund",clock_cancel_refund_policy AS "clockCancelRefundPolicy",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
+        online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",deduct_payment_fee_on_guest_refund AS "deductPaymentFeeOnGuestRefund",clock_cancel_refund_policy AS "clockCancelRefundPolicy",clock_payment_folio AS "clockPaymentFolio",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
         booking_mode AS "bookingMode",
         min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
         check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
@@ -179,7 +183,7 @@ export class PropertiesService {
       await tx.$queryRaw`SELECT id FROM properties WHERE tenant_id=${tenantId}::uuid AND id=${propertyId}::uuid FOR UPDATE`;
       const existing = await tx.$queryRaw<Array<Property>>`
         SELECT id, name, address, timezone,
-          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",deduct_payment_fee_on_guest_refund AS "deductPaymentFeeOnGuestRefund",clock_cancel_refund_policy AS "clockCancelRefundPolicy",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
+          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",deduct_payment_fee_on_guest_refund AS "deductPaymentFeeOnGuestRefund",clock_cancel_refund_policy AS "clockCancelRefundPolicy",clock_payment_folio AS "clockPaymentFolio",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
@@ -230,6 +234,7 @@ export class PropertiesService {
           auto_refund_on_free_cancellation=COALESCE(${input.autoRefundOnFreeCancellation},auto_refund_on_free_cancellation),
           deduct_payment_fee_on_guest_refund=COALESCE(${input.deductPaymentFeeOnGuestRefund},deduct_payment_fee_on_guest_refund),
           clock_cancel_refund_policy=COALESCE(${input.clockCancelRefundPolicy},clock_cancel_refund_policy),
+          clock_payment_folio=COALESCE(${input.clockPaymentFolio},clock_payment_folio),
           brand_colour=CASE WHEN ${input.brandColour !== undefined} THEN ${input.brandColour} ELSE brand_colour END,
           email_footer_text=CASE WHEN ${input.emailFooterText !== undefined} THEN ${input.emailFooterText} ELSE email_footer_text END,
           terms_url=CASE WHEN ${input.termsUrl !== undefined} THEN ${input.termsUrl} ELSE terms_url END,
@@ -249,7 +254,7 @@ export class PropertiesService {
           free_cancellation_days_before_arrival = CASE WHEN ${input.freeCancellationDaysBeforeArrival !== undefined} THEN ${input.freeCancellationDaysBeforeArrival} ELSE free_cancellation_days_before_arrival END
         WHERE id = ${propertyId}::uuid
         RETURNING id, name, address, timezone,
-          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",deduct_payment_fee_on_guest_refund AS "deductPaymentFeeOnGuestRefund",clock_cancel_refund_policy AS "clockCancelRefundPolicy",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
+          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",deduct_payment_fee_on_guest_refund AS "deductPaymentFeeOnGuestRefund",clock_cancel_refund_policy AS "clockCancelRefundPolicy",clock_payment_folio AS "clockPaymentFolio",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
@@ -330,7 +335,7 @@ export class PropertiesService {
         SET public_website_origin = ${origin}
         WHERE id = ${propertyId}::uuid
         RETURNING id, name, address, timezone,
-          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",deduct_payment_fee_on_guest_refund AS "deductPaymentFeeOnGuestRefund",clock_cancel_refund_policy AS "clockCancelRefundPolicy",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
+          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",deduct_payment_fee_on_guest_refund AS "deductPaymentFeeOnGuestRefund",clock_cancel_refund_policy AS "clockCancelRefundPolicy",clock_payment_folio AS "clockPaymentFolio",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
@@ -366,7 +371,7 @@ export class PropertiesService {
           pay_at_hotel_enabled = ${gateways.payAtHotel}
         WHERE id = ${propertyId}::uuid
         RETURNING id, name, address, timezone,
-          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",deduct_payment_fee_on_guest_refund AS "deductPaymentFeeOnGuestRefund",clock_cancel_refund_policy AS "clockCancelRefundPolicy",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
+          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",deduct_payment_fee_on_guest_refund AS "deductPaymentFeeOnGuestRefund",clock_cancel_refund_policy AS "clockCancelRefundPolicy",clock_payment_folio AS "clockPaymentFolio",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
@@ -520,6 +525,7 @@ export class PropertiesService {
     autoRefundOnFreeCancellation?: boolean;
     deductPaymentFeeOnGuestRefund?: boolean;
     clockCancelRefundPolicy?: ClockCancelRefundPolicy;
+    clockPaymentFolio?: ClockPaymentFolio;
     brandColour?: string | null;
     emailFooterText?: string | null;
     termsUrl?: string | null;
@@ -549,6 +555,7 @@ export class PropertiesService {
         'autoRefundOnFreeCancellation',
         'deductPaymentFeeOnGuestRefund',
         'clockCancelRefundPolicy',
+        'clockPaymentFolio',
         'brandColour',
         'emailFooterText',
         'termsUrl',
@@ -589,6 +596,13 @@ export class PropertiesService {
     )
       throw new BadRequestException(
         'Choose whether a cancellation made in Clock is never, only inside the free window, or always refunded.',
+      );
+    if (
+      has('clockPaymentFolio') &&
+      !CLOCK_PAYMENT_FOLIOS.includes(value.clockPaymentFolio as ClockPaymentFolio)
+    )
+      throw new BadRequestException(
+        'Choose whether website payments are posted to a deposit folio or to the main folio.',
       );
     const brandColour = this.optionalBrandText(value, 'brandColour', 7, true);
     if (brandColour && !/^#[0-9a-fA-F]{6}$/.test(brandColour))
@@ -694,6 +708,9 @@ export class PropertiesService {
         : undefined,
       clockCancelRefundPolicy: has('clockCancelRefundPolicy')
         ? (value.clockCancelRefundPolicy as ClockCancelRefundPolicy)
+        : undefined,
+      clockPaymentFolio: has('clockPaymentFolio')
+        ? (value.clockPaymentFolio as ClockPaymentFolio)
         : undefined,
       brandColour,
       emailFooterText,
