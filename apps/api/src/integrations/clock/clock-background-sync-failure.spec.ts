@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { ClockBackgroundSyncService } from './clock-background-sync.service';
-import { ClockFinancialCurrencyError } from './clock-financial.service';
+import { ClockFinancialCurrencyError, ClockFinancialDataError } from './clock-financial.service';
 
 const scope = { tenantId: 'tenant-1', propertyId: 'property-1', connectionId: 'connection-1' };
 const bookingId = '11111111-1111-4111-8111-111111111111';
@@ -90,6 +90,33 @@ describe('recordFailure for a bill with inconsistent currencies', () => {
     const { service, job, manualReview } = setup({ updated: 0 });
     await service.recordFailure(scope, job(2), new ClockFinancialCurrencyError());
     expect(manualReview.recordInTransaction).not.toHaveBeenCalled();
+  });
+});
+
+describe('recordFailure for a bill whose amount Clock does not send (gap G-30)', () => {
+  it('backs off like the currency case, keeps it retrying, and raises no note', async () => {
+    const seen: Array<{ status: unknown; failures: unknown; delay: unknown; notes: number }> = [];
+    for (const before of [0, 1, 2, 3]) {
+      const { service, job, failureWrite, manualReview } = setup();
+      await service.recordFailure(
+        scope,
+        job(before),
+        new ClockFinancialDataError('Clock financial amount is missing.'),
+      );
+      const values = failureWrite().values;
+      seen.push({
+        status: values[0],
+        failures: values[1],
+        delay: values[2],
+        notes: manualReview.recordInTransaction.mock.calls.length,
+      });
+    }
+    expect(seen).toEqual([
+      { status: 'RETRY', failures: 1, delay: 60, notes: 0 },
+      { status: 'RETRY', failures: 2, delay: 300, notes: 0 },
+      { status: 'RETRY', failures: 3, delay: 1800, notes: 0 },
+      { status: 'RETRY', failures: 4, delay: 21_600, notes: 0 },
+    ]);
   });
 });
 

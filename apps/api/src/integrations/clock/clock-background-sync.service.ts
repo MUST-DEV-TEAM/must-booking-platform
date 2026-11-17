@@ -313,13 +313,18 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
     if (worked && this.timer && !this.stopping) setImmediate(() => void this.tick());
   }
   /**
-   * Records a failed job run. A bill whose currencies disagree is a data problem retrying cannot fix, so it
-   * backs off (1 min, 5 min, 30 min, then every 6 hours) instead of logging every minute forever, and raises
-   * one review note for the booking after three failures in a row. Every other failure keeps the 1 minute retry.
+   * Records a failed job run. A bill Clock sends in a shape we cannot use (currencies that disagree, or an
+   * amount that is missing) is a data problem retrying cannot fix, so it backs off (1 min, 5 min, 30 min, then
+   * every 6 hours) instead of retrying forever; a currency difference also raises one review note for the
+   * booking after three failures in a row. Every other failure keeps the 1 minute retry.
    * A successful check, a staff "run check" or a Clock change event brings the bill back sooner.
    */
   private async recordFailure(scope: Scope, job: Job, error: unknown): Promise<void> {
-    const dataProblem = error instanceof ClockFinancialCurrencyError;
+    // Any bill Clock sends in a shape we cannot use (currencies that disagree, an amount that is missing) is a
+    // data problem: retrying every minute or every half hour cannot fix it, so it backs off like the currency
+    // case. Only the currency case raises the review note, as before (gap G-30).
+    const dataProblem = error instanceof ClockFinancialDataError;
+    const currencyProblem = error instanceof ClockFinancialCurrencyError;
     const retry = dataProblem
       ? true
       : error instanceof ClockBookingReadError
@@ -347,7 +352,7 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
         await tx.$executeRaw`UPDATE clock_sync_jobs SET status=${retry ? 'RETRY' : 'FAILED'},consecutive_failures=${failures},next_run_at=now()+make_interval(secs=>${delaySeconds}),last_error=${lastError},lease_token=NULL,lease_until=NULL,updated_at=now() WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${job.id}::uuid AND lease_token=${job.leaseToken}::uuid`;
       if (
         updated === 1 &&
-        dataProblem &&
+        currencyProblem &&
         job.resource.startsWith('financial:') &&
         shouldAlertFinancialBlocked(failures)
       )
