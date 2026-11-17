@@ -47,7 +47,8 @@ CREATE TABLE IF NOT EXISTS booking_flow_events (
   outcome text NOT NULL CHECK (outcome IN ('STARTED', 'DONE', 'RETRY', 'NEEDS_PERSON')),
   detail jsonb NOT NULL DEFAULT '{}'::jsonb,
   external_reference text,
-  created_at timestamptz NOT NULL DEFAULT now()
+  -- clock_timestamp(), not now(): several steps can be written in one transaction and must keep their order.
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp()
 );
 CREATE INDEX IF NOT EXISTS booking_flow_events_flow_idx ON booking_flow_events (flow_id, created_at);
 
