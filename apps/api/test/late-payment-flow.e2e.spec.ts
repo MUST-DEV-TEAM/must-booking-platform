@@ -155,7 +155,7 @@ describe('Late payment flow (ADR-0043)', () => {
       await admin.$executeRaw`
         INSERT INTO payments (tenant_id, property_id, booking_id, kind, provider, external_payment_id, status, amount, currency, created_at)
         VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${id}::uuid, 'CHARGE', 'pokpay', ${order}, 'PAID', 200.00, 'EUR',
-          now() - make_interval(mins => ${10 - index}))`;
+          now() - make_interval(mins => ${10 - index}::int))`;
     return id;
   }
 

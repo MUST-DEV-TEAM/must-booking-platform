@@ -165,7 +165,7 @@ export class LatePaymentFlowService implements OnModuleInit, OnModuleDestroy {
       (tx) =>
         tx.$queryRaw<Array<Omit<ClaimedFlow, 'leaseToken'>>>`
         UPDATE booking_flows SET lease_token = ${token}::uuid,
-          lease_until = now() + make_interval(secs => ${LEASE_SECONDS}), attempts = attempts + 1, updated_at = now()
+          lease_until = now() + make_interval(secs => ${LEASE_SECONDS}::int), attempts = attempts + 1, updated_at = now()
         WHERE id = ${flowId}::uuid AND tenant_id = ${scope.tenantId}::uuid AND property_id = ${scope.propertyId}::uuid
           AND status = 'RUNNING' AND next_run_at <= now() AND (lease_until IS NULL OR lease_until < now())
         RETURNING id, booking_id::text AS "bookingId", state, attempts, created_at AS "createdAt",
@@ -334,7 +334,7 @@ export class LatePaymentFlowService implements OnModuleInit, OnModuleDestroy {
     await this.database.withTenantTransaction(scope, async (tx) => {
       await tx.$executeRaw`
         UPDATE booking_flows SET last_error = ${message.slice(0, 500)},
-          next_run_at = now() + make_interval(mins => ${waitMinutes}, secs => ${jitterSeconds}),
+          next_run_at = now() + make_interval(mins => ${waitMinutes}::int, secs => ${jitterSeconds}::int),
           person_told_at = CASE WHEN ${tellPerson} THEN now() ELSE person_told_at END,
           lease_token = NULL, lease_until = NULL, updated_at = now()
         WHERE id = ${flow.id}::uuid AND lease_token = ${flow.leaseToken}::uuid`;
