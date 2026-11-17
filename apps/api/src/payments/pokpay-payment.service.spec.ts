@@ -78,9 +78,8 @@ describe('PokPayPaymentService payment after the hold ended', () => {
     expect(result).toEqual({ ok: true, value: { duplicate: false } });
     const insert = transaction.$queryRaw.mock.calls[2] as unknown as [TemplateStringsArray];
     expect(insert[0].join('?')).toContain('INSERT INTO payments');
-    expect(insert[0].join('?')).toContain(
-      'Received after the booking was no longer awaiting payment.',
-    );
+    // The database allows a note only on refund rows (payments_note_refund_only).
+    expect(insert[0].join('?')).not.toContain('note');
     expect(recordInTransaction).toHaveBeenCalledTimes(1);
     expect(recordInTransaction).toHaveBeenCalledWith(
       transaction,

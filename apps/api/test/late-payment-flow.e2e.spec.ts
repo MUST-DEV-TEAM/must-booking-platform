@@ -7,6 +7,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
 import { LatePaymentFlowService } from '../src/payments/late-payment-flow.service';
+import { PaymentProviderRegistry } from '../src/payments/payment-provider-registry';
+import { PokPayPaymentService } from '../src/payments/pokpay-payment.service';
 import { PaymentRefundService } from '../src/payments/payment-refund.service';
 import { TenantDatabaseService } from '../src/tenancy/tenant-database.service';
 import { cleanupTenant } from './helpers/cleanup-tenant';
@@ -262,5 +264,36 @@ describe('Late payment flow (ADR-0043)', () => {
     expect((await events(flowId)).at(-1)).toEqual({ step: 'PAYMENT_RECORDED', outcome: 'RETRY' });
     // Not due yet: nothing runs it again before its time.
     expect(await service.run(scope(), flowId)).toBe('NOT_CLAIMED');
+  });
+
+  it('takes a real late PokPay webhook end to end: records the payment on the database, then refunds it', async () => {
+    const order = `order-${randomUUID()}`;
+    const bookingId = await bookingWithPayments('EXPIRED', []);
+    await admin.$executeRaw`
+      INSERT INTO payment_provider_sessions (tenant_id, property_id, booking_id, provider, external_payment_id)
+      VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${bookingId}::uuid, 'pokpay', ${order})`;
+    const getPayment = vi
+      .spyOn(app!.get(PaymentProviderRegistry).pokpay, 'getPayment')
+      .mockResolvedValue({
+        id: order,
+        status: 'PAID',
+        amount: { amount: '200.00', currency: 'EUR' },
+      } as never);
+    try {
+      await expect(
+        app!.get(PokPayPaymentService).processAuthoritativeOrder(order),
+      ).resolves.toEqual({ ok: true, value: { duplicate: false } });
+    } finally {
+      getPayment.mockRestore();
+    }
+    const charges = await admin.$queryRaw<
+      Array<{ kind: string; status: string; note: string | null }>
+    >`
+      SELECT kind::text AS kind, status, note FROM payments WHERE tenant_id = ${tenantId}::uuid AND external_payment_id = ${order}`;
+    expect(charges).toEqual([{ kind: 'CHARGE', status: 'PAID', note: null }]);
+    const flows = await admin.$queryRaw<Array<{ state: string; status: string }>>`
+      SELECT state, status FROM booking_flows WHERE tenant_id = ${tenantId}::uuid AND trigger_key = ${order}`;
+    expect(flows).toEqual([{ state: 'REFUNDED', status: 'DONE' }]);
+    expect(refundCharge).toHaveBeenCalledTimes(1);
   });
 });
