@@ -65,7 +65,7 @@ test('a guest books, the property sees and cancels it, and the room is bookable 
     const booking = (booked as Extract<BookingResult, { ok: true }>).value;
 
     const confirmation = await capturedEmail(guestEmail, (subject) =>
-      subject.endsWith(`is confirmed - ${booking.externalReference}`),
+      subject.endsWith(`booking confirmed — ${booking.externalReference}`),
     );
     expect(confirmation.text).toContain('Payment will be collected at the hotel on arrival.');
     expect(confirmation.text).toContain(`${startsOn} to ${endsOn}`);
@@ -146,7 +146,7 @@ test('a guest cancels from the link in their confirmation email on another devic
     const booking = (booked as Extract<BookingResult, { ok: true }>).value;
 
     const confirmation = await capturedEmail(guestEmail, (subject) =>
-      subject.endsWith(`is confirmed - ${booking.externalReference}`),
+      subject.endsWith(`booking confirmed — ${booking.externalReference}`),
     );
     // The email now links to the app's own "manage booking" page (not the hotel website).
     const link = emailLinks(confirmation).find((url) => url.pathname === '/booking/manage');
