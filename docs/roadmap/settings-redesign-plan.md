@@ -115,4 +115,4 @@ Rules for every task: follow AGENTS.md and the components-only rule (check `apps
 
 ## Gaps fixed after the redesign ships
 
-The scan of the designed tabs (Overview to Payment methods) found G-44 to G-65 in [hardening-gaps-log.md](../audit/hardening-gaps-log.md). Owner, 2026-11-17: ship the redesign first, then fix them one by one, the High ones first (G-46, G-44, G-45, G-52).
+The scan of the designed tabs (Overview to Integrations) found G-44 to G-73 in [hardening-gaps-log.md](../audit/hardening-gaps-log.md). Owner, 2026-11-17: ship the redesign first, then fix them one by one, the High ones first (G-46, G-44, G-45, G-52).
