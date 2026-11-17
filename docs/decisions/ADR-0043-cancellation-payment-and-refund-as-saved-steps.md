@@ -1,6 +1,6 @@
 # ADR-0043: Cancellation, payment confirmation and refunds as saved steps
 
-Status: Proposed (Milestone 40 task 9). Waiting for the owner's approval. Nothing here is built; task 10 builds it in the order at the end, one pull request per step of that order.
+Status: Accepted by the owner on 2026-11-17 (Milestone 40 task 9), with the recommendations in the last table: the guest is told "cancelled" when the room is released, a person is told about a stuck money flow within 1 hour, and the order of work as listed. Task 10 builds it in that order.
 Date: 2026-11-17 (revised the same day after reading the code for every point the first draft left open; step history, flow versions, lease limits and the reconciliation safety net added on the owner's request)
 
 ## Summary
