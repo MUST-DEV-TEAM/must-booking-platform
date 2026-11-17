@@ -1,7 +1,7 @@
 # ADR-0043: Cancellation, payment confirmation and refunds as saved steps
 
 Status: Proposed (Milestone 40 task 9). Waiting for the owner's approval. Nothing here is built; task 10 builds it in the order at the end, one pull request per step of that order.
-Date: 2026-11-17 (revised the same day after reading the code for every point the first draft left open)
+Date: 2026-11-17 (revised the same day after reading the code for every point the first draft left open; step history, flow versions, lease limits and the reconciliation safety net added on the owner's request)
 
 ## Summary
 
@@ -46,7 +46,10 @@ A new table, `booking_flows`, has one row per flow run:
 - `kind` (CANCELLATION or PAYMENT_CONFIRMATION), `booking_id`, `state` (the last step completed), `status` (RUNNING, WAITING, NEEDS_PERSON, DONE);
 - `attempts`, `next_run_at`, `last_error`, `context` (what the flow decided, for example the refund amount the policy gave, frozen at the start);
 - `lease_token`, `lease_until`, the same claim mechanism `clock_sync_jobs` already uses;
-- a unique partial index: **one active flow per booking and kind**. A second cancellation of the same booking joins the running one instead of starting another.
+- a unique partial index: **one active flow per booking and kind**. A second cancellation of the same booking joins the running one instead of starting another;
+- `definition_version`: the version of the step list the flow started under. When the steps change later, a flow already running finishes under the version it started with; the worker keeps the code for every version that still has unfinished flows.
+
+A second table, `booking_flow_events`, keeps the **step history**: one row appended per attempt (flow, step, attempt number, started and finished time, result or error, the outside reference such as the Clock booking or the provider refund id). Rows are never updated or deleted. It answers "what happened to this refund?" for support and staff, and it feeds the booking history (M40 task 14). It holds no card data and no credentials.
 
 Row-level security applies as on every other table. The worker finds work across hotels through a narrow `SECURITY DEFINER` function, the pattern of `payment_refunds_for_clock_check`.
 
@@ -54,7 +57,7 @@ Provider calls keep using `integration_operations` with the key `flow:<flow id>:
 
 ### 2. How a step runs
 
-1. **Claim** the flow row (lease for 2 minutes, `FOR UPDATE SKIP LOCKED`), so two workers or a worker and a web request never run the same flow at once.
+1. **Claim** the flow row (lease for 2 minutes, `FOR UPDATE SKIP LOCKED`), so two workers or a worker and a web request never run the same flow at once. Every outside call made by a step has its own time limit well inside the lease (Clock, PokPay and Stripe calls at most 30 s each, a step at most 60 s in total). A step that could run longer renews its lease before it expires. A step whose lease ran out never records its result over a newer claim: the record checks the lease token, as `clock_sync_jobs` already does.
 2. **Act**: one outside call, never inside a database transaction.
 3. **Record** the result and advance `state` in one short transaction. If the record fails, the next run reads the outside system and records it then.
 
@@ -126,6 +129,10 @@ A refund row names the charge it reverses. A multi-room order's refund finds the
 
 Hydration writes Clock's status over the booking's status (`clock-booking-hydration.service.ts`, the upsert). It already refuses to resurrect a cancellation from an older read, and a test covers that. A flow therefore treats Clock as the source of truth at each step: if the hotel cancels in Clock while a MUST cancellation is running, step 2 reads "already cancelled" and moves on. A payment confirmation that finds the booking cancelled in Clock goes to step 2b (refund). No flow overwrites a change made in Clock.
 
+## The daily reconciliation stays as a safety net
+
+The flows do not replace the checks that compare MUST with the outside systems every night: the PokPay reconciliation and the Clock refund check (`clock-refund-mirror-check.service.ts`). They stay as a second, independent line of defence. If a flow says DONE but PokPay or Clock disagrees, the nightly check raises its own review item. Each flow also records the outside references the nightly checks compare against.
+
 ## Tests
 
 For each flow, a test cuts it after every outside call, restarts it, and checks that it finishes correctly:
@@ -156,7 +163,7 @@ Milestone 38 task 6 lowers the database timeouts only after order step 3 is live
 
 1. **Keep one transaction and raise the time limits.** Cheapest, but it only moves the failure: a restart still undoes MUST's record after the outside party acted, and a longer transaction holds a database connection and a booking lock longer. Rejected.
 2. **A workflow engine (for example Temporal) or a message broker.** It gives saved steps and retries out of the box, but adds a service to run, secure and back up on a one-CPU server, for 22 cancellations a month. Not chosen. The step design above can move there later without changing the steps.
-3. **Saved process rows plus a worker (chosen).** It reuses what exists (idempotency records, the refund attempt record and its sweeper, the Clock job lease, BullMQ, review items) and adds one table and one worker.
+3. **Saved process rows plus a worker (chosen).** It reuses what exists (idempotency records, the refund attempt record and its sweeper, the Clock job lease, BullMQ, review items, the nightly reconciliation) and adds two tables and one worker.
 
 ## Risks and what is still not known
 
@@ -169,7 +176,7 @@ Milestone 38 task 6 lowers the database timeouts only after order step 3 is live
 
 - A restart or a timeout during a cancellation, payment or refund leaves a record of exactly where it stopped, and the worker finishes it.
 - The 30, 45 and 90 second transactions go away. That frees database connections and booking locks, and ends the "local record undone, outside change kept" failure.
-- One new table and one worker. Guests see no slower path in the normal case.
+- Two new tables (the process record and its step history) and one worker. Guests see no slower path in the normal case.
 
 ## Decisions requested from the owner
 
