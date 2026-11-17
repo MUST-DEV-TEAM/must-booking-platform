@@ -125,7 +125,6 @@ export default function BookingPaymentOutcomePage() {
           <button type="button" onClick={() => window.close()}>
             Close this tab
           </button>
-          <a href="/dashboard">Open MUST</a>
         </div>
       </section>
     </main>
