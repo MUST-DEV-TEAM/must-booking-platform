@@ -244,6 +244,7 @@ import { PokPayReconciliationService } from './payments/pokpay-reconciliation.se
 import { PaymentRefundRecoveryService } from './payments/payment-refund-recovery.service';
 import { ClockRefundMirrorCheckService } from './integrations/clock/clock-refund-mirror-check.service';
 import { ClockStaleStayCheckService } from './integrations/clock/clock-stale-stay-check.service';
+import { LatePaymentFlowService } from './payments/late-payment-flow.service';
 import { PaymentRefundController } from './payments/payment-refund.controller';
 import { PaymentRefundService } from './payments/payment-refund.service';
 import { HotelCancellationRefundService } from './payments/hotel-cancellation-refund.service';
@@ -558,6 +559,7 @@ const healthPaths = new Set(['/health', '/health/ready']);
     PaymentRefundRecoveryService,
     ClockRefundMirrorCheckService,
     ClockStaleStayCheckService,
+    LatePaymentFlowService,
     PaymentRefundService,
     HotelCancellationRefundService,
     PaymentLedgerService,

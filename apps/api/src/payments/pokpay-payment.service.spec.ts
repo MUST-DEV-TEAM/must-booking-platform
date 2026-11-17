@@ -5,7 +5,11 @@ import { PokPayPaymentService } from './pokpay-payment.service';
 
 const context = { tenantId: 'tenant-1', propertyId: 'property-1' };
 
-function setup(status: BookingStatus, txResults: unknown[][]) {
+function setup(
+  status: BookingStatus,
+  txResults: unknown[][],
+  latePayments?: { start: ReturnType<typeof vi.fn>; run: ReturnType<typeof vi.fn> },
+) {
   const booking = {
     id: 'booking-1',
     totalAmount: '110.00',
@@ -38,6 +42,8 @@ function setup(status: BookingStatus, txResults: unknown[][]) {
     { sendAfterConfirmation } as never,
     { process: vi.fn().mockResolvedValue(null) } as never,
     { recordInTransaction } as never,
+    undefined,
+    latePayments as never,
   );
   return { service, transaction, continueAfterPayment, sendAfterConfirmation, recordInTransaction };
 }
@@ -93,6 +99,49 @@ describe('PokPayPaymentService payment after the hold ended', () => {
     );
     expect(continueAfterPayment).not.toHaveBeenCalled();
     expect(sendAfterConfirmation).not.toHaveBeenCalled();
+  });
+
+  it('starts the saved refund flow in the same transaction and runs it after the commit (ADR-0043)', async () => {
+    const latePayments = {
+      start: vi.fn().mockResolvedValue('flow-1'),
+      run: vi.fn().mockResolvedValue('REFUNDED'),
+    };
+    const { service, transaction, recordInTransaction, continueAfterPayment } = setup(
+      BookingStatus.EXPIRED,
+      [[], [{ id: 'late-payment' }]],
+      latePayments,
+    );
+
+    const result = await service.processAuthoritativeOrder('order-1');
+
+    expect(result).toEqual({ ok: true, value: { duplicate: false } });
+    expect(latePayments.start).toHaveBeenCalledWith(transaction, context, {
+      bookingId: 'booking-1',
+      orderId: 'order-1',
+      amount: '110.00',
+      currency: 'EUR',
+      bookingStatusAtPayment: BookingStatus.EXPIRED,
+    });
+    expect(latePayments.run).toHaveBeenCalledWith(context, 'flow-1');
+    expect(recordInTransaction).not.toHaveBeenCalled();
+    expect(continueAfterPayment).not.toHaveBeenCalled();
+  });
+
+  it('still answers the webhook when running the flow throws; the worker finishes it', async () => {
+    const latePayments = {
+      start: vi.fn().mockResolvedValue('flow-1'),
+      run: vi.fn().mockRejectedValue(new Error('PokPay timed out')),
+    };
+    const { service } = setup(
+      BookingStatus.CANCELLED,
+      [[], [{ id: 'late-payment' }]],
+      latePayments,
+    );
+
+    await expect(service.processAuthoritativeOrder('order-1')).resolves.toEqual({
+      ok: true,
+      value: { duplicate: false },
+    });
   });
 
   it('records nothing new and raises no second item when the same order is delivered again', async () => {

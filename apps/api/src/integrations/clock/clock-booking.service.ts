@@ -2416,6 +2416,11 @@ export class ClockBookingService {
           AND booking_id = ${holder.id}::uuid
       `;
       await tx.$executeRaw`
+        UPDATE booking_flows SET booking_id = ${keepBookingId}::uuid
+        WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+          AND booking_id = ${holder.id}::uuid
+      `;
+      await tx.$executeRaw`
         DELETE FROM bookings
         WHERE id = ${holder.id}::uuid AND tenant_id = ${context.tenantId}::uuid
           AND property_id = ${context.propertyId}::uuid

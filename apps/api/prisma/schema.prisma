@@ -2355,3 +2355,47 @@ model VenueDepositReceipt {
  @@unique([tenantId,provider,externalPaymentId,kind])
  @@map("venue_deposit_receipts")
 }
+
+/// ADR-0043: one saved, resumable flow per run (first use: a late PokPay payment is refunded automatically).
+model BookingFlow {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String    @map("tenant_id") @db.Uuid
+  propertyId        String    @map("property_id") @db.Uuid
+  bookingId         String    @map("booking_id") @db.Uuid
+  kind              String
+  definitionVersion Int       @default(1) @map("definition_version")
+  triggerKey        String    @map("trigger_key")
+  state             String
+  status            String    @default("RUNNING")
+  context           Json      @default("{}")
+  attempts          Int       @default(0)
+  nextRunAt         DateTime  @default(now()) @map("next_run_at") @db.Timestamptz(6)
+  lastError         String?   @map("last_error")
+  leaseToken        String?   @map("lease_token") @db.Uuid
+  leaseUntil        DateTime? @map("lease_until") @db.Timestamptz(6)
+  personToldAt      DateTime? @map("person_told_at") @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  finishedAt        DateTime? @map("finished_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, kind, triggerKey])
+  @@index([tenantId, propertyId, bookingId], map: "booking_flows_booking_idx")
+  @@map("booking_flows")
+}
+
+/// ADR-0043: append-only step history of a booking flow.
+model BookingFlowEvent {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String   @map("tenant_id") @db.Uuid
+  propertyId        String   @map("property_id") @db.Uuid
+  flowId            String   @map("flow_id") @db.Uuid
+  step              String
+  attempt           Int
+  outcome           String
+  detail            Json     @default("{}")
+  externalReference String?  @map("external_reference")
+  createdAt         DateTime @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(6)
+
+  @@index([flowId, createdAt], map: "booking_flow_events_flow_idx")
+  @@map("booking_flow_events")
+}
