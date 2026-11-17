@@ -2394,7 +2394,7 @@ model BookingFlowEvent {
   outcome           String
   detail            Json     @default("{}")
   externalReference String?  @map("external_reference")
-  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdAt         DateTime @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(6)
 
   @@index([flowId, createdAt], map: "booking_flow_events_flow_idx")
   @@map("booking_flow_events")
