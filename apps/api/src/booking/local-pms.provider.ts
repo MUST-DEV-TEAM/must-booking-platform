@@ -27,6 +27,7 @@ import {
 
 import { AvailabilityService } from '../tenancy/availability.service';
 import { AuditLogService } from '../tenancy/audit-log.service';
+import { loadCheckoutDescription } from '../payments/checkout-description';
 import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant-database.service';
 import { PaymentProviderRegistry } from '../payments/payment-provider-registry';
 import { PaymentRefundService, type RefundConfirmation } from '../payments/payment-refund.service';
@@ -603,6 +604,7 @@ export class LocalPmsProvider implements PmsProvider {
                 const checkout = await provider.createCheckoutSession(context, {
                   idempotencyKey: command.idempotencyKey,
                   bookingId,
+                  description: await loadCheckoutDescription(tx, context, bookingId),
                   amount: command.total,
                   successUrl: this.checkoutReturnUrl(bookingId, 'success', guestReturnUrl, context),
                   cancelUrl: this.checkoutReturnUrl(bookingId, 'cancel', guestReturnUrl, context),
@@ -922,6 +924,7 @@ export class LocalPmsProvider implements PmsProvider {
             const checkout = await provider.createCheckoutSession(context, {
               idempotencyKey: command.idempotencyKey,
               bookingId: booking.id,
+              description: await loadCheckoutDescription(tx, context, booking.id),
               amount: { amount: checkoutAmount, currency: booking.currency },
               successUrl: this.checkoutReturnUrl(
                 booking.id,

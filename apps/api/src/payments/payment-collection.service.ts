@@ -1,3 +1,4 @@
+import { loadCheckoutDescription } from './checkout-description';
 import {
   BadRequestException,
   ConflictException,
@@ -194,9 +195,13 @@ export class PaymentCollectionService {
     const origin = process.env.WEB_APP_URL ?? 'http://localhost:3001';
     let checkout;
     try {
+      const description = await this.db.withTenantTransaction(scope, (tx) =>
+        loadCheckoutDescription(tx, scope, bookingId),
+      );
       checkout = await this.providers.pokpay.createCheckoutSession(scope, {
         idempotencyKey: intent.id,
         bookingId,
+        description,
         amount: { amount: intent.result.amount, currency: intent.result.currency },
         successUrl: new URL(
           `/bookings/${bookingId}/payment/success?${new URLSearchParams(scope)}`,
