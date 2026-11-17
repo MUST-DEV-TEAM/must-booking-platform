@@ -22,6 +22,7 @@ export function EmailHealthOverview({
     DEFAULT: 'Default MUST sender',
     RESEND: 'Own domain through Resend',
     SMTP: 'Custom SMTP',
+    BREVO: 'Own Brevo account',
   };
   const domain = data.domainEvidence;
   return (
@@ -129,8 +130,8 @@ export function EmailHealthOverview({
                   label: 'Domain checks',
                   value: domain?.checkedAt
                     ? `${domain.setupMode === 'RESEND' && domain.activeMode !== 'RESEND' ? 'Saved custom domain (not active): ' : ''}${domain.status === 'verified' ? 'provider verified' : domain.status === 'pending' ? 'DNS pending' : domain.status === 'not_found' ? 'domain not found' : 'check needs attention'}`
-                    : domain?.setupMode === 'SMTP'
-                      ? 'Use the SMTP connection and mailbox checks in Configuration.'
+                    : domain?.setupMode === 'SMTP' || domain?.setupMode === 'BREVO'
+                      ? 'Use the connection and mailbox checks in Configuration.'
                       : 'No provider domain check has been recorded for this hotel.',
                 },
                 ...(domain?.checkedAt

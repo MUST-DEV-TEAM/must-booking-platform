@@ -19,13 +19,13 @@ type TestIntent = {
   id: string;
   actorUserId: string;
   senderVersion: number;
-  mode: 'SMTP' | 'RESEND';
+  mode: 'SMTP' | 'RESEND' | 'BREVO';
   createdAt: string;
   command: RenderedEmailCommand;
 };
 type Profile = {
   version: number;
-  mode: 'DEFAULT' | 'SMTP' | 'RESEND';
+  mode: 'DEFAULT' | 'SMTP' | 'RESEND' | 'BREVO';
   fromName: string | null;
   fromAddress: string | null;
   domain: string | null;
@@ -83,7 +83,7 @@ export class EmailSenderTestService {
           p.mode === 'DEFAULT' ||
           !p.credentials ||
           !p.fromAddress ||
-          (p.mode === 'SMTP' &&
+          ((p.mode === 'SMTP' || p.mode === 'BREVO') &&
             (!p.fromVerifiedAt || !p.connectionCheckedAt || p.connectionStatus !== 'verified')) ||
           (p.mode === 'RESEND' &&
             (!p.domainCheckedAt ||
@@ -119,7 +119,7 @@ export class EmailSenderTestService {
           fromName: p.fromName ?? p.propertyName,
           replyTo: p.replyTo,
           idempotencyKey: `custom-sender-test/${id}`,
-          text: `This is a test of the custom ${p.mode === 'SMTP' ? 'SMTP' : 'Resend'} sender saved for ${p.propertyName}. No guest email was sent and activation was not changed.`,
+          text: `This is a test of the custom ${p.mode === 'SMTP' ? 'SMTP' : p.mode === 'BREVO' ? 'Brevo' : 'Resend'} sender saved for ${p.propertyName}. No guest email was sent and activation was not changed.`,
           html: renderBrandedEmail({
             subject,
             brand: { name: p.propertyName },

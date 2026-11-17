@@ -23,7 +23,7 @@ import { TenantDatabaseService, type TenantTransaction } from './tenant-database
 
 type Profile = {
   version: number;
-  mode: 'DEFAULT' | 'SMTP' | 'RESEND';
+  mode: 'DEFAULT' | 'SMTP' | 'RESEND' | 'BREVO';
   activeMode: string;
   fromAddress: string | null;
   domain: string | null;
@@ -147,8 +147,10 @@ export class EmailDomainVerificationService {
         const profile = await this.profile(tx, scope);
         if (profile.version !== body.version)
           throw new ConflictException('Sending setup changed. Reload before checking its domain.');
-        if (profile.mode === 'SMTP')
-          throw new BadRequestException('SMTP uses a From mailbox verification instead.');
+        if (profile.mode === 'SMTP' || profile.mode === 'BREVO')
+          throw new BadRequestException(
+            'SMTP and Brevo senders use a From mailbox verification instead.',
+          );
         if (profile.activeMode !== 'DEFAULT')
           throw new ConflictException(
             'Switch to the default MUST sender before preparing domain setup.',

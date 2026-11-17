@@ -10,7 +10,7 @@ export function verifiedEmailSenderSetup(profile: {
 }): boolean {
   return (
     profile.credentialsPresent &&
-    (profile.mode === 'SMTP'
+    (profile.mode === 'SMTP' || profile.mode === 'BREVO'
       ? profile.connectionStatus === 'verified' &&
         Boolean(profile.connectionCheckedAt && profile.fromVerifiedAt)
       : profile.mode === 'RESEND' &&

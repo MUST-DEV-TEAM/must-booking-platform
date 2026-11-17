@@ -4,7 +4,9 @@ import { CredentialCipherService } from '../integrations/credential-cipher';
 export type EmailCredentialScope = { tenantId: string; propertyId: string };
 export type EmailCredentialBinding = { revision: string; endpoint: string };
 export type EmailTransportCredentials =
-  { provider: 'resend'; apiKey: string } | { provider: 'smtp'; username: string; password: string };
+  | { provider: 'resend'; apiKey: string }
+  | { provider: 'brevo'; apiKey: string }
+  | { provider: 'smtp'; username: string; password: string };
 
 export class EmailTransportCredentialError extends Error {
   constructor() {
@@ -34,9 +36,9 @@ export class EmailTransportCredentialService {
       throw new EmailTransportCredentialError();
     try {
       const secret: Record<string, string> =
-        credentials.provider === 'resend'
-          ? { provider: 'resend', apiKey: credentials.apiKey }
-          : { provider: 'smtp', username: credentials.username, password: credentials.password };
+        credentials.provider === 'smtp'
+          ? { provider: 'smtp', username: credentials.username, password: credentials.password }
+          : { provider: credentials.provider, apiKey: credentials.apiKey };
       return this.cipher.encrypt({
         payloadKind: 'property-email-credentials-v1',
         tenantId: scope.tenantId,
@@ -71,9 +73,15 @@ export class EmailTransportCredentialService {
       const credentials =
         payload.provider === 'resend'
           ? { provider: 'resend' as const, apiKey: payload.apiKey }
-          : payload.provider === 'smtp'
-            ? { provider: 'smtp' as const, username: payload.username, password: payload.password }
-            : null;
+          : payload.provider === 'brevo'
+            ? { provider: 'brevo' as const, apiKey: payload.apiKey }
+            : payload.provider === 'smtp'
+              ? {
+                  provider: 'smtp' as const,
+                  username: payload.username,
+                  password: payload.password,
+                }
+              : null;
       if (!credentials || !this.valid(credentials)) throw new EmailTransportCredentialError();
       return credentials;
     } catch {
@@ -81,7 +89,7 @@ export class EmailTransportCredentialService {
     }
   }
   private valid(credentials: EmailTransportCredentials): boolean {
-    return credentials.provider === 'resend'
+    return credentials.provider === 'resend' || credentials.provider === 'brevo'
       ? typeof credentials.apiKey === 'string' && /^[\x21-\x7e]{1,1024}$/.test(credentials.apiKey)
       : credentials.provider === 'smtp' &&
           typeof credentials.username === 'string' &&

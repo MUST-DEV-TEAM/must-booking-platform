@@ -71,7 +71,7 @@ export class EmailSenderVerificationService {
     >`SELECT version,mode,credential_revision::text AS "credentialRevision",from_address AS "fromAddress",
       connection_status AS "connectionStatus",connection_checked_at AS "connectionCheckedAt" FROM email_sending_profiles
       WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid`;
-    if (!rows[0]) throw new BadRequestException('Save and check an SMTP sender first.');
+    if (!rows[0]) throw new BadRequestException('Save and check an SMTP or Brevo sender first.');
     return rows[0];
   }
 
@@ -100,7 +100,7 @@ export class EmailSenderVerificationService {
       if (!row) throw new NotFoundException('Sender verification was not found.');
       const profile = await this.profile(tx, scope);
       if (
-        profile.mode !== 'SMTP' ||
+        (profile.mode !== 'SMTP' && profile.mode !== 'BREVO') ||
         profile.credentialRevision !== row.credentialRevision ||
         profile.fromAddress !== row.fromAddress
       ) {
@@ -143,13 +143,15 @@ export class EmailSenderVerificationService {
             'Sender setup changed. Reload before requesting verification.',
           );
         if (
-          profile.mode !== 'SMTP' ||
+          (profile.mode !== 'SMTP' && profile.mode !== 'BREVO') ||
           !profile.credentialRevision ||
           !profile.fromAddress ||
           profile.connectionStatus !== 'verified' ||
           !profile.connectionCheckedAt
         )
-          throw new BadRequestException('Save the SMTP setup and pass its connection check first.');
+          throw new BadRequestException(
+            'Save the SMTP or Brevo setup and pass its connection check first.',
+          );
         const counts = await tx.$queryRaw<
           { count: number }[]
         >`SELECT count(*)::int AS count FROM email_sender_proofs
@@ -246,7 +248,7 @@ export class EmailSenderVerificationService {
         const row = await this.store.read(tx, scope, id);
         if (!row) throw new NotFoundException('Sender verification was not found.');
         if (
-          profile.mode !== 'SMTP' ||
+          (profile.mode !== 'SMTP' && profile.mode !== 'BREVO') ||
           profile.credentialRevision !== row.credentialRevision ||
           profile.fromAddress !== row.fromAddress
         ) {
