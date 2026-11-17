@@ -11,6 +11,7 @@ import {
   ConflictException,
   ForbiddenException,
   Get,
+  Header,
   HttpCode,
   HttpException,
   HttpStatus,
@@ -23,6 +24,7 @@ import {
 } from '@nestjs/common';
 
 import { AuditLogService } from '../tenancy/audit-log.service';
+import { auditCsv } from '../tenancy/audit-workspace';
 import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator';
 import { ClockBookingService } from '../integrations/clock/clock-booking.service';
 import {
@@ -343,6 +345,56 @@ export class BookingReviewService {
     return result;
   }
 
+  /**
+   * Reception's worklist as a spreadsheet: every OPEN note about a cancelled reservation whose Clock bill still
+   * shows money, with the one action needed. Read-only: it lists what the notes already say.
+   */
+  async openBillsCsv(scope: { tenantId: string; propertyId: string }): Promise<string> {
+    const rows = await this.db.withTenantTransaction(
+      scope,
+      (tx) =>
+        tx.$queryRaw<
+          Array<{
+            reference: string | null;
+            startsOn: string;
+            endsOn: string;
+            status: string;
+            balance: { amount?: string; currency?: string } | null;
+            raisedAt: Date;
+            action: string | null;
+            message: string;
+          }>
+        >`SELECT b.external_reference AS reference, b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn",
+          b.status::text AS status, m.context->'balance' AS balance, m.created_at AS "raisedAt",
+          m.context->>'staffMessage' AS action, m.message AS message
+        FROM manual_review_items m
+        JOIN bookings b ON b.tenant_id = m.tenant_id AND b.property_id = m.property_id AND b.id::text = m.reference_id
+        WHERE m.tenant_id = ${scope.tenantId}::uuid AND m.property_id = ${scope.propertyId}::uuid
+          AND m.status = 'OPEN' AND m.reference_type = 'booking' AND m.context->>'kind' = ${CANCELLED_OPEN_BILL}
+        ORDER BY m.created_at ASC LIMIT 5000`,
+    );
+    return auditCsv([
+      [
+        'Booking',
+        'Arrival',
+        'Departure',
+        'Booking status',
+        'Clock bill shows',
+        'Note raised',
+        'What to do',
+      ],
+      ...rows.map((row) => [
+        row.reference ?? '',
+        row.startsOn,
+        row.endsOn,
+        row.status,
+        row.balance?.amount ? `${row.balance.amount} ${row.balance.currency ?? ''}`.trim() : '',
+        row.raisedAt.toISOString().slice(0, 10),
+        row.action?.trim() || row.message,
+      ]),
+    ]);
+  }
+
   /** Staff close the note about an open Clock bill on a cancelled reservation, saying why it stays as it is. */
   async acknowledgeOpenBill(
     scope: { tenantId: string; propertyId: string; userId: string },
@@ -448,5 +500,21 @@ export class BookingReviewController {
   @RequiresVerifiedEmail()
   check(@Param('bookingId') bookingId: string, @Req() r: Request) {
     return this.review.check(r.tenantContext.tenantId, r.tenantContext.propertyId, bookingId);
+  }
+}
+
+@Controller('tenants/:tenantId/properties/:propertyId/clock-open-bills')
+export class ClockOpenBillsExportController {
+  constructor(@Inject(BookingReviewService) private readonly review: BookingReviewService) {}
+
+  @Get('export')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="clock-open-bills.csv"')
+  @Header('Cache-Control', 'no-store')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('bookings.view')
+  export(@Req() r: Request) {
+    return this.review.openBillsCsv(r.tenantContext);
   }
 }
