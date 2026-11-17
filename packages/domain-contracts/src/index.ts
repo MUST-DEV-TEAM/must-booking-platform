@@ -476,6 +476,8 @@ export interface CreateCheckoutSessionCommand {
   amount: Money;
   successUrl: string;
   cancelUrl: string;
+  /** What the guest sees on the payment page (hotel, booking reference, dates). Omitted: the provider default. */
+  description?: string;
   /** How long the payment page stays usable. Omitted: the provider default. */
   expiresAfterMinutes?: number;
   /** Ask for a checkout the website shows inside its own page (a provider that cannot, ignores this). */

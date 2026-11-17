@@ -79,7 +79,7 @@ export const EMAIL_TEMPLATES = {
   booking_confirmed_pay_at_hotel: {
     label: 'Booking confirmation - pay at hotel',
     placeholders: [...COMMON, 'payment_note'],
-    subject: 'Your stay at {hotel_name} is confirmed - {booking_reference}',
+    subject: '{hotel_name} booking confirmed — {booking_reference}',
     body: 'Hello {guest_name}, your reservation at {hotel_name} is confirmed. {payment_note}\n\n{stay_range}\n\n{hotel_policies}\n\nQuestions? {hotel_contact}',
   },
   payment_pending: {

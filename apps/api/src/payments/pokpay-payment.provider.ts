@@ -88,7 +88,7 @@ export class PokPayPaymentProvider implements PaymentProvider {
           ? { expiresAfterMinutes: command.expiresAfterMinutes }
           : {}),
         merchantCustomReference: command.bookingId,
-        description: `Hotel booking ${command.bookingId}`,
+        description: command.description ?? `Hotel booking ${command.bookingId}`,
       },
     });
     if (!authenticated.ok) return authenticated;

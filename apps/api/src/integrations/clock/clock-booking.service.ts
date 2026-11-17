@@ -1175,16 +1175,21 @@ export class ClockBookingService {
       );
     }
 
-    await this.recordClockRefundReview(tx, context, bookingId, {
-      externalBookingId: row.externalBookingId,
-      folioId: originalDeposit.value.folio.id,
-      creditItemId: refundCreditItem.value.id,
-      amount,
-      refundReference,
-      message:
-        'Clock refund payment was posted. In Clock, issue the Deposit Adjustment to create the required correction document.',
-      idempotentReplay: !!existingRefund.value,
-    });
+    // Milestone 40 task 7: the Deposit Adjustment is only needed when the deposit folio is closed (a
+    // converted deposit is closed too). An open folio takes the negative payment and just nets out,
+    // so staff get no to-do. The folio state is the one read before the post above.
+    if (originalDeposit.value.folio.closed_at) {
+      await this.recordClockRefundReview(tx, context, bookingId, {
+        externalBookingId: row.externalBookingId,
+        folioId: originalDeposit.value.folio.id,
+        creditItemId: refundCreditItem.value.id,
+        amount,
+        refundReference,
+        message:
+          'Clock refund payment was posted. In Clock, issue the Deposit Adjustment to create the required correction document.',
+        idempotentReplay: !!existingRefund.value,
+      });
+    }
     await this.audit.recordInTransaction(tx, {
       tenantId: context.tenantId,
       propertyId: context.propertyId,

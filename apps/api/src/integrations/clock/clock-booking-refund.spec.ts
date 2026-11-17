@@ -158,6 +158,43 @@ describe('ClockBookingService.postRefund', () => {
     );
   });
 
+  it('raises no Deposit Adjustment item when the original deposit folio is still open', async () => {
+    const {
+      service,
+      depositFolioWithPaymentReference,
+      postCreditItem,
+      manualReview,
+      notifications,
+      audit,
+    } = serviceForRefund();
+    depositFolioWithPaymentReference.mockResolvedValue({
+      ok: true,
+      value: {
+        folio: { id: 77, deposit: true, closed_at: null },
+        creditItem: { id: 11, payment_sub_type: 'PokPay' },
+      },
+    });
+
+    await expect(
+      postRefund.call(
+        service,
+        {},
+        context,
+        'booking-1',
+        { amount: '25.50', currency: 'EUR' },
+        'must-refund:re_1',
+      ),
+    ).resolves.toEqual({ ok: true, value: undefined });
+
+    expect(postCreditItem).toHaveBeenCalledTimes(1);
+    expect(manualReview.recordInTransaction).not.toHaveBeenCalled();
+    expect(notifications.recordInTransaction).not.toHaveBeenCalled();
+    expect(audit.recordInTransaction).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({ action: 'payment.clock_refund_posted' }),
+    );
+  });
+
   it('does not create a second Clock payment when the refund reference already exists', async () => {
     const { service, creditItemByReference, postCreditItem, manualReview, audit } =
       serviceForRefund();
