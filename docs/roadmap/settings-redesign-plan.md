@@ -112,3 +112,7 @@ Rules for every task: follow AGENTS.md and the components-only rule (check `apps
 
 ### R11. Wording pass
 - Read every label, hint and empty state in the new areas aloud; short, plain, no internal terms (`origin`, `folio` without explanation, `inventory`, `managed pages`). Use the `design:ux-copy` checklist. Albanian strings follow the same keys if the dashboard is translated.
+
+## Gaps fixed after the redesign ships
+
+The scan of the designed tabs (Overview to Payment methods) found G-44 to G-65 in [hardening-gaps-log.md](../audit/hardening-gaps-log.md). Owner, 2026-11-17: ship the redesign first, then fix them one by one, the High ones first (G-46, G-44, G-45, G-52).
