@@ -493,6 +493,44 @@ describe('Clock booking hydration', () => {
     expect(await unknownStatusReviews('38144010')).toHaveLength(0);
   });
 
+  it("stores Clock's own check-in time, not the moment MUST noticed it", async () => {
+    const hydration = app!.get(ClockBookingHydrationService);
+    const checkedInAt = async (id: string) =>
+      (
+        await admin.$queryRaw<Array<{ at: Date | null }>>`
+          SELECT checked_in_at AS at FROM bookings
+          WHERE tenant_id = ${tenantId}::uuid AND external_booking_id = ${id}`
+      )[0]?.at;
+    queuedResponses = [
+      {
+        status: 200,
+        body: realBookingDetail({
+          id: 38144020,
+          number: '371',
+          status: 'checked_in',
+          status_changed_at: '2026-06-24T10:12:42.375Z',
+        }),
+      },
+    ];
+    await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38144020');
+    expect((await checkedInAt('38144020'))?.toISOString()).toBe('2026-06-24T10:12:42.375Z');
+
+    // A later check-out changes the status time; the check-in time stays.
+    queuedResponses = [
+      {
+        status: 200,
+        body: realBookingDetail({
+          id: 38144020,
+          number: '371',
+          status: 'checked_out',
+          status_changed_at: '2026-06-25T08:00:00.000Z',
+        }),
+      },
+    ];
+    await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38144020');
+    expect((await checkedInAt('38144020'))?.toISOString()).toBe('2026-06-24T10:12:42.375Z');
+  });
+
   it('keeps the current status of a booking whose new Clock status is unknown, and flags it once', async () => {
     const hydration = app!.get(ClockBookingHydrationService);
     queuedResponses = [{ status: 200, body: realBookingDetail({ id: 38144011, number: '371' }) }];
