@@ -243,6 +243,7 @@ import { StripeCheckoutCloserService } from './payments/stripe-checkout-closer.s
 import { PokPayReconciliationService } from './payments/pokpay-reconciliation.service';
 import { PaymentRefundRecoveryService } from './payments/payment-refund-recovery.service';
 import { ClockRefundMirrorCheckService } from './integrations/clock/clock-refund-mirror-check.service';
+import { ClockStaleStayCheckService } from './integrations/clock/clock-stale-stay-check.service';
 import { PaymentRefundController } from './payments/payment-refund.controller';
 import { PaymentRefundService } from './payments/payment-refund.service';
 import { HotelCancellationRefundService } from './payments/hotel-cancellation-refund.service';
@@ -556,6 +557,7 @@ const healthPaths = new Set(['/health', '/health/ready']);
     PokPayReconciliationService,
     PaymentRefundRecoveryService,
     ClockRefundMirrorCheckService,
+    ClockStaleStayCheckService,
     PaymentRefundService,
     HotelCancellationRefundService,
     PaymentLedgerService,
