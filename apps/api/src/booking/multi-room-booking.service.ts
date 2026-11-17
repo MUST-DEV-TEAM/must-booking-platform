@@ -12,6 +12,7 @@ import { createHash, randomUUID } from 'node:crypto';
 
 import { AvailabilityService } from '../tenancy/availability.service';
 import { loadCheckoutDescription } from '../payments/checkout-description';
+import { checkoutHoldMinutes } from '../payments/checkout-hold';
 import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant-database.service';
 import { resolveBillingRatePlan } from './billing-rate-plan';
 import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
@@ -249,6 +250,7 @@ export class MultiRoomBookingService {
                 idempotencyKey: command.idempotencyKey,
                 bookingId: bookings[0]!.id,
                 description: await loadCheckoutDescription(tx, context, bookings[0]!.id),
+                expiresAfterMinutes: await checkoutHoldMinutes(tx, context, bookings[0]!.id),
                 amount,
                 successUrl: this.checkoutReturnUrl(bookings[0]!.id, 'success'),
                 cancelUrl: this.checkoutReturnUrl(bookings[0]!.id, 'cancel'),
