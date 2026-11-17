@@ -14,7 +14,7 @@ import type { EmailSendingProfile } from './email-sending-profile';
 
 export type SenderTestResult = {
   id: string;
-  mode: 'SMTP' | 'RESEND';
+  mode: 'SMTP' | 'RESEND' | 'BREVO';
   recipient: string;
   senderVersion: number;
   createdAt: string;
@@ -101,7 +101,11 @@ export function EmailSenderTest({
             stackOnMobile
             items={[
               { label: 'Test recipient', value: result.recipient },
-              { label: 'Sender tested', value: result.mode === 'SMTP' ? 'SMTP' : 'Resend' },
+              {
+                label: 'Sender tested',
+                value:
+                  result.mode === 'SMTP' ? 'SMTP' : result.mode === 'BREVO' ? 'Brevo' : 'Resend',
+              },
               { label: 'Sending service', value: result.provider },
             ]}
           />
@@ -171,7 +175,7 @@ export function EmailSenderTest({
           if (!open) setApproval(null);
         }}
         title="Send a custom sender test?"
-        description={`One ${approval?.mode === 'SMTP' ? 'SMTP' : 'Resend'} test goes to your own verified sign-in address. Activation is unchanged. The test never falls back to MUST.`}
+        description={`One ${approval?.mode === 'SMTP' ? 'SMTP' : approval?.mode === 'BREVO' ? 'Brevo' : 'Resend'} test goes to your own verified sign-in address. Activation is unchanged. The test never falls back to MUST.`}
         confirmLabel="Send test"
         cancelLabel="Cancel"
         reasonLabel="Reason"

@@ -29,6 +29,7 @@ describe('hotel sender profiles, diagnostics and explicit activation', () => {
     rlsProperty = '',
     checkProperty = '',
     capProperty = '',
+    brevoProperty = '',
     userId = '',
     cookie = '',
     token = '';
@@ -106,7 +107,8 @@ describe('hotel sender profiles, diagnostics and explicit activation', () => {
     rlsProperty = randomUUID();
     checkProperty = randomUUID();
     capProperty = randomUUID();
-    for (const id of [otherProperty, rlsProperty, checkProperty, capProperty])
+    brevoProperty = randomUUID();
+    for (const id of [otherProperty, rlsProperty, checkProperty, capProperty, brevoProperty])
       await admin.$executeRaw`INSERT INTO properties(id,tenant_id,name,slug) VALUES(${id}::uuid,${tenantId}::uuid,'Other scoped hotel',${randomUUID()})`;
   });
   afterAll(async () => {
@@ -882,6 +884,72 @@ describe('hotel sender profiles, diagnostics and explicit activation', () => {
     } finally {
       vi.unstubAllGlobals();
       vi.unstubAllEnvs();
+    }
+  });
+
+  it('saves a Brevo sender, checks it read-only through Brevo and activates only after mailbox verification', async () => {
+    const brevoFetch = vi.fn<typeof fetch>(async (input) => {
+      const path = String(input);
+      if (path === 'https://api.brevo.com/v3/account') return Response.json({ plan: [] });
+      if (path === 'https://api.brevo.com/v3/senders')
+        return Response.json({ senders: [{ email: 'hotel@example.test', active: true }] });
+      if (path === 'https://api.brevo.com/v3/senders/domains')
+        return Response.json({ domains: [{ domain_name: 'example.test', authenticated: false }] });
+      throw new Error(`unexpected request ${path}`);
+    });
+    vi.stubGlobal('fetch', brevoFetch);
+    smtpCheck.mockReset();
+    try {
+      const brevo = (version: number, credentials: object = { apiKey: 'xkeysib-test-only' }) => ({
+        version,
+        reason: 'Configure Brevo sender',
+        mode: 'BREVO',
+        fromName: 'The hotel',
+        fromAddress: 'hotel@example.test',
+        fallbackGuest: true,
+        credentials,
+      });
+      const before = (await get(brevoProperty).expect(200)).body;
+      await put(
+        brevo(before.version, { username: 'not-for-brevo', password: 'x' }),
+        randomUUID(),
+        brevoProperty,
+      ).expect(400);
+      const saved = (await put(brevo(before.version), randomUUID(), brevoProperty).expect(200))
+        .body;
+      expect(saved).toMatchObject({
+        mode: 'BREVO',
+        activeMode: 'DEFAULT',
+        smtpHost: null,
+        credentialsPresent: true,
+      });
+      const result = (
+        await check(
+          { version: saved.version, reason: 'Check saved Brevo key' },
+          randomUUID(),
+          brevoProperty,
+        ).expect(201)
+      ).body;
+      expect(result.state).toBe('verified');
+      expect(result.message).toContain('Brevo connection verified');
+      expect(result.message).toContain('not authenticated in Brevo');
+      expect(JSON.stringify(result)).not.toContain('xkeysib-test-only');
+      expect(brevoFetch.mock.calls.every(([, options]) => options?.method === 'GET')).toBe(true);
+      expect(smtpCheck).not.toHaveBeenCalled();
+      const activate = (version: number) =>
+        request(app.getHttpServer())
+          .post(url(brevoProperty) + '/activate')
+          .set('Cookie', cookie)
+          .set('Idempotency-Key', randomUUID())
+          .send({ version, reason: 'Activate Brevo sender' });
+      const checked = (await get(brevoProperty).expect(200)).body;
+      expect(checked.connectionStatus).toBe('verified');
+      await activate(checked.version).expect(400);
+      await admin.$executeRaw`UPDATE email_sending_profiles SET from_verified_at=now() WHERE tenant_id=${tenantId}::uuid AND property_id=${brevoProperty}::uuid`;
+      const ready = (await get(brevoProperty).expect(200)).body;
+      expect((await activate(ready.version).expect(201)).body.activeMode).toBe('BREVO');
+    } finally {
+      vi.unstubAllGlobals();
     }
   });
 });

@@ -12,12 +12,15 @@ import {
   type EmailTransportCredentials,
 } from '../mail/email-transport-credentials';
 import { smtpHostname } from '../mail/smtp-network-policy';
+import { BrevoPreparedTransport } from '../mail/brevo-prepared.transport';
 import { SmtpTransport, type SmtpSettings } from '../mail/smtp-transport';
 import { AuditLogService } from './audit-log.service';
 import { emailWrite, type EmailContext } from './email-workspace-writes';
 import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
 
-type Mode = 'DEFAULT' | 'RESEND' | 'SMTP';
+type Mode = 'DEFAULT' | 'RESEND' | 'SMTP' | 'BREVO';
+/** Senders proven by a From-mailbox code plus a connection check (not by a provider domain check). */
+const MAILBOX_MODES: ReadonlyArray<Mode> = ['SMTP', 'BREVO'];
 type ProfileRow = {
   version: number;
   mode: Mode;
@@ -106,6 +109,10 @@ function publicProfile(row: ProfileRow) {
     dnsRecords: row.dnsRecords,
     dmarcEvidence: row.dmarcEvidence,
     credentialsPresent: !!row.encryptedCredentials,
+    // Providers that block unknown IPs (Brevo's "Authorised IPs") must allow MUST's server.
+    serverOutboundIp: /^[0-9a-fA-F:.]{3,45}$/.test(process.env.MUST_OUTBOUND_IP?.trim() ?? '')
+      ? process.env.MUST_OUTBOUND_IP!.trim()
+      : null,
   };
 }
 type CheckOperation = {
@@ -167,6 +174,10 @@ export class EmailSendingProfileService {
     private readonly credentials: EmailTransportCredentialService,
     @Inject(SmtpTransport) private readonly smtp: SmtpTransport,
   ) {}
+  /** Overridable in tests; production calls Brevo's fixed API origin. */
+  protected brevo(apiKey: string) {
+    return new BrevoPreparedTransport(apiKey);
+  }
   async get(scope: EmailContext) {
     return this.db.withTenantTransaction(scope, async (tx) =>
       publicProfile(await this.read(tx, scope)),
@@ -192,7 +203,7 @@ export class EmailSendingProfileService {
       !Number.isSafeInteger(body.version) ||
       Number(body.version) < 1 ||
       typeof body.mode !== 'string' ||
-      !['DEFAULT', 'RESEND', 'SMTP'].includes(body.mode) ||
+      !['DEFAULT', 'RESEND', 'SMTP', 'BREVO'].includes(body.mode) ||
       typeof body.fallbackGuest !== 'boolean' ||
       typeof body.reason !== 'string' ||
       body.reason.trim().length < 3 ||
@@ -267,6 +278,8 @@ export class EmailSendingProfileService {
       const c = body.credentials as Record<string, unknown>;
       if (next.mode === 'RESEND' && Object.keys(c).length === 1 && typeof c.apiKey === 'string')
         replacement = { provider: 'resend', apiKey: c.apiKey };
+      else if (next.mode === 'BREVO' && Object.keys(c).length === 1 && typeof c.apiKey === 'string')
+        replacement = { provider: 'brevo', apiKey: c.apiKey.trim() };
       else if (
         next.mode === 'SMTP' &&
         Object.keys(c).length === 2 &&
@@ -435,7 +448,7 @@ export class EmailSendingProfileService {
             !before.encryptedCredentials ||
             !before.credentialRevision ||
             !before.fromAddress ||
-            (before.mode === 'SMTP' &&
+            (MAILBOX_MODES.includes(before.mode) &&
               (!before.fromVerifiedAt ||
                 !before.connectionCheckedAt ||
                 before.connectionStatus !== 'verified')) ||
@@ -451,7 +464,7 @@ export class EmailSendingProfileService {
               emailSendingCredentialBinding(before),
               before.encryptedCredentials,
             );
-            if ((before.mode === 'SMTP') !== (opened.provider === 'smtp')) throw Error();
+            if (opened.provider !== before.mode.toLowerCase()) throw Error();
           } catch {
             throw new BadRequestException(
               'Replace the sending credentials and verify the sender again.',
@@ -489,7 +502,10 @@ export class EmailSendingProfileService {
     )
       throw new BadRequestException('Use a positive version and a reason (3-300 characters).');
     const reason = body.reason.trim();
-    let claimed: { settings: SmtpSettings; revision: string } | undefined;
+    let claimed:
+      | { settings: SmtpSettings; revision: string; mode: 'SMTP' }
+      | { brevo: { apiKey: string; fromAddress: string }; revision: string; mode: 'BREVO' }
+      | undefined;
     const reserved = await emailWrite<CheckOperation>(
       this.db,
       this.audit,
@@ -504,14 +520,18 @@ export class EmailSendingProfileService {
         if (row.version !== body.version)
           throw new ConflictException('Sending configuration changed. Reload before checking.');
         if (
-          row.mode !== 'SMTP' ||
           !row.encryptedCredentials ||
           !row.credentialRevision ||
-          !row.smtpHost ||
-          (row.smtpPort !== 465 && row.smtpPort !== 587 && row.smtpPort !== 2525) ||
-          !row.smtpSecurity
+          (row.mode === 'BREVO'
+            ? !row.fromAddress
+            : row.mode !== 'SMTP' ||
+              !row.smtpHost ||
+              (row.smtpPort !== 465 && row.smtpPort !== 587 && row.smtpPort !== 2525) ||
+              !row.smtpSecurity)
         )
-          throw new BadRequestException('Save an SMTP sender before checking its connection.');
+          throw new BadRequestException(
+            'Save an SMTP or Brevo sender before checking its connection.',
+          );
         if (row.activeMode !== 'DEFAULT')
           throw new ConflictException('Pause custom sending before checking its saved connection.');
         if (
@@ -539,8 +559,8 @@ export class EmailSendingProfileService {
             'Stored sending credentials are unavailable. Replace them before checking.',
           );
         }
-        if (secret.provider !== 'smtp')
-          throw new BadRequestException('Stored SMTP credentials are unavailable.');
+        if (secret.provider !== row.mode.toLowerCase())
+          throw new BadRequestException('Stored sending credentials are unavailable.');
         const now = new Date(),
           expires = new Date(now.getTime() + 70_000),
           id = randomUUID();
@@ -552,20 +572,31 @@ export class EmailSendingProfileService {
           startedAt: now.toISOString(),
           expiresAt: expires.toISOString(),
           completedAt: null,
-          message: 'Checking the saved SMTP connection. No email is sent.',
+          message: 'Checking the saved connection. No email is sent.',
         };
         await tx.$executeRaw`UPDATE email_sending_profiles SET version=version+1,connection_status='checking',
           connection_operation_id=${id}::uuid,connection_expires_at=${expires},updated_at=now() WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid`;
-        claimed = {
-          settings: {
-            host: row.smtpHost,
-            port: row.smtpPort,
-            security: row.smtpSecurity,
-            username: secret.username,
-            password: secret.password,
-          },
-          revision: row.credentialRevision,
-        };
+        claimed =
+          secret.provider === 'brevo'
+            ? {
+                mode: 'BREVO',
+                brevo: { apiKey: secret.apiKey, fromAddress: row.fromAddress! },
+                revision: row.credentialRevision,
+              }
+            : secret.provider === 'smtp'
+              ? {
+                  mode: 'SMTP',
+                  settings: {
+                    host: row.smtpHost!,
+                    port: row.smtpPort as 465 | 587 | 2525,
+                    security: row.smtpSecurity!,
+                    username: secret.username,
+                    password: secret.password,
+                  },
+                  revision: row.credentialRevision,
+                }
+              : undefined;
+        if (!claimed) throw new BadRequestException('Stored sending credentials are unavailable.');
         return {
           response: operation,
           details: { operationId: id, reason, version: operation.version },
@@ -574,11 +605,18 @@ export class EmailSendingProfileService {
     );
     if (!claimed) return operationView(reserved);
     let success = false;
+    let domainAuthenticated = true;
     try {
-      await this.smtp.check(claimed.settings);
-      success = true;
+      if (claimed.mode === 'BREVO') {
+        const result = await this.brevo(claimed.brevo.apiKey).check(claimed.brevo.fromAddress);
+        success = result.ok;
+        domainAuthenticated = result.domainAuthenticated;
+      } else {
+        await this.smtp.check(claimed.settings);
+        success = true;
+      }
     } catch {
-      /* Never persist raw SMTP or credential errors. */
+      /* Never persist raw SMTP, provider or credential errors. */
     }
     const claim = claimed;
     return this.db.withTenantTransaction(scope, async (tx) => {
@@ -586,7 +624,7 @@ export class EmailSendingProfileService {
       const row = await this.read(tx, scope),
         completedAt = new Date();
       const stale =
-        row.mode !== 'SMTP' ||
+        row.mode !== claim.mode ||
         row.credentialRevision !== claim.revision ||
         row.connectionOperationId !== reserved.id ||
         completedAt.getTime() >= Date.parse(reserved.expiresAt);
@@ -597,9 +635,13 @@ export class EmailSendingProfileService {
         version: row.version + (stale ? 0 : 1),
         message: stale
           ? 'Configuration changed or the check expired. Run a new connection check.'
-          : success
-            ? 'SMTP connection verified. The From address still needs mailbox verification.'
-            : 'SMTP connection failed. Check the hostname, security and replacement credentials.',
+          : claim.mode === 'BREVO'
+            ? success
+              ? `Brevo connection verified. The From address still needs mailbox verification.${domainAuthenticated ? '' : ' Its domain is not authenticated in Brevo yet, so Brevo shows its own address as the sender until you add the DNS records Brevo gives you.'}`
+              : 'Brevo connection failed. Check the API key, that this server may use it (Brevo authorised IPs), and that the From address is an active sender in your Brevo account.'
+            : success
+              ? 'SMTP connection verified. The From address still needs mailbox verification.'
+              : 'SMTP connection failed. Check the hostname, security and replacement credentials.',
       };
       if (!stale)
         await tx.$executeRaw`UPDATE email_sending_profiles SET version=version+1,connection_status=${success ? 'verified' : 'failed'},connection_checked_at=CASE WHEN ${success} THEN ${completedAt} ELSE connection_checked_at END,updated_at=now()
