@@ -138,6 +138,7 @@ describe('ClockBookingService where a website payment is posted', () => {
         c: ClockConnectionCredentials,
         externalBookingId: string,
         reference: string,
+        preferMainFolio: boolean,
       ) => Promise<unknown>;
     }
   ).paymentFolio;
@@ -162,16 +163,30 @@ describe('ClockBookingService where a website payment is posted', () => {
       { id: 5, deposit: false, closed_at: null },
       { id: 9, deposit: true, closed_at: null },
     ]);
-    await expect(paymentFolio.call(service, credentials, '1', 'REF-1')).resolves.toMatchObject({
+    await expect(
+      paymentFolio.call(service, credentials, '1', 'REF-1', true),
+    ).resolves.toMatchObject({
       ok: true,
       value: { status: 'ready', placement: 'main', folio: { id: 5 } },
     });
     expect(internals.depositFolio).not.toHaveBeenCalled();
   });
 
+  it('uses a deposit folio even when a main folio is open, when the hotel chose the deposit folio', async () => {
+    const { service } = folios([
+      { id: 5, deposit: false, closed_at: null },
+      { id: 9, deposit: true, closed_at: null },
+    ]);
+    await expect(
+      paymentFolio.call(service, credentials, '1', 'REF-1', false),
+    ).resolves.toMatchObject({ ok: true, value: { placement: 'deposit', folio: { id: 999 } } });
+  });
+
   it('falls back to a deposit folio when the booking has no open main folio', async () => {
     const { service } = folios([{ id: 5, deposit: false, closed_at: '2026-10-01T00:00:00Z' }]);
-    await expect(paymentFolio.call(service, credentials, '1', 'REF-1')).resolves.toMatchObject({
+    await expect(
+      paymentFolio.call(service, credentials, '1', 'REF-1', true),
+    ).resolves.toMatchObject({
       ok: true,
       value: { placement: 'deposit', folio: { id: 999 } },
     });
@@ -185,10 +200,25 @@ describe('ClockBookingService where a website payment is posted', () => {
       ],
       { 9: { id: 88 } },
     );
-    await expect(paymentFolio.call(service, credentials, '1', 'REF-1')).resolves.toMatchObject({
+    await expect(
+      paymentFolio.call(service, credentials, '1', 'REF-1', true),
+    ).resolves.toMatchObject({
       ok: true,
       value: { status: 'already_completed', placement: 'deposit', creditItem: { id: 88 } },
     });
+  });
+
+  it('reads the hotel choice: main folio only when the property says MAIN', async () => {
+    const postsToMainFolio = (
+      ClockBookingService.prototype as unknown as {
+        postsToMainFolio: (tx: unknown, context: unknown) => Promise<boolean>;
+      }
+    ).postsToMainFolio;
+    const service = Object.create(ClockBookingService.prototype) as ClockBookingService;
+    const answer = (folio?: string) => ({ $queryRaw: async () => (folio ? [{ folio }] : []) });
+    await expect(postsToMainFolio.call(service, answer('MAIN'), context)).resolves.toBe(true);
+    await expect(postsToMainFolio.call(service, answer('DEPOSIT'), context)).resolves.toBe(false);
+    await expect(postsToMainFolio.call(service, answer(), context)).resolves.toBe(false);
   });
 
   it('posts to a deposit folio instead when Clock refuses the main folio (no right to post there)', async () => {

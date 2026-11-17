@@ -22,7 +22,12 @@ import {
 import { SaveBar } from '../../components/ui/save-bar';
 import { EmailBrandingPreview } from '../../components/ui/email-branding-preview';
 import { useUnsavedChanges } from '../../components/ui/unsaved-changes';
-import type { ClockCancelRefundPolicy, PaymentGateways, Property } from './settings-areas';
+import type {
+  ClockCancelRefundPolicy,
+  ClockPaymentFolio,
+  PaymentGateways,
+  Property,
+} from './settings-areas';
 import { settingsAreaHref } from './settings-hub';
 
 type Common = { property: Property; saving: boolean; canWrite: boolean };
@@ -230,17 +235,22 @@ export function PaymentSettings({
     [keepFee, setKeepFee] = useState(property.deductPaymentFeeOnGuestRefund ?? true),
     [clockRefund, setClockRefund] = useState<ClockCancelRefundPolicy>(
       property.clockCancelRefundPolicy ?? 'NEVER',
+    ),
+    [clockFolio, setClockFolio] = useState<ClockPaymentFolio>(
+      property.clockPaymentFolio ?? 'DEPOSIT',
     );
   useEffect(() => {
     setHold(String(property.onlinePaymentHoldMinutes ?? 30));
     setAutoRefund(property.autoRefundOnFreeCancellation ?? true);
     setKeepFee(property.deductPaymentFeeOnGuestRefund ?? true);
     setClockRefund(property.clockCancelRefundPolicy ?? 'NEVER');
+    setClockFolio(property.clockPaymentFolio ?? 'DEPOSIT');
   }, [
     property.onlinePaymentHoldMinutes,
     property.autoRefundOnFreeCancellation,
     property.deductPaymentFeeOnGuestRefund,
     property.clockCancelRefundPolicy,
+    property.clockPaymentFolio,
   ]);
   const holdError =
     !/^\d+$/.test(hold) || Number(hold) < 10 || Number(hold) > 1440
@@ -251,7 +261,8 @@ export function PaymentSettings({
     hold !== String(property.onlinePaymentHoldMinutes ?? 30) ||
     autoRefund !== (property.autoRefundOnFreeCancellation ?? true) ||
     keepFee !== (property.deductPaymentFeeOnGuestRefund ?? true) ||
-    clockRefund !== (property.clockCancelRefundPolicy ?? 'NEVER');
+    clockRefund !== (property.clockCancelRefundPolicy ?? 'NEVER') ||
+    clockFolio !== (property.clockPaymentFolio ?? 'DEPOSIT');
   useUnsavedChanges(canWrite && dirty);
   // There is no independent online-booking enable switch in the property contract.
   const error = !(draft.payAtHotel || draft.pokpay || draft.stripe)
@@ -364,6 +375,27 @@ export function PaymentSettings({
             </Select>
           </FormField>
         ) : null}
+        {clockConnected ? (
+          <FormField
+            label="Where Clock records a website payment"
+            htmlFor="payment-clock-folio"
+            hint="A deposit folio is converted to an advance invoice by your reception. The booking's own folio needs no conversion, but no advance invoice is issued: the payment is only deducted from the final invoice."
+          >
+            <Select
+              value={clockFolio}
+              disabled={!canWrite}
+              onValueChange={(value) => setClockFolio(value as ClockPaymentFolio)}
+            >
+              <SelectTrigger id="payment-clock-folio">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="DEPOSIT">Deposit folio (advance invoice)</SelectItem>
+                <SelectItem value="MAIN">Booking's own folio (nothing to convert)</SelectItem>
+              </SelectContent>
+            </Select>
+          </FormField>
+        ) : null}
         <Button variant="outline" asChild>
           <a href={operationsHref}>Open payment operations</a>
         </Button>
@@ -384,6 +416,7 @@ export function PaymentSettings({
             setAutoRefund(property.autoRefundOnFreeCancellation ?? true);
             setKeepFee(property.deductPaymentFeeOnGuestRefund ?? true);
             setClockRefund(property.clockCancelRefundPolicy ?? 'NEVER');
+            setClockFolio(property.clockPaymentFolio ?? 'DEPOSIT');
           }}
           onSave={() =>
             onPropertySave(
@@ -391,7 +424,9 @@ export function PaymentSettings({
                 onlinePaymentHoldMinutes: Number(hold),
                 autoRefundOnFreeCancellation: autoRefund,
                 deductPaymentFeeOnGuestRefund: keepFee,
-                ...(clockConnected ? { clockCancelRefundPolicy: clockRefund } : {}),
+                ...(clockConnected
+                  ? { clockCancelRefundPolicy: clockRefund, clockPaymentFolio: clockFolio }
+                  : {}),
               },
               draft,
             )

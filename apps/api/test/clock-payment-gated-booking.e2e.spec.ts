@@ -439,7 +439,9 @@ describe.skipIf(!hasSandboxCredentials)(
       paymentMethod: 'POKPAY' | 'STRIPE_CHECKOUT',
       subType: string,
       providerReference: string | null,
+      folioChoice: 'DEPOSIT' | 'MAIN',
     ) => {
+      await admin.$executeRaw`UPDATE properties SET clock_payment_folio = ${folioChoice} WHERE id = ${propertyId}::uuid`;
       const total = await app!.get(QuoteService).price(tenantId, propertyId, {
         roomTypeId: localRoomTypeId,
         startsOn: STAY_STARTS_ON,
@@ -574,9 +576,9 @@ describe.skipIf(!hasSandboxCredentials)(
       }
       expect(depositFolioId).toBeDefined();
       expect(depositFolioOpen).toBe(true);
-      // The payment goes on the booking's own folio (Clock's reply, 2026-11-17), so the hotel has no deposit
-      // to convert. A deposit folio is only the fallback for a login that may not post there.
-      expect(placedOnDepositFolio).toBe(false);
+      // The hotel's choice decides: MAIN puts the payment on the booking's own folio (nothing to convert, Clock's
+      // reply of 2026-11-17), DEPOSIT on a deposit folio the hotel converts to an advance invoice.
+      expect(placedOnDepositFolio).toBe(folioChoice === 'DEPOSIT');
       expect(ourCreditItem).toBeDefined();
       expect(ourCreditItem?.value_cents).toBe(totalCents);
       expect(ourCreditItem?.currency).toBe('EUR');
@@ -614,13 +616,13 @@ describe.skipIf(!hasSandboxCredentials)(
     };
 
     it('online payment: continueAfterPayment (the real webhook-driven path) attaches a real Clock reservation', async () => {
-      await paidBookingPostsToClock('POKPAY', 'PokPay', null);
+      await paidBookingPostsToClock('POKPAY', 'PokPay', null, 'DEPOSIT');
     }, 120_000);
 
     // Gap G-30: a Clock hotel paid through Stripe was never run against the
     // sandbox. Same path as above, with Stripe's own payment reference.
-    it('Stripe payment: posts on the main folio of the booking in Clock labelled Stripe, then the booking cancels', async () => {
-      await paidBookingPostsToClock('STRIPE_CHECKOUT', 'Stripe', `pi_test_${randomUUID()}`);
+    it('Stripe payment: when the hotel chose the main folio, posts on it labelled Stripe, then the booking cancels', async () => {
+      await paidBookingPostsToClock('STRIPE_CHECKOUT', 'Stripe', `pi_test_${randomUUID()}`, 'MAIN');
     }, 120_000);
   },
 );

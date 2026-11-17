@@ -3,6 +3,7 @@ export type PaymentGateways = { stripe: boolean; pokpay: boolean; payAtHotel: bo
 export type BookingMode = 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
 /** What happens to the guest's online payment when the hotel cancels the booking inside Clock. */
 export type ClockCancelRefundPolicy = 'NEVER' | 'FREE_WINDOW' | 'ALWAYS';
+export type ClockPaymentFolio = 'DEPOSIT' | 'MAIN';
 
 export type Property = {
   dateFormat?: string;
@@ -44,6 +45,7 @@ export type Property = {
   /** A refund the guest asked for keeps back the payment provider's fee. */
   deductPaymentFeeOnGuestRefund?: boolean;
   clockCancelRefundPolicy?: ClockCancelRefundPolicy;
+  clockPaymentFolio?: ClockPaymentFolio;
   brandColour?: string | null;
   emailFooterText?: string | null;
   termsUrl?: string | null;

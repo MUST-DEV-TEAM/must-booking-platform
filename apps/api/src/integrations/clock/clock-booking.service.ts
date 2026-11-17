@@ -131,7 +131,8 @@ type DepositFolioResult =
 
 // Where a website payment goes in Clock. The booking's own (main) folio is preferred: a payment there needs
 // no "Convert to Advance" by the hotel (Clock's reply, 2026-11-17; sandbox test the same day). The deposit
-// folio is the fallback for a Clock login that may not post there (a 403).
+// folio is the fallback for a Clock login that may not post there (a 403), and is what a hotel
+// that needs the advance invoice keeps choosing (the property setting clock_payment_folio).
 type PaymentFolioResult = DepositFolioResult & { placement: 'main' | 'deposit' };
 
 interface ClockCreditItemResource {
@@ -932,8 +933,9 @@ export class ClockBookingService {
         'This booking has no real Clock reservation to post a deposit against.',
       );
 
+    const preferMainFolio = await this.postsToMainFolio(tx, context);
     const folio = await this.withRetry(() =>
-      this.paymentFolio(connection.value, externalBookingId, reference),
+      this.paymentFolio(connection.value, externalBookingId, reference, preferMainFolio),
     );
     if (!folio.ok) {
       await this.manualReview.recordInTransaction(tx, {
@@ -1305,6 +1307,17 @@ export class ClockBookingService {
     return result;
   }
 
+  /** The hotel's choice (Settings > Payments): website payments on the booking's own folio, or on a deposit folio. */
+  private async postsToMainFolio(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+  ): Promise<boolean> {
+    const rows = await tx.$queryRaw<Array<{ folio: string }>>`
+      SELECT clock_payment_folio AS folio FROM properties
+      WHERE tenant_id = ${context.tenantId}::uuid AND id = ${context.propertyId}::uuid`;
+    return rows[0]?.folio === 'MAIN';
+  }
+
   /** Every folio of a Clock booking, read once. */
   private async bookingFolios(
     credentials: ClockConnectionCredentials,
@@ -1338,6 +1351,7 @@ export class ClockBookingService {
     credentials: ClockConnectionCredentials,
     externalBookingId: string,
     reference: string,
+    preferMainFolio: boolean,
   ): Promise<ClockOutcome<PaymentFolioResult>> {
     const folios = await this.bookingFolios(credentials, externalBookingId);
     if (!folios.ok) return folios;
@@ -1354,7 +1368,9 @@ export class ClockBookingService {
           },
         };
     }
-    const main = folios.value.find((folio) => folio.deposit !== true && !folio.closed_at);
+    const main = preferMainFolio
+      ? folios.value.find((folio) => folio.deposit !== true && !folio.closed_at)
+      : undefined;
     if (main) return { ok: true, value: { status: 'ready', folio: main, placement: 'main' } };
     const deposit = await this.depositFolio(credentials, externalBookingId, reference);
     if (!deposit.ok) return deposit;
