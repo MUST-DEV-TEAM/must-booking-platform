@@ -286,7 +286,11 @@ import { ClockSamplePricesService } from './integrations/clock/clock-sample-pric
 import { ClockSamplePricesController } from './integrations/clock/clock-sample-prices.controller';
 import { ClockWebsiteRatesController } from './integrations/clock/clock-website-rates.controller';
 import { ClockBookingService } from './integrations/clock/clock-booking.service';
-import { BookingReviewController, BookingReviewService } from './booking/booking-review.service';
+import {
+  BookingReviewController,
+  BookingReviewService,
+  ClockOpenBillsExportController,
+} from './booking/booking-review.service';
 import { ClockBookingConsistencyService } from './integrations/clock/clock-booking-consistency.service';
 import { ClockBookingHydrationService } from './integrations/clock/clock-booking-hydration.service';
 import { ClockFolioHydrationService } from './integrations/clock/clock-folio-hydration.service';
@@ -372,6 +376,7 @@ const healthPaths = new Set(['/health', '/health/ready']);
     InventoryBlocksController,
     InventoryOverviewController,
     BookingReviewController,
+    ClockOpenBillsExportController,
     SystemHealthController,
     GlobalSearchController,
     InventoryStockController,

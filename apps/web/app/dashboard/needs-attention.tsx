@@ -2,7 +2,15 @@
 
 import { HotelMoney } from './approximate-money';
 import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ArrowRight, CalendarClock, CreditCard, TriangleAlert, Zap } from 'lucide-react';
+import {
+  ArrowLeft,
+  ArrowRight,
+  CalendarClock,
+  CreditCard,
+  Download,
+  TriangleAlert,
+  Zap,
+} from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 import { BookingReviewCard } from './booking-review-card';
@@ -214,6 +222,14 @@ export function NeedsAttentionTab({
           <Button variant="outline" asChild>
             <a href={overviewHref}>
               <ArrowLeft aria-hidden="true" /> Dashboard overview
+            </a>
+          </Button>
+          <Button variant="outline" asChild>
+            <a
+              href={`/api/tenants/${tenantId}/properties/${propertyId}/clock-open-bills/export`}
+              download="clock-open-bills.csv"
+            >
+              <Download aria-hidden="true" /> Open Clock bills (CSV)
             </a>
           </Button>
           <Button onClick={reviewNext} disabled={visible.length === 0}>
