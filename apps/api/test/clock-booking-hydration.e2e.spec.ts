@@ -506,7 +506,7 @@ describe('Clock booking hydration', () => {
         status: 200,
         body: realBookingDetail({
           id: 38144020,
-          number: '371',
+          number: '399',
           status: 'checked_in',
           status_changed_at: '2026-06-24T10:12:42.375Z',
         }),
@@ -521,7 +521,7 @@ describe('Clock booking hydration', () => {
         status: 200,
         body: realBookingDetail({
           id: 38144020,
-          number: '371',
+          number: '399',
           status: 'checked_out',
           status_changed_at: '2026-06-25T08:00:00.000Z',
         }),
