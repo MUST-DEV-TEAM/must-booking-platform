@@ -48,6 +48,7 @@ Index of durable, cross-cutting, or hard-to-reverse decisions. Routine implement
 | [ADR-0041](ADR-0041-payment-accounts-test-and-live.md) | Payment accounts: test and live, free switching, each payment keeps its account | Accepted owner direction 2026-11-12; PokPay switching, per-session accounts and test labels built |
 | [ADR-0042](ADR-0042-stripe-payments-currency-closing-and-refund-fee.md) | Stripe payments: the hotel's own currency, closing ended checkouts, who pays the fee on a guest's cancellation | Accepted by the owner 2026-11-16; Stripe milestone 36 |
 | [ADR-0042](ADR-0042-data-retention-periods.md) | Data retention periods | Periods accepted by the owner 2026-11-13; first release counts only |
+| [ADR-0043](ADR-0043-cancellation-payment-and-refund-as-saved-steps.md) | Cancellation, payment confirmation and refunds as saved steps | Proposed 2026-11-17; waiting for the owner |
 
 ## Interpretation and unresolved implementation details
 
