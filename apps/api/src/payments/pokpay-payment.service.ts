@@ -129,12 +129,12 @@ export class PokPayPaymentService {
           // The money is at PokPay but the booking no longer awaits payment (hold
           // expired, unpaid hold cancelled, or a second order on a confirmed booking).
           // Record the payment so it is never lost. The refund (or a person) follows in a
-          // saved flow, never inside this transaction.
+          // saved flow, never inside this transaction. No note on the row: the database allows a
+          // note only on refunds (payments_note_refund_only); the flow and its history say it was late.
           const late = await tx.$queryRaw<Array<{ id: string }>>`
-          INSERT INTO payments (tenant_id, property_id, booking_id, kind, provider, external_payment_id, status, amount, currency, note)
+          INSERT INTO payments (tenant_id, property_id, booking_id, kind, provider, external_payment_id, status, amount, currency)
           VALUES (${context.tenantId}::uuid, ${context.propertyId}::uuid, ${booking.id}::uuid,
-            'CHARGE'::"PaymentKind", 'pokpay', ${orderId}, 'PAID', ${payment.amount.amount}::numeric, ${payment.amount.currency},
-            'Received after the booking was no longer awaiting payment.')
+            'CHARGE'::"PaymentKind", 'pokpay', ${orderId}, 'PAID', ${payment.amount.amount}::numeric, ${payment.amount.currency})
           ON CONFLICT (tenant_id, external_payment_id) DO NOTHING RETURNING id
         `;
           // ADR-0043: a saved flow refunds it automatically (or hands it to a person), started in the same
