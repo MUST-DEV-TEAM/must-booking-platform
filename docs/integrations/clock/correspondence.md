@@ -89,3 +89,18 @@ MUST asked whether Clock had seen the 2026-10-01 email, "especially for the #2",
 - **2026-09-18:** Clock tested the booking flow and said its earlier advice to close deposit folios was wrong: they must stay open so the hotel can process them. Special requests should go in the booking notes; MUST found `active_notes` rejects plain strings and used `booking[client_request]` instead. Recorded in [Milestone 21 Task 1](../../roadmap/milestones/21-clock-certification-fixes.md).
 - **2026-09-21 to 26:** MUST sent the AppConnector form. Clock said the sandbox expires automatically and they extend it on request. On 26 Sep the AppConnector was updated so the pilot hotel could activate the integration.
 - **2026-09-30:** On the live Empire account, Clock granted the webhook-subscription and deposit-folio-creation rights, and repeated that folios must not be closed (see the [runbook](runbook.md) permissions table).
+
+## 2026-11-17: Stripe questions (ticket #277575)
+
+MUST asked whether Clock's own Stripe integration avoids the manual "Convert to Advance" step, whether an external system can use the hotel's Clock Stripe connection, whether our payments can be posted so they behave like Clock-taken ones, and whether a second Stripe account is acceptable. Clock also extended the sandbox account. Clock's answers, summarised:
+
+- Clock's Stripe integration works with the Clock Booking Engine, which can close fully paid folios as invoices. It does not create a deposit folio and consume it the way our flow does.
+- If the hotel does not need a deposit invoice, payments may be posted on the main booking folios, where the room charges are created.
+- Question 2 (using the hotel's Clock Stripe connection from outside) and the "Custom Payment API" were not answered directly. The answer on accounts implies it is not possible.
+- A hotel must pick one Stripe account for back-office use (Clock's integration) or a separate one for a third-party booking engine, because payments taken on one account cannot be processed later by another. Clock's recommendation: keep the Clock Stripe integration for back-office payments, and let MUST take web payments on its own Stripe account, post them into Clock, and handle refunds on our side.
+
+### What it means
+
+1. Our Stripe design (separate account per hotel, refunds on our side, ADR-0042) matches Clock's recommendation.
+2. Posting Stripe payments to the main folio instead of a deposit folio would remove the manual conversion for Stripe. Not built; needs the call sequence and rights confirmed first, and the effect on refund mirroring checked.
+3. No external use of Clock's Stripe connection; do not plan for it.
