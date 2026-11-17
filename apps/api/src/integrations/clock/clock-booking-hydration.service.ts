@@ -50,6 +50,8 @@ export interface ClockBookingDetail {
   arrival: string;
   departure: string;
   status: string;
+  /** When Clock last changed the status. For a checked-in booking this is the real check-in time. */
+  status_changed_at?: string | null;
   adults?: number | null;
   children?: number | null;
   children_ages?: unknown;
@@ -377,11 +379,11 @@ export class ClockBookingHydrationService {
           `INSERT INTO bookings (
            tenant_id, property_id, room_type_id, room_id, guest_id, external_reference,
            external_booking_id, status, payment_method, starts_on, ends_on, rate_plan_id,
-           total_amount, adults, children, guest_count, nightly_rates, pms_stay_status, created_at, updated_at, pms_source_updated_at, children_ages, guest_contact, currency
+           total_amount, adults, children, guest_count, nightly_rates, pms_stay_status, created_at, updated_at, pms_source_updated_at, children_ages, guest_contact, currency, checked_in_at
          ) VALUES (
            $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, $7, $8::"BookingStatus",
            'PAY_AT_HOTEL'::"BookingPaymentMethod", $9::date, $10::date, $11::uuid, $12::decimal,
-           $13, $14, $15, $16::jsonb, $17, COALESCE($19::timestamptz,CURRENT_TIMESTAMP), COALESCE($20::timestamptz,CURRENT_TIMESTAMP), $21::timestamptz, $22::jsonb, $23::jsonb, $24
+           $13, $14, $15, $16::jsonb, $17, COALESCE($19::timestamptz,CURRENT_TIMESTAMP), COALESCE($20::timestamptz,CURRENT_TIMESTAMP), $21::timestamptz, $22::jsonb, $23::jsonb, $24, $25::timestamptz
          )
          ON CONFLICT (tenant_id, property_id, external_booking_id) DO UPDATE SET
            room_type_id = EXCLUDED.room_type_id,
@@ -400,6 +402,8 @@ export class ClockBookingHydrationService {
            guest_count = EXCLUDED.guest_count,
            nightly_rates = EXCLUDED.nightly_rates,
            pms_stay_status = EXCLUDED.pms_stay_status,
+           -- Clock's own time for the check-in (only sent while the booking is checked in); otherwise keep what we have.
+           checked_in_at = COALESCE(EXCLUDED.checked_in_at, bookings.checked_in_at),
            pms_source_updated_at = COALESCE(EXCLUDED.pms_source_updated_at,bookings.pms_source_updated_at),
            version = bookings.version + CASE WHEN (
              bookings.status, bookings.starts_on, bookings.ends_on, bookings.room_type_id, bookings.room_id,
@@ -446,6 +450,7 @@ export class ClockBookingHydrationService {
             phone: detail.guest_phone_number?.trim() || null,
           }),
           billedIn,
+          detail.status === 'checked_in' ? providerTimestamp(detail.status_changed_at) : null,
         );
 
         const row = rows[0]!;
