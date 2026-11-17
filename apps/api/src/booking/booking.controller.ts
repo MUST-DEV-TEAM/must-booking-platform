@@ -300,6 +300,7 @@ export class BookingController {
         typeof value.clockRateId === 'string' && value.clockRateId ? value.clockRateId : undefined,
       promoCode: normalizePromoCode(value.promoCode) ?? undefined,
       returnUrl: typeof value.returnUrl === 'string' ? value.returnUrl : undefined,
+      embeddedCheckout: value.embeddedCheckout === true ? true : undefined,
     };
   }
 

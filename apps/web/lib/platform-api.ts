@@ -195,6 +195,8 @@ export type ConnectionRow = {
   provider: string;
   name: string;
   status: 'PENDING' | 'CONNECTED' | 'FAILED';
+  /** TEST or LIVE for a payment account; null for Clock. */
+  mode?: 'TEST' | 'LIVE' | null;
   lastTestedAt: string | null;
   lastTestResult: string | null;
   lastWebhookReceivedAt: string | null;

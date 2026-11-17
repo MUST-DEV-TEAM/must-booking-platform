@@ -345,6 +345,7 @@ describe('DashboardSettings', () => {
       paymentGateways: { stripe: false, pokpay: true, payAtHotel: true },
       onlinePaymentHoldMinutes: 30,
       autoRefundOnFreeCancellation: true,
+      deductPaymentFeeOnGuestRefund: true,
     });
 
     const generateCodeButton = Array.from(container.querySelectorAll('button')).find(

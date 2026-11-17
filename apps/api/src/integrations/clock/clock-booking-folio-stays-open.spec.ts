@@ -3,6 +3,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { ClockBookingService } from './clock-booking.service';
 import type { ClockConnectionCredentials } from './clock-http-client';
 
+/** A database transaction that reports no test payments (the Clock note is only added for test money). */
+const noTestPayments = { $queryRaw: async () => [] };
+
 type ClockOutcome<T> =
   | { ok: true; value: T }
   | { ok: false; error: { code: string; message: string; retryable: boolean } };
@@ -72,7 +75,7 @@ describe('ClockBookingService postDeposit folio handling', () => {
     const { service, fetch, audit } = serviceForPostDeposit();
 
     await expect(
-      postDeposit.call(service, {}, context, 'booking-1', amount, 'PokPay', 'MUST-1'),
+      postDeposit.call(service, noTestPayments, context, 'booking-1', amount, 'PokPay', 'MUST-1'),
     ).resolves.toMatchObject({ ok: true });
 
     expect(fetch).not.toHaveBeenCalled();
@@ -80,7 +83,7 @@ describe('ClockBookingService postDeposit folio handling', () => {
     expect(fetch.mock.calls.some((call) => call[1]?.path === '/document_types')).toBe(false);
 
     expect(audit.recordInTransaction).toHaveBeenCalledWith(
-      {},
+      noTestPayments,
       expect.objectContaining({
         action: 'booking.clock_deposit_posted',
         details: expect.objectContaining({
@@ -110,12 +113,12 @@ describe('ClockBookingService postDeposit folio handling', () => {
     });
 
     await expect(
-      postDeposit.call(service, {}, context, 'booking-2', amount, 'Stripe', 'MUST-2'),
+      postDeposit.call(service, noTestPayments, context, 'booking-2', amount, 'Stripe', 'MUST-2'),
     ).resolves.toMatchObject({ ok: true });
 
     expect(fetch).not.toHaveBeenCalled();
     expect(audit.recordInTransaction).toHaveBeenCalledWith(
-      {},
+      noTestPayments,
       expect.objectContaining({
         details: expect.objectContaining({ idempotentReplay: true }),
       }),

@@ -11,11 +11,28 @@ const context = {
 };
 const bookingId = '33333333-3333-4333-8333-333333333333';
 
-function makeProvider(tenantSecretKey = secretKey) {
+function makeProvider(
+  tenantSecretKey = secretKey,
+  sessionSecretKey: string | null = null,
+  publishableKey?: string,
+) {
   const connections = {
-    activePaymentConnectionCredentials: vi.fn().mockResolvedValue({ secretKey: tenantSecretKey }),
+    activePaymentConnection: vi.fn().mockResolvedValue({
+      connectionId: 'conn-in-use',
+      mode: 'TEST',
+      credentials: { secretKey: tenantSecretKey, ...(publishableKey ? { publishableKey } : {}) },
+    }),
+    sessionPaymentConnection: vi.fn().mockResolvedValue(
+      sessionSecretKey
+        ? {
+            connectionId: 'conn-of-order',
+            mode: 'TEST',
+            credentials: { secretKey: sessionSecretKey },
+          }
+        : null,
+    ),
   };
-  return new StripePaymentProvider(connections as never);
+  return Object.assign(new StripePaymentProvider(connections as never), { mocks: connections });
 }
 
 const payload = JSON.stringify({
@@ -83,6 +100,329 @@ describe('StripePaymentProvider.refund', () => {
   });
 });
 
+describe('StripePaymentProvider.refund: currencies and errors', () => {
+  const stubStripe = () => {
+    const stripe = new Stripe(secretKey);
+    const sessions = Object.getPrototypeOf(stripe.checkout.sessions) as {
+      retrieve: (id: string) => Promise<Stripe.Checkout.Session>;
+    };
+    const refunds = Object.getPrototypeOf(stripe.refunds) as {
+      create: (...args: unknown[]) => Promise<Stripe.Refund>;
+    };
+    vi.spyOn(sessions, 'retrieve').mockResolvedValue({
+      payment_intent: 'pi_test_original',
+    } as Stripe.Checkout.Session);
+    return vi.spyOn(refunds, 'create');
+  };
+
+  it('sends a yen refund without the two decimals and a dinar refund with three', async () => {
+    const create = stubStripe().mockResolvedValue({
+      id: 're_test_refund',
+      status: 'succeeded',
+    } as Stripe.Refund);
+    await makeProvider().refund(context, {
+      idempotencyKey: 'yen',
+      paymentId: 'cs_test_original',
+      amount: { amount: '5000.00', currency: 'JPY' },
+    });
+    await makeProvider().refund(context, {
+      idempotencyKey: 'dinar',
+      paymentId: 'cs_test_original',
+      amount: { amount: '1.50', currency: 'KWD' },
+    });
+    expect(create).toHaveBeenNthCalledWith(
+      1,
+      { payment_intent: 'pi_test_original', amount: 5000 },
+      { idempotencyKey: 'yen' },
+    );
+    expect(create).toHaveBeenNthCalledWith(
+      2,
+      { payment_intent: 'pi_test_original', amount: 1500 },
+      { idempotencyKey: 'dinar' },
+    );
+  });
+
+  it("shows Stripe's own reason when it refuses a refund, so staff can see why", async () => {
+    stubStripe().mockRejectedValue(
+      new Stripe.errors.StripeInvalidRequestError({
+        type: 'invalid_request_error',
+        message: 'There is already an approval request waiting to be reviewed by an administrator.',
+      }),
+    );
+    const result = await makeProvider().refund(context, {
+      idempotencyKey: 'refused',
+      paymentId: 'cs_test_original',
+      amount: { amount: '12.34', currency: 'EUR' },
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'STRIPE_REFUND_FAILED',
+        message: expect.stringContaining('approval request waiting'),
+      },
+    });
+  });
+});
+
+describe('StripePaymentProvider.refund: currencies and failures', () => {
+  const setup = () => {
+    const stripe = new Stripe(secretKey);
+    const sessions = Object.getPrototypeOf(stripe.checkout.sessions) as {
+      retrieve: (id: string) => Promise<Stripe.Checkout.Session>;
+    };
+    const refunds = Object.getPrototypeOf(stripe.refunds) as {
+      create: (...args: unknown[]) => Promise<Stripe.Refund>;
+    };
+    vi.spyOn(sessions, 'retrieve').mockResolvedValue({
+      payment_intent: 'pi_test_original',
+    } as Stripe.Checkout.Session);
+    return refunds;
+  };
+
+  it('sends a yen refund without cents and a dinar refund with three decimals', async () => {
+    const create = vi
+      .spyOn(setup(), 'create')
+      .mockResolvedValue({ id: 're_test', status: 'succeeded' } as Stripe.Refund);
+    await makeProvider().refund(context, {
+      idempotencyKey: 'yen-1',
+      paymentId: 'cs_test_original',
+      amount: { amount: '5000.00', currency: 'JPY' },
+    });
+    await makeProvider().refund(context, {
+      idempotencyKey: 'kwd-1',
+      paymentId: 'cs_test_original',
+      amount: { amount: '1.50', currency: 'KWD' },
+    });
+    expect(create).toHaveBeenNthCalledWith(
+      1,
+      { payment_intent: 'pi_test_original', amount: 5000 },
+      { idempotencyKey: 'yen-1' },
+    );
+    expect(create).toHaveBeenNthCalledWith(
+      2,
+      { payment_intent: 'pi_test_original', amount: 1500 },
+      { idempotencyKey: 'kwd-1' },
+    );
+  });
+
+  it("tells staff Stripe's own reason when Stripe refuses a refund", async () => {
+    vi.spyOn(setup(), 'create').mockRejectedValue(
+      new Stripe.errors.StripeInvalidRequestError({
+        type: 'invalid_request_error',
+        message: 'There is already an approval request waiting to be reviewed.',
+      }),
+    );
+    const result = await makeProvider().refund(context, {
+      idempotencyKey: 'refused-1',
+      paymentId: 'cs_test_original',
+      amount: { amount: '10.00', currency: 'EUR' },
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'STRIPE_REFUND_FAILED',
+        message: expect.stringContaining('approval request'),
+        retryable: true,
+      },
+    });
+  });
+});
+
+describe('StripePaymentProvider accounts (the connection that took the payment)', () => {
+  it('sends a refund through the account that took the payment, not the one now in use', async () => {
+    const stripe = new Stripe(secretKey);
+    const sessions = Object.getPrototypeOf(stripe.checkout.sessions) as {
+      retrieve: (id: string) => Promise<Stripe.Checkout.Session>;
+    };
+    vi.spyOn(sessions, 'retrieve').mockResolvedValue({
+      payment_intent: 'pi_test_original',
+    } as Stripe.Checkout.Session);
+    const refunds = Object.getPrototypeOf(stripe.refunds) as {
+      create: (...args: unknown[]) => Promise<Stripe.Refund>;
+    };
+    vi.spyOn(refunds, 'create').mockResolvedValue({
+      id: 're_test_refund',
+      status: 'succeeded',
+    } as Stripe.Refund);
+    const provider = makeProvider('sk_test_in_use', 'sk_test_of_order');
+
+    await provider.refund(context, {
+      idempotencyKey: 'refund-attempt-2',
+      paymentId: 'cs_test_original',
+      amount: { amount: '5.00', currency: 'EUR' },
+    });
+
+    expect(provider.mocks.sessionPaymentConnection).toHaveBeenCalledWith(
+      context.tenantId,
+      context.propertyId,
+      'STRIPE',
+      'cs_test_original',
+    );
+    expect(provider.mocks.activePaymentConnection).not.toHaveBeenCalled();
+  });
+
+  it('uses the account in use for a payment whose account was never recorded', async () => {
+    const provider = makeProvider('sk_test_in_use', null);
+    vi.spyOn(
+      Object.getPrototypeOf(new Stripe(secretKey).checkout.sessions),
+      'retrieve',
+    ).mockResolvedValue({
+      payment_intent: 'pi_x',
+    });
+    await provider.refund(context, {
+      idempotencyKey: 'refund-attempt-3',
+      paymentId: 'cs_test_old',
+      amount: { amount: '1.00', currency: 'EUR' },
+    });
+    expect(provider.mocks.activePaymentConnection).toHaveBeenCalled();
+  });
+
+  it('reports which account created a checkout session', async () => {
+    const stripe = new Stripe(secretKey);
+    const sessions = Object.getPrototypeOf(stripe.checkout.sessions) as {
+      create: (...args: unknown[]) => Promise<Stripe.Checkout.Session>;
+    };
+    vi.spyOn(sessions, 'create').mockResolvedValue({
+      id: 'cs_test_new',
+      url: 'https://checkout.stripe.test/cs_test_new',
+    } as Stripe.Checkout.Session);
+
+    await expect(
+      makeProvider().createCheckoutSession(context, {
+        idempotencyKey: 'k',
+        bookingId,
+        amount: { amount: '10.00', currency: 'EUR' },
+        successUrl: 'https://x.test/s',
+        cancelUrl: 'https://x.test/c',
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      value: {
+        id: 'cs_test_new',
+        url: 'https://checkout.stripe.test/cs_test_new',
+        connectionId: 'conn-in-use',
+      },
+    });
+  });
+});
+
+describe('StripePaymentProvider embedded checkout', () => {
+  const command = {
+    idempotencyKey: 'k',
+    bookingId,
+    amount: { amount: '10.00', currency: 'EUR' },
+    successUrl: 'https://x.test/s',
+    cancelUrl: 'https://x.test/c',
+  };
+  const spyCreate = (result: Partial<Stripe.Checkout.Session>) => {
+    const sessions = Object.getPrototypeOf(new Stripe(secretKey).checkout.sessions) as {
+      create: (...args: unknown[]) => Promise<Stripe.Checkout.Session>;
+    };
+    return vi.spyOn(sessions, 'create').mockResolvedValue(result as Stripe.Checkout.Session);
+  };
+
+  it('returns a client secret and the publishable key when the website asks and the hotel saved one', async () => {
+    const create = spyCreate({ id: 'cs_test_emb', client_secret: 'cs_test_emb_secret_x' });
+    await expect(
+      makeProvider(secretKey, null, 'pk_test_abc').createCheckoutSession(context, {
+        ...command,
+        embedded: true,
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      value: {
+        id: 'cs_test_emb',
+        url: '',
+        connectionId: 'conn-in-use',
+        clientSecret: 'cs_test_emb_secret_x',
+        publishableKey: 'pk_test_abc',
+      },
+    });
+    const sent = create.mock.calls[0]![0] as Record<string, unknown>;
+    expect(sent).toMatchObject({
+      ui_mode: 'embedded_page',
+      return_url: 'https://x.test/s',
+      redirect_on_completion: 'if_required',
+    });
+    expect(sent).not.toHaveProperty('success_url');
+    expect(sent).not.toHaveProperty('cancel_url');
+  });
+
+  it("falls back to Stripe's own page when the hotel has no publishable key", async () => {
+    const create = spyCreate({ id: 'cs_test_host', url: 'https://checkout.stripe.test/x' });
+    await expect(
+      makeProvider().createCheckoutSession(context, { ...command, embedded: true }),
+    ).resolves.toMatchObject({ ok: true, value: { url: 'https://checkout.stripe.test/x' } });
+    expect(create.mock.calls[0]![0]).toMatchObject({ success_url: 'https://x.test/s' });
+    expect(create.mock.calls[0]![0]).not.toHaveProperty('ui_mode');
+  });
+
+  it('keeps the normal page when the website did not ask for the embedded one', async () => {
+    const create = spyCreate({ id: 'cs_test_host', url: 'https://checkout.stripe.test/x' });
+    await makeProvider(secretKey, null, 'pk_test_abc').createCheckoutSession(context, command);
+    expect(create.mock.calls[0]![0]).not.toHaveProperty('ui_mode');
+  });
+});
+
+describe('StripePaymentProvider currency and closing a checkout', () => {
+  const sessions = () =>
+    Object.getPrototypeOf(new Stripe(secretKey).checkout.sessions) as {
+      create: (...args: unknown[]) => Promise<Stripe.Checkout.Session>;
+      expire: (...args: unknown[]) => Promise<Stripe.Checkout.Session>;
+    };
+
+  it('turns off Stripe’s local-currency offer on every checkout', async () => {
+    const create = vi.spyOn(sessions(), 'create').mockResolvedValue({
+      id: 'cs_test_x',
+      url: 'https://checkout.stripe.test/x',
+    } as Stripe.Checkout.Session);
+    await makeProvider().createCheckoutSession(context, {
+      idempotencyKey: 'k',
+      bookingId,
+      amount: { amount: '10.00', currency: 'EUR' },
+      successUrl: 'https://x.test/s',
+      cancelUrl: 'https://x.test/c',
+    });
+    expect(create.mock.calls[0]![0]).toMatchObject({ adaptive_pricing: { enabled: false } });
+  });
+
+  it('closes an open checkout with the account that created it', async () => {
+    const expire = vi.spyOn(sessions(), 'expire').mockResolvedValue({} as Stripe.Checkout.Session);
+    const provider = makeProvider('sk_test_in_use', 'sk_test_of_order');
+    await expect(provider.expireCheckout!(context, 'cs_test_open')).resolves.toEqual({
+      ok: true,
+      value: { closed: true },
+    });
+    expect(provider.mocks.sessionPaymentConnection).toHaveBeenCalledWith(
+      context.tenantId,
+      context.propertyId,
+      'STRIPE',
+      'cs_test_open',
+    );
+    expect(expire).toHaveBeenCalledWith('cs_test_open');
+  });
+
+  it('counts an already closed or paid checkout as closed', async () => {
+    const error = Object.assign(new Error('Only open sessions can be expired.'), {
+      type: 'StripeInvalidRequestError',
+      statusCode: 400,
+    });
+    vi.spyOn(sessions(), 'expire').mockRejectedValue(error);
+    await expect(makeProvider().expireCheckout!(context, 'cs_test_done')).resolves.toEqual({
+      ok: true,
+      value: { closed: true },
+    });
+  });
+
+  it('asks to try again when Stripe cannot be reached', async () => {
+    vi.spyOn(sessions(), 'expire').mockRejectedValue(new Error('connection reset'));
+    await expect(makeProvider().expireCheckout!(context, 'cs_test_open')).resolves.toEqual({
+      ok: true,
+      value: { closed: false },
+    });
+  });
+});
+
 describe('StripePaymentProvider.checkHealth', () => {
   it('uses the Stripe balance endpoint', async () => {
     process.env.STRIPE_SECRET_KEY = secretKey;
@@ -98,16 +438,16 @@ describe('StripePaymentProvider.checkHealth', () => {
 });
 
 describe('StripePaymentProvider.verifyWebhookEvent', () => {
+  const withSecrets = { ...context, stripeWebhook: { secretKey, webhookSecret } };
+
   it('accepts a valid signed Checkout payment event and returns only verified metadata', async () => {
-    process.env.STRIPE_SECRET_KEY = secretKey;
-    process.env.STRIPE_WEBHOOK_SECRET = webhookSecret;
     const signature = new Stripe(secretKey).webhooks.generateTestHeaderString({
       payload,
       secret: webhookSecret,
     });
 
     await expect(
-      makeProvider().verifyWebhookEvent(context, Buffer.from(payload), signature),
+      makeProvider().verifyWebhookEvent(withSecrets, Buffer.from(payload), signature),
     ).resolves.toEqual({
       ok: true,
       value: {
@@ -123,8 +463,6 @@ describe('StripePaymentProvider.verifyWebhookEvent', () => {
   });
 
   it('rejects missing and tampered Stripe signatures', async () => {
-    process.env.STRIPE_SECRET_KEY = secretKey;
-    process.env.STRIPE_WEBHOOK_SECRET = webhookSecret;
     const signature = new Stripe(secretKey).webhooks.generateTestHeaderString({
       payload,
       secret: webhookSecret,
@@ -132,16 +470,29 @@ describe('StripePaymentProvider.verifyWebhookEvent', () => {
     const provider = makeProvider();
 
     await expect(
-      provider.verifyWebhookEvent(context, Buffer.from(payload), ''),
+      provider.verifyWebhookEvent(withSecrets, Buffer.from(payload), ''),
     ).resolves.toMatchObject({
       ok: false,
       error: { code: 'STRIPE_SIGNATURE_MISSING' },
     });
     await expect(
-      provider.verifyWebhookEvent(context, Buffer.from(`${payload} `), signature),
+      provider.verifyWebhookEvent(withSecrets, Buffer.from(`${payload} `), signature),
     ).resolves.toMatchObject({
       ok: false,
       error: { code: 'STRIPE_SIGNATURE_INVALID' },
     });
+  });
+
+  it('refuses to verify when the connection has no webhook secret, never falling back to the environment', async () => {
+    process.env.STRIPE_SECRET_KEY = secretKey;
+    process.env.STRIPE_WEBHOOK_SECRET = webhookSecret;
+    const signature = new Stripe(secretKey).webhooks.generateTestHeaderString({
+      payload,
+      secret: webhookSecret,
+    });
+
+    await expect(
+      makeProvider().verifyWebhookEvent(context, Buffer.from(payload), signature),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'STRIPE_WEBHOOK_NOT_CONFIGURED' } });
   });
 });

@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 
 import { Alert, AlertDescription } from '../../../../../components/ui/alert';
 import { Badge } from '../../../../../components/ui/badge';
+import { PaymentModeBadge } from '../../../../../components/ui/payment-mode-badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../../../components/ui/card';
 import { PermissionPanel } from '../../../../../components/ui/permission-panel';
 import { Skeleton } from '../../../../../components/ui/skeleton';
@@ -47,6 +48,7 @@ function Connection({ row }: { row: ConnectionRow }) {
   const status = STATUS[row.status];
   return (
     <Row label={`${PROVIDERS[row.provider] ?? row.provider} · ${row.name}`}>
+      {row.mode ? <PaymentModeBadge mode={row.mode} /> : null}
       <Badge variant={status.tone}>{status.label}</Badge>
       <span className="text-xs">
         Tested {formatAgo(row.lastTestedAt)}

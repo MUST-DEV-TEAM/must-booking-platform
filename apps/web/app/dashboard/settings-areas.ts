@@ -41,6 +41,8 @@ export type Property = {
   timezone: string;
   onlinePaymentHoldMinutes?: number;
   autoRefundOnFreeCancellation?: boolean;
+  /** A refund the guest asked for keeps back the payment provider's fee. */
+  deductPaymentFeeOnGuestRefund?: boolean;
   clockCancelRefundPolicy?: ClockCancelRefundPolicy;
   brandColour?: string | null;
   emailFooterText?: string | null;

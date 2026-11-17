@@ -41,6 +41,9 @@ type ManualRefundCommand = {
   /** Refund against the online (gateway) charge only and count only online refunds. For a booking paid partly
    * in person (cash, POS, bank transfer), whose in-person part can only be returned by hand. */
   onlineChargeOnly?: boolean;
+  /** Staff chose to keep the payment provider's fee back from this refund (the tickbox on the refund form).
+   * Unlike a guest's own cancellation it does not depend on the hotel setting. */
+  keepProviderFee?: boolean;
 };
 
 type OperationRow = { requestHash: string; result: Result<Payment> | null };
@@ -154,15 +157,96 @@ export class PaymentRefundService {
     context: PaymentProviderContext,
     bookingId: string,
     idempotencyKey: string,
+    options?: { guestDecision?: boolean },
   ): Promise<{ result: Result<Payment | null>; confirmation: RefundConfirmation | null }> {
     const charge = await this.chargeForBooking(tx, context, bookingId, ['PAID']);
     if (!charge) return { result: { ok: true, value: null }, confirmation: null };
+    let amount: Money = { amount: charge.amount, currency: charge.currency };
+    const kept = options?.guestDecision
+      ? await this.keptProviderFee(tx, context, bookingId, amount)
+      : null;
+    if (kept) {
+      const net = this.minorUnits(amount.amount) - this.minorUnits(kept.amount);
+      await this.recordFeeKept(tx, context, bookingId, kept, net > 0n ? this.money(net) : '0.00');
+      if (net <= 0n) return { result: { ok: true, value: null }, confirmation: null };
+      amount = { amount: this.money(net), currency: charge.currency };
+    }
     const outcome = await this.refundCharge(tx, context, bookingId, charge, {
-      amount: { amount: charge.amount, currency: charge.currency },
+      amount,
       idempotencyKey,
     });
     await this.mirrorCancellationRefundToClock(tx, context, bookingId, outcome);
     return { result: outcome.result, confirmation: outcome.confirmation };
+  }
+
+  /**
+   * How much of the payment provider's fee a refund the guest decided on keeps back (ADR-0042): nothing unless
+   * the hotel turned it on and the provider can tell the fee. The fee is shared out by the part of the payment
+   * that is refunded, so refunding everything keeps the whole fee. When the fee cannot be read the guest is
+   * refunded in full: the hotel never keeps back an amount it could not show.
+   */
+  async keptProviderFee(
+    tx: TenantTransaction,
+    context: PaymentProviderContext,
+    bookingId: string,
+    refund: Money,
+    options?: { ignoreHotelSetting?: boolean },
+  ): Promise<Money | null> {
+    if (!options?.ignoreHotelSetting) {
+      const setting = await tx.$queryRaw<Array<{ on: boolean }>>`
+        SELECT deduct_payment_fee_on_guest_refund AS "on" FROM properties
+        WHERE tenant_id = ${context.tenantId}::uuid AND id = ${context.propertyId}::uuid`;
+      if (!setting[0]?.on) return null;
+    }
+    const charge = await this.chargeForBooking(tx, context, bookingId, ['PAID']);
+    if (!charge || charge.currency !== refund.currency) return null;
+    const provider = this.paymentProviders.forProvider(charge.provider);
+    if (!provider?.getPaymentFee) return null;
+    const cached = await tx.$queryRaw<Array<{ amount: string | null; currency: string | null }>>`
+      SELECT provider_fee_amount::text AS amount, provider_fee_currency AS currency
+      FROM payment_provider_sessions
+      WHERE tenant_id = ${context.tenantId}::uuid AND provider = ${charge.provider}
+        AND external_payment_id = ${charge.externalPaymentId}`;
+    let fee: Money | null =
+      cached[0]?.amount && cached[0].currency
+        ? { amount: cached[0].amount, currency: cached[0].currency }
+        : null;
+    if (!fee) {
+      const read = await provider.getPaymentFee(context, charge.externalPaymentId);
+      if (!read.ok || !read.value) return null;
+      fee = read.value;
+      await tx.$executeRaw`
+        UPDATE payment_provider_sessions
+        SET provider_fee_amount = ${fee.amount}::numeric, provider_fee_currency = ${fee.currency}
+        WHERE tenant_id = ${context.tenantId}::uuid AND provider = ${charge.provider}
+          AND external_payment_id = ${charge.externalPaymentId}`;
+    }
+    if (fee.currency !== charge.currency) return null;
+    const chargeMinor = this.minorUnits(charge.amount);
+    const refundMinor = this.minorUnits(refund.amount);
+    if (chargeMinor <= 0n) return null;
+    const share =
+      (this.minorUnits(fee.amount) * refundMinor * 2n + chargeMinor) / (chargeMinor * 2n);
+    const kept = share < refundMinor ? share : refundMinor;
+    return kept > 0n ? { amount: this.money(kept), currency: charge.currency } : null;
+  }
+
+  private async recordFeeKept(
+    tx: TenantTransaction,
+    context: PaymentProviderContext,
+    bookingId: string,
+    fee: Money,
+    refunded: string,
+  ): Promise<void> {
+    await this.audit.recordInTransaction(tx, {
+      tenantId: context.tenantId,
+      propertyId: context.propertyId,
+      actorUserId: null,
+      action: 'payment.refund_fee_kept',
+      targetType: 'booking',
+      targetId: bookingId,
+      details: { fee: fee.amount, currency: fee.currency, refunded },
+    });
   }
 
   /** A multi-room order captures one gateway charge on its anchor booking, while
@@ -175,6 +259,7 @@ export class PaymentRefundService {
     amount: Money,
     idempotencyKey: string,
     metadata?: { actorUserId: string; note: string },
+    options?: { guestDecision?: boolean },
   ): Promise<{ result: Result<Payment | null>; confirmation: RefundConfirmation | null }> {
     const charge = await this.chargeForBooking(tx, context, bookingId, ['PAID']);
     if (!charge) return { result: { ok: true, value: null }, confirmation: null };
@@ -192,8 +277,18 @@ export class PaymentRefundService {
         ),
         confirmation: null,
       };
+    const kept = options?.guestDecision
+      ? await this.keptProviderFee(tx, context, bookingId, amount)
+      : null;
+    let refundAmount = amount;
+    if (kept) {
+      const net = this.minorUnits(amount.amount) - this.minorUnits(kept.amount);
+      await this.recordFeeKept(tx, context, bookingId, kept, net > 0n ? this.money(net) : '0.00');
+      if (net <= 0n) return { result: { ok: true, value: null }, confirmation: null };
+      refundAmount = { amount: this.money(net), currency: amount.currency };
+    }
     const outcome = await this.refundCharge(tx, context, bookingId, charge, {
-      amount,
+      amount: refundAmount,
       idempotencyKey,
       ...metadata,
     });
@@ -876,10 +971,25 @@ export class PaymentRefundService {
               'INVALID_REFUND_AMOUNT',
               'The requested refund exceeds what remains refundable. Refresh and review the amount.',
             );
-          const amount = {
+          let amount = {
             amount: this.money(requestedAmount),
             currency: charge.currency,
           };
+          if (command.keepProviderFee) {
+            const kept = await this.keptProviderFee(tx, context, command.bookingId, amount, {
+              ignoreHotelSetting: true,
+            });
+            if (kept) {
+              const net = requestedAmount - this.minorUnits(kept.amount);
+              if (net <= 0n)
+                return this.failure(
+                  'REFUND_FEE_EXCEEDS_AMOUNT',
+                  'The payment fee is as large as this refund, so nothing would be returned. Untick "keep the payment fee" or refund more.',
+                );
+              await this.recordFeeKept(tx, context, command.bookingId, kept, this.money(net));
+              amount = { amount: this.money(net), currency: charge.currency };
+            }
+          }
           const outcome = await this.refundCharge(tx, context, command.bookingId, charge, {
             amount,
             idempotencyKey: `manual-refund:${command.idempotencyKey}`,

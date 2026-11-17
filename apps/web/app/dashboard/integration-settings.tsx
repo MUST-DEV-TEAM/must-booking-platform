@@ -28,6 +28,8 @@ type Connection = {
   status: string;
   /** TEST or LIVE for a payment account; null for Clock. */
   mode?: 'TEST' | 'LIVE' | null;
+  /** Random id in this connection's public webhook address (Stripe). */
+  webhookPublicId?: string;
   lastTestedAt: string | null;
   lastTestResult: string | null;
 };
@@ -42,7 +44,10 @@ export function IntegrationSettings({
 }) {
   const base = `/api/tenants/${tenantId}`;
   const client = useQueryClient();
-  const [edit, setEdit] = useState<{ provider: 'CLOCK_PMS' | 'POKPAY'; id?: string } | null>(null);
+  const [edit, setEdit] = useState<{
+    provider: 'CLOCK_PMS' | 'POKPAY' | 'STRIPE';
+    id?: string;
+  } | null>(null);
   const [credentials, setCredentials] = useState<Record<string, string>>({});
   const [name, setName] = useState('');
   const [environmentDrafts, setEnvironmentDrafts] = useState<
@@ -51,6 +56,8 @@ export function IntegrationSettings({
   const [category, setCategory] = useState('All');
   const [syncOpen, setSyncOpen] = useState(false);
   const [switchConfirm, setSwitchConfirm] = useState<{
+    /** Which payment provider is being switched, for the wording. */
+    provider: 'POKPAY' | 'STRIPE';
     replacing: string;
     /** The account being switched to: a test or a live one. */
     toMode: 'TEST' | 'LIVE';
@@ -126,8 +133,12 @@ export function IntegrationSettings({
   }, [edit?.id, storedCredentials.data]);
   const setup = useQuery({
     queryKey: ['dashboard', 'integration-setup', tenantId],
-    enabled: edit?.provider === 'POKPAY',
-    queryFn: () => request('/integration-setup', 'GET') as Promise<{ pokpayWebhookUrl: string }>,
+    enabled: edit?.provider === 'POKPAY' || edit?.provider === 'STRIPE',
+    queryFn: () =>
+      request('/integration-setup', 'GET') as Promise<{
+        pokpayWebhookUrl: string;
+        stripeWebhookBase?: string;
+      }>,
   });
   function selectEnvironment(environment: string) {
     const current = credentials.baseUrl === 'https://api.pokpay.io' ? 'production' : 'staging';
@@ -150,11 +161,7 @@ export function IntegrationSettings({
     mutationFn: async () => {
       if (!edit) return;
       const fields = credentialFieldsByProvider[edit.provider].filter(
-        (f) =>
-          !edit.id ||
-          (edit.provider === 'CLOCK_PMS' ? ['apiUser', 'apiKey'] : ['keyId', 'keySecret']).includes(
-            f.key,
-          ),
+        (f) => !edit.id || editableKeys(edit.provider).includes(f.key),
       );
       const supplied = Object.fromEntries(
         fields
@@ -230,10 +237,10 @@ export function IntegrationSettings({
     );
   const assigned = (id: string) =>
     query.data!.assignments.some((a) => a.connectionId === id && a.enabled);
-  // The PokPay connection this hotel is using now, other than the one being switched to.
-  const otherEnabledPokpay = (exceptId?: string) =>
+  // The connection of this payment provider the hotel is using now, other than the one being switched to.
+  const otherEnabled = (provider: 'POKPAY' | 'STRIPE', exceptId?: string) =>
     query.data!.connections.find(
-      (c) => c.provider === 'POKPAY' && c.id !== exceptId && assigned(c.id),
+      (c) => c.provider === provider && c.id !== exceptId && assigned(c.id),
     );
   return (
     <div className="space-y-5">
@@ -294,77 +301,109 @@ export function IntegrationSettings({
                         : 'PokPay live account (production): real payments.'}
                     </p>
                   ) : null}
+                  {connection?.provider === 'STRIPE' ? (
+                    <p className="text-xs text-muted-foreground">
+                      {connection.mode === 'TEST'
+                        ? 'Stripe test keys (sandbox): payments are not real money.'
+                        : 'Stripe live keys: real payments.'}
+                    </p>
+                  ) : null}
                   {connection?.lastTestResult ? (
                     <p className="text-xs text-muted-foreground">{connection.lastTestResult}</p>
                   ) : null}
                   {canWrite && item.available ? (
                     connection ? (
-                      <div
-                        className={`grid gap-2 ${item.provider === 'CLOCK_PMS' ? 'grid-cols-3' : 'grid-cols-2'}`}
-                      >
-                        {item.provider === 'CLOCK_PMS' ? (
-                          <Button size="sm" variant="outline" onClick={() => setSyncOpen(true)}>
-                            Synchronization
+                      <>
+                        <div
+                          className={`grid gap-2 ${item.provider === 'CLOCK_PMS' ? 'grid-cols-3' : 'grid-cols-2'}`}
+                        >
+                          {item.provider === 'CLOCK_PMS' ? (
+                            <Button size="sm" variant="outline" onClick={() => setSyncOpen(true)}>
+                              Synchronization
+                            </Button>
+                          ) : null}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setEdit({
+                                provider: item.provider as 'CLOCK_PMS' | 'POKPAY' | 'STRIPE',
+                                id: connection.id,
+                              });
+                              setCredentials({});
+                              setName(connection.name);
+                              setEnvironmentDrafts({});
+                            }}
+                          >
+                            Credentials
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={
+                              action.isPending ||
+                              (!assigned(connection.id) && connection.status !== 'CONNECTED')
+                            }
+                            onClick={() => {
+                              const run = () =>
+                                action.mutate({
+                                  path: `/properties/${propertyId}/integration-connections/${connection.id}`,
+                                  method: 'PATCH',
+                                  body: { enabled: !assigned(connection.id) },
+                                });
+                              const replacing =
+                                connection.provider === 'POKPAY' || connection.provider === 'STRIPE'
+                                  ? otherEnabled(connection.provider, connection.id)
+                                  : undefined;
+                              if (
+                                (connection.provider === 'POKPAY' ||
+                                  connection.provider === 'STRIPE') &&
+                                !assigned(connection.id) &&
+                                replacing
+                              )
+                                setSwitchConfirm({
+                                  provider: connection.provider,
+                                  replacing: replacing.name,
+                                  toMode: connection.mode ?? 'LIVE',
+                                  run,
+                                });
+                              else run();
+                            }}
+                          >
+                            {assigned(connection.id)
+                              ? 'Disable'
+                              : (connection.provider === 'POKPAY' ||
+                                    connection.provider === 'STRIPE') &&
+                                  otherEnabled(connection.provider, connection.id)
+                                ? connection.mode === 'TEST'
+                                  ? 'Switch to test'
+                                  : 'Switch to live'
+                                : 'Enable'}
+                          </Button>
+                        </div>
+                        {item.provider === 'STRIPE' &&
+                        connection.id === connections[connections.length - 1]!.id ? (
+                          <Button
+                            className="w-full"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setEdit({ provider: 'STRIPE' });
+                              setCredentials({});
+                              setName('Stripe');
+                              setEnvironmentDrafts({});
+                            }}
+                          >
+                            Add another Stripe account (test or live)
                           </Button>
                         ) : null}
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setEdit({
-                              provider: item.provider as 'CLOCK_PMS' | 'POKPAY',
-                              id: connection.id,
-                            });
-                            setCredentials({});
-                            setName(connection.name);
-                            setEnvironmentDrafts({});
-                          }}
-                        >
-                          Credentials
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={
-                            action.isPending ||
-                            (!assigned(connection.id) && connection.status !== 'CONNECTED')
-                          }
-                          onClick={() => {
-                            const run = () =>
-                              action.mutate({
-                                path: `/properties/${propertyId}/integration-connections/${connection.id}`,
-                                method: 'PATCH',
-                                body: { enabled: !assigned(connection.id) },
-                              });
-                            const replacing = otherEnabledPokpay(connection.id);
-                            if (
-                              connection.provider === 'POKPAY' &&
-                              !assigned(connection.id) &&
-                              replacing
-                            )
-                              setSwitchConfirm({
-                                replacing: replacing.name,
-                                toMode: connection.mode ?? 'LIVE',
-                                run,
-                              });
-                            else run();
-                          }}
-                        >
-                          {assigned(connection.id)
-                            ? 'Disable'
-                            : connection.provider === 'POKPAY' && otherEnabledPokpay(connection.id)
-                              ? connection.mode === 'TEST'
-                                ? 'Switch to test'
-                                : 'Switch to live'
-                              : 'Enable'}
-                        </Button>
-                      </div>
+                      </>
                     ) : (
                       <Button
                         className="w-full"
                         variant="outline"
                         onClick={() => {
-                          setEdit({ provider: item.provider as 'CLOCK_PMS' | 'POKPAY' });
+                          setEdit({ provider: item.provider as 'CLOCK_PMS' | 'POKPAY' | 'STRIPE' });
                           setCredentials(
                             item.provider === 'POKPAY'
                               ? { baseUrl: 'https://api-staging.pokpay.io' }
@@ -408,7 +447,9 @@ export function IntegrationSettings({
       <Dialog open={!!switchConfirm} onOpenChange={(open) => !open && setSwitchConfirm(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogTitle>
-            {switchConfirm?.toMode === 'TEST' ? 'Switch PokPay to test?' : 'Go live with PokPay?'}
+            {switchConfirm?.toMode === 'TEST'
+              ? `Switch ${providerLabel(switchConfirm.provider)} to test?`
+              : `Go live with ${providerLabel(switchConfirm?.provider)}?`}
           </DialogTitle>
           <DialogDescription>
             This hotel is using “{switchConfirm?.replacing}” now. From this moment guests pay
@@ -458,11 +499,21 @@ export function IntegrationSettings({
             onSubmit={(e) => {
               e.preventDefault();
               const replacing =
-                !edit?.id && edit?.provider === 'POKPAY' ? otherEnabledPokpay() : undefined;
-              if (replacing)
+                !edit?.id && (edit?.provider === 'POKPAY' || edit?.provider === 'STRIPE')
+                  ? otherEnabled(edit.provider)
+                  : undefined;
+              if (replacing && edit && edit.provider !== 'CLOCK_PMS')
                 setSwitchConfirm({
+                  provider: edit.provider,
                   replacing: replacing.name,
-                  toMode: credentials.baseUrl === 'https://api.pokpay.io' ? 'LIVE' : 'TEST',
+                  toMode:
+                    edit.provider === 'STRIPE'
+                      ? /^[sr]k_test_/.test((credentials.secretKey ?? '').trim())
+                        ? 'TEST'
+                        : 'LIVE'
+                      : credentials.baseUrl === 'https://api.pokpay.io'
+                        ? 'LIVE'
+                        : 'TEST',
                   run: () => save.mutate(),
                 });
               else save.mutate();
@@ -494,12 +545,43 @@ export function IntegrationSettings({
                   accounts: both stay saved, and you switch between them on the PokPay cards.
                 </p>
               </FormField>
+            ) : edit?.provider === 'STRIPE' ? (
+              <p className="text-xs text-muted-foreground">
+                Test and live are two separate sets of keys: a key starting with sk_test_ or
+                rk_test_ is a test (sandbox) account, sk_live_ or rk_live_ takes real money. Both
+                stay saved and you switch between them on the Stripe cards. Live keys are accepted
+                once Stripe is opened for real hotels. The publishable key (pk_test_ or pk_live_,
+                public by design) is optional: with it, the hotel&apos;s website can show
+                Stripe&apos;s payment window inside its own page instead of opening a new tab.
+              </p>
             ) : (
               <p className="text-xs text-muted-foreground">
                 Clock account and environment follow its configured host, account ID and
                 subscription ID.
               </p>
             )}
+            {edit?.provider === 'STRIPE' ? (
+              <p className="rounded-md bg-muted p-3 text-xs text-muted-foreground">
+                {edit.id ? (
+                  <>
+                    In the Stripe Dashboard open Developers, then Webhooks, add this address and
+                    choose the events checkout.session.completed and
+                    checkout.session.async_payment_succeeded. Then copy the signing secret (whsec_…)
+                    into Webhook secret below. Without it, paid bookings are not confirmed.
+                    <span className="mt-1 block break-all font-mono">
+                      {setup.data?.stripeWebhookBase &&
+                      query.data?.connections.find((c) => c.id === edit.id)?.webhookPublicId
+                        ? `${setup.data.stripeWebhookBase}/${
+                            query.data.connections.find((c) => c.id === edit.id)!.webhookPublicId
+                          }`
+                        : 'Loading…'}
+                    </span>
+                  </>
+                ) : (
+                  'After the keys are saved, this connection gets its own webhook address to add in the Stripe Dashboard, and you paste the signing secret here.'
+                )}
+              </p>
+            ) : null}
             {edit?.provider === 'POKPAY' ? (
               <p className="rounded-md bg-muted p-3 text-xs text-muted-foreground">
                 Payment notifications are set up automatically by MUST.{' '}
@@ -532,21 +614,22 @@ export function IntegrationSettings({
                     (f) =>
                       !(
                         edit.provider === 'POKPAY' && ['webhookUrl', 'environment'].includes(f.key)
-                      ),
+                      ) && !(edit.provider === 'STRIPE' && !edit.id && f.key === 'webhookSecret'),
                   )
                   .map((f) => {
-                    const editable =
-                      !edit.id ||
-                      (edit.provider === 'CLOCK_PMS'
-                        ? ['apiUser', 'apiKey']
-                        : ['keyId', 'keySecret']
-                      ).includes(f.key);
+                    const editable = !edit.id || editableKeys(edit.provider).includes(f.key);
                     return (
                       <FormField key={f.key} label={f.label}>
                         <Input
                           aria-label={f.label}
                           type={f.secret ? 'password' : 'text'}
-                          required={!edit.id}
+                          required={
+                            !edit.id &&
+                            !(
+                              edit.provider === 'STRIPE' &&
+                              ['webhookSecret', 'publishableKey'].includes(f.key)
+                            )
+                          }
                           readOnly={!editable}
                           disabled={!!edit.id && storedCredentials.isPending}
                           value={f.secret ? credentials[f.key] || '' : credentials[f.key] || ''}
@@ -637,9 +720,20 @@ export function IntegrationSettings({
 const INTEGRATIONS = [
   { provider: 'CLOCK_PMS', name: 'Clock PMS+', category: 'Property systems', available: true },
   { provider: 'POKPAY', name: 'PokPay', category: 'Payments', available: true },
-  { provider: 'STRIPE', name: 'Stripe', category: 'Payments', available: false },
+  { provider: 'STRIPE', name: 'Stripe', category: 'Payments', available: true },
   { provider: 'PAYPAL', name: 'PayPal', category: 'Payments', available: false },
   { provider: 'BOOKING', name: 'Booking.com', category: 'Channels', available: false },
   { provider: 'AIRBNB', name: 'Airbnb', category: 'Channels', available: false },
   { provider: 'SMTP', name: 'SMTP email', category: 'Email', available: false },
 ];
+
+/** The credential fields that can be replaced on a saved connection (the account itself cannot). */
+function editableKeys(provider: 'CLOCK_PMS' | 'POKPAY' | 'STRIPE'): string[] {
+  if (provider === 'CLOCK_PMS') return ['apiUser', 'apiKey'];
+  if (provider === 'STRIPE') return ['secretKey', 'webhookSecret', 'publishableKey'];
+  return ['keyId', 'keySecret'];
+}
+
+function providerLabel(provider: 'POKPAY' | 'STRIPE' | undefined): string {
+  return provider === 'STRIPE' ? 'Stripe' : 'PokPay';
+}

@@ -46,6 +46,7 @@ export const credentialFieldsByProvider: Record<
   STRIPE: [
     { key: 'secretKey', label: 'Secret key', secret: true },
     { key: 'webhookSecret', label: 'Webhook secret', secret: true },
+    { key: 'publishableKey', label: 'Publishable key' },
   ],
   POKPAY: [
     { key: 'keyId', label: 'Key ID' },

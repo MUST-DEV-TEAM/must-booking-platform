@@ -144,6 +144,9 @@ export function isClockCreditItemResource(value: unknown): value is ClockCreditI
 }
 
 // Up to three more tries after a rate limit, waiting about 0.4s, 0.8s and 1.6s.
+/** Starts the Clock payment text of a test payment, so hotel staff can tell it from real money (ADR-0041). */
+export const TEST_PAYMENT_NOTE = 'TEST PAYMENT, not real money (provider test account).';
+
 const RATE_LIMIT_RETRIES = 3;
 const RATE_LIMIT_BACKOFF_MS = 400;
 
@@ -982,6 +985,9 @@ export class ClockBookingService {
       return { ok: true, value: undefined };
     }
 
+    const testNote = (await this.isTestPayment(tx, context, bookingId, reference))
+      ? `${TEST_PAYMENT_NOTE} Website booking payment via ${paymentSubType}`
+      : undefined;
     const creditItem = await this.withRetry(() =>
       this.postCreditItem(
         connection.value,
@@ -991,6 +997,7 @@ export class ClockBookingService {
         reference,
         'payment',
         paymentType,
+        testNote,
       ),
     );
     if (!creditItem.ok) {
@@ -1127,6 +1134,17 @@ export class ClockBookingService {
       );
     }
 
+    const refundSubType =
+      originalDeposit.value.creditItem.payment_sub_type ||
+      this.paymentSubTypeForBooking(row.paymentMethod);
+    const refundTestNote = (await this.isTestPayment(
+      tx,
+      context,
+      bookingId,
+      refundReference.replace(/^must-refund:/, ''),
+    ))
+      ? `${TEST_PAYMENT_NOTE} Website booking refund via ${refundSubType}`
+      : undefined;
     const refundCreditItem = existingRefund.value
       ? { ok: true as const, value: existingRefund.value }
       : await this.withRetry(() =>
@@ -1134,10 +1152,11 @@ export class ClockBookingService {
             connection.value,
             originalDeposit.value.folio.id,
             { amount: `-${amount.amount}`, currency: amount.currency },
-            originalDeposit.value.creditItem.payment_sub_type ||
-              this.paymentSubTypeForBooking(row.paymentMethod),
+            refundSubType,
             refundReference,
             'refund',
+            'on-line',
+            refundTestNote,
           ),
         );
     if (!refundCreditItem.ok) {
@@ -1475,6 +1494,30 @@ export class ClockBookingService {
   /** Posts the credit item, or reconciles against an existing one by our own
    * `reference` if the POST itself failed ambiguously (timeout/network/5xx) —
    * the credit_item endpoint has no idempotency key of its own. */
+  /**
+   * Whether the money behind a Clock post is a test payment: the ledger row with this reference if there
+   * is one, otherwise the booking's (or its order's) online charges.
+   */
+  private async isTestPayment(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    bookingId: string,
+    reference: string,
+  ): Promise<boolean> {
+    const rows = await tx.$queryRaw<Array<{ isTest: boolean }>>`
+      SELECT COALESCE(
+        (SELECT p.is_test FROM payments p
+          WHERE p.tenant_id = ${context.tenantId}::uuid AND p.external_payment_id = ${reference} LIMIT 1),
+        (SELECT bool_or(p.is_test) FROM bookings me
+          JOIN bookings b ON b.tenant_id = me.tenant_id AND b.property_id = me.property_id
+            AND (b.id = me.id OR (me.order_reference IS NOT NULL AND b.order_reference = me.order_reference))
+          JOIN payments p ON p.tenant_id = b.tenant_id AND p.property_id = b.property_id AND p.booking_id = b.id
+          WHERE me.tenant_id = ${context.tenantId}::uuid AND me.property_id = ${context.propertyId}::uuid
+            AND me.id = ${bookingId}::uuid AND p.kind = 'CHARGE' AND p.provider IN ('pokpay', 'stripe')),
+        false) AS "isTest"`;
+    return rows[0]?.isTest === true;
+  }
+
   private async postCreditItem(
     credentials: ClockConnectionCredentials,
     folioId: number,

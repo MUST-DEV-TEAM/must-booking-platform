@@ -718,6 +718,7 @@ function ReportsWorkspace({ tenantId, propertyId }: { tenantId: string; property
                       'collected',
                       'refunded',
                       'netCollected',
+                      'testNetCollected',
                       'adr',
                       'revpar',
                       'outstanding',

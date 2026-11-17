@@ -27,7 +27,7 @@ import {
 describe('shared report metric definitions and dates', () => {
   it('provides unique auditable definitions for all core KPIs', () => {
     expect(new Set(REPORT_METRICS.map((m) => m.key)).size).toBe(REPORT_METRICS.length);
-    expect(REPORT_METRICS.length).toBe(41);
+    expect(REPORT_METRICS.length).toBe(42);
     for (const metric of REPORT_METRICS) {
       expect(metric.formula.length).toBeGreaterThan(10);
       expect(metric.dateBasis.length).toBeGreaterThan(3);

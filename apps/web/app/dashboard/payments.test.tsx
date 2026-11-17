@@ -234,6 +234,51 @@ describe('Payments', () => {
     await unmount();
   });
 
+  it('offers to keep the payment fee only on a Stripe payment, and sends the choice with the refund', async () => {
+    const stripe = {
+      ...booking,
+      id: 'stripe-fee',
+      paymentMethod: 'STRIPE_CHECKOUT',
+      paidAmount: '100.00',
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify(
+              url.endsWith('/capabilities/mine')
+                ? ['payments.refund']
+                : url.endsWith('/bookings')
+                  ? [stripe]
+                  : { ok: true, value: {} },
+            ),
+          ),
+        ),
+      ),
+    );
+    const { unmount } = await renderPayments([stripe]);
+    await openRefund(rows()[0]!);
+    expect(dialog()!.textContent).toContain('Keep the payment fee');
+    const keepFee = Array.from(dialog()!.querySelectorAll('label'))
+      .find((label) => label.textContent?.includes('Keep the payment fee'))!
+      .querySelector<HTMLElement>('[role="checkbox"]')!;
+    await act(async () => keepFee.click());
+    await chooseReason('guest request');
+    await act(async () => {
+      byText('Record refund', dialog()!)!.click();
+    });
+    await act(settle);
+    const call = (fetch as ReturnType<typeof vi.fn>).mock.calls.find(([url]) =>
+      String(url).endsWith('/payments/refunds'),
+    );
+    expect(JSON.parse(call?.[1].body)).toMatchObject({
+      bookingId: 'stripe-fee',
+      keepProviderFee: true,
+    });
+    await unmount();
+  });
+
   it('asks an owner, admin or manager to confirm a refund after the 24-hour window, then sends it as a late refund', async () => {
     let refunds = 0;
     vi.stubGlobal(

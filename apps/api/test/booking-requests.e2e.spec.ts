@@ -184,7 +184,8 @@ beforeAll(async () => {
   refunds = new PaymentRefundService(
     db,
     audit,
-    mock({}),
+    // No payment provider can tell a fee here, so no fee is kept back (the rule is on by default).
+    mock({ forProvider: () => null }),
     mock(email),
     notifications,
     mock(clock),

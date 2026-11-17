@@ -480,6 +480,8 @@ export interface CreateCheckoutSessionCommand {
   description?: string;
   /** How long the payment page stays usable. Omitted: the provider default. */
   expiresAfterMinutes?: number;
+  /** Ask for a checkout the website shows inside its own page (a provider that cannot, ignores this). */
+  embedded?: boolean;
 }
 
 export interface CheckoutSession {
@@ -487,6 +489,10 @@ export interface CheckoutSession {
   url: string;
   /** The hotel's payment connection (provider account) that created it; stored on the payment session. */
   connectionId?: string;
+  /** Set instead of a usable `url` when the checkout is shown inside the website's own page. */
+  clientSecret?: string;
+  /** The key the website's script needs to show an embedded checkout (public by design). */
+  publishableKey?: string;
 }
 
 export interface RefundCommand {
@@ -526,6 +532,22 @@ export interface PaymentProvider {
   ): Promise<Result<PaymentWebhookEvent>>;
   refund(context: PaymentProviderContext, command: RefundCommand): Promise<Result<Payment>>;
   getPayment(context: PaymentProviderContext, paymentId: string): Promise<Payment | null>;
+  /**
+   * Closes a checkout the guest has not paid, so a cancelled or expired booking cannot be paid afterwards.
+   * `closed: false` means the provider could not be reached and the caller should try again later.
+   */
+  expireCheckout?(
+    context: PaymentProviderContext,
+    externalPaymentId: string,
+  ): Promise<Result<{ closed: boolean }>>;
+  /**
+   * What the provider kept as its fee for one payment, in the payment's own currency; null when it is not
+   * known (yet). Used to keep the fee back from a refund the guest asked for.
+   */
+  getPaymentFee?(
+    context: PaymentProviderContext,
+    externalPaymentId: string,
+  ): Promise<Result<Money | null>>;
 }
 
 /** Email plan Step 1: who receives each notification at a property. */

@@ -435,7 +435,11 @@ describe.skipIf(!hasSandboxCredentials)(
     `;
     }, 120_000);
 
-    it('online payment: continueAfterPayment (the real webhook-driven path) attaches a real Clock reservation', async () => {
+    const paidBookingPostsToClock = async (
+      paymentMethod: 'POKPAY' | 'STRIPE_CHECKOUT',
+      subType: string,
+      providerReference: string | null,
+    ) => {
       const total = await app!.get(QuoteService).price(tenantId, propertyId, {
         roomTypeId: localRoomTypeId,
         startsOn: STAY_STARTS_ON,
@@ -448,9 +452,13 @@ describe.skipIf(!hasSandboxCredentials)(
       const guestId = randomUUID();
       const bookingId = randomUUID();
       const externalReference = `must-payment-gated-${bookingId}`;
+      // What the Clock deposit carries as its reference: the gateway's own
+      // payment reference when the webhook supplies one (as Stripe does),
+      // otherwise the booking's external reference.
+      const creditReference = providerReference ?? externalReference;
       await admin.$executeRaw`
       INSERT INTO guests (id, tenant_id, email, first_name, last_name)
-      VALUES (${guestId}::uuid, ${tenantId}::uuid, 'payment-gated-guest@example.test', 'PaymentGated', 'Guest')
+      VALUES (${guestId}::uuid, ${tenantId}::uuid, ${`payment-gated-${guestId}@example.test`}, 'PaymentGated', 'Guest')
     `;
       // Mirrors exactly the row LocalPmsProvider.createBooking leaves for an
       // online-payment method once the checkout session exists — this test
@@ -464,7 +472,7 @@ describe.skipIf(!hasSandboxCredentials)(
       ) VALUES (
         ${bookingId}::uuid, ${tenantId}::uuid, ${propertyId}::uuid, ${localRoomTypeId}::uuid,
         ${guestId}::uuid, ${externalReference}, 'PAYMENT_PENDING'::"BookingStatus",
-        'POKPAY'::"BookingPaymentMethod", ${STAY_STARTS_ON}::date, ${STAY_ENDS_ON}::date,
+        ${paymentMethod}::"BookingPaymentMethod", ${STAY_STARTS_ON}::date, ${STAY_ENDS_ON}::date,
         ${ratePlanId}::uuid, ${total.amount}::numeric
       )
     `;
@@ -474,7 +482,15 @@ describe.skipIf(!hasSandboxCredentials)(
       const context = { tenantId, propertyId };
       const result = await database.withTenantTransaction(
         context,
-        (tx) => bookings.continueAfterPayment(tx, context, bookingId),
+        (tx) =>
+          bookings.continueAfterPayment(
+            tx,
+            context,
+            bookingId,
+            providerReference
+              ? { reference: providerReference, paymentSubType: subType, paymentType: 'on-line' }
+              : undefined,
+          ),
         { timeoutMs: 45_000 },
       );
       expect(result.ok).toBe(true);
@@ -547,7 +563,7 @@ describe.skipIf(!hasSandboxCredentials)(
           method: 'GET',
           path: `/folios/${folioId}/credit_items`,
         });
-        const match = creditItems.body.find((item) => item.reference === externalReference);
+        const match = creditItems.body.find((item) => item.reference === creditReference);
         if (match) {
           depositFolioId = folioId;
           depositFolioOpen = !folio.body.closed_at;
@@ -560,7 +576,7 @@ describe.skipIf(!hasSandboxCredentials)(
       expect(ourCreditItem).toBeDefined();
       expect(ourCreditItem?.value_cents).toBe(totalCents);
       expect(ourCreditItem?.currency).toBe('EUR');
-      expect(ourCreditItem?.payment_sub_type).toBe('PokPay');
+      expect(ourCreditItem?.payment_sub_type).toBe(subType);
 
       const auditRows = await admin.$queryRaw<Array<{ action: string }>>`
       SELECT action FROM audit_logs
@@ -591,6 +607,16 @@ describe.skipIf(!hasSandboxCredentials)(
       });
       expect(clockCancelled.status).toBe(200);
       expect((clockCancelled.body as { status: string }).status).toBe('canceled');
+    };
+
+    it('online payment: continueAfterPayment (the real webhook-driven path) attaches a real Clock reservation', async () => {
+      await paidBookingPostsToClock('POKPAY', 'PokPay', null);
+    }, 120_000);
+
+    // Gap G-34: a Clock hotel paid through Stripe was never run against the
+    // sandbox. Same path as above, with Stripe's own payment reference.
+    it('Stripe payment: posts an open deposit folio in Clock labelled Stripe, then the booking cancels', async () => {
+      await paidBookingPostsToClock('STRIPE_CHECKOUT', 'Stripe', `pi_test_${randomUUID()}`);
     }, 120_000);
   },
 );

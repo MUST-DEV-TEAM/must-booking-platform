@@ -5,6 +5,9 @@ import { BookingPaymentMethod } from '@must/domain-contracts';
 import { ClockBookingService } from './clock-booking.service';
 import type { ClockConnectionCredentials } from './clock-http-client';
 
+/** A database transaction that reports no test payments (the Clock note is only added for test money). */
+const noTestPayments = { $queryRaw: async () => [] };
+
 type PostRefund = (
   tx: unknown,
   context: { tenantId: string; propertyId: string },
@@ -111,7 +114,7 @@ describe('ClockBookingService.postRefund', () => {
     await expect(
       postRefund.call(
         service,
-        {},
+        noTestPayments,
         context,
         'booking-1',
         { amount: '25.50', currency: 'EUR' },
@@ -131,9 +134,11 @@ describe('ClockBookingService.postRefund', () => {
       'PokPay',
       'must-refund:re_1',
       'refund',
+      'on-line',
+      undefined,
     );
     expect(manualReview.recordInTransaction).toHaveBeenCalledWith(
-      {},
+      noTestPayments,
       expect.objectContaining({
         category: 'PAYMENT_BOOKING_MISMATCH',
         referenceId: 'booking-1',
@@ -142,13 +147,13 @@ describe('ClockBookingService.postRefund', () => {
       }),
     );
     expect(notifications.recordInTransaction).toHaveBeenCalledWith(
-      {},
+      noTestPayments,
       expect.objectContaining({
         payload: { bookingId: 'booking-1', reason: 'clock_refund_deposit_adjustment_required' },
       }),
     );
     expect(audit.recordInTransaction).toHaveBeenCalledWith(
-      {},
+      noTestPayments,
       expect.objectContaining({ action: 'payment.clock_refund_posted' }),
     );
   });
@@ -170,10 +175,12 @@ describe('ClockBookingService.postRefund', () => {
       },
     });
 
+    // The refund reads whether this was a test payment, so the stand-in transaction answers that.
+    const tx = { $queryRaw: vi.fn().mockResolvedValue([{ isTest: false }]) };
     await expect(
       postRefund.call(
         service,
-        {},
+        tx,
         context,
         'booking-1',
         { amount: '25.50', currency: 'EUR' },
@@ -185,7 +192,7 @@ describe('ClockBookingService.postRefund', () => {
     expect(manualReview.recordInTransaction).not.toHaveBeenCalled();
     expect(notifications.recordInTransaction).not.toHaveBeenCalled();
     expect(audit.recordInTransaction).toHaveBeenCalledWith(
-      {},
+      tx,
       expect.objectContaining({ action: 'payment.clock_refund_posted' }),
     );
   });
@@ -198,7 +205,7 @@ describe('ClockBookingService.postRefund', () => {
     await expect(
       postRefund.call(
         service,
-        {},
+        noTestPayments,
         context,
         'booking-1',
         { amount: '25.50', currency: 'EUR' },
@@ -208,11 +215,11 @@ describe('ClockBookingService.postRefund', () => {
 
     expect(postCreditItem).not.toHaveBeenCalled();
     expect(manualReview.recordInTransaction).toHaveBeenCalledWith(
-      {},
+      noTestPayments,
       expect.objectContaining({ context: expect.objectContaining({ idempotentReplay: true }) }),
     );
     expect(audit.recordInTransaction).toHaveBeenCalledWith(
-      {},
+      noTestPayments,
       expect.objectContaining({ details: expect.objectContaining({ idempotentReplay: true }) }),
     );
   });
@@ -232,7 +239,7 @@ describe('ClockBookingService.postRefund', () => {
     await expect(
       postRefund.call(
         service,
-        {},
+        noTestPayments,
         context,
         'booking-1',
         { amount: '25.50', currency: 'EUR' },
@@ -241,7 +248,7 @@ describe('ClockBookingService.postRefund', () => {
     ).resolves.toMatchObject({ ok: false, error: { code: 'clock_original_deposit_missing' } });
 
     expect(manualReview.recordInTransaction).toHaveBeenCalledWith(
-      {},
+      noTestPayments,
       expect.objectContaining({
         message: expect.stringContaining(
           "MUST refunded the guest, but Clock's original deposit folio could not be found",
@@ -249,7 +256,7 @@ describe('ClockBookingService.postRefund', () => {
       }),
     );
     expect(notifications.recordInTransaction).toHaveBeenCalledWith(
-      {},
+      noTestPayments,
       expect.objectContaining({
         payload: {
           bookingId: 'booking-1',

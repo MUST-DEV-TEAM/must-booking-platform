@@ -11,7 +11,6 @@ export interface Environment {
   RESEND_WEBHOOK_SECRET?: string;
   MAIL_FROM_EMAIL?: string;
   STRIPE_SECRET_KEY?: string;
-  STRIPE_WEBHOOK_SECRET?: string;
   POKPAY_KEY_ID?: string;
   POKPAY_KEY_SECRET?: string;
   POKPAY_MERCHANT_ID?: string;

@@ -6,6 +6,7 @@ import { BookingUpdateNotificationService } from '../mail/booking-update-notific
 import { LifecycleEmailService } from '../mail/lifecycle-email.service';
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
 import { PaymentCollectionService } from './payment-collection.service';
+import { StripeCheckoutCloserService } from './stripe-checkout-closer.service';
 import { PokPayPaymentService } from './pokpay-payment.service';
 
 const PAYMENT_EXPIRY_QUEUE = 'payment-expiry';
@@ -38,6 +39,8 @@ export class PaymentExpiryService implements OnModuleInit, OnModuleDestroy {
     private readonly updates: BookingUpdateNotificationService,
     @Inject(LifecycleEmailService) private readonly lifecycle: LifecycleEmailService,
     @Inject(PaymentCollectionService) private readonly collection: PaymentCollectionService,
+    @Inject(StripeCheckoutCloserService)
+    private readonly stripeCheckouts: StripeCheckoutCloserService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -71,6 +74,9 @@ export class PaymentExpiryService implements OnModuleInit, OnModuleDestroy {
 
   async sweep(now = new Date()): Promise<{ expired: number }> {
     await this.pokpay.pollPendingOrders();
+    await this.stripeCheckouts.closeEndedCheckouts().catch(() => {
+      this.logger.warn('Ended Stripe checkouts could not be closed.');
+    });
     await this.warnExpiring();
     await this.collection.sendDueReminders().catch(() => {
       this.logger.warn('Payment reminders could not be prepared.');

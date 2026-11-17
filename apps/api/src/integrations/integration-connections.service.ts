@@ -1,4 +1,11 @@
-import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  Logger,
+  type OnApplicationBootstrap,
+} from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 
 import { AuditLogService } from '../tenancy/audit-log.service';
@@ -62,7 +69,9 @@ const SUMMARY_SOURCE = `${SUMMARY_COLUMNS}, encrypted_credentials AS "encryptedC
 type ConnectionRow = Omit<ConnectionSummary, 'mode'> & { encryptedCredentials: string };
 
 @Injectable()
-export class IntegrationConnectionsService {
+export class IntegrationConnectionsService implements OnApplicationBootstrap {
+  private readonly logger = new Logger(IntegrationConnectionsService.name);
+
   constructor(
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
     @Inject(AuditLogService) private readonly audit: AuditLogService,
@@ -70,6 +79,42 @@ export class IntegrationConnectionsService {
     @Inject(ConnectionTestRegistry) private readonly testers: ConnectionTestRegistry,
     @Inject(ClockLiveUpdatesService) private readonly liveUpdates: ClockLiveUpdatesService,
   ) {}
+
+  /** Fills in the stored mode of payment connections saved before it existed (once; idempotent). */
+  async onApplicationBootstrap(): Promise<void> {
+    await this.fillMissingModes().catch((error: unknown) =>
+      this.logger.warn(`Payment connection modes could not be filled in: ${String(error)}`),
+    );
+  }
+
+  /**
+   * `integration_connections.mode` is a plain copy of what each payment connection's own keys say
+   * (TEST or LIVE), so the database can mark test payments. Setting it re-marks that connection's
+   * earlier payments (database trigger). Runs per tenant under row-level security.
+   */
+  async fillMissingModes(): Promise<number> {
+    const tenants = await this.database.withPlatformAdminTransaction(
+      { role: 'platform_admin' },
+      (tx) => tx.$queryRaw<Array<{ tenantId: string }>>`SELECT id AS "tenantId" FROM organizations`,
+    );
+    let filled = 0;
+    for (const { tenantId } of tenants)
+      filled += await this.database.withTenantTransaction({ tenantId }, async (tx) => {
+        const rows = await tx.$queryRaw<
+          Array<{ id: string; provider: ConnectionProvider; encrypted: string }>
+        >`SELECT id, provider, encrypted_credentials AS encrypted FROM integration_connections
+          WHERE tenant_id = ${tenantId}::uuid AND kind = 'PAYMENT' AND mode IS NULL`;
+        let count = 0;
+        for (const row of rows) {
+          const mode = this.modeOf(row.provider, row.encrypted);
+          if (!mode) continue;
+          count += await tx.$executeRaw`UPDATE integration_connections SET mode = ${mode}
+            WHERE tenant_id = ${tenantId}::uuid AND id = ${row.id}::uuid AND mode IS NULL`;
+        }
+        return count;
+      });
+    return filled;
+  }
 
   async list(tenantId: string): Promise<ConnectionSummary[]> {
     const rows = await this.database.withTenantTransaction({ tenantId }, (tx) =>
@@ -93,7 +138,7 @@ export class IntegrationConnectionsService {
           ? ['host', 'accountId', 'subscriptionId', 'apiUser', 'apiKey']
           : rows[0].provider === 'POKPAY'
             ? ['keyId', 'keySecret', 'merchantId', 'webhookUrl', 'baseUrl']
-            : ['secretKey', 'webhookSecret'];
+            : ['secretKey', 'webhookSecret', 'publishableKey'];
       const secretKeys = new Set(['apiKey', 'keySecret', 'secretKey', 'webhookSecret']);
       return {
         provider: rows[0].provider,
@@ -117,6 +162,8 @@ export class IntegrationConnectionsService {
     return {
       pokpayWebhookUrl:
         explicit || (origin ? new URL('/api/webhooks/pokpay', origin).toString() : ''),
+      // Each Stripe connection adds its own random id to this address (`<base>/<webhookPublicId>`).
+      stripeWebhookBase: origin ? new URL('/api/webhooks/stripe', origin).toString() : '',
     };
   }
 
@@ -145,8 +192,8 @@ export class IntegrationConnectionsService {
       }
       const encrypted = this.cipher.encrypt(input.credentials);
       const rows = await tx.$queryRawUnsafe<ConnectionRow[]>(
-        `INSERT INTO integration_connections (id, tenant_id, kind, provider, name, encrypted_credentials)
-         VALUES ($1::uuid, $2::uuid, $3::"IntegrationConnectionKind", $4::"IntegrationProvider", $5, $6)
+        `INSERT INTO integration_connections (id, tenant_id, kind, provider, name, encrypted_credentials, mode)
+         VALUES ($1::uuid, $2::uuid, $3::"IntegrationConnectionKind", $4::"IntegrationProvider", $5, $6, $7)
          RETURNING ${SUMMARY_SOURCE}`,
         id,
         tenantId,
@@ -154,6 +201,7 @@ export class IntegrationConnectionsService {
         input.provider,
         input.name,
         encrypted,
+        input.kind === 'PAYMENT' ? connectionMode(input.provider, input.credentials) : null,
       );
       await this.audit.recordInTransaction(tx, {
         tenantId,
@@ -204,12 +252,24 @@ export class IntegrationConnectionsService {
         ? ['apiUser', 'apiKey']
         : before[0].provider === 'POKPAY'
           ? ['keyId', 'keySecret']
-          : [];
+          : before[0].provider === 'STRIPE'
+            ? ['secretKey', 'webhookSecret', 'publishableKey']
+            : [];
     if (Object.keys(supplied).some((k) => !allowed.includes(k)))
       throw new BadRequestException(
         'Use a new connection to change the provider account. Only authentication credentials can be replaced here.',
       );
     const credentials = { ...previous, ...(supplied as Record<string, string>) };
+    // Test or live is stored with the connection and marks every payment it takes, so replacing keys
+    // may never move a connection from one to the other: that is a new connection.
+    if (
+      before[0].provider !== 'CLOCK_PMS' &&
+      connectionMode(before[0].provider, previous) !==
+        connectionMode(before[0].provider, credentials)
+    )
+      throw new BadRequestException(
+        'These keys are for a different mode (test or live). Add them as a new connection instead.',
+      );
     const result = await this.testers.test(before[0].provider, credentials);
     if (!result.ok)
       throw new BadRequestException(
@@ -247,7 +307,8 @@ export class IntegrationConnectionsService {
           JOIN integration_connections ic ON ic.tenant_id=pc.tenant_id AND ic.id=pc.connection_id
           WHERE pc.tenant_id=${tenantId}::uuid AND pc.connection_id=${connectionId}::uuid
           AND ((ic.provider='CLOCK_PMS' AND EXISTS(SELECT 1 FROM bookings b WHERE b.tenant_id=pc.tenant_id AND b.property_id=pc.property_id AND b.external_booking_id IS NOT NULL))
-            OR (ic.provider='POKPAY' AND EXISTS(SELECT 1 FROM payments p WHERE p.tenant_id=pc.tenant_id AND p.property_id=pc.property_id AND p.provider='pokpay')))) AS used`;
+            OR (ic.provider='POKPAY' AND EXISTS(SELECT 1 FROM payments p WHERE p.tenant_id=pc.tenant_id AND p.property_id=pc.property_id AND p.provider='pokpay'))
+            OR (ic.provider='STRIPE' AND EXISTS(SELECT 1 FROM payments p WHERE p.tenant_id=pc.tenant_id AND p.property_id=pc.property_id AND p.provider='stripe')))) AS used`;
       if (history[0]?.used)
         throw new ConflictException(
           'Keep this connection for existing bookings and payments. Disable it or replace its credentials instead of deleting its history.',
@@ -523,6 +584,38 @@ export class IntegrationConnectionsService {
     });
   }
 
+  /**
+   * The Stripe connection a public webhook call is addressed to, found by its random webhook id (before
+   * any tenant is known). Returns the keys the call must be verified with, or null for an unknown id,
+   * a connection that is not Stripe, or keys that cannot be read.
+   */
+  async stripeWebhookConnection(webhookPublicId: string): Promise<{
+    tenantId: string;
+    connectionId: string;
+    secretKey: string;
+    webhookSecret: string;
+  } | null> {
+    if (!/^[0-9a-f-]{36}$/i.test(webhookPublicId)) return null;
+    const rows = await this.database.withWebhookGatewayLookup(
+      (tx) =>
+        tx.$queryRaw<Array<{ tenantId: string; connectionId: string; encrypted: string }>>`
+        SELECT tenant_id AS "tenantId", id AS "connectionId", encrypted_credentials AS encrypted
+        FROM integration_connections
+        WHERE webhook_public_id = ${webhookPublicId}::uuid AND kind = 'PAYMENT' AND provider = 'STRIPE'`,
+    );
+    const row = rows[0];
+    if (!row) return null;
+    try {
+      const credentials = this.cipher.decrypt(row.encrypted);
+      const secretKey = credentials.secretKey?.trim();
+      const webhookSecret = credentials.webhookSecret?.trim();
+      if (!secretKey || !webhookSecret) return null;
+      return { tenantId: row.tenantId, connectionId: row.connectionId, secretKey, webhookSecret };
+    } catch {
+      return null;
+    }
+  }
+
   /** Internal-only: records which connection an older session belongs to, once it has been found. */
   async rememberSessionConnection(
     tenantId: string,
@@ -589,12 +682,12 @@ export class IntegrationConnectionsService {
             'This hotel already has history with another Clock connection. Replace credentials on that connection; moving to another Clock account requires a reviewed migration.',
           );
       }
-      if (enabled && connection[0].provider === 'POKPAY') {
-        // One PokPay account in use at a time. The others stay saved with their keys, so the hotel
+      if (enabled && (connection[0].provider === 'POKPAY' || connection[0].provider === 'STRIPE')) {
+        // One account per payment provider in use at a time (Stripe: test and live keys of the same hotel). The others stay saved with their keys, so the hotel
         // can switch back whenever it wants.
         const previous = await tx.$queryRaw<Array<{ id: string }>>`
           UPDATE property_integration_connections pc SET enabled=false,updated_at=now() FROM integration_connections c
-          WHERE pc.tenant_id=${tenantId}::uuid AND pc.property_id=${propertyId}::uuid AND pc.connection_id=c.id AND c.tenant_id=pc.tenant_id AND c.provider='POKPAY' AND c.id<>${connectionId}::uuid AND pc.enabled
+          WHERE pc.tenant_id=${tenantId}::uuid AND pc.property_id=${propertyId}::uuid AND pc.connection_id=c.id AND c.tenant_id=pc.tenant_id AND c.provider=${connection[0].provider}::"IntegrationProvider" AND c.id<>${connectionId}::uuid AND pc.enabled
           RETURNING pc.connection_id AS id`;
         switchedFrom = previous.map((row) => row.id);
       }
