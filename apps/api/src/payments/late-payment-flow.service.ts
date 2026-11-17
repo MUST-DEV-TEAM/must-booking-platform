@@ -8,6 +8,7 @@ import { PaymentNotificationService } from '../mail/payment-notification.service
 import { reportOperationalFailure } from '../observability/error-tracking';
 import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant-database.service';
 import { PaymentRefundService, type RefundConfirmation } from './payment-refund.service';
+import { POKPAY_RECONCILIATION_SOURCE } from './pokpay-reconciliation.service';
 
 /**
  * ADR-0043 (saved steps), first flow: a PokPay payment that arrives after its booking stopped awaiting payment.
@@ -264,6 +265,16 @@ export class LatePaymentFlowService implements OnModuleInit, OnModuleDestroy {
           WHERE id = ${flow.id}::uuid AND lease_token = ${flow.leaseToken}::uuid`;
         if (finished !== 1)
           throw new Error('The flow lease was lost before the refund could be recorded.');
+        // The money is back: the nightly PokPay check's note about this same order ("PokPay shows a completed
+        // payment ... but") is no longer true. That check closes its notes only when it can read the order again,
+        // which PokPay may refuse for an old order, so the flow closes them here (gap G-31).
+        await tx.$executeRaw`
+          UPDATE manual_review_items SET status = 'RESOLVED', resolved_at = now(), updated_at = now()
+          WHERE tenant_id = ${scope.tenantId}::uuid AND property_id = ${scope.propertyId}::uuid
+            AND category = 'PAYMENT_BOOKING_MISMATCH' AND status = 'OPEN'
+            AND reference_type = 'booking' AND reference_id = ${flow.bookingId}
+            AND context->>'source' = ${POKPAY_RECONCILIATION_SOURCE}
+            AND context->>'orderId' = ${flow.context.orderId}`;
         await this.event(
           tx,
           scope,

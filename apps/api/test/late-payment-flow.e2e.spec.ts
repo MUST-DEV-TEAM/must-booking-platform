@@ -296,4 +296,28 @@ describe('Late payment flow (ADR-0043)', () => {
     expect(flows).toEqual([{ state: 'REFUNDED', status: 'DONE' }]);
     expect(refundCharge).toHaveBeenCalledTimes(1);
   });
+
+  it("closes the nightly PokPay check's note for the refunded order, and only that one", async () => {
+    const order = `order-${randomUUID()}`;
+    const bookingId = await bookingWithPayments('EXPIRED', [order]);
+    const note = async (orderId: string) =>
+      (
+        await admin.$queryRaw<Array<{ id: string }>>`
+          INSERT INTO manual_review_items (tenant_id, property_id, category, reference_type, reference_id, message, context)
+          VALUES (${tenantId}::uuid, ${propertyId}::uuid, 'PAYMENT_BOOKING_MISMATCH', 'booking', ${bookingId},
+            'PokPay shows a completed payment of 200.00 EUR for this booking, but nothing is recorded.',
+            ${JSON.stringify({ source: 'pokpay_reconciliation', orderId, kind: 'paid_not_recorded' })}::jsonb)
+          RETURNING id`
+      )[0]!.id;
+    const sameOrder = await note(order);
+    const otherOrder = await note(`order-${randomUUID()}`);
+    const flowId = (await startFlow(bookingId, order, 'EXPIRED'))!;
+    expect(await app!.get(LatePaymentFlowService).run(scope(), flowId)).toBe('REFUNDED');
+    const statuses = await admin.$queryRaw<Array<{ id: string; status: string }>>`
+      SELECT id, status::text AS status FROM manual_review_items WHERE id IN (${sameOrder}::uuid, ${otherOrder}::uuid)`;
+    expect(Object.fromEntries(statuses.map((row) => [row.id, row.status]))).toEqual({
+      [sameOrder]: 'RESOLVED',
+      [otherOrder]: 'OPEN',
+    });
+  });
 });
