@@ -76,6 +76,7 @@ export class PaymentRefundController {
       percentage: this.percentage(value.percentage),
       note: this.lateNote(this.note(value.note), late),
       ...(value.reasonCode === undefined ? {} : { reasonCode: this.reason(value.reasonCode) }),
+      ...(value.keepProviderFee === true ? { keepProviderFee: true } : {}),
       actorUserId: request.tenantContext.userId,
     });
     if (!result.ok && result.error.code === 'IDEMPOTENCY_KEY_CONFLICT')

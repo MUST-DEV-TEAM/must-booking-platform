@@ -40,6 +40,9 @@ export function RefundDialog({
   const queryClient = useQueryClient();
   const attempt = useRef<{ body: string; key: string } | null>(null);
   const [cancelAlso, setCancelAlso] = useState(false);
+  // Only Stripe reports its fee, so only a Stripe payment can have it kept back from a refund.
+  const [keepFee, setKeepFee] = useState(false);
+  const canKeepFee = booking.paymentMethod === 'STRIPE_CHECKOUT';
   const scope = base.match(/\/tenants\/([^/]+)\/properties\/([^/]+)/);
   const [choice, setChoice] = useState<RefundChoiceValue>({ ...noRefund, mode: 'full' });
 
@@ -57,6 +60,7 @@ export function RefundDialog({
       ...body,
       reasonCode,
       ...(lateConfirmed ? { lateRefund: true } : {}),
+      ...(canKeepFee && keepFee ? { keepProviderFee: true } : {}),
       ...(note.trim() ? { note: note.trim().slice(0, 500) } : {}),
     });
     if (attempt.current?.body !== payload)
@@ -130,6 +134,13 @@ export function RefundDialog({
     >
       {canCancel && booking.status === 'CONFIRMED' && scope ? (
         <SettingToggle label="Also cancel booking" checked={cancelAlso} onChange={setCancelAlso} />
+      ) : null}
+      {canKeepFee ? (
+        <SettingToggle
+          label="Keep the payment fee (Stripe's fee is taken off this refund)"
+          checked={keepFee}
+          onChange={setKeepFee}
+        />
       ) : null}
       {lateAllowed ? (
         <SettingToggle

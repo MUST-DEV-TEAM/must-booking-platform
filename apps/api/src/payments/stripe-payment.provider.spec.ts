@@ -100,6 +100,134 @@ describe('StripePaymentProvider.refund', () => {
   });
 });
 
+describe('StripePaymentProvider.refund: currencies and errors', () => {
+  const stubStripe = () => {
+    const stripe = new Stripe(secretKey);
+    const sessions = Object.getPrototypeOf(stripe.checkout.sessions) as {
+      retrieve: (id: string) => Promise<Stripe.Checkout.Session>;
+    };
+    const refunds = Object.getPrototypeOf(stripe.refunds) as {
+      create: (...args: unknown[]) => Promise<Stripe.Refund>;
+    };
+    vi.spyOn(sessions, 'retrieve').mockResolvedValue({
+      payment_intent: 'pi_test_original',
+    } as Stripe.Checkout.Session);
+    return vi.spyOn(refunds, 'create');
+  };
+
+  it('sends a yen refund without the two decimals and a dinar refund with three', async () => {
+    const create = stubStripe().mockResolvedValue({
+      id: 're_test_refund',
+      status: 'succeeded',
+    } as Stripe.Refund);
+    await makeProvider().refund(context, {
+      idempotencyKey: 'yen',
+      paymentId: 'cs_test_original',
+      amount: { amount: '5000.00', currency: 'JPY' },
+    });
+    await makeProvider().refund(context, {
+      idempotencyKey: 'dinar',
+      paymentId: 'cs_test_original',
+      amount: { amount: '1.50', currency: 'KWD' },
+    });
+    expect(create).toHaveBeenNthCalledWith(
+      1,
+      { payment_intent: 'pi_test_original', amount: 5000 },
+      { idempotencyKey: 'yen' },
+    );
+    expect(create).toHaveBeenNthCalledWith(
+      2,
+      { payment_intent: 'pi_test_original', amount: 1500 },
+      { idempotencyKey: 'dinar' },
+    );
+  });
+
+  it("shows Stripe's own reason when it refuses a refund, so staff can see why", async () => {
+    stubStripe().mockRejectedValue(
+      new Stripe.errors.StripeInvalidRequestError({
+        type: 'invalid_request_error',
+        message: 'There is already an approval request waiting to be reviewed by an administrator.',
+      }),
+    );
+    const result = await makeProvider().refund(context, {
+      idempotencyKey: 'refused',
+      paymentId: 'cs_test_original',
+      amount: { amount: '12.34', currency: 'EUR' },
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'STRIPE_REFUND_FAILED',
+        message: expect.stringContaining('approval request waiting'),
+      },
+    });
+  });
+});
+
+describe('StripePaymentProvider.refund: currencies and failures', () => {
+  const setup = () => {
+    const stripe = new Stripe(secretKey);
+    const sessions = Object.getPrototypeOf(stripe.checkout.sessions) as {
+      retrieve: (id: string) => Promise<Stripe.Checkout.Session>;
+    };
+    const refunds = Object.getPrototypeOf(stripe.refunds) as {
+      create: (...args: unknown[]) => Promise<Stripe.Refund>;
+    };
+    vi.spyOn(sessions, 'retrieve').mockResolvedValue({
+      payment_intent: 'pi_test_original',
+    } as Stripe.Checkout.Session);
+    return refunds;
+  };
+
+  it('sends a yen refund without cents and a dinar refund with three decimals', async () => {
+    const create = vi
+      .spyOn(setup(), 'create')
+      .mockResolvedValue({ id: 're_test', status: 'succeeded' } as Stripe.Refund);
+    await makeProvider().refund(context, {
+      idempotencyKey: 'yen-1',
+      paymentId: 'cs_test_original',
+      amount: { amount: '5000.00', currency: 'JPY' },
+    });
+    await makeProvider().refund(context, {
+      idempotencyKey: 'kwd-1',
+      paymentId: 'cs_test_original',
+      amount: { amount: '1.50', currency: 'KWD' },
+    });
+    expect(create).toHaveBeenNthCalledWith(
+      1,
+      { payment_intent: 'pi_test_original', amount: 5000 },
+      { idempotencyKey: 'yen-1' },
+    );
+    expect(create).toHaveBeenNthCalledWith(
+      2,
+      { payment_intent: 'pi_test_original', amount: 1500 },
+      { idempotencyKey: 'kwd-1' },
+    );
+  });
+
+  it("tells staff Stripe's own reason when Stripe refuses a refund", async () => {
+    vi.spyOn(setup(), 'create').mockRejectedValue(
+      new Stripe.errors.StripeInvalidRequestError({
+        type: 'invalid_request_error',
+        message: 'There is already an approval request waiting to be reviewed.',
+      }),
+    );
+    const result = await makeProvider().refund(context, {
+      idempotencyKey: 'refused-1',
+      paymentId: 'cs_test_original',
+      amount: { amount: '10.00', currency: 'EUR' },
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'STRIPE_REFUND_FAILED',
+        message: expect.stringContaining('approval request'),
+        retryable: true,
+      },
+    });
+  });
+});
+
 describe('StripePaymentProvider accounts (the connection that took the payment)', () => {
   it('sends a refund through the account that took the payment, not the one now in use', async () => {
     const stripe = new Stripe(secretKey);

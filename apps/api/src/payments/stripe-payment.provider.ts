@@ -14,6 +14,7 @@ import {
 import Stripe from 'stripe';
 
 import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
+import { fromStripeMinorUnits, stripeDecimals, toStripeMinorUnits } from './stripe-minor-units';
 
 @Injectable()
 export class StripePaymentProvider implements PaymentProvider {
@@ -82,7 +83,9 @@ export class StripePaymentProvider implements PaymentProvider {
               quantity: 1,
               price_data: {
                 currency: command.amount.currency.toLowerCase(),
-                unit_amount_decimal: this.amountInCents(command.amount.amount),
+                unit_amount_decimal: Stripe.Decimal.from(
+                  `${toStripeMinorUnits(command.amount.amount, command.amount.currency)}`,
+                ),
                 product_data: { name: `Hotel booking ${command.bookingId}` },
               },
             },
@@ -218,7 +221,7 @@ export class StripePaymentProvider implements PaymentProvider {
       const refund = await stripe.refunds.create(
         {
           ...target,
-          amount: this.amountInMinorUnits(command.amount.amount),
+          amount: Number(toStripeMinorUnits(command.amount.amount, command.amount.currency)),
         },
         { idempotencyKey: command.idempotencyKey },
       );
@@ -231,8 +234,22 @@ export class StripePaymentProvider implements PaymentProvider {
           status: refund.status ?? 'succeeded',
         },
       };
-    } catch {
-      return this.failure('STRIPE_REFUND_FAILED', 'Stripe refund could not be completed.', true);
+    } catch (error) {
+      // Stripe's own reason (never a key or a secret) so staff and the logs can see why a refund failed,
+      // for example an approval rule on the Stripe account.
+      const reason = error instanceof Stripe.errors.StripeError ? error.message : null;
+      this.logger.warn(
+        error instanceof Stripe.errors.StripeError
+          ? `Stripe refused a refund: ${error.type} ${error.code ?? ''} (request ${error.requestId ?? 'unknown'}): ${error.message}`
+          : 'A Stripe refund failed for a reason that is not a Stripe error.',
+      );
+      return this.failure(
+        'STRIPE_REFUND_FAILED',
+        reason
+          ? `Stripe could not complete the refund: ${reason.slice(0, 240)}`
+          : 'Stripe refund could not be completed.',
+        true,
+      );
     }
   }
 
@@ -282,15 +299,20 @@ export class StripePaymentProvider implements PaymentProvider {
       const settlement = charge && typeof charge === 'object' ? charge.balance_transaction : null;
       if (!charge || typeof charge !== 'object' || !settlement || typeof settlement !== 'object')
         return { ok: true, value: null };
-      let feeMinorUnits = settlement.fee;
+      // The fee is in the account's settlement currency; the guest paid in the charge currency. Work in
+      // whole currency units so currencies with no or three decimals convert correctly.
+      let feeMajor = settlement.fee / 10 ** stripeDecimals(settlement.currency);
       if (settlement.currency !== charge.currency) {
         if (!settlement.exchange_rate) return { ok: true, value: null };
-        feeMinorUnits = Math.round(feeMinorUnits / settlement.exchange_rate);
+        feeMajor = feeMajor / settlement.exchange_rate;
       }
       return {
         ok: true,
         value: {
-          amount: `${Math.floor(feeMinorUnits / 100)}.${String(feeMinorUnits % 100).padStart(2, '0')}`,
+          amount: fromStripeMinorUnits(
+            feeMajor * 10 ** stripeDecimals(charge.currency),
+            charge.currency,
+          ),
           currency: charge.currency.toUpperCase(),
         },
       };
@@ -350,16 +372,6 @@ export class StripePaymentProvider implements PaymentProvider {
         ...(publishableKey ? { publishableKey } : {}),
       },
     };
-  }
-
-  private amountInCents(amount: string): Stripe.Decimal {
-    const [whole, fraction = ''] = amount.split('.');
-    return Stripe.Decimal.from(`${BigInt(whole || '0') * 100n + BigInt(fraction.padEnd(2, '0'))}`);
-  }
-
-  private amountInMinorUnits(amount: string): number {
-    const [whole, fraction = ''] = amount.split('.');
-    return Number(BigInt(whole || '0') * 100n + BigInt(fraction.padEnd(2, '0')));
   }
 
   private async refundTarget(

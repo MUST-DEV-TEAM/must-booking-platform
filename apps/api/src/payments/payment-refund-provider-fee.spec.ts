@@ -60,6 +60,21 @@ describe('the payment fee a refund the guest decided on keeps back', () => {
     expect(getPaymentFee).not.toHaveBeenCalled();
   });
 
+  it('keeps the fee for a refund staff ticked "keep the fee" on, even when the hotel setting is off', async () => {
+    const { service, tx, getPaymentFee } = build({ setting: false, cachedFee: '12.85' });
+    // Staff's tickbox does not read the hotel setting, so the charge is the first thing read.
+    tx.$queryRaw.mockReset();
+    tx.$queryRaw
+      .mockResolvedValueOnce([charge])
+      .mockResolvedValueOnce([{ amount: '12.85', currency: 'EUR' }]);
+    await expect(
+      service.keptProviderFee(tx as never, context, bookingId, eur('100.00'), {
+        ignoreHotelSetting: true,
+      }),
+    ).resolves.toEqual(eur('3.21'));
+    expect(getPaymentFee).not.toHaveBeenCalled();
+  });
+
   it('keeps the whole fee when everything is refunded, and saves the fee for next time', async () => {
     const { service, tx, getPaymentFee } = build({});
     await expect(

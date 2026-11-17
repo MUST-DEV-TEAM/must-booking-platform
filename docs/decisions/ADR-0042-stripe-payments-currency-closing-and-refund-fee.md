@@ -22,6 +22,9 @@ Stripe was added as a second payment method next to PokPay (Milestone 36). Tests
 - Stripe fees are in the account's settlement currency; for a payment in another currency the fee is converted back with Stripe's own exchange rate.
 - Zero-decimal currencies (such as yen) are not handled by the refund code: amounts are assumed to have two decimals. A hotel in such a currency needs that fixed first.
 - Disabling the local-currency offer removes a convenience for guests who would rather pay in lek; it can be revisited with the currency milestone.
+- A staff refund from the Payments screen (exact amount, percentage or whole) refunds exactly what staff enter, so the hotel absorbs the fee. For a Stripe payment the form has a tickbox, "Keep the payment fee", that takes the provider's fee (shared by the part refunded) off that refund. It works whatever the hotel setting says, is recorded in the audit log (`payment.refund_fee_kept`), and is refused if the fee is as large as the refund (owner, 2026-11-17).
+- A staff percentage means a share of what can still be refunded, not of the original payment (25% after a 100 refund of 400 is 75).
+- Stripe amounts are converted with each currency's own number of decimals (yen none, Kuwaiti dinar three), so a hotel in such a currency is charged and refunded correctly.
 
 ## Alternatives considered
 
