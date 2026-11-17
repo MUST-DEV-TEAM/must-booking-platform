@@ -686,7 +686,7 @@ describe('LocalPmsProvider', () => {
       .set('Cookie', guestCookie)
       .set('Idempotency-Key', randomUUID())
       .send(bookingRequest)
-      .expect(201)
+      .expect(422)
       .expect((response) => {
         expect(response.body).toMatchObject({
           ok: false,
@@ -756,7 +756,7 @@ describe('LocalPmsProvider', () => {
       .set('Cookie', guestCookie)
       .set('Idempotency-Key', randomUUID())
       .send({ ...bookingRequest, adults: 0 })
-      .expect(201)
+      .expect(422)
       .expect((response) => {
         expect(response.body).toMatchObject({
           ok: false,
@@ -1722,7 +1722,7 @@ describe('LocalPmsProvider', () => {
         externalReference: `must-${randomUUID()}`,
         paymentMethod: undefined,
       })
-      .expect(201)
+      .expect(422)
       .expect((response) => {
         expect(response.body).toMatchObject({
           ok: false,

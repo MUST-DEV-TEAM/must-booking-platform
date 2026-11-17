@@ -1,3 +1,4 @@
+import { throwIfBookingRefused } from './refused-booking';
 import { countryCode } from '@must/domain-contracts';
 import { normalizePromoCode } from './promo-code.service';
 import {
@@ -181,7 +182,7 @@ export class BookingController {
         },
       };
     }
-    return result;
+    return throwIfBookingRefused(result);
   }
 
   @Post('orders')
@@ -193,12 +194,14 @@ export class BookingController {
     @Headers('idempotency-key') idempotencyKey: string | undefined,
     @Req() request: GuestBookingRequest,
   ) {
-    return this.noConflict(
-      await this.multiRoomBookings.create(request.tenantContext, {
-        ...this.multiRoomCreateInput(body),
-        idempotencyKey: this.idempotencyKey(idempotencyKey),
-        quoteSessionId: request.guestSessionId,
-      }),
+    return throwIfBookingRefused(
+      this.noConflict(
+        await this.multiRoomBookings.create(request.tenantContext, {
+          ...this.multiRoomCreateInput(body),
+          idempotencyKey: this.idempotencyKey(idempotencyKey),
+          quoteSessionId: request.guestSessionId,
+        }),
+      ),
     );
   }
 
