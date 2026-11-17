@@ -23,7 +23,7 @@ describe('Booking payment outcome page', () => {
 
     expect(markup).toContain('Checking your payment');
     expect(markup).toContain('Close this tab');
-    expect(markup).toContain('href="/dashboard"');
+    expect(markup).not.toContain('/dashboard');
     expect(markup).not.toContain('was not completed');
   });
 
@@ -33,7 +33,7 @@ describe('Booking payment outcome page', () => {
 
     expect(markup).toContain('Checkout closed');
     expect(markup).toContain('payment');
-    expect(markup).toContain('href="/dashboard"');
+    expect(markup).not.toContain('/dashboard');
   });
 });
 
