@@ -542,6 +542,7 @@ describe.skipIf(!hasSandboxCredentials)(
       expect(folioIds.status).toBe(200);
       let depositFolioId: number | undefined;
       let depositFolioOpen: boolean | undefined;
+      let placedOnDepositFolio: boolean | undefined;
       let ourCreditItem:
         | { reference?: string; value_cents?: number; currency?: string; payment_sub_type?: string }
         | undefined;
@@ -550,7 +551,6 @@ describe.skipIf(!hasSandboxCredentials)(
           clockCredentials,
           { api: 'base_api', method: 'GET', path: `/folios/${folioId}` },
         );
-        if (folio.body.deposit !== true) continue;
         const creditItems = await clockClient.request<
           Array<{
             reference?: string;
@@ -567,12 +567,16 @@ describe.skipIf(!hasSandboxCredentials)(
         if (match) {
           depositFolioId = folioId;
           depositFolioOpen = !folio.body.closed_at;
+          placedOnDepositFolio = folio.body.deposit === true;
           ourCreditItem = match;
           break;
         }
       }
       expect(depositFolioId).toBeDefined();
       expect(depositFolioOpen).toBe(true);
+      // The payment goes on the booking's own folio (Clock's reply, 2026-11-17), so the hotel has no deposit
+      // to convert. A deposit folio is only the fallback for a login that may not post there.
+      expect(placedOnDepositFolio).toBe(false);
       expect(ourCreditItem).toBeDefined();
       expect(ourCreditItem?.value_cents).toBe(totalCents);
       expect(ourCreditItem?.currency).toBe('EUR');
@@ -615,7 +619,7 @@ describe.skipIf(!hasSandboxCredentials)(
 
     // Gap G-30: a Clock hotel paid through Stripe was never run against the
     // sandbox. Same path as above, with Stripe's own payment reference.
-    it('Stripe payment: posts an open deposit folio in Clock labelled Stripe, then the booking cancels', async () => {
+    it('Stripe payment: posts on the main folio of the booking in Clock labelled Stripe, then the booking cancels', async () => {
       await paidBookingPostsToClock('STRIPE_CHECKOUT', 'Stripe', `pi_test_${randomUUID()}`);
     }, 120_000);
   },

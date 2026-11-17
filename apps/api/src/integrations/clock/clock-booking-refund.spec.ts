@@ -306,41 +306,57 @@ describe('ClockBookingService credit-item refund payload', () => {
   });
 });
 
-describe('ClockBookingService original deposit-folio lookup', () => {
-  it('skips non-deposit folios and finds the original payment by its MUST reference', async () => {
+describe('ClockBookingService original payment folio lookup', () => {
+  function lookup(folios: Array<Record<string, unknown>>, holder: number) {
     const service = Object.create(ClockBookingService.prototype) as ClockBookingService;
     const internals = service as unknown as Record<string, unknown>;
-    const fetch = vi
-      .fn()
-      .mockResolvedValueOnce({ ok: true, value: [44, 77] })
-      .mockResolvedValueOnce({ ok: true, value: { id: 44, deposit: false } })
-      .mockResolvedValueOnce({
-        ok: true,
-        value: { id: 77, deposit: true, closed_at: '2026-09-10T00:00:00Z' },
-      });
-    const creditItemByReference = vi.fn().mockResolvedValue({
+    const fetch = vi.fn().mockResolvedValueOnce({ ok: true, value: folios.map((f) => f.id) });
+    for (const folio of folios) fetch.mockResolvedValueOnce({ ok: true, value: folio });
+    const creditItemByReference = vi.fn(async (_c: unknown, folioId: number) => ({
       ok: true,
-      value: { id: 11, reference: 'MUST-ORIGINAL-1', payment_sub_type: 'PokPay' },
-    });
+      value:
+        folioId === holder
+          ? { id: 11, reference: 'MUST-ORIGINAL-1', payment_sub_type: 'Stripe' }
+          : null,
+    }));
     internals.fetch = fetch;
     internals.creditItemByReference = creditItemByReference;
+    return { service, creditItemByReference };
+  }
 
+  it('finds the original payment on the main folio, where payments are posted now', async () => {
+    const { service } = lookup(
+      [
+        { id: 44, deposit: false, closed_at: null },
+        { id: 77, deposit: true, closed_at: '2026-09-10T00:00:00Z' },
+      ],
+      44,
+    );
     await expect(
       depositFolioWithPaymentReference.call(service, credentials, '1234', 'MUST-ORIGINAL-1'),
-    ).resolves.toEqual({
-      ok: true,
-      value: {
-        folio: { id: 77, deposit: true, closed_at: '2026-09-10T00:00:00Z' },
-        creditItem: { id: 11, reference: 'MUST-ORIGINAL-1', payment_sub_type: 'PokPay' },
-      },
-    });
+    ).resolves.toMatchObject({ ok: true, value: { folio: { id: 44, deposit: false } } });
+  });
 
-    expect(fetch.mock.calls.map(([, options]) => options)).toEqual([
-      { method: 'GET', path: '/bookings/1234/folios/', api: 'pms_api' },
-      { method: 'GET', path: '/folios/44', api: 'base_api' },
-      { method: 'GET', path: '/folios/77', api: 'base_api' },
-    ]);
+  it('still finds an older payment on a closed deposit folio, searching every folio', async () => {
+    const { service, creditItemByReference } = lookup(
+      [
+        { id: 44, deposit: false, closed_at: null },
+        { id: 77, deposit: true, closed_at: '2026-09-10T00:00:00Z' },
+      ],
+      77,
+    );
+    await expect(
+      depositFolioWithPaymentReference.call(service, credentials, '1234', 'MUST-ORIGINAL-1'),
+    ).resolves.toMatchObject({ ok: true, value: { folio: { id: 77, deposit: true } } });
+    expect(creditItemByReference).toHaveBeenCalledWith(credentials, 44, 'MUST-ORIGINAL-1');
     expect(creditItemByReference).toHaveBeenCalledWith(credentials, 77, 'MUST-ORIGINAL-1');
+  });
+
+  it('reports that no folio holds the payment', async () => {
+    const { service } = lookup([{ id: 44, deposit: false }], 999);
+    await expect(
+      depositFolioWithPaymentReference.call(service, credentials, '1234', 'MUST-ORIGINAL-1'),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'clock_original_deposit_missing' } });
   });
 });
 
