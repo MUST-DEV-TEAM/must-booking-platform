@@ -619,7 +619,7 @@ describe.skipIf(!hasSandboxCredentials)(
       await paidBookingPostsToClock('POKPAY', 'PokPay', null, 'DEPOSIT');
     }, 120_000);
 
-    // Gap G-30: a Clock hotel paid through Stripe was never run against the
+    // Gap G-34: a Clock hotel paid through Stripe was never run against the
     // sandbox. Same path as above, with Stripe's own payment reference.
     it('Stripe payment: when the hotel chose the main folio, posts on it labelled Stripe, then the booking cancels', async () => {
       await paidBookingPostsToClock('STRIPE_CHECKOUT', 'Stripe', `pi_test_${randomUUID()}`, 'MAIN');
