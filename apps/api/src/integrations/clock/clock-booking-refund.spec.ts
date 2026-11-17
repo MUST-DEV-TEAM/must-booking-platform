@@ -175,10 +175,12 @@ describe('ClockBookingService.postRefund', () => {
       },
     });
 
+    // The refund reads whether this was a test payment, so the stand-in transaction answers that.
+    const tx = { $queryRaw: vi.fn().mockResolvedValue([{ isTest: false }]) };
     await expect(
       postRefund.call(
         service,
-        {},
+        tx,
         context,
         'booking-1',
         { amount: '25.50', currency: 'EUR' },
@@ -190,7 +192,7 @@ describe('ClockBookingService.postRefund', () => {
     expect(manualReview.recordInTransaction).not.toHaveBeenCalled();
     expect(notifications.recordInTransaction).not.toHaveBeenCalled();
     expect(audit.recordInTransaction).toHaveBeenCalledWith(
-      {},
+      tx,
       expect.objectContaining({ action: 'payment.clock_refund_posted' }),
     );
   });
