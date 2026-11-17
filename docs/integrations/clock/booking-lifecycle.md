@@ -29,7 +29,9 @@ Some Clock calls happen within 30-45 second interactive transactions. A timeout 
 
 ## Deposits stay open
 
-`postDeposit` finds a matching deposit folio/credit item or opens a deposit folio, then posts the positive credit item. It uses a stable reference and lookup-on-ambiguity behavior, with bounded local retries. A prior matching item is a replay; a closed folio with the matching item is also already completed.
+**Where a website payment goes (2026-11-17).** `postDeposit` posts the positive credit item to the booking's open main folio, so the hotel has no deposit to convert (Clock's reply of 2026-11-17, proved in the sandbox with PokPay and with a real Stripe payment). It falls back to a deposit folio (found open, or created) only when the booking has no open main folio or Clock answers 403 for the main folio. A matching item already on any folio is a replay. The audit entry `booking.clock_deposit_posted` carries `placement` (`main` or `deposit`). Refunds search every folio of the booking for the original payment (`depositFolioWithPaymentReference`, name kept) and post the negative item there; only a closed deposit folio raises the Deposit Adjustment review, a closed main folio asks staff to check the invoice.
+
+Older description of `postDeposit`: it finds a matching deposit folio/credit item or opens a deposit folio, then posts the positive credit item. It uses a stable reference and lookup-on-ambiguity behavior, with bounded local retries. A prior matching item is a replay; a closed folio with the matching item is also already completed.
 
 **MUST does not close the deposit folio.** The 2026-09-18 Clock correction removed automatic close and document-type lookup. Earlier Milestone 21 Task 1/8 close instructions and 2026-09-16 close evidence are superseded, not current requirements.
 
