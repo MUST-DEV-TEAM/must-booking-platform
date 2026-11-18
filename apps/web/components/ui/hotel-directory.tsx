@@ -1,12 +1,9 @@
 'use client';
 import { useState, type ReactNode } from 'react';
 import { ListFilter, Plus, RefreshCw } from 'lucide-react';
-import {
-  areaHealth,
-  bookingReadinessAreas,
-  type Property,
-} from '../../app/dashboard/settings-areas';
+import type { Property, SettingsReadiness } from '../../app/dashboard/settings-areas';
 import { settingsAreaHref } from '../../app/dashboard/settings-hub';
+import { settingsTabHref } from '../../app/dashboard/settings-registry';
 import { useTablePreferences } from '../../lib/use-table-preferences';
 import { Badge } from './badge';
 import { Button } from './button';
@@ -32,6 +29,8 @@ export type DirectoryHotel = Property & {
   staffCount: number;
   pmsSource: 'MUST' | 'CLOCK_PMS';
   connectedProviders: string[];
+  /** Worked out by the server from the saved settings. */
+  readiness: SettingsReadiness;
 };
 const modeLabels = {
   ROOM_TYPE_ONLY: 'Room types',
@@ -56,11 +55,7 @@ const defaults: Record<Column, boolean> = {
   status: true,
 };
 export function hotelReadiness(hotel: DirectoryHotel) {
-  const health = areaHealth(hotel, null, new Set(hotel.connectedProviders));
-  return {
-    health,
-    active: bookingReadinessAreas.every(({ key }) => health[key].status === 'done'),
-  };
+  return { steps: hotel.readiness.steps, active: hotel.readiness.ready };
 }
 function paymentLabel(h: DirectoryHotel) {
   return h.paymentGateways.pokpay && h.connectedProviders.includes('POKPAY')
@@ -72,7 +67,7 @@ function paymentLabel(h: DirectoryHotel) {
         : 'Needs setup';
 }
 function websiteLabel(h: DirectoryHotel) {
-  return hotelReadiness(h).health['managed-pages'].status === 'done'
+  return hotelReadiness(h).steps.find((step) => step.key === 'website')?.status === 'done'
     ? 'Connected'
     : 'Not connected';
 }
@@ -486,12 +481,12 @@ export function HotelDirectory({
             <ChecklistPanel
               title="Ready to take bookings"
               description="The same required checks as Settings."
-              items={bookingReadinessAreas.map(({ key, label }) => ({
-                key,
-                label,
-                detail: hotelReadiness(peek).health[key].note,
-                status: hotelReadiness(peek).health[key].status as 'done' | 'attention' | 'todo',
-                href: canOpenSettings ? settingsAreaHref(tenantId, peek.id, key) : undefined,
+              items={hotelReadiness(peek).steps.map((step) => ({
+                key: step.key,
+                label: step.label,
+                detail: step.note,
+                status: step.status,
+                href: canOpenSettings ? settingsTabHref(tenantId, peek.id, step.tab) : undefined,
               }))}
             />
           </>

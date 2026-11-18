@@ -40,9 +40,55 @@ describe('DashboardSettings', () => {
       vi.fn(async (url: string) => {
         if (url.endsWith('/exchange-rates'))
           return Response.json({ base: 'EUR', version: '0', displayCurrencies: null, rates: [] });
-        if (url.endsWith('/properties')) return new Response(JSON.stringify([property]));
-        if (url.endsWith('/plan-usage'))
-          return new Response(JSON.stringify({ plan: { name: 'Free' }, usage: {} }));
+        if (url.endsWith('/settings-summary')) {
+          const step = (key: string, tab: string, label: string, status: string, note: string) => ({
+            key,
+            tab,
+            label,
+            status,
+            note,
+          });
+          return Response.json({
+            ready: false,
+            steps: [
+              step(
+                'profile',
+                'profile',
+                'Hotel identity',
+                'done',
+                'Name, address and time zone are set.',
+              ),
+              step(
+                'booking-rules',
+                'booking-rules',
+                'Booking rules',
+                'done',
+                'Stay limits are set.',
+              ),
+              step(
+                'policies',
+                'policies',
+                'Check-in and check-out times',
+                'done',
+                'From 15:00 to 11:00.',
+              ),
+              step(
+                'payment-methods',
+                'payment-methods',
+                'Payment method',
+                'done',
+                'A method is available.',
+              ),
+              step(
+                'website',
+                'integrations',
+                'Website connection',
+                'todo',
+                'The hotel website is not connected yet.',
+              ),
+            ],
+          });
+        }
         return new Response(JSON.stringify([]));
       }),
     );

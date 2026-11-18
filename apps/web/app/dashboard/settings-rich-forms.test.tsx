@@ -5,7 +5,6 @@ import { it, expect, vi } from 'vitest';
 import { GeneralSettings, BookingRulesSettings, CheckInOutSettings } from './settings-forms';
 import { UnsavedChangesBoundary } from '../../components/ui/unsaved-changes';
 import type { Property } from './settings-areas';
-import { areaHealth } from './settings-areas';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const property: Property = {
   id: 'p',
@@ -145,9 +144,6 @@ it('groups arrival and policies, validates paired hours and saves notes without 
       earlyCheckInNote: 'Ask reception.',
       idRequiredAtArrival: true,
     });
-    expect(areaHealth({ ...property, quietHoursFrom: '22:00' }, null)['check-in-out'].status).toBe(
-      'attention',
-    );
   } finally {
     await m.close();
   }
