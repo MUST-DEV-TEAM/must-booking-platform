@@ -49,46 +49,44 @@ describe('DashboardSettings', () => {
             note,
           });
           return Response.json({
-            readiness: {
-              ready: false,
-              steps: [
-                step(
-                  'profile',
-                  'profile',
-                  'Hotel identity',
-                  'done',
-                  'Name, address and time zone are set.',
-                ),
-                step(
-                  'booking-rules',
-                  'booking-rules',
-                  'Booking rules',
-                  'done',
-                  'Stay limits are set.',
-                ),
-                step(
-                  'policies',
-                  'policies',
-                  'Check-in and check-out times',
-                  'done',
-                  'From 15:00 to 11:00.',
-                ),
-                step(
-                  'payment-methods',
-                  'payment-methods',
-                  'Payment method',
-                  'done',
-                  'A method is available.',
-                ),
-                step(
-                  'website',
-                  'integrations',
-                  'Website connection',
-                  'todo',
-                  'The hotel website is not connected yet.',
-                ),
-              ],
-            },
+            ready: false,
+            steps: [
+              step(
+                'profile',
+                'profile',
+                'Hotel identity',
+                'done',
+                'Name, address and time zone are set.',
+              ),
+              step(
+                'booking-rules',
+                'booking-rules',
+                'Booking rules',
+                'done',
+                'Stay limits are set.',
+              ),
+              step(
+                'policies',
+                'policies',
+                'Check-in and check-out times',
+                'done',
+                'From 15:00 to 11:00.',
+              ),
+              step(
+                'payment-methods',
+                'payment-methods',
+                'Payment method',
+                'done',
+                'A method is available.',
+              ),
+              step(
+                'website',
+                'integrations',
+                'Website connection',
+                'todo',
+                'The hotel website is not connected yet.',
+              ),
+            ],
           });
         }
         return new Response(JSON.stringify([]));

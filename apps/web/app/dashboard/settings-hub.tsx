@@ -26,7 +26,7 @@ export function SettingsHub({ tenantId, propertyId }: { tenantId: string; proper
         { credentials: 'include' },
       );
       if (!response.ok) throw new Error('Unable to load the hotel settings.');
-      return (await response.json()) as { readiness: SettingsReadiness };
+      return (await response.json()) as SettingsReadiness;
     },
   });
 
@@ -40,7 +40,7 @@ export function SettingsHub({ tenantId, propertyId }: { tenantId: string; proper
       />
     );
 
-  const items: ChecklistItem[] = query.data.readiness.steps.map((step) => ({
+  const items: ChecklistItem[] = query.data.steps.map((step) => ({
     key: step.key,
     label: step.label,
     detail: step.note,
