@@ -245,6 +245,8 @@ export interface GuestDetails {
 }
 
 export interface Booking {
+  /** Payment-hold deadline, only while an online checkout is pending. Not proof that a payment completed. */
+  checkoutExpiresAt?: string;
   id: string;
   tenantId: string;
   propertyId: string;

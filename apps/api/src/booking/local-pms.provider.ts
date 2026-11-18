@@ -315,7 +315,10 @@ export class LocalPmsProvider implements PmsProvider {
     return this.database.withTenantTransaction(context, async (tx) => {
       const row = await this.bookingById(tx, context, bookingId);
       if (!row || row.guestSessionId !== guestSessionId) return null;
-      return this.toBooking(row);
+      const booking = this.toBooking(row);
+      return booking && row.status === BookingStatus.PAYMENT_PENDING
+        ? { ...booking, checkoutExpiresAt: await this.checkoutExpiry(tx, context, row) }
+        : booking;
     });
   }
 
@@ -357,7 +360,7 @@ export class LocalPmsProvider implements PmsProvider {
               context.propertyId,
               command.roomTypeId,
             );
-          return this.withIdempotency(
+          const created = await this.withIdempotency(
             tx,
             context,
             command.idempotencyKey,
@@ -521,9 +524,10 @@ export class LocalPmsProvider implements PmsProvider {
                     AND property_id = ${context.propertyId}::uuid
                 `;
               }
-              const autoAssignedRoomId = roomSelection.autoAssign
+              const assignment = roomSelection.autoAssign
                 ? await this.reserveSamePricedRoom(tx, context, command)
                 : null;
+              const autoAssignedRoomId = assignment?.roomId ?? null;
               if (roomSelection.autoAssign && !autoAssignedRoomId) {
                 await this.transition(
                   tx,
@@ -533,8 +537,16 @@ export class LocalPmsProvider implements PmsProvider {
                   BookingStatus.AVAILABILITY_FAILED,
                 );
                 return this.failure(
-                  'AUTO_ASSIGNMENT_UNAVAILABLE',
-                  'No available room matches the quoted price for the requested stay.',
+                  assignment?.reason === 'held'
+                    ? 'CHECKOUT_HOLD_ACTIVE'
+                    : assignment?.reason === 'price_changed'
+                      ? 'PRICE_CHANGED'
+                      : 'AUTO_ASSIGNMENT_UNAVAILABLE',
+                  assignment?.reason === 'held'
+                    ? 'This room is temporarily held while another checkout awaits payment. Please try again shortly or choose another room.'
+                    : assignment?.reason === 'price_changed'
+                      ? 'The available room price has changed. Please refresh the price before booking.'
+                      : 'No assignable room is available for the requested stay. Please choose another room or different dates.',
                 );
               }
               if (autoAssignedRoomId)
@@ -703,6 +715,7 @@ export class LocalPmsProvider implements PmsProvider {
                 : this.failure('BOOKING_NOT_FOUND', 'Created booking could not be loaded.');
             },
           );
+          return this.currentCheckout(tx, context, created);
         },
         { timeoutMs: 30_000 },
       );
@@ -1870,7 +1883,7 @@ export class LocalPmsProvider implements PmsProvider {
     tx: TenantTransaction,
     context: PmsProviderContext,
     command: LocalCreateBookingCommand,
-  ): Promise<string | null> {
+  ): Promise<{ roomId: string | null; reason?: 'held' | 'price_changed' | 'unavailable' }> {
     const occupancy = resolveBookingOccupancy(command);
     const rooms = await tx.$queryRaw<Array<{ id: string }>>`
       SELECT id
@@ -1881,6 +1894,8 @@ export class LocalPmsProvider implements PmsProvider {
         AND is_active = true
       ORDER BY created_at
     `;
+    let matchedPrice = false;
+    let held = false;
     for (const room of rooms) {
       const price = await this.quotes.price(context.tenantId, context.propertyId, {
         roomTypeId: command.roomTypeId,
@@ -1896,8 +1911,12 @@ export class LocalPmsProvider implements PmsProvider {
         childrenAges: command.childrenAges,
         guestCount: occupancy.guestCount,
       });
-      if (price.amount !== command.total.amount || price.currency !== command.total.currency)
+      if (
+        this.minorUnits(price.amount) !== this.minorUnits(command.total.amount) ||
+        price.currency !== command.total.currency
+      )
         continue;
+      matchedPrice = true;
       const reserved = await this.availability.reserveRoom(
         tx,
         context.tenantId,
@@ -1908,9 +1927,68 @@ export class LocalPmsProvider implements PmsProvider {
           endsOn: command.endsOn,
         },
       );
-      if (reserved) return room.id;
+      if (reserved) return { roomId: room.id };
+      const pending = await tx.$queryRaw<Array<{ held: boolean }>>`
+        SELECT EXISTS(SELECT 1 FROM bookings WHERE tenant_id=${context.tenantId}::uuid
+          AND property_id=${context.propertyId}::uuid AND room_id=${room.id}::uuid
+          AND starts_on<${command.endsOn}::date AND ends_on>${command.startsOn}::date
+          AND status='PAYMENT_PENDING' AND external_booking_id IS NULL) AS held`;
+      held ||= pending[0]?.held === true;
     }
-    return null;
+    return {
+      roomId: null,
+      reason: held ? 'held' : rooms.length && !matchedPrice ? 'price_changed' : 'unavailable',
+    };
+  }
+
+  private async checkoutExpiry(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    row: BookingRow,
+  ): Promise<string> {
+    const settings = await tx.$queryRaw<Array<{ minutes: number }>>`
+      SELECT online_payment_hold_minutes AS minutes FROM properties
+      WHERE tenant_id=${context.tenantId}::uuid AND id=${context.propertyId}::uuid`;
+    return new Date(row.createdAt.getTime() + (settings[0]?.minutes ?? 30) * 60000).toISOString();
+  }
+
+  /** An idempotent replay restores the original checkout, but must not revive an expired or paid hold. */
+  private async currentCheckout(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    result: Result<BookingWithCheckout>,
+  ): Promise<Result<BookingWithCheckout>> {
+    if (
+      !result.ok ||
+      !result.value.checkoutUrl ||
+      result.value.status !== BookingStatus.PAYMENT_PENDING
+    )
+      return result;
+    const row = await this.bookingById(tx, context, result.value.id);
+    if (!row) return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
+    if (row.status !== BookingStatus.PAYMENT_PENDING) {
+      const booking = this.toBooking(row);
+      return booking &&
+        [
+          BookingStatus.CONFIRMED,
+          BookingStatus.PMS_CREATION_PENDING,
+          BookingStatus.PMS_CONFIRMATION_PENDING,
+          BookingStatus.PMS_UNKNOWN_RESULT,
+          BookingStatus.MANUAL_REVIEW,
+        ].includes(row.status)
+        ? { ok: true, value: booking }
+        : this.failure(
+            'CHECKOUT_EXPIRED',
+            'This checkout is no longer active. Please check availability and start again.',
+          );
+    }
+    const checkoutExpiresAt = await this.checkoutExpiry(tx, context, row);
+    if (Date.now() >= Date.parse(checkoutExpiresAt))
+      return this.failure(
+        'CHECKOUT_EXPIRED',
+        'The payment time has ended. Please check the booking status before starting again.',
+      );
+    return { ok: true, value: { ...result.value, checkoutExpiresAt } };
   }
 
   private async cancellationPolicy(

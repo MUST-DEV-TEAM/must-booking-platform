@@ -20,11 +20,13 @@ function makeService(
     hasActiveRoomConflict?: boolean;
     displayPriceStore?: unknown;
     hiddenRateIds?: string[];
+    pendingHolds?: Array<{ roomTypeId: string; date: string; held: number }>;
   } = {},
 ) {
   const database = {
     withTenantTransaction: vi.fn((_ctx, callback) =>
       callback({
+        $queryRaw: vi.fn().mockResolvedValue(overrides.pendingHolds ?? []),
         $queryRawUnsafe: vi.fn().mockImplementation((sql: string) => {
           const mapped = sql.includes("entity_type = 'ROOM'")
             ? overrides.mappedExternalRoomId === undefined
@@ -73,6 +75,170 @@ function makeService(
   );
   return { service, client, connections, rateRankings, bookingConsistency, rateLimiter };
 }
+
+describe('Clock availability with local checkout holds', () => {
+  function fixture(freeRooms = 1, secondNight = freeRooms) {
+    const pendingHolds: Array<{ roomTypeId: string; date: string; held: number }> = [];
+    const request = vi.fn(async (_credentials, input: { path: string }) => {
+      if (input.path === '/rates/')
+        return {
+          status: 200,
+          body: [
+            {
+              id: 69242,
+              bookable_id: 42023,
+              bookable_type: 'Pms::RoomType',
+              wbe: true,
+              name: 'Flexible',
+              currency: 'EUR',
+            },
+          ],
+        };
+      if (input.path === '/products')
+        return {
+          status: 200,
+          body: [
+            {
+              id: 42023,
+              rates: {
+                '69242': [
+                  {
+                    available: true,
+                    room_type_free_rooms: Math.min(freeRooms, secondNight),
+                    price: { cents: 20000, currency: 'EUR' },
+                    errors: {},
+                  },
+                ],
+              },
+            },
+          ],
+        };
+      return {
+        status: 200,
+        body: [
+          {
+            id: 42023,
+            rates: {
+              '69242': {
+                '2026-08-10': {
+                  free: true,
+                  room_type_free_rooms: freeRooms,
+                  price: { cents: 10000, currency: 'EUR' },
+                },
+                '2026-08-11': {
+                  free: true,
+                  room_type_free_rooms: secondNight,
+                  price: { cents: 10000, currency: 'EUR' },
+                },
+              },
+            },
+          },
+        ],
+      };
+    });
+    return { ...makeService({ pendingHolds, client: { request } }), pendingHolds, request };
+  }
+
+  it('applies new holds and releases to cached provider availability without caching the hold itself', async () => {
+    const f = fixture();
+    expect(await f.service.getAvailability('t1', 'p1', query)).toMatchObject({
+      ok: true,
+      value: { availableUnits: 1 },
+    });
+    f.pendingHolds.push({ roomTypeId: query.roomTypeId, date: query.startsOn, held: 1 });
+    expect(await f.service.getAvailability('t1', 'p1', query)).toMatchObject({
+      ok: true,
+      value: { isAvailable: false, availableUnits: 0 },
+    });
+    f.pendingHolds.length = 0;
+    expect(await f.service.getAvailability('t1', 'p1', query)).toMatchObject({
+      ok: true,
+      value: { isAvailable: true, availableUnits: 1 },
+    });
+    expect(f.request).toHaveBeenCalledTimes(2);
+  });
+
+  it('deducts each hold on its actual nights instead of subtracting peak holds from the stay minimum', async () => {
+    const f = fixture(2, 1);
+    f.pendingHolds.push({ roomTypeId: query.roomTypeId, date: query.startsOn, held: 1 });
+    expect(await f.service.getAvailability('t1', 'p1', query)).toMatchObject({
+      ok: true,
+      value: { isAvailable: true, availableUnits: 1 },
+    });
+  });
+
+  it('updates a cached calendar immediately when the last room is held and released', async () => {
+    const f = fixture();
+    const calendar = { roomTypeId: query.roomTypeId, month: '2026-08' };
+    expect(await f.service.getAvailabilityCalendar('t1', 'p1', calendar)).toMatchObject({
+      ok: true,
+    });
+    f.pendingHolds.push({ roomTypeId: query.roomTypeId, date: query.startsOn, held: 1 });
+    const held = await f.service.getAvailabilityCalendar('t1', 'p1', calendar);
+    if (!held.ok) throw new Error('Expected calendar');
+    expect(held.value.find((d) => d.date === query.startsOn)).toMatchObject({
+      isAvailable: false,
+      availableUnits: 0,
+    });
+    expect(held.value.find((d) => d.date === '2026-08-11')).toMatchObject({
+      isAvailable: true,
+      availableUnits: 1,
+    });
+    f.pendingHolds.length = 0;
+    const released = await f.service.getAvailabilityCalendar('t1', 'p1', calendar);
+    if (!released.ok) throw new Error('Expected calendar');
+    expect(released.value.find((d) => d.date === query.startsOn)).toMatchObject({
+      isAvailable: true,
+      availableUnits: 1,
+    });
+    expect(f.request).toHaveBeenCalledTimes(2);
+  });
+
+  it('marks a room card temporarily held and restores the cached offer after release', async () => {
+    const f = fixture();
+    f.pendingHolds.push({ roomTypeId: query.roomTypeId, date: query.startsOn, held: 1 });
+    const held = await f.service.getStaySearch('t1', 'p1', [query]);
+    expect(held.details[query.roomTypeId]).toEqual({
+      available: false,
+      reason: 'temporarily_held',
+    });
+    expect(held.results[query.roomTypeId]).toMatchObject({
+      ok: false,
+      error: { code: 'CHECKOUT_HOLD_ACTIVE' },
+    });
+    f.pendingHolds.length = 0;
+    const released = await f.service.getStaySearch('t1', 'p1', [query]);
+    expect(released.details[query.roomTypeId]).toMatchObject({ available: true, freeRooms: 1 });
+  });
+
+  it('refuses to issue a new quote for the last held room', async () => {
+    const f = fixture();
+    f.pendingHolds.push({ roomTypeId: query.roomTypeId, date: query.startsOn, held: 1 });
+    expect(await f.service.getQuoteWithNightlyRates('t1', 'p1', query)).toMatchObject({
+      ok: false,
+      error: { code: 'CHECKOUT_HOLD_ACTIVE' },
+    });
+  });
+
+  it('does not subtract a checkout from its own provider pre-payment check', async () => {
+    const f = fixture();
+    f.pendingHolds.push({ roomTypeId: query.roomTypeId, date: query.startsOn, held: 1 });
+    expect(await f.service.isAvailableForBooking('t1', 'p1', query)).toEqual({
+      ok: true,
+      value: true,
+    });
+  });
+
+  it('does not offer two rooms when only one remains after local holds', async () => {
+    const f = fixture(2);
+    f.pendingHolds.push({ roomTypeId: query.roomTypeId, date: query.startsOn, held: 1 });
+    const result = await f.service.getStaySearch('t1', 'p1', [{ ...query, roomCount: 2 }]);
+    expect(result.details[query.roomTypeId]).toEqual({
+      available: false,
+      reason: 'temporarily_held',
+    });
+  });
+});
 
 describe('ClockAvailabilityService.isAvailableForBooking', () => {
   it('rejects a specific room when the verified booking overlap check finds an active conflict', async () => {
