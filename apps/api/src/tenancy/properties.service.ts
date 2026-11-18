@@ -103,7 +103,25 @@ export class PropertiesService {
     );
     // The email step needs this hotel's sending profile, which only a single-hotel read may see.
     const readiness = settingsReadiness({ ...listed, emailProviderActive });
-    return { ...readiness, attention, hidden, hotel: { ...listed, readiness } };
+    // Live problems (refunds, payments, email failures) are for the people who run Settings: the account's
+    // owners and admins, as on the dashboard. Hotel staff and restaurant staff who can open this hotel get none.
+    const manager = await this.isOwnerOrAdmin(tenantId, userId);
+    return {
+      ...readiness,
+      attention: manager ? attention : [],
+      hidden,
+      hotel: { ...listed, readiness },
+    };
+  }
+  private async isOwnerOrAdmin(tenantId: string, userId: string): Promise<boolean> {
+    const rows = await this.database.withTenantTransaction(
+      { tenantId },
+      (tx) =>
+        tx.$queryRaw<Array<{ manager: boolean }>>`
+        SELECT EXISTS(SELECT 1 FROM tenant_memberships WHERE tenant_id=${tenantId}::uuid
+          AND user_id=${userId}::uuid AND role IN ('OWNER','ADMIN')) AS manager`,
+    );
+    return rows[0]?.manager === true;
   }
   /** "Hide for now" on the setup guide, or "Got it" on the ready notice, for this person and hotel. */
   async setSettingsOverviewHidden(
