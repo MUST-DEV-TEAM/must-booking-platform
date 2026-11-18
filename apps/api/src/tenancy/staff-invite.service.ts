@@ -28,6 +28,8 @@ export interface StaffInvite {
   membershipRole?: 'OWNER' | 'STAFF';
 }
 
+const INVITED_EMAIL_REQUIRED = 'Use the email address this invitation was sent to.';
+
 /** Set when a platform account (not a hotel user) sends the invitation. */
 export interface InviteSender {
   email: string;
@@ -346,10 +348,12 @@ Sign in: ${signInLink}`,
   }
 
   async accept(token: string, userId: string): Promise<void> {
-    const invite = await this.consumeInvite(token);
+    const invite = await this.readInvite(token);
     await this.database.withTenantTransaction({ tenantId: invite.tenantId }, async (tx) => {
       await this.ensureStaffSeatAvailable(tx, invite.tenantId, { userId });
       await this.assignInvitation(tx, invite, userId);
+      // Used up only once every check passed (task 39-10b), still inside the transaction so a race rolls back.
+      await this.consumeInvite(token);
     });
   }
 
@@ -360,12 +364,16 @@ Sign in: ${signInLink}`,
       );
     }
     const userId = randomUUID();
-    const invite = await this.consumeInvite(token);
+    const invite = await this.readInvite(token);
+    // The new account belongs to the invited address only (task 39-10b, MBA-107); a mismatch keeps the invitation.
+    if (email.trim().toLowerCase() !== invite.email.trim().toLowerCase())
+      throw new BadRequestException(INVITED_EMAIL_REQUIRED);
     try {
       await this.database.withTenantTransaction({ tenantId: invite.tenantId }, async (tx) => {
-        await this.ensureStaffSeatAvailable(tx, invite.tenantId, { email });
-        await this.createActiveStaffInTransaction(tx, userId, email, password, false);
+        await this.ensureStaffSeatAvailable(tx, invite.tenantId, { email: invite.email });
+        await this.createActiveStaffInTransaction(tx, userId, invite.email, password, false);
         await this.assignInvitation(tx, invite, userId);
+        await this.consumeInvite(token);
       });
     } catch (error: unknown) {
       if (this.isUniqueEmailViolation(error)) {
@@ -483,6 +491,15 @@ Sign in: ${signInLink}`,
     return createHash('sha256').update(value).digest('hex');
   }
 
+  /** Reads an invitation without using it up, so a refused attempt leaves it valid. */
+  private async readInvite(token: string): Promise<StaffInvite> {
+    const value = await this.client().then((redis) =>
+      redis.get(`auth:staff-invite:${this.hash(token)}`),
+    );
+    if (!value) throw new BadRequestException('Invalid or expired staff invitation.');
+    return JSON.parse(value) as StaffInvite;
+  }
+
   private async consumeInvite(token: string): Promise<StaffInvite> {
     const value = await this.client().then((redis) =>
       redis.getDel(`auth:staff-invite:${this.hash(token)}`),
@@ -505,14 +522,13 @@ Sign in: ${signInLink}`,
       false,
       invite.membershipRole === 'OWNER' ? 'OWNER' : 'STAFF',
     );
+    // Every invitation belongs to the address it was sent to (task 39-10b; before, only venue invitations checked).
     // The membership makes a newly activated user visible under users RLS. A mismatch rolls back the entire transaction.
-    if (invite.venueAssignments?.length) {
-      const [user] = await tx.$queryRaw<
-        Array<{ email: string }>
-      >`SELECT email FROM users WHERE id=${userId}::uuid`;
-      if (!user || user.email.toLowerCase() !== invite.email.toLowerCase())
-        throw new BadRequestException('Sign in with the invited email address.');
-    }
+    const [user] = await tx.$queryRaw<
+      Array<{ email: string }>
+    >`SELECT email FROM users WHERE id=${userId}::uuid`;
+    if (!user || user.email.trim().toLowerCase() !== invite.email.trim().toLowerCase())
+      throw new BadRequestException(INVITED_EMAIL_REQUIRED);
     for (const assignment of invite.venueAssignments ?? []) {
       await tx.$executeRaw`INSERT INTO venue_staff_assignments(tenant_id,venue_id,user_id,role)
         VALUES(${invite.tenantId}::uuid,${assignment.venueId}::uuid,${userId}::uuid,${assignment.role})
