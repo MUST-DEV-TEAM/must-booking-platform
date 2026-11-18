@@ -122,6 +122,14 @@ Rules for every task: follow AGENTS.md and the components-only rule (check `apps
 - Custom automated emails: shaped now, built in a later phase.
 - Review links move to Contact and brand; the personal mute moves to each user's profile.
 
+## Team and roles decisions (owner, 2026-11-18)
+
+- Keep "Create account" with a password next to invitations (G-86 closed). Invitations become saved, listed, resendable and withdrawable (G-85).
+- Roles stay per hotel, as today.
+- Ownership transfer is part of the redesign (G-87).
+- Two-step sign-in: built now, governed by an account setting ("Require two-step sign-in", off by default); when on, staff must set it up at their next sign-in (G-89).
+- New permissions `integrations.manage`, `emails.manage`, `audit.view`, `reports.export` (G-68, G-90); Reservations joins the built-in roles; last sign-in shown (G-88).
+
 ## Gaps fixed after the redesign ships
 
 The scan of the designed tabs (Overview to Integrations) found G-44 to G-75 in [hardening-gaps-log.md](../audit/hardening-gaps-log.md). Owner, 2026-11-17: ship the redesign first, then fix them one by one, the High ones first (G-46, G-44, G-45, G-52).
