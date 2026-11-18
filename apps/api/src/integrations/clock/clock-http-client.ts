@@ -1,3 +1,4 @@
+import { CLOCK_HOST_NOT_ALLOWED_MESSAGE, isAllowedClockHost } from './clock-credentials';
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { Agent, request as undiciRequest } from 'undici';
 
@@ -209,6 +210,9 @@ export class ClockHttpClient implements OnModuleDestroy {
   }
 
   private buildUrl(credentials: ClockConnectionCredentials, options: ClockRequestOptions): URL {
+    // Never send a request, with its API key, anywhere but Clock (task 39-10a).
+    if (!isAllowedClockHost(credentials.host))
+      throw new ClockHttpError(CLOCK_HOST_NOT_ALLOWED_MESSAGE);
     const base = `${this.protocol}//${credentials.host}/${options.api}/${credentials.accountId}/${credentials.subscriptionId}${options.path}`;
     const url = new URL(base);
     for (const [key, value] of Object.entries(options.query ?? {})) {

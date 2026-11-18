@@ -200,6 +200,18 @@ describe('integration connections', () => {
         credentials: { apiUser: 'must_1', apiKey: 'secret-a' },
       })
       .expect(201);
+    // A Clock connection may only point at Clock's API (task 39-10a).
+    const wrongHost = await request(app!.getHttpServer())
+      .post(`${tenantUrl}/integration-connections`)
+      .set('Cookie', cookie)
+      .send({
+        kind: 'PMS',
+        provider: 'CLOCK_PMS',
+        name: 'Clock elsewhere',
+        credentials: { host: '169.254.169.254', apiUser: 'must_3', apiKey: 'secret-c' },
+      })
+      .expect(400);
+    expect(wrongHost.body.message).toMatch(/Clock's API address/);
     const clockB = await request(app!.getHttpServer())
       .post(`${tenantUrl}/integration-connections`)
       .set('Cookie', cookie)
