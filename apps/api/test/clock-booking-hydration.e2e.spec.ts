@@ -777,6 +777,97 @@ describe('Clock booking hydration', () => {
     expect(await currencyReviews('38145004')).toHaveLength(0);
   });
 
+  async function bookingAmounts(clockBookingId: string) {
+    const rows = await admin.$queryRaw<Array<{ total: string; startsOn: string; version: number }>>`
+      SELECT total_amount::text AS total, starts_on::text AS "startsOn", version FROM bookings
+      WHERE tenant_id = ${tenantId}::uuid AND external_booking_id = ${clockBookingId}
+    `;
+    return rows[0]!;
+  }
+
+  it('applies a cancellation made in Clock even though Clock sends no total, keeping the amount (gap G-36)', async () => {
+    const hydration = app!.get(ClockBookingHydrationService);
+    const live = { id: 38145010, number: '390' };
+    queuedResponses = [{ status: 200, body: realBookingDetail(live) }];
+    await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38145010');
+    expect(await bookingState('38145010')).toMatchObject({ status: 'CONFIRMED' });
+    const before = await bookingAmounts('38145010');
+
+    // Clock cancels the booking and drops its total.
+    queuedResponses = [
+      {
+        status: 200,
+        body: realBookingDetail({
+          ...live,
+          status: 'canceled',
+          total_booking_value: null,
+          updated_at: new Date(Date.now() + 1000).toISOString(),
+        }),
+      },
+    ];
+    const outcome = await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38145010');
+
+    expect(outcome).toMatchObject({ outcome: 'updated', cancelledInPms: true });
+    expect(await bookingState('38145010')).toMatchObject({
+      status: 'CANCELLED',
+      pmsStayStatus: 'canceled',
+    });
+    const after = await bookingAmounts('38145010');
+    expect(after.total).toBe(before.total);
+    expect(after.startsOn).toBe(before.startsOn);
+    expect(after.version).toBe(before.version + 1);
+    expect(await currencyReviews('38145010')).toEqual([]);
+  });
+
+  it('closes an earlier no-currency note when the cancellation is applied, and handles a repeat once', async () => {
+    const hydration = app!.get(ClockBookingHydrationService);
+    const live = { id: 38145011, number: '391' };
+    queuedResponses = [{ status: 200, body: realBookingDetail(live) }];
+    await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38145011');
+    await admin.$executeRaw`
+      INSERT INTO manual_review_items (tenant_id, property_id, category, reference_type, reference_id, message)
+      VALUES (${tenantId}::uuid, ${propertyId}::uuid, 'UNKNOWN_RESULT'::"ManualReviewCategory", 'clock_booking', '38145011',
+        'Clock booking 391 has a total with no valid currency, so its amount was not imported.')`;
+    const cancelled = realBookingDetail({
+      ...live,
+      status: 'canceled',
+      total_booking_value: null,
+      updated_at: new Date(Date.now() + 2000).toISOString(),
+    });
+    queuedResponses = [{ status: 200, body: cancelled }];
+    await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38145011');
+    const reviews = await currencyReviews('38145011');
+    expect(reviews).toHaveLength(1);
+    expect(reviews[0]).toMatchObject({ status: 'RESOLVED' });
+
+    // The same event again changes nothing (already cancelled on both sides).
+    const versionBefore = (await bookingAmounts('38145011')).version;
+    queuedResponses = [{ status: 200, body: cancelled }];
+    await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38145011');
+    expect((await bookingAmounts('38145011')).version).toBe(versionBefore);
+  });
+
+  it('still refuses to change a live booking from a missing total when Clock does not cancel it', async () => {
+    const hydration = app!.get(ClockBookingHydrationService);
+    const live = { id: 38145012, number: '392' };
+    queuedResponses = [{ status: 200, body: realBookingDetail(live) }];
+    await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38145012');
+    queuedResponses = [
+      {
+        status: 200,
+        body: realBookingDetail({
+          ...live,
+          total_booking_value: { cents: 45000, currency: '' },
+          updated_at: new Date(Date.now() + 3000).toISOString(),
+        }),
+      },
+    ];
+    const outcome = await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38145012');
+    expect(outcome.outcome).toBe('unknown_status');
+    expect(await bookingState('38145012')).toMatchObject({ status: 'CONFIRMED' });
+    expect(await currencyReviews('38145012')).toEqual([{ status: 'OPEN', resolution: null }]);
+  });
+
   it('still raises a review item for a new live reservation with a real amount and no valid currency', async () => {
     const hydration = app!.get(ClockBookingHydrationService);
     queuedResponses = [
