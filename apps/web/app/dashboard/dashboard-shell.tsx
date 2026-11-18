@@ -57,6 +57,7 @@ import { MyAccount } from './my-account';
 import { ReservationDetail } from './reservation-detail';
 import { ReservationsPage } from './reservations-page';
 import { EmailSettings, isEmailTab, type EmailTab } from './email-settings';
+import { SettingsAttentionBadge } from './settings-summary';
 import { DashboardSettings, SettingsFrame, SettingsOverview } from './settings';
 import { resolveSettingsTab, settingsTabHref, type SettingsTab } from './settings-registry';
 import { DashboardNotifications, NotificationsInbox } from './notifications';
@@ -828,6 +829,9 @@ export function DashboardShell({
             tenantId={tenantId}
             propertyId={selectedProperty.id}
             tab={settingsArea}
+            overviewBadge={
+              <SettingsAttentionBadge tenantId={tenantId} propertyId={selectedProperty.id} />
+            }
             onNavigate={(next) => {
               setSettingsArea(next);
               window.history.pushState(

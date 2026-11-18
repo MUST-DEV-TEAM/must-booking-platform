@@ -21,6 +21,12 @@ import { TenantDatabaseService, type TenantTransaction } from './tenant-database
 import { AuditLogService } from './audit-log.service';
 import { PropertyRoleTemplatesService } from './property-role-templates.service';
 import { settingsReadiness, type SettingsReadiness } from './settings-readiness';
+import {
+  saveSettingsOverviewHidden,
+  settingsOverviewExtras,
+  type SettingsAttentionItem,
+  type SettingsOverviewHidden,
+} from './settings-attention';
 
 export type ClockCancelRefundPolicy = 'NEVER' | 'FREE_WINDOW' | 'ALWAYS';
 export type ClockPaymentFolio = 'DEPOSIT' | 'MAIN';
@@ -81,10 +87,34 @@ export class PropertiesService {
     tenantId: string,
     userId: string,
     propertyId: string,
-  ): Promise<SettingsReadiness & { hotel: PropertyListItem }> {
-    const hotel = (await this.list(tenantId, userId)).find((item) => item.id === propertyId);
-    if (!hotel) throw new NotFoundException('Property not found.');
-    return { ...hotel.readiness, hotel };
+  ): Promise<
+    SettingsReadiness & {
+      hotel: PropertyListItem;
+      attention: SettingsAttentionItem[];
+      hidden: SettingsOverviewHidden;
+    }
+  > {
+    const listed = (await this.listRows(tenantId, userId)).find((item) => item.id === propertyId);
+    if (!listed) throw new NotFoundException('Property not found.');
+    const { emailProviderActive, attention, hidden } = await settingsOverviewExtras(
+      this.database,
+      { tenantId, propertyId },
+      userId,
+    );
+    // The email step needs this hotel's sending profile, which only a single-hotel read may see.
+    const readiness = settingsReadiness({ ...listed, emailProviderActive });
+    return { ...readiness, attention, hidden, hotel: { ...listed, readiness } };
+  }
+  /** "Hide for now" on the setup guide, or "Got it" on the ready notice, for this person and hotel. */
+  async setSettingsOverviewHidden(
+    tenantId: string,
+    userId: string,
+    propertyId: string,
+    input: unknown,
+  ): Promise<SettingsOverviewHidden> {
+    if ((await this.listRows(tenantId, userId)).every((item) => item.id !== propertyId))
+      throw new NotFoundException('Property not found.');
+    return saveSettingsOverviewHidden(this.database, { tenantId, propertyId }, userId, input);
   }
   private listRows(
     tenantId: string,

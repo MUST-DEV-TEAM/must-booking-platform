@@ -40,6 +40,8 @@ describe('DashboardSettings', () => {
       vi.fn(async (url: string) => {
         if (url.endsWith('/exchange-rates'))
           return Response.json({ base: 'EUR', version: '0', displayCurrencies: null, rates: [] });
+        if (url.endsWith('/settings-summary/hidden'))
+          return Response.json({ setupGuide: true, readyNotice: false });
         if (url.endsWith('/settings-summary')) {
           const step = (key: string, tab: string, label: string, status: string, note: string) => ({
             key,
@@ -87,7 +89,32 @@ describe('DashboardSettings', () => {
                 'todo',
                 'The hotel website is not connected yet.',
               ),
+              {
+                ...step(
+                  'email',
+                  'emails',
+                  'Connect your email provider',
+                  'todo',
+                  "Guest emails are sent from MUST's address.",
+                ),
+                optional: true,
+              },
             ],
+            attention: [
+              {
+                key: 'payments-test:STRIPE',
+                label: 'Stripe is in Test mode',
+                note: 'Guests cannot really pay online.',
+                link: { tab: 'payment-methods' },
+              },
+              {
+                key: 'cancellation-requests',
+                label: '2 cancellation requests wait for a decision',
+                note: 'Approve or decline them.',
+                link: { section: 'overview', extra: 'tab=needs-attention' },
+              },
+            ],
+            hidden: { setupGuide: false, readyNotice: false },
           });
         }
         return new Response(JSON.stringify([]));
@@ -130,6 +157,17 @@ describe('DashboardSettings', () => {
         ),
       ).not.toBeNull();
     expect(container.querySelector('a[href*="settingsArea=general"]')).toBeNull();
+    // The recommended email step counts in the guide but does not decide "ready".
+    expect(text).toContain('Connect your email provider (recommended)');
+    // Live problems from the server, each with the place that fixes it.
+    expect(text).toContain('Needs attention 2');
+    expect(text).toContain('Stripe is in Test mode');
+    expect(text).toContain('2 cancellation requests wait for a decision');
+    expect(
+      container.querySelector(
+        'a[href="/dashboard/t?propertyId=p&section=overview&tab=needs-attention"]',
+      ),
+    ).not.toBeNull();
     // Real status, not decoration: the demo hotel has no website yet.
     expect(text).toContain('Set up your hotel');
     expect(text).toContain('Settings at a glance');
@@ -147,7 +185,13 @@ describe('DashboardSettings', () => {
       (b) => b.textContent === 'Hide for now',
     )!;
     await act(async () => hide.click());
-    expect(container.textContent).toContain('Setup: 4 of 5');
+    // Saved for this person on the server, not in one browser.
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.find(([url]) => String(url).endsWith('/settings-summary/hidden'))?.[1],
+    ).toMatchObject({ method: 'PATCH', body: JSON.stringify({ setupGuide: true }) });
+    expect(container.textContent).toContain('Setup: 4 of 6 done · Show');
     expect(container.textContent).not.toContain('Set up your hotel');
     expect(text).toContain('The hotel website is not connected yet.');
     // Old area names from saved links land on their new tab; unknown and unbuilt ones on the overview.

@@ -40,6 +40,38 @@ describe('settingsReadiness', () => {
     expect(settingsReadiness(paired).ready).toBe(true);
   });
 
+  it('asks for guest contact details when a reader loads them, and leaves the step out otherwise', () => {
+    const ready = {
+      ...hotel,
+      publicWebsiteOrigin: 'https://hotel.test',
+      wordpressConnectedAt: '2026-10-01',
+    };
+    const noContact = { ...ready, supportEmail: null, phone: '+355691234567' };
+    expect(status(noContact, 'contact')).toBe('todo');
+    expect(settingsReadiness(noContact).ready).toBe(false);
+    const contact = { ...noContact, supportEmail: 'stay@hotel.test' };
+    expect(status(contact, 'contact')).toBe('done');
+    expect(settingsReadiness(contact).ready).toBe(true);
+    expect(settingsReadiness(ready).steps.some((step) => step.key === 'contact')).toBe(false);
+  });
+
+  it('recommends an own email provider without making it decide "ready"', () => {
+    const ready = {
+      ...hotel,
+      publicWebsiteOrigin: 'https://hotel.test',
+      wordpressConnectedAt: '2026-10-01',
+    };
+    const onMust = settingsReadiness({ ...ready, emailProviderActive: false });
+    expect(onMust.steps.find((step) => step.key === 'email')).toMatchObject({
+      status: 'todo',
+      optional: true,
+      tab: 'emails',
+    });
+    expect(onMust.ready).toBe(true);
+    expect(status({ ...ready, emailProviderActive: true }, 'email')).toBe('done');
+    expect(settingsReadiness(ready).steps.some((step) => step.key === 'email')).toBe(false);
+  });
+
   it('counts an online method only when its provider is connected and enabled', () => {
     const online = {
       ...hotel,

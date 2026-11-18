@@ -309,7 +309,7 @@ Each step includes its backend: additive, re-runnable migrations with rollback n
 | Step | Content | Gaps it closes as part of the design |
 | --- | --- | --- |
 | S0 | Foundations: settings registry (R-A), settings layout and side menu, redirect map, shared rule set (browser and API), per-area update endpoints with one shared column list (P13), settings summary endpoint replacing the browser `areaHealth` (G-65), managed field component, clean-up (`IntegrationsManagement`, `@must/ui` in Settings; P9, P12, G-71) | G-64 (server checks verified email for settings), G-65, G-71 |
-| S1 | Overview: setup guide, needs attention, at a glance, find a setting | |
+| S1 | Overview: setup guide, needs attention, at a glance, find a setting. **S1b (2026-11-18, catch-up after the owner's review):** live problems in Needs attention (failing integration, no Clock updates for 48 h, payments in Test mode, waiting cancellation requests and refunds, currency conflict, undelivered or stuck emails), Contact details and the recommended email provider step in the setup guide, Hide for now and the one-time ready notice saved per person (`settings_overview_dismissals`), count next to Overview in the menu | |
 | S2 | Profile, with year picker, language multi-select, currency select, map pin (needs the Google key) | G-57, G-58 (fields wired up), G-59 |
 | S3 | Contact and brand, with image upload and crop, live preview, online profiles | G-60, G-61, G-94 |
 | S4 | Booking rules, enforced in the booking check | G-62 |
