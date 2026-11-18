@@ -9,6 +9,12 @@ import { RoomEditorDialog, RoomTypeEditorDialog } from './room-management-dialog
 import { DashboardQueryProvider } from '../query-provider';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+class NoopObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+globalThis.ResizeObserver ??= NoopObserver as unknown as typeof ResizeObserver;
 afterEach(() => {
   vi.unstubAllGlobals();
   window.history.replaceState({}, '', '/');
@@ -150,7 +156,8 @@ describe('RoomManagement', () => {
     );
     await act(async () => root.unmount());
   });
-  it('locks Clock-owned type fields and preserves editable local description', async () => {
+  it('locks the Clock-owned name and lets the hotel confirm capacity (task 40-4b)', async () => {
+    const onSave = vi.fn();
     const root = createRoot(document.createElement('div'));
     await act(async () =>
       root.render(
@@ -166,6 +173,9 @@ describe('RoomManagement', () => {
             mainImageUrl: null,
             galleryImageUrls: [],
             maxOccupancy: 2,
+            capacityConfirmedAt: null,
+            clockRateCapacity: 2,
+            mostBookedGuests: 5,
             status: 'PUBLISHED',
           },
           images: [],
@@ -176,17 +186,31 @@ describe('RoomManagement', () => {
           open: true,
           saving: false,
           onOpenChange: vi.fn(),
-          onSave: vi.fn(),
+          onSave,
         }),
       ),
     );
     expect(document.body.textContent).toContain('Managed in Clock');
     expect((document.querySelector('#room-type-name') as HTMLInputElement).disabled).toBe(true);
     expect((document.querySelector('#room-type-max-occupancy') as HTMLInputElement).disabled).toBe(
-      true,
+      false,
     );
     expect((document.querySelector('#room-type-description') as HTMLTextAreaElement).disabled).toBe(
       false,
+    );
+    // The higher suggestion wins: 5 guests were booked although the Clock rates allow 2.
+    expect(document.body.textContent).toContain('Suggested: 5 guests');
+    expect(document.body.textContent).toContain('Not confirmed yet');
+    const useSuggestion = [...document.querySelectorAll('button')].find(
+      (button) => button.textContent === 'Use 5',
+    )!;
+    await act(async () => useSuggestion.click());
+    await act(async () => (document.querySelector('[role="checkbox"]') as HTMLElement).click());
+    await act(async () =>
+      (document.querySelector('button[type="submit"]') as HTMLButtonElement).click(),
+    );
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ maxOccupancy: '5', capacityConfirmed: true }),
     );
     await act(async () => root.unmount());
   });
