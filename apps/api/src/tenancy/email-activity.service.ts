@@ -434,7 +434,7 @@ export class EmailActivityService {
         domainAuthentication:
           sender &&
           sender.mode === sender.activeMode &&
-          sender.mode !== 'SMTP' &&
+          sender.mode === 'RESEND' &&
           sender.status === 'verified'
             ? 'VERIFIED'
             : 'UNKNOWN',
