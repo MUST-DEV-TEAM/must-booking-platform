@@ -113,6 +113,15 @@ Rules for every task: follow AGENTS.md and the components-only rule (check `apps
 ### R11. Wording pass
 - Read every label, hint and empty state in the new areas aloud; short, plain, no internal terms (`origin`, `folio` without explanation, `inventory`, `managed pages`). Use the `design:ux-copy` checklist. Albanian strings follow the same keys if the dashboard is translated.
 
+## Emails decisions (owner, 2026-11-18)
+
+- Emails lives in Settings under Communication, with four tabs: Guest emails, Staff notifications, Sending (summary, display name, reply-to; credentials in Integrations), Delivery log (blocked addresses as a filter).
+- Booking and payment guest emails are always sent; only stay emails have a switch (G-77).
+- Guests get emails in the language they booked in, falling back to the hotel default (G-78).
+- Only bookings made in MUST (website or staff) get guest emails; PMS-imported bookings get none (G-82).
+- Custom automated emails: shaped now, built in a later phase.
+- Review links move to Contact and brand; the personal mute moves to each user's profile.
+
 ## Gaps fixed after the redesign ships
 
 The scan of the designed tabs (Overview to Integrations) found G-44 to G-75 in [hardening-gaps-log.md](../audit/hardening-gaps-log.md). Owner, 2026-11-17: ship the redesign first, then fix them one by one, the High ones first (G-46, G-44, G-45, G-52).
