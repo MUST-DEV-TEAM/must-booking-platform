@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import {
+  ALBANIA_REGIONS,
   COUNTRY_CODES,
   DESCRIPTION_MAX,
   PROFILE_FIELD_KEYS,
@@ -64,7 +65,6 @@ export const hotelSettingGroups: Record<
           ]),
           hint: 'Shared by everyone working in this hotel.',
         },
-        { key: 'country', label: 'Country', kind: 'country' },
         { key: 'defaultCurrency', label: 'Default currency', kind: 'currency' },
         {
           key: 'languages',
@@ -94,6 +94,57 @@ export const hotelSettingGroups: Record<
           label: 'Reservations email',
           hint: 'Stored separately from the support email used by existing booking emails.',
           max: 254,
+        },
+      ],
+    },
+    {
+      title: 'Location',
+      description: 'Where the hotel is. The street address is in Hotel identity above.',
+      fields: [
+        { key: 'addressLine2', label: 'Address line 2', max: 200, hint: 'Optional.' },
+        { key: 'city', label: 'City', max: 100 },
+        { key: 'country', label: 'Country', kind: 'country' },
+        {
+          key: 'region',
+          label: 'Region',
+          kind: 'region',
+          max: 100,
+          optionsByCountry: { AL: ALBANIA_REGIONS },
+          hint: 'Albania: choose the county.',
+        },
+        { key: 'postalCode', label: 'Postal code', max: 20, hint: 'Albania: 4 digits.' },
+        {
+          key: 'latitude',
+          label: 'Latitude',
+          kind: 'decimal',
+          hint: 'Optional. From -90 to 90, up to 6 decimals.',
+        },
+        {
+          key: 'longitude',
+          label: 'Longitude',
+          kind: 'decimal',
+          hint: 'Optional. From -180 to 180, up to 6 decimals.',
+        },
+        {
+          key: 'directions',
+          label: 'Directions',
+          kind: 'textarea',
+          max: 300,
+          counter: true,
+          hint: 'Shown in the confirmation email, for example how to find the entrance.',
+        },
+        {
+          key: 'nearestAirportCode',
+          label: 'Nearest airport',
+          max: 3,
+          placeholder: 'TIA',
+          hint: '3-letter airport code.',
+        },
+        {
+          key: 'nearestAirportKm',
+          label: 'Distance to the airport (km)',
+          kind: 'decimal',
+          hint: '0 to 500, one decimal.',
         },
       ],
     },
@@ -315,6 +366,8 @@ export function useHotelSettings(
   const typed = (key: string): unknown => {
     const v = values[key];
     if (key === 'yearOpened' || key === 'yearRenovated') return v === '' ? null : Number(v);
+    if (key === 'latitude' || key === 'longitude' || key === 'nearestAirportKm')
+      return typeof v === 'string' ? normaliseProfileValue(key, v) : v;
     return typeof v === 'string' ? normaliseProfileValue(key as ProfileFieldKey, v) : v;
   };
   for (const key of PROFILE_FIELD_KEYS) {
