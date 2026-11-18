@@ -525,6 +525,40 @@ describe('DashboardSettings', () => {
     await act(async () => root.unmount());
   });
 
+  it('checks online profiles against their site and warns about low-contrast colours', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async (url: string) =>
+          new Response(
+            JSON.stringify(
+              url.endsWith('/properties')
+                ? [property]
+                : url.endsWith('/plan-usage')
+                  ? { plan: { name: 'Free' } }
+                  : [],
+            ),
+          ),
+      ),
+    );
+    const { container, root } = await mount('contact-brand');
+    const save = () =>
+      Array.from(container.querySelectorAll('button')).find(
+        (b) => b.textContent === 'Save changes',
+      );
+    await value(container.querySelector('#branding-profile-facebook')!, 'https://evil.com/x');
+    expect(container.textContent).toContain('not a Facebook address');
+    expect(save()!.disabled).toBe(true);
+    await value(
+      container.querySelector('#branding-profile-facebook')!,
+      'https://facebook.com/demo',
+    );
+    expect(save()!.disabled).toBe(false);
+    await value(container.querySelector('#branding-accentColour')!, '#ffee00');
+    expect(container.textContent).toContain('White text is hard to read on the accent colour');
+    await act(async () => root.unmount());
+  });
+
   it('refuses all payment methods off and discards the draft', async () => {
     property = { ...property, paymentGateways: { payAtHotel: true, stripe: false, pokpay: false } };
     const fetch = vi.fn(

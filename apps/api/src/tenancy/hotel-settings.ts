@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { BadRequestException } from '@nestjs/common';
 import {
   COUNTRY_CODES,
+  normaliseOnlineProfiles,
   LANGUAGE_CODES,
   NUMBER_FORMATS,
   TIME_FORMATS,
@@ -44,6 +45,8 @@ export type HotelSettings = {
   nearestAirportKm?: number | null;
   phone?: string | null;
   supportEmail?: string | null;
+  accentColour?: string | null;
+  onlineProfiles?: Record<string, string>;
   whatsappSameAsPhone?: boolean;
   whatsappNumber?: string | null;
   afterHoursPhone?: string | null;
@@ -87,6 +90,8 @@ export const hotelFields = [
   { key: 'receptionOpen24h', column: 'reception_open_24h', kind: 'profile', max: 0 },
   { key: 'receptionFrom', column: 'reception_from', kind: 'profile', max: 5 },
   { key: 'receptionTo', column: 'reception_to', kind: 'profile', max: 5 },
+  { key: 'accentColour', column: 'accent_colour', kind: 'profile', max: 7 },
+  { key: 'onlineProfiles', column: 'online_profiles', kind: 'profiles', max: 0 },
   { key: 'description', column: 'description', kind: 'profile', max: 1000 },
   { key: 'starRating', column: 'star_rating', kind: 'stars', max: 0 },
   { key: 'chainName', column: 'chain_name', kind: 'profile', max: 120 },
@@ -140,7 +145,12 @@ export function hotelInput(raw: Record<string, unknown>): HotelSettings {
     const bad = (message: string): never => {
       throw new BadRequestException(message);
     };
-    if (f.kind === 'profile') {
+    if (f.kind === 'profiles') {
+      const result = normaliseOnlineProfiles(v);
+      const first = Object.values(result.errors)[0];
+      if (first) bad(first);
+      v = result.value;
+    } else if (f.kind === 'profile') {
       const key = f.key as ProfileFieldKey;
       v = normaliseProfileValue(key, v);
       const message = checkProfileField(key, v, {
@@ -261,7 +271,7 @@ export function hotelUpdates(input: HotelSettings) {
       .filter((f) => Object.hasOwn(input, f.key))
       .map(
         (f) =>
-          Prisma.sql`${Prisma.raw(f.column)}=${f.kind === 'languages' ? Prisma.sql`ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(input[f.key])}::jsonb))` : input[f.key]}`,
+          Prisma.sql`${Prisma.raw(f.column)}=${f.kind === 'languages' ? Prisma.sql`ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(input[f.key])}::jsonb))` : f.kind === 'profiles' ? Prisma.sql`${JSON.stringify(input[f.key])}::jsonb` : input[f.key]}`,
       ),
   );
 }

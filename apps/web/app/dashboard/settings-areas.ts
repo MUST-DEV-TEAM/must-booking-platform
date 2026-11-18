@@ -43,6 +43,8 @@ export type Property = {
   receptionOpen24h?: boolean;
   receptionFrom?: string | null;
   receptionTo?: string | null;
+  accentColour?: string | null;
+  onlineProfiles?: Record<string, string>;
   allowSameDayBooking?: boolean;
   sameDayCutoffTime?: string | null;
   maxGuestsPerBooking?: number | null;
