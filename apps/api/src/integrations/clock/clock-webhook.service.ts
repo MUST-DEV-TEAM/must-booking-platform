@@ -275,6 +275,21 @@ export class ClockWebhookService {
         // request.
         return;
       }
+      // Clear the old lineage's owner BEFORE the new job exists (gap G-27): the
+      // other order let the new job's worker run first, see the stale higher
+      // generation, step aside, and leave the row stuck once the reset landed.
+      const reset = await this.resetForJobRecreation(
+        connection.tenantId,
+        propertyId,
+        eventRowId,
+        snapshot,
+      );
+      if (!reset) {
+        this.logger.debug(
+          `provider_events row ${eventRowId}'s ownership changed concurrently with job recreation — leaving the newer state in place.`,
+        );
+        return;
+      }
       await this.queues.enqueue(
         'clock.webhooks',
         'hydrate-event',
@@ -286,16 +301,6 @@ export class ClockWebhookService {
         },
         { ...HYDRATE_EVENT_JOB_OPTIONS, jobId },
       );
-      const reset = await this.resetForJobRecreation(
-        connection.tenantId,
-        propertyId,
-        eventRowId,
-        snapshot,
-      );
-      if (!reset)
-        this.logger.debug(
-          `provider_events row ${eventRowId}'s ownership changed concurrently with job recreation — leaving the newer state in place.`,
-        );
     } catch (error) {
       // The event already committed durably to provider_events before this
       // call — a failure anywhere in this sequence (the snapshot read, the

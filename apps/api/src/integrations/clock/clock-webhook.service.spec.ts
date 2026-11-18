@@ -351,7 +351,7 @@ describe('ClockWebhookService — durable event storage and BullMQ-state-aware e
     expect(queues.reconcileJob).not.toHaveBeenCalled();
   });
 
-  it('still returns 200 and does not mark the row QUEUED when the enqueue call itself fails', async () => {
+  it('still returns 200 when the enqueue call itself fails, leaving the row unowned for the sweep', async () => {
     const { service, queues, tenantTx } = makeService({
       insertedRow: { id: 'row-6' },
       reconcileJob: 'missing',
@@ -362,10 +362,34 @@ describe('ClockWebhookService — durable event storage and BullMQ-state-aware e
 
     expect(result).toEqual({ status: 200 });
     expect(queues.enqueue).toHaveBeenCalledOnce();
+    // Only the ownership reset ran (before the enqueue, gap G-27); nothing marks it owned or finished.
     const statusUpdateCalls = tenantTx.$executeRawUnsafe.mock.calls.filter((call: unknown[]) =>
       String(call[0]).includes('provider_events'),
     );
-    expect(statusUpdateCalls).toHaveLength(0);
+    expect(statusUpdateCalls).toHaveLength(1);
+    expect(String(statusUpdateCalls[0]![0])).toContain('processing_token = NULL');
+  });
+
+  it('clears the old owner before creating the replacement job, and creates none when that reset loses a race (gap G-27)', async () => {
+    const order: string[] = [];
+    const ordered = makeService({ insertedRow: { id: 'row-6b' }, reconcileJob: 'missing' });
+    ordered.tenantTx.$executeRawUnsafe.mockImplementation(async (sql: string) => {
+      if (sql.includes('processing_token = NULL')) order.push('reset');
+      return 1;
+    });
+    ordered.queues.enqueue.mockImplementation(async () => {
+      order.push('enqueue');
+    });
+    await ordered.service.handle('webhook-1', envelope(), 100);
+    expect(order).toEqual(['reset', 'enqueue']);
+
+    const lost = makeService({
+      insertedRow: { id: 'row-6c' },
+      reconcileJob: 'missing',
+      executeRowCount: 0,
+    });
+    await lost.service.handle('webhook-1', envelope(), 100);
+    expect(lost.queues.enqueue).not.toHaveBeenCalled();
   });
 
   it('still returns 200 and does not enqueue when reconcileJob itself fails (Redis unavailable)', async () => {

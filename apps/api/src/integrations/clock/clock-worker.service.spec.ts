@@ -557,6 +557,21 @@ describe('ClockWorkerService — provider_events recovery sweep (BullMQ job-stat
     expect(lastCall[3]).toEqual(['RECEIVED', 'QUEUED']);
     expect(lastCall[4]).toBeNull(); // snapshotted processing_token — unclaimed
     expect(lastCall[5]).toBeNull(); // snapshotted processing_attempt
+    // Gap G-27: the reset lands before the replacement job exists.
+    expect(transaction.$executeRawUnsafe.mock.invocationCallOrder.at(-1)!).toBeLessThan(
+      queues.enqueue.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it('creates no replacement job when the ownership reset loses a race (gap G-27)', async () => {
+    const { worker, queues } = makeWorker(undefined, {
+      stuckRows: [stuckRow],
+      reconcileJob: async () => 'missing',
+      executeRowCount: 0,
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (worker as any).process('clock.webhooks', fakeJob('sweep-1b', 'sweep-stuck-events', {}));
+    expect(queues.enqueue).not.toHaveBeenCalled();
   });
 
   it('does not re-enqueue and marks FAILED (allowedFrom RECEIVED/QUEUED) when reconcileJob reports the job already failed (exhausted attempts)', async () => {

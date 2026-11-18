@@ -170,9 +170,21 @@ export interface RecreateJobResetParams {
 
 /**
  * Resets processing_token/processing_attempt to NULL and marks the row
- * QUEUED after ingestion or the sweep creates a brand-new BullMQ job for a
- * row whose previous job's lineage had disappeared — but as a real
+ * QUEUED when ingestion or the sweep is about to create a brand-new BullMQ
+ * job for a row whose previous job's lineage had disappeared — but as a real
  * compare-and-swap against a specific prior snapshot, never a blind write.
+ *
+ * Order (gap G-27, 2026-11-18): the reset runs BEFORE `queue.add()`, and the
+ * job is only created when the reset landed. The earlier order (add, then
+ * reset) had a lost wake-up: the new job's worker could claim first, be
+ * rejected by the stale higher generation (generation 1 < the old 9), finish
+ * without work, and the reset landing afterwards left an unowned QUEUED row
+ * whose job had already completed. Resetting first means no new-lineage
+ * claim can exist yet, so the reset can never erase one; a concurrent
+ * recreator that loses the compare-and-swap creates no job (the winner
+ * does, and `add()` dedups the deterministic jobId anyway). If `add()` then
+ * fails, the row is QUEUED with no owner and no job, which the sweep
+ * recreates after its grace period.
  *
  * A blind, unconditional reset here (the design this replaces) had a real
  * bug: recreation is not one atomic step. Between "detect the job is
