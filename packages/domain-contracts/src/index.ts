@@ -605,3 +605,4 @@ export interface UpdateNotificationTopicCommand {
 export * from './capture';
 
 export * from './hotel-profile-rules';
+export * from './booking-window-rules';

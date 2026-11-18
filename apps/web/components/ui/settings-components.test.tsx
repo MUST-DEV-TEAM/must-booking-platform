@@ -33,9 +33,9 @@ describe('settings status and checks', () => {
     expect(validateRules({ ...base, minStayNights: '9' }).minStayNights).toContain(
       'cannot be longer',
     );
-    expect(validateRules({ ...base, maxStayNights: '0' }).maxStayNights).toContain('1 or more');
+    expect(validateRules({ ...base, maxStayNights: '0' }).maxStayNights).toContain('1 to 365');
     expect(validateRules({ ...base, advanceBookingDays: '-1' }).advanceBookingDays).toContain(
-      '0 or more',
+      '1 to 730',
     );
     expect(
       validateRules({ ...base, freeCancellationDaysBeforeArrival: '' })

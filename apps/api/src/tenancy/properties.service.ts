@@ -16,7 +16,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { checkProfileField, normaliseProfileValue } from '@must/domain-contracts';
+import {
+  checkBookingLimit,
+  checkProfileField,
+  normaliseProfileValue,
+} from '@must/domain-contracts';
 import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
 import { AuditLogService } from './audit-log.service';
 import { PropertyRoleTemplatesService } from './property-role-templates.service';
@@ -627,15 +631,9 @@ export class PropertiesService {
       if (!has(key)) return undefined;
       const number = value[key];
       if (number === null) return null;
-      if (
-        typeof number !== 'number' ||
-        !Number.isInteger(number) ||
-        (key === 'advanceBookingDays' ? number < 0 : number < 1)
-      )
-        throw new BadRequestException(
-          `${key} must be ${key === 'advanceBookingDays' ? 'a non-negative' : 'a positive'} integer or null.`,
-        );
-      return number;
+      const message = checkBookingLimit(key, number);
+      if (message) throw new BadRequestException(message);
+      return number as number | undefined;
     };
     const freeCancellationDaysBeforeArrival = (() => {
       if (!has('freeCancellationDaysBeforeArrival')) return undefined;

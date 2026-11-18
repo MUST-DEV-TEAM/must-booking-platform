@@ -1,3 +1,4 @@
+import { checkBookingLimit } from '@must/domain-contracts';
 /** The Settings areas, how healthy each one looks, and the checks the forms run before saving. */
 export type PaymentGateways = { stripe: boolean; pokpay: boolean; payAtHotel: boolean };
 export type BookingMode = 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
@@ -43,6 +44,11 @@ export type Property = {
   receptionOpen24h?: boolean;
   receptionFrom?: string | null;
   receptionTo?: string | null;
+  minNoticeHours?: number | null;
+  seasonOpenFrom?: string | null;
+  seasonOpenTo?: string | null;
+  arrivalDays?: number[];
+  departureDays?: number[];
   accentColour?: string | null;
   onlineProfiles?: Record<string, string>;
   allowSameDayBooking?: boolean;
@@ -191,12 +197,17 @@ export type RulesDraft = {
 /** Plain-words problems with the stay limits; an empty object means they can be saved. */
 export function validateRules(draft: RulesDraft): Partial<Record<keyof RulesDraft, string>> {
   const errors: Partial<Record<keyof RulesDraft, string>> = {};
+  const asNumber = (text: string) => (/^\d+$/.test(text) ? Number(text) : NaN);
   const min = draft.minStayNights.trim();
   const max = draft.maxStayNights.trim();
-  if (min !== '' && (!wholeNumber(min) || Number(min) < 1))
-    errors.minStayNights = 'Use a whole number of nights, 1 or more.';
-  if (max !== '' && (!wholeNumber(max) || Number(max) < 1))
-    errors.maxStayNights = 'Use a whole number of nights, 1 or more.';
+  if (min !== '') {
+    const message = checkBookingLimit('minStayNights', asNumber(min));
+    if (message) errors.minStayNights = message;
+  }
+  if (max !== '') {
+    const message = checkBookingLimit('maxStayNights', asNumber(max));
+    if (message) errors.maxStayNights = message;
+  }
   if (
     !errors.minStayNights &&
     !errors.maxStayNights &&
@@ -206,8 +217,10 @@ export function validateRules(draft: RulesDraft): Partial<Record<keyof RulesDraf
   )
     errors.minStayNights = 'The minimum stay cannot be longer than the maximum stay.';
   const advance = draft.advanceBookingDays.trim();
-  if (advance !== '' && !wholeNumber(advance))
-    errors.advanceBookingDays = 'Use a whole number of days, 0 or more.';
+  if (advance !== '') {
+    const message = checkBookingLimit('advanceBookingDays', asNumber(advance));
+    if (message) errors.advanceBookingDays = message;
+  }
   const cancel = draft.freeCancellationDaysBeforeArrival.trim();
   if (cancel === '' || !wholeNumber(cancel))
     errors.freeCancellationDaysBeforeArrival = 'Use a whole number of days, 0 or more.';

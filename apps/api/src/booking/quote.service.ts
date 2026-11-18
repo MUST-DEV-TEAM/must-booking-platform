@@ -23,6 +23,7 @@ import {
 } from './promo-code.service';
 import { evaluateBookingRules, sameDayBookingViolation, rangeViolation } from './booking-rules';
 import { enforcedRoomCapacity, isClockManagedProperty } from './clock-managed-property';
+import { bookingPolicyColumns } from './booking-policy-columns';
 export { propertyClock, isSameDayBookingClosed } from './booking-rules';
 
 export type QuoteInput = {
@@ -598,8 +599,7 @@ export class QuoteService {
           maxRoomsPerBooking: number | null;
         }>
       >`
-        SELECT min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
-          advance_booking_days AS "advanceBookingDays", timezone,same_day_booking_allowed AS "sameDayBookingAllowed",same_day_cutoff_time AS "sameDayCutoffTime",max_guests_per_booking AS "maxGuestsPerBooking",max_rooms_per_booking AS "maxRoomsPerBooking"
+        SELECT ${bookingPolicyColumns}
         FROM properties WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid
       `;
       if (!properties[0]) throw new NotFoundException('Property was not found.');

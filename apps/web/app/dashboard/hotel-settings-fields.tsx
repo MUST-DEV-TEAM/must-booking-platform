@@ -2,6 +2,11 @@
 import { useEffect, useState } from 'react';
 import {
   ALBANIA_REGIONS,
+  BOOKING_LIMIT_RANGES,
+  checkBookingLimit,
+  checkSeason,
+  checkWeekdays,
+  type BookingLimitKey,
   COMMON_LANGUAGE_CODES,
   COUNTRY_CODES,
   LANGUAGE_CODES,
@@ -248,6 +253,44 @@ export const hotelSettingGroups: Record<
   ],
   'booking-rules': [
     {
+      title: 'Booking notice and season',
+      description:
+        'How early guests must book, and the time of year the hotel takes bookings. Leave empty for no limit.',
+      fields: [
+        {
+          key: 'minNoticeHours',
+          label: 'Book at least (hours before check-in day)',
+          kind: 'number',
+          hint: '0 to 720 hours. 24 means the day before at the latest.',
+        },
+        {
+          key: 'seasonOpenFrom',
+          label: 'Open from',
+          kind: 'monthday',
+          hint: 'Leave both dates empty to be open all year.',
+        },
+        { key: 'seasonOpenTo', label: 'Open until', kind: 'monthday' },
+      ],
+    },
+    {
+      title: 'Arrival and departure days',
+      description: 'Guests can only arrive and leave on the days switched on. At least one day.',
+      fields: [
+        {
+          key: 'arrivalDays',
+          label: 'Arrival days',
+          kind: 'weekdays',
+          defaultValue: ['1', '2', '3', '4', '5', '6', '7'],
+        },
+        {
+          key: 'departureDays',
+          label: 'Departure days',
+          kind: 'weekdays',
+          defaultValue: ['1', '2', '3', '4', '5', '6', '7'],
+        },
+      ],
+    },
+    {
       title: 'Same-day booking',
       description: 'Applied to guests and staff, using the hotel time zone.',
       fields: [
@@ -270,8 +313,18 @@ export const hotelSettingGroups: Record<
       description:
         'Limits apply to a whole booking or multi-room order, including children. Leave empty for no extra limit.',
       fields: [
-        { key: 'maxGuestsPerBooking', label: 'Maximum guests per booking', kind: 'number' },
-        { key: 'maxRoomsPerBooking', label: 'Maximum rooms per booking', kind: 'number' },
+        {
+          key: 'maxGuestsPerBooking',
+          label: 'Maximum guests per booking',
+          kind: 'number',
+          hint: '1 to 50.',
+        },
+        {
+          key: 'maxRoomsPerBooking',
+          label: 'Maximum rooms per booking',
+          kind: 'number',
+          hint: '1 to 20.',
+        },
       ],
     },
     {
@@ -368,7 +421,7 @@ export function useHotelSettings(
         return [
           f.key,
           Array.isArray(v)
-            ? v
+            ? v.map(String)
             : typeof v === 'boolean'
               ? v
               : v === null || v === undefined
@@ -387,7 +440,17 @@ export function useHotelSettings(
     const v = values[f.key];
     if (typeof v === 'string') {
       if (f.max && v.length > f.max) errors[f.key] = `Keep this to ${f.max} characters or fewer.`;
-      if (f.kind === 'number' && v && (!/^\d+$/.test(v) || Number(v) < 1 || Number(v) > 2147483647))
+      if (f.kind === 'number' && v && f.key in BOOKING_LIMIT_RANGES) {
+        const message = checkBookingLimit(
+          f.key as BookingLimitKey,
+          /^\d+$/.test(v) ? Number(v) : NaN,
+        );
+        if (message) errors[f.key] = message;
+      } else if (
+        f.kind === 'number' &&
+        v &&
+        (!/^\d+$/.test(v) || Number(v) < 1 || Number(v) > 2147483647)
+      )
         errors[f.key] = 'Enter a positive whole number, or leave empty.';
       if (f.kind === 'time' && v && !/^([01]\d|2[0-3]):[0-5]\d$/.test(v))
         errors[f.key] = 'Use a time such as 15:00.';
@@ -421,6 +484,16 @@ export function useHotelSettings(
         starRatingOfficial: Boolean(values.starRating) && values.starRatingOfficial === true,
       }),
     );
+  for (const key of ['arrivalDays', 'departureDays'])
+    if (key in values && changed(key) && checkWeekdays((values[key] as string[]).map(Number)))
+      errors[key] = 'Choose at least one day.';
+  if ((changed('seasonOpenFrom') || changed('seasonOpenTo')) && 'seasonOpenFrom' in values) {
+    const season = checkSeason(
+      String(values.seasonOpenFrom) || null,
+      String(values.seasonOpenTo) || null,
+    );
+    if (season) errors.seasonOpenTo = season;
+  }
   if (changed('languages') && Array.isArray(values.languages) && values.languages.length === 0)
     errors.languages = 'Choose at least one language.';
   if (values.country && !(COUNTRY_CODES as readonly string[]).includes(String(values.country)))
@@ -435,15 +508,17 @@ export function useHotelSettings(
     if (JSON.stringify(values[f.key]) !== JSON.stringify(saved[f.key])) {
       const v = values[f.key];
       (update as Record<string, unknown>)[f.key] =
-        f.kind === 'number' || f.kind === 'year' || f.key === 'starRating'
-          ? v === ''
-            ? null
-            : Number(v)
-          : typeof v === 'string'
-            ? (PROFILE_FIELD_KEYS as readonly string[]).includes(f.key)
-              ? (normaliseProfileValue(f.key as ProfileFieldKey, v) as string | null)
-              : v.trim() || null
-            : v;
+        f.kind === 'weekdays'
+          ? (v as string[]).map(Number).sort()
+          : f.kind === 'number' || f.kind === 'year' || f.key === 'starRating'
+            ? v === ''
+              ? null
+              : Number(v)
+            : typeof v === 'string'
+              ? (PROFILE_FIELD_KEYS as readonly string[]).includes(f.key)
+                ? (normaliseProfileValue(f.key as ProfileFieldKey, v) as string | null)
+                : v.trim() || null
+              : v;
     }
   if (update.starRating === null && saved.starRatingOfficial === true)
     update.starRatingOfficial = false;

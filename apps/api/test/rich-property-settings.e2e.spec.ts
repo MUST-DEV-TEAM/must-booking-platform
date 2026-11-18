@@ -364,6 +364,55 @@ it('enforces guests including children and rechecks new limits when an older quo
   expect(stale.status, stale.text).toBe(400);
   expect(stale.body.code).toBe('MAX_GUESTS_PER_BOOKING');
 });
+it('enforces arrival and departure days and the season in guest and staff bookings', async () => {
+  await patch({
+    maxGuestsPerBooking: null,
+    maxRoomsPerBooking: null,
+    minNoticeHours: null,
+    seasonOpenFrom: null,
+    seasonOpenTo: null,
+    arrivalDays: [1, 2, 3, 4, 5, 6, 7],
+    departureDays: [1, 2, 3, 4, 5, 6, 7],
+  }).expect(200);
+  const weekday = (date: string) => ((new Date(`${date}T00:00:00Z`).getUTCDay() + 6) % 7) + 1;
+  const arrives = weekday(stay.startsOn);
+  const departs = weekday(stay.endsOn);
+  const other = (day: number) => ((day % 7) + 1) as number;
+  const refused = async (code: string) => {
+    const quote = await request(app.getHttpServer())
+      .post(base + '/quotes')
+      .send(stay);
+    expect(quote.status, quote.text).toBe(400);
+    expect(quote.body.code).toBe(code);
+    const staff = await request(app.getHttpServer())
+      .post(base + '/staff-bookings')
+      .set('Idempotency-Key', randomUUID())
+      .send({ ...stay, guest: guestInput, paymentMethod: 'pay_at_hotel' });
+    expect(staff.status, staff.text).toBe(400);
+    expect(staff.body.code).toBe(code);
+  };
+  await patch({ arrivalDays: [other(arrives)] }).expect(200);
+  await refused('ARRIVAL_DAY_NOT_ALLOWED');
+  await patch({ arrivalDays: [arrives], departureDays: [other(departs)] }).expect(200);
+  await refused('DEPARTURE_DAY_NOT_ALLOWED');
+  await patch({ arrivalDays: [1, 2, 3, 4, 5, 6, 7], departureDays: [1, 2, 3, 4, 5, 6, 7] }).expect(
+    200,
+  );
+  // A season that ends the day before the stay starts.
+  const before = new Date(Date.parse(`${stay.startsOn}T00:00:00Z`) - 86_400_000)
+    .toISOString()
+    .slice(5, 10);
+  const earlier = new Date(Date.parse(`${stay.startsOn}T00:00:00Z`) - 10 * 86_400_000)
+    .toISOString()
+    .slice(5, 10);
+  await patch({ seasonOpenFrom: earlier, seasonOpenTo: before }).expect(200);
+  await refused('OUTSIDE_SEASON');
+  await patch({ seasonOpenFrom: null, seasonOpenTo: null }).expect(200);
+  const open = await request(app.getHttpServer())
+    .post(base + '/quotes')
+    .send(stay);
+  expect(open.status, open.text).toBe(201);
+});
 it('enforces aggregate room and guest limits before an order can hold inventory or move money', async () => {
   await patch({ maxRoomsPerBooking: 1, maxGuestsPerBooking: null }).expect(200);
   const rooms = Array.from({ length: 2 }, () => ({

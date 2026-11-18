@@ -6,6 +6,8 @@ import { Switch } from './switch';
 import { MultiSelect } from './multi-select';
 import { CountrySelect } from './country-select';
 import { Combobox } from './combobox';
+import { MonthDayField } from './month-day-field';
+import { WeekdayChips } from './weekday-chips';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from './select';
 export type SettingValue = string | boolean | string[];
 export type SettingField = {
@@ -23,7 +25,9 @@ export type SettingField = {
     | 'currency'
     | 'year'
     | 'decimal'
-    | 'region';
+    | 'region'
+    | 'monthday'
+    | 'weekdays';
   hint?: string;
   placeholder?: string;
   options?: readonly { value: string; label: string; group?: string }[];
@@ -80,9 +84,15 @@ export function SettingsFields({
                     layout={f.kind === 'boolean' ? 'toggle' : 'stack'}
                     className={
                       f.kind === 'boolean' ||
-                      !['time', 'number', 'choice', 'year', 'decimal', 'region'].includes(
-                        f.kind ?? '',
-                      )
+                      ![
+                        'time',
+                        'number',
+                        'choice',
+                        'year',
+                        'decimal',
+                        'region',
+                        'monthday',
+                      ].includes(f.kind ?? '')
                         ? 'sm:col-span-2'
                         : undefined
                     }
@@ -144,6 +154,20 @@ export function SettingsFields({
                           ).map((year) => ({ value: year, label: year })),
                         ]}
                         onChange={(value) => onChange(f.key, value)}
+                      />
+                    ) : f.kind === 'monthday' ? (
+                      <MonthDayField
+                        label={f.label}
+                        value={String(v)}
+                        disabled={locked}
+                        onChange={(value) => onChange(f.key, value)}
+                      />
+                    ) : f.kind === 'weekdays' ? (
+                      <WeekdayChips
+                        label={f.label}
+                        value={(v as string[]).map(Number)}
+                        disabled={locked}
+                        onChange={(days) => onChange(f.key, days.map(String))}
                       />
                     ) : f.kind === 'region' &&
                       f.optionsByCountry?.[String(values.country ?? '')] ? (

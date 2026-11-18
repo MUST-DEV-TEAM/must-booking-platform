@@ -2,6 +2,11 @@ import { Prisma } from '@prisma/client';
 import { BadRequestException } from '@nestjs/common';
 import {
   COUNTRY_CODES,
+  checkBookingLimit,
+  checkWeekdays,
+  checkSeason,
+  checkBookingWindow,
+  type BookingLimitKey,
   normaliseOnlineProfiles,
   LANGUAGE_CODES,
   NUMBER_FORMATS,
@@ -45,6 +50,11 @@ export type HotelSettings = {
   nearestAirportKm?: number | null;
   phone?: string | null;
   supportEmail?: string | null;
+  minNoticeHours?: number | null;
+  seasonOpenFrom?: string | null;
+  seasonOpenTo?: string | null;
+  arrivalDays?: number[];
+  departureDays?: number[];
   accentColour?: string | null;
   onlineProfiles?: Record<string, string>;
   whatsappSameAsPhone?: boolean;
@@ -91,6 +101,11 @@ export const hotelFields = [
   { key: 'receptionFrom', column: 'reception_from', kind: 'profile', max: 5 },
   { key: 'receptionTo', column: 'reception_to', kind: 'profile', max: 5 },
   { key: 'accentColour', column: 'accent_colour', kind: 'profile', max: 7 },
+  { key: 'minNoticeHours', column: 'min_notice_hours', kind: 'limit', max: 0 },
+  { key: 'seasonOpenFrom', column: 'season_open_from', kind: 'monthday', max: 5 },
+  { key: 'seasonOpenTo', column: 'season_open_to', kind: 'monthday', max: 5 },
+  { key: 'arrivalDays', column: 'arrival_days', kind: 'weekdays', max: 0 },
+  { key: 'departureDays', column: 'departure_days', kind: 'weekdays', max: 0 },
   { key: 'onlineProfiles', column: 'online_profiles', kind: 'profiles', max: 0 },
   { key: 'description', column: 'description', kind: 'profile', max: 1000 },
   { key: 'starRating', column: 'star_rating', kind: 'stars', max: 0 },
@@ -113,8 +128,8 @@ export const hotelFields = [
   { key: 'nearestAirportKm', column: 'nearest_airport_km', kind: 'profile', max: 0 },
   { key: 'allowSameDayBooking', column: 'same_day_booking_allowed', kind: 'boolean', max: 0 },
   { key: 'sameDayCutoffTime', column: 'same_day_cutoff_time', kind: 'time', max: 5 },
-  { key: 'maxGuestsPerBooking', column: 'max_guests_per_booking', kind: 'integer', max: 0 },
-  { key: 'maxRoomsPerBooking', column: 'max_rooms_per_booking', kind: 'integer', max: 0 },
+  { key: 'maxGuestsPerBooking', column: 'max_guests_per_booking', kind: 'limit', max: 0 },
+  { key: 'maxRoomsPerBooking', column: 'max_rooms_per_booking', kind: 'limit', max: 0 },
   { key: 'noShowRule', column: 'no_show_rule', kind: 'no_show', max: 0 },
   { key: 'earlyCheckInPolicy', column: 'early_check_in_policy', kind: 'arrival', max: 0 },
   { key: 'earlyCheckInUntil', column: 'early_check_in_until', kind: 'time', max: 5 },
@@ -145,7 +160,19 @@ export function hotelInput(raw: Record<string, unknown>): HotelSettings {
     const bad = (message: string): never => {
       throw new BadRequestException(message);
     };
-    if (f.kind === 'profiles') {
+    if (f.kind === 'limit') {
+      v = v === '' ? null : v;
+      const message = checkBookingLimit(f.key as BookingLimitKey, v);
+      if (message) bad(message);
+    } else if (f.kind === 'monthday') {
+      v = v === '' ? null : v;
+      if (v !== null && typeof v !== 'string') bad('Choose a real date for the season.');
+    } else if (f.kind === 'weekdays') {
+      if (Array.isArray(v)) v = [...new Set(v)];
+      const message = checkWeekdays(v);
+      if (message) bad(message);
+      v = (v as number[]).sort();
+    } else if (f.kind === 'profiles') {
       const result = normaliseOnlineProfiles(v);
       const first = Object.values(result.errors)[0];
       if (first) bad(first);
@@ -175,7 +202,7 @@ export function hotelInput(raw: Record<string, unknown>): HotelSettings {
       v = [...new Set(v as string[])].sort();
     } else if (v === null || v === '') {
       v = null;
-    } else if (f.kind === 'integer' || f.kind === 'stars') {
+    } else if (f.kind === 'stars') {
       if (
         !Number.isSafeInteger(v) ||
         Number(v) < 1 ||
@@ -233,6 +260,10 @@ export function hotelInput(raw: Record<string, unknown>): HotelSettings {
 }
 export function checkHotelSettings(value: HotelSettings, changed: readonly string[] = []) {
   const year = new Date().getFullYear();
+  if (['seasonOpenFrom', 'seasonOpenTo'].some((key) => changed.includes(key))) {
+    const message = checkSeason(value.seasonOpenFrom, value.seasonOpenTo);
+    if (message) throw new BadRequestException(message);
+  }
   for (const key of ['taxNumber', 'region', 'postalCode'] as const) {
     const current = value[key];
     if (current && (changed.includes(key) || changed.includes('country'))) {
@@ -271,7 +302,7 @@ export function hotelUpdates(input: HotelSettings) {
       .filter((f) => Object.hasOwn(input, f.key))
       .map(
         (f) =>
-          Prisma.sql`${Prisma.raw(f.column)}=${f.kind === 'languages' ? Prisma.sql`ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(input[f.key])}::jsonb))` : f.kind === 'profiles' ? Prisma.sql`${JSON.stringify(input[f.key])}::jsonb` : input[f.key]}`,
+          Prisma.sql`${Prisma.raw(f.column)}=${f.kind === 'weekdays' ? Prisma.sql`ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(input[f.key])}::jsonb)::smallint)` : f.kind === 'languages' ? Prisma.sql`ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(input[f.key])}::jsonb))` : f.kind === 'profiles' ? Prisma.sql`${JSON.stringify(input[f.key])}::jsonb` : input[f.key]}`,
       ),
   );
 }

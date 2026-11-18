@@ -175,3 +175,33 @@ it('lists every language by name with the common ones first', async () => {
   expect(list.find((item) => item.value === 'ja')?.group).toBe('All languages');
   expect(new Set(list.map((item) => item.value)).size).toBe(list.length);
 });
+it('asks for notice, season and arrival days with the same rules as the server', async () => {
+  const save = vi.fn(),
+    m = await mount(
+      <BookingRulesSettings property={property} saving={false} canWrite onSave={save} />,
+    );
+  try {
+    expect(m.host.textContent).toContain('Booking notice and season');
+    await value('hotel-minNoticeHours', '900');
+    expect(m.host.textContent).toContain('0 to 720');
+    expect(button('Save changes').disabled).toBe(true);
+    await value('hotel-minNoticeHours', '24');
+    // Switch Monday to Friday off for arrivals: only Saturday and Sunday remain.
+    const arrival = (day: string) =>
+      m.host.querySelector<HTMLButtonElement>(`button[aria-label="Arrival days: ${day}"]`)!;
+    for (const day of ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'])
+      await act(async () => arrival(day).click());
+    expect(arrival('Sat').getAttribute('aria-pressed')).toBe('true');
+    expect(arrival('Mon').getAttribute('aria-pressed')).toBe('false');
+    // Switching the last two off is refused: at least one day stays on.
+    await act(async () => arrival('Sat').click());
+    await act(async () => arrival('Sun').click());
+    expect(m.host.textContent).toContain('Choose at least one day');
+    expect(button('Save changes').disabled).toBe(true);
+    await act(async () => arrival('Sat').click());
+    await act(async () => button('Save changes').click());
+    expect(save).toHaveBeenCalledWith({ minNoticeHours: 24, arrivalDays: [6] });
+  } finally {
+    await m.close();
+  }
+});

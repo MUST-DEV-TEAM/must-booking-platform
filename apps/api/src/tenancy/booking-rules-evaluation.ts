@@ -12,6 +12,7 @@ import {
 } from '../booking/booking-rules';
 import { enforcedRoomCapacity, isClockManagedProperty } from '../booking/clock-managed-property';
 import type { TenantDatabaseService } from './tenant-database.service';
+import { bookingPolicyColumns } from '../booking/booking-policy-columns';
 
 type AvailabilityCheck = (input: {
   bookingMode: string;
@@ -49,9 +50,7 @@ export async function evaluatePropertyBookingRules(
   const hasRange = Boolean(startsOn || endsOn);
   const context = await database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
     const policies = await tx.$queryRaw<Array<BookingRulePolicy & { bookingMode: string }>>`
-      SELECT timezone, min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
-        advance_booking_days AS "advanceBookingDays", same_day_booking_allowed AS "sameDayBookingAllowed",
-        same_day_cutoff_time AS "sameDayCutoffTime",max_guests_per_booking AS "maxGuestsPerBooking",max_rooms_per_booking AS "maxRoomsPerBooking", booking_mode::text AS "bookingMode"
+      SELECT ${bookingPolicyColumns}, booking_mode::text AS "bookingMode"
       FROM properties WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid
     `;
     if (!policies[0]) throw new NotFoundException('Property was not found.');
