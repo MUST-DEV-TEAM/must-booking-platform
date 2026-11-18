@@ -130,6 +130,11 @@ Rules for every task: follow AGENTS.md and the components-only rule (check `apps
 - Two-step sign-in: built now, governed by an account setting ("Require two-step sign-in", off by default); when on, staff must set it up at their next sign-in (G-89).
 - New permissions `integrations.manage`, `emails.manage`, `audit.view`, `reports.export` (G-68, G-90); Reservations joins the built-in roles; last sign-in shown (G-88).
 
+## Plan and usage decisions (owner, 2026-11-18)
+
+- The page shows the plan, usage meters and an "Ask to change plan" request to the platform admin. Owner and Admins see it; only the Owner asks for changes.
+- For now one plan, unlimited in everything; restaurants will become a property and plan of their own; no free trial or lock. Plans and billing are Denis Zoi's, GitHub issue #543.
+
 ## Gaps fixed after the redesign ships
 
 The scan of the designed tabs (Overview to Integrations) found G-44 to G-75 in [hardening-gaps-log.md](../audit/hardening-gaps-log.md). Owner, 2026-11-17: ship the redesign first, then fix them one by one, the High ones first (G-46, G-44, G-45, G-52).
