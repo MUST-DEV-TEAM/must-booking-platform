@@ -3,14 +3,20 @@ import { describe, expect, it } from 'vitest';
 import { refusedBookingStatus, throwIfBookingRefused } from './refused-booking';
 
 describe('refusedBookingStatus', () => {
-  it.each(['AVAILABILITY_FAILED', 'AUTO_ASSIGNMENT_UNAVAILABLE', 'IDEMPOTENCY_IN_PROGRESS'])(
-    'answers 409 when the stay is taken or the request is already running (%s)',
-    (code) => expect(refusedBookingStatus({ code })).toBe(409),
+  it.each([
+    'AVAILABILITY_FAILED',
+    'AUTO_ASSIGNMENT_UNAVAILABLE',
+    'CHECKOUT_HOLD_ACTIVE',
+    'CHECKOUT_EXPIRED',
+    'IDEMPOTENCY_IN_PROGRESS',
+  ])('answers 409 when the stay is taken or the request is already running (%s)', (code) =>
+    expect(refusedBookingStatus({ code })).toBe(409),
   );
 
   it.each([
     'QUOTE_MISMATCH',
     'QUOTE_EXPIRED',
+    'PRICE_CHANGED',
     'MIN_STAY',
     'INVALID_BOOKING_COMMAND',
     'ANYTHING_ELSE',
