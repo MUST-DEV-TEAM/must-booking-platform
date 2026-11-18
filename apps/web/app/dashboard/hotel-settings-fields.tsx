@@ -2,7 +2,9 @@
 import { useEffect, useState } from 'react';
 import {
   ALBANIA_REGIONS,
+  COMMON_LANGUAGE_CODES,
   COUNTRY_CODES,
+  LANGUAGE_CODES,
   DESCRIPTION_MAX,
   PROFILE_FIELD_KEYS,
   PROPERTY_TYPES,
@@ -18,6 +20,36 @@ import {
   type SettingGroup,
 } from '../../components/ui/settings-fields';
 import type { Property } from './settings-areas';
+/** "Albanian · Shqip", the common languages first, then every other one by name. */
+export function languageOptions() {
+  const english = new Intl.DisplayNames(['en'], { type: 'language' });
+  const label = (code: string) => {
+    const name = english.of(code) ?? code;
+    let own = name;
+    try {
+      own = new Intl.DisplayNames([code], { type: 'language' }).of(code) ?? name;
+    } catch {
+      /* no native name known */
+    }
+    return own && own.toLowerCase() !== name.toLowerCase()
+      ? `${name} · ${own.charAt(0).toUpperCase()}${own.slice(1)}`
+      : name;
+  };
+  const common = new Set<string>(COMMON_LANGUAGE_CODES);
+  const all = LANGUAGE_CODES.map((code) => ({ value: code, label: label(code) })).sort((x, y) =>
+    x.label.localeCompare(y.label),
+  );
+  return [
+    ...COMMON_LANGUAGE_CODES.map((code) => ({
+      value: code,
+      label: label(code),
+      group: 'Common',
+    })),
+    ...all
+      .filter((item) => !common.has(item.value))
+      .map((item) => ({ ...item, group: 'All languages' })),
+  ];
+}
 const options = (pairs: string[][]) => pairs.map(([value, label]) => ({ value, label }));
 const arrival = options([
   ['not_offered', 'Not offered'],
@@ -53,18 +85,6 @@ export const hotelSettingGroups: Record<
           hint: 'Include the country code. Shown as a clickable phone number.',
           max: 100,
         },
-        {
-          key: 'dateFormat',
-          defaultValue: 'DD/MM/YYYY',
-          label: 'Hotel date format',
-          kind: 'choice',
-          options: options([
-            ['DD/MM/YYYY', 'DD/MM/YYYY'],
-            ['MM/DD/YYYY', 'MM/DD/YYYY'],
-            ['YYYY-MM-DD', 'YYYY-MM-DD'],
-          ]),
-          hint: 'Shared by everyone working in this hotel.',
-        },
         { key: 'defaultCurrency', label: 'Default currency', kind: 'currency' },
         {
           key: 'languages',
@@ -72,16 +92,7 @@ export const hotelSettingGroups: Record<
           kind: 'multi',
           defaultValue: [],
           hint: 'Languages the hotel offers. This does not translate booking pages or emails.',
-          options: options([
-            ['en', 'English'],
-            ['sq', 'Albanian'],
-            ['it', 'Italian'],
-            ['de', 'German'],
-            ['fr', 'French'],
-            ['es', 'Spanish'],
-            ['el', 'Greek'],
-            ['tr', 'Turkish'],
-          ]),
+          options: languageOptions(),
         },
         {
           key: 'website',
@@ -195,6 +206,54 @@ export const hotelSettingGroups: Record<
           max: DESCRIPTION_MAX,
           counter: true,
           hint: 'Plain text, 50 to 1000 characters, or leave empty.',
+        },
+      ],
+    },
+    {
+      title: 'Formats',
+      description: "How dates, times and numbers are shown to this hotel's staff.",
+      fields: [
+        {
+          key: 'dateFormat',
+          defaultValue: 'DD/MM/YYYY',
+          label: 'Hotel date format',
+          kind: 'choice',
+          options: options([
+            ['DD/MM/YYYY', 'DD/MM/YYYY'],
+            ['MM/DD/YYYY', 'MM/DD/YYYY'],
+            ['YYYY-MM-DD', 'YYYY-MM-DD'],
+          ]),
+          hint: 'Shared by everyone working in this hotel.',
+        },
+        {
+          key: 'timeFormat',
+          label: 'Time format',
+          kind: 'choice',
+          defaultValue: '24h',
+          options: options([
+            ['24h', '24 hour (15:30)'],
+            ['12h', '12 hour (3:30 PM)'],
+          ]),
+        },
+        {
+          key: 'weekStart',
+          label: 'First day of the week',
+          kind: 'choice',
+          defaultValue: 'monday',
+          options: options([
+            ['monday', 'Monday'],
+            ['sunday', 'Sunday'],
+          ]),
+        },
+        {
+          key: 'numberFormat',
+          label: 'Number format',
+          kind: 'choice',
+          defaultValue: 'comma_dot',
+          options: options([
+            ['comma_dot', '1,234.56'],
+            ['dot_comma', '1.234,56'],
+          ]),
         },
       ],
     },
@@ -389,6 +448,8 @@ export function useHotelSettings(
         starRatingOfficial: Boolean(values.starRating) && values.starRatingOfficial === true,
       }),
     );
+  if (changed('languages') && Array.isArray(values.languages) && values.languages.length === 0)
+    errors.languages = 'Choose at least one language.';
   if (values.website) {
     try {
       const u = new URL(String(values.website));

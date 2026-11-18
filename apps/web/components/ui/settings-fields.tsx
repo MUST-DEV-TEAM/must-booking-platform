@@ -26,7 +26,7 @@ export type SettingField = {
     | 'region';
   hint?: string;
   placeholder?: string;
-  options?: readonly { value: string; label: string }[];
+  options?: readonly { value: string; label: string; group?: string }[];
   max?: number;
   defaultValue?: SettingValue;
   when?: { key: string; value: string };

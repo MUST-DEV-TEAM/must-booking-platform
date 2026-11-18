@@ -125,4 +125,19 @@ describe('hotel profile fields', () => {
       'both',
     );
   });
+
+  it('accepts any ISO language and the display formats, and needs one language', () => {
+    expect(hotelInput({ languages: ['sq', 'ja', 'sq'] })).toEqual({ languages: ['ja', 'sq'] });
+    expect(() => hotelInput({ languages: [] })).toThrow('at least one');
+    expect(() => hotelInput({ languages: ['xx'] })).toThrow('from the list');
+    expect(
+      hotelInput({ timeFormat: '12h', weekStart: 'sunday', numberFormat: 'dot_comma' }),
+    ).toEqual({
+      timeFormat: '12h',
+      weekStart: 'sunday',
+      numberFormat: 'dot_comma',
+    });
+    expect(() => hotelInput({ timeFormat: '13h' })).toThrow('from the list');
+    expect(() => hotelInput({ weekStart: null })).toThrow();
+  });
 });

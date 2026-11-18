@@ -178,3 +178,12 @@ it.each([GeneralSettings, BookingRulesSettings, CheckInOutSettings])(
     }
   },
 );
+it('lists every language by name with the common ones first', async () => {
+  const { languageOptions } = await import('./hotel-settings-fields');
+  const list = languageOptions();
+  expect(list.length).toBeGreaterThan(150);
+  expect(list[0]).toMatchObject({ value: 'sq', group: 'Common' });
+  expect(list[0]!.label).toBe('Albanian · Shqip');
+  expect(list.find((item) => item.value === 'ja')?.group).toBe('All languages');
+  expect(new Set(list.map((item) => item.value)).size).toBe(list.length);
+});
