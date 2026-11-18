@@ -135,6 +135,13 @@ Rules for every task: follow AGENTS.md and the components-only rule (check `apps
 - The page shows the plan, usage meters and an "Ask to change plan" request to the platform admin. Owner and Admins see it; only the Owner asks for changes.
 - For now one plan, unlimited in everything; restaurants will become a property and plan of their own; no free trial or lock. Plans and billing are Denis Zoi's, GitHub issue #543.
 
+## Audit log decisions (owner, 2026-11-18)
+
+- Audit log lives in Settings under Account; plain-sentence events, before and after per field, hotel filter, links from bookings, people and settings pages; the sidebar item goes. Viewing needs `audit.view`.
+- Part of the postponed audit expansion joins the redesign: entries cannot be edited or deleted (enforced in the database), a test that every write endpoint records an event, before and after detail. IP and device stay for later (G-93).
+- MUST support actions are always visible to the hotel ("MUST support did X"); the hidden direct sessions of 2026-10-20 end, at the latest before a new hotel comes on board.
+- Entries are kept indefinitely for now.
+
 ## Gaps fixed after the redesign ships
 
 The scan of the designed tabs (Overview to Integrations) found G-44 to G-75 in [hardening-gaps-log.md](../audit/hardening-gaps-log.md). Owner, 2026-11-17: ship the redesign first, then fix them one by one, the High ones first (G-46, G-44, G-45, G-52).
