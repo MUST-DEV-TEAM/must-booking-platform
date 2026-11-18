@@ -498,15 +498,20 @@ export class ClockWorkerService implements OnModuleInit, OnModuleDestroy {
         // and now — nothing to recreate.
         return;
       }
+      // Clear the old lineage's owner BEFORE the new job exists (gap G-27): the
+      // other order let the new job's worker run first, see the stale higher
+      // generation, step aside, and leave the row stuck once the reset landed.
+      const reset = await this.resetForJobRecreation(tenantId, propertyId, eventRowId, snapshot);
+      if (!reset) {
+        this.logger.debug(
+          `Recovery sweep: provider_events row ${eventRowId}'s ownership changed concurrently with job recreation — leaving the newer state in place.`,
+        );
+        return;
+      }
       await this.queues.enqueue('clock.webhooks', 'hydrate-event', jobData, {
         ...HYDRATE_EVENT_JOB_OPTIONS,
         jobId,
       });
-      const reset = await this.resetForJobRecreation(tenantId, propertyId, eventRowId, snapshot);
-      if (!reset)
-        this.logger.debug(
-          `Recovery sweep: provider_events row ${eventRowId}'s ownership changed concurrently with job recreation — leaving the newer state in place.`,
-        );
     } catch (error) {
       this.logger.error(
         `Recovery sweep failed to recreate hydrate-event job for provider_events row ${eventRowId}: ${(error as Error).message}`,
