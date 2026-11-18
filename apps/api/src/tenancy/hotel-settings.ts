@@ -5,7 +5,6 @@ import {
   checkBookingLimit,
   checkWeekdays,
   checkSeason,
-  checkBookingWindow,
   type BookingLimitKey,
   normaliseOnlineProfiles,
   LANGUAGE_CODES,
