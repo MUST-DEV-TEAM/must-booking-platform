@@ -1,6 +1,16 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { COUNTRY_CODES } from '@must/domain-contracts';
+import {
+  COUNTRY_CODES,
+  DESCRIPTION_MAX,
+  PROFILE_FIELD_KEYS,
+  PROPERTY_TYPES,
+  SUMMARY_MAX,
+  checkProfileCombination,
+  checkProfileField,
+  normaliseProfileValue,
+  type ProfileFieldKey,
+} from '@must/domain-contracts';
 import {
   SettingsFields,
   type SettingValue,
@@ -54,13 +64,6 @@ export const hotelSettingGroups: Record<
           ]),
           hint: 'Shared by everyone working in this hotel.',
         },
-        { key: 'legalName', label: 'Legal business name', max: 200 },
-        {
-          key: 'taxNumber',
-          label: 'Tax number (NUIS)',
-          hint: 'Optional. Enter the hotel business tax reference.',
-          max: 100,
-        },
         { key: 'country', label: 'Country', kind: 'country' },
         { key: 'defaultCurrency', label: 'Default currency', kind: 'currency' },
         {
@@ -96,15 +99,14 @@ export const hotelSettingGroups: Record<
     },
     {
       title: 'About the hotel',
-      description:
-        'Optional descriptive information. No pricing or booking decisions use these fields.',
+      description: 'How the hotel is classified and described to guests.',
       fields: [
+        { key: 'chainName', label: 'Chain or brand', max: 120, hint: 'Optional.' },
         {
-          key: 'description',
-          label: 'Description',
-          kind: 'textarea',
-          max: 1000,
-          hint: 'Plain text, up to 1000 characters.',
+          key: 'propertyType',
+          label: 'Property type',
+          kind: 'choice',
+          options: PROPERTY_TYPES,
         },
         {
           key: 'starRating',
@@ -119,6 +121,45 @@ export const hotelSettingGroups: Record<
           ]),
           hint: 'Leave not set for no star rating.',
         },
+        {
+          key: 'starRatingOfficial',
+          label: 'Rating issued by the national tourism authority',
+          kind: 'boolean',
+          defaultValue: false,
+          whenSet: 'starRating',
+        },
+        { key: 'yearOpened', label: 'Year opened', kind: 'year' },
+        { key: 'yearRenovated', label: 'Last renovated', kind: 'year' },
+        {
+          key: 'summary',
+          label: 'Short summary',
+          max: SUMMARY_MAX,
+          counter: true,
+          hint: 'One line shown in search results and emails.',
+        },
+        {
+          key: 'description',
+          label: 'Description',
+          kind: 'textarea',
+          max: DESCRIPTION_MAX,
+          counter: true,
+          hint: 'Plain text, 50 to 1000 characters, or leave empty.',
+        },
+      ],
+    },
+    {
+      title: 'Legal and tax',
+      description: 'The legal name and tax number appear in payment and refund emails.',
+      fields: [
+        { key: 'legalName', label: 'Legal business name', max: 200 },
+        {
+          key: 'taxNumber',
+          label: 'Tax number (NUIS)',
+          hint: 'Albania: a letter, 8 digits and a letter, such as L12345678A.',
+          max: 30,
+        },
+        { key: 'vatRegistered', label: 'VAT registered', kind: 'boolean', defaultValue: false },
+        { key: 'tourismLicence', label: 'Tourism licence number', max: 50 },
       ],
     },
   ],
@@ -269,6 +310,32 @@ export function useHotelSettings(
         errors[f.key] = 'Use a time such as 15:00.';
     }
   }
+  const changed = (key: string) => JSON.stringify(values[key]) !== JSON.stringify(saved[key]);
+  const yearNow = new Date().getFullYear();
+  const typed = (key: string): unknown => {
+    const v = values[key];
+    if (key === 'yearOpened' || key === 'yearRenovated') return v === '' ? null : Number(v);
+    return typeof v === 'string' ? normaliseProfileValue(key as ProfileFieldKey, v) : v;
+  };
+  for (const key of PROFILE_FIELD_KEYS) {
+    if (!(key in values)) continue;
+    if (!changed(key) && !(key === 'taxNumber' && changed('country'))) continue;
+    const message = checkProfileField(key, typed(key), {
+      country: String(values.country || '') || null,
+      year: yearNow,
+    });
+    if (message) errors[key] = message;
+  }
+  if (['yearOpened', 'yearRenovated', 'starRating', 'starRatingOfficial'].some(changed))
+    Object.assign(
+      errors,
+      checkProfileCombination({
+        yearOpened: typed('yearOpened') as number | null,
+        yearRenovated: typed('yearRenovated') as number | null,
+        starRating: values.starRating ? Number(values.starRating) : null,
+        starRatingOfficial: Boolean(values.starRating) && values.starRatingOfficial === true,
+      }),
+    );
   if (values.website) {
     try {
       const u = new URL(String(values.website));
@@ -296,14 +363,18 @@ export function useHotelSettings(
     if (JSON.stringify(values[f.key]) !== JSON.stringify(saved[f.key])) {
       const v = values[f.key];
       (update as Record<string, unknown>)[f.key] =
-        f.kind === 'number' || f.key === 'starRating'
+        f.kind === 'number' || f.kind === 'year' || f.key === 'starRating'
           ? v === ''
             ? null
             : Number(v)
           : typeof v === 'string'
-            ? v.trim() || null
+            ? (PROFILE_FIELD_KEYS as readonly string[]).includes(f.key)
+              ? (normaliseProfileValue(f.key as ProfileFieldKey, v) as string | null)
+              : v.trim() || null
             : v;
     }
+  if (update.starRating === null && saved.starRatingOfficial === true)
+    update.starRatingOfficial = false;
   return {
     dirty,
     errors,

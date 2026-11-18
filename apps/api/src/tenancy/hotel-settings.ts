@@ -1,6 +1,12 @@
 import { Prisma } from '@prisma/client';
 import { BadRequestException } from '@nestjs/common';
-import { COUNTRY_CODES } from '@must/domain-contracts';
+import {
+  COUNTRY_CODES,
+  checkProfileCombination,
+  checkProfileField,
+  normaliseProfileValue,
+  type ProfileFieldKey,
+} from '@must/domain-contracts';
 export type HotelSettings = {
   dateFormat?: string;
   legalName?: string | null;
@@ -12,6 +18,14 @@ export type HotelSettings = {
   reservationsEmail?: string | null;
   description?: string | null;
   starRating?: number | null;
+  chainName?: string | null;
+  propertyType?: string | null;
+  starRatingOfficial?: boolean;
+  yearOpened?: number | null;
+  yearRenovated?: number | null;
+  summary?: string | null;
+  tourismLicence?: string | null;
+  vatRegistered?: boolean;
   allowSameDayBooking?: boolean;
   sameDayCutoffTime?: string | null;
   maxGuestsPerBooking?: number | null;
@@ -33,15 +47,23 @@ export type HotelSettings = {
 };
 export const hotelFields = [
   { key: 'dateFormat', column: 'date_format', kind: 'text', max: 20 },
-  { key: 'legalName', column: 'legal_name', kind: 'text', max: 200 },
-  { key: 'taxNumber', column: 'tax_number', kind: 'text', max: 100 },
+  { key: 'legalName', column: 'legal_name', kind: 'profile', max: 200 },
+  { key: 'taxNumber', column: 'tax_number', kind: 'profile', max: 100 },
   { key: 'country', column: 'country', kind: 'country', max: 2 },
   { key: 'defaultCurrency', column: 'default_currency', kind: 'currency', max: 3 },
   { key: 'languages', column: 'languages', kind: 'languages', max: 0 },
   { key: 'website', column: 'website', kind: 'url', max: 2048 },
   { key: 'reservationsEmail', column: 'reservations_email', kind: 'email', max: 254 },
-  { key: 'description', column: 'description', kind: 'text', max: 1000 },
+  { key: 'description', column: 'description', kind: 'profile', max: 1000 },
   { key: 'starRating', column: 'star_rating', kind: 'stars', max: 0 },
+  { key: 'chainName', column: 'chain_name', kind: 'profile', max: 120 },
+  { key: 'propertyType', column: 'property_type', kind: 'profile', max: 30 },
+  { key: 'starRatingOfficial', column: 'star_rating_official', kind: 'profile', max: 0 },
+  { key: 'yearOpened', column: 'year_opened', kind: 'profile', max: 0 },
+  { key: 'yearRenovated', column: 'year_renovated', kind: 'profile', max: 0 },
+  { key: 'summary', column: 'summary', kind: 'profile', max: 160 },
+  { key: 'tourismLicence', column: 'tourism_licence', kind: 'profile', max: 50 },
+  { key: 'vatRegistered', column: 'vat_registered', kind: 'profile', max: 0 },
   { key: 'allowSameDayBooking', column: 'same_day_booking_allowed', kind: 'boolean', max: 0 },
   { key: 'sameDayCutoffTime', column: 'same_day_cutoff_time', kind: 'time', max: 5 },
   { key: 'maxGuestsPerBooking', column: 'max_guests_per_booking', kind: 'integer', max: 0 },
@@ -77,7 +99,17 @@ export function hotelInput(raw: Record<string, unknown>): HotelSettings {
     const bad = (message: string): never => {
       throw new BadRequestException(message);
     };
-    if (f.kind === 'boolean') {
+    if (f.kind === 'profile') {
+      const key = f.key as ProfileFieldKey;
+      v = normaliseProfileValue(key, v);
+      const message = checkProfileField(key, v, {
+        country: typeof raw.country === 'string' ? raw.country : null,
+        year: new Date().getFullYear(),
+      });
+      if (message) bad(message);
+      if (v === null && (key === 'starRatingOfficial' || key === 'vatRegistered'))
+        bad('Choose yes or no.');
+    } else if (f.kind === 'boolean') {
       if (typeof v !== 'boolean') bad('Choose yes or no.');
     } else if (f.kind === 'languages') {
       if (!Array.isArray(v) || v.some((x) => typeof x !== 'string' || !LANGUAGE_CODES.includes(x)))
@@ -142,7 +174,23 @@ export function hotelInput(raw: Record<string, unknown>): HotelSettings {
   }
   return out as HotelSettings;
 }
-export function checkHotelSettings(value: HotelSettings) {
+export function checkHotelSettings(value: HotelSettings, changed: readonly string[] = []) {
+  const year = new Date().getFullYear();
+  if (value.taxNumber && (changed.includes('taxNumber') || changed.includes('country'))) {
+    const message = checkProfileField('taxNumber', value.taxNumber, {
+      country: value.country,
+      year,
+    });
+    if (message) throw new BadRequestException(message);
+  }
+  if (
+    ['yearOpened', 'yearRenovated', 'starRating', 'starRatingOfficial'].some((key) =>
+      changed.includes(key),
+    )
+  ) {
+    const problem = Object.values(checkProfileCombination(value))[0];
+    if (problem) throw new BadRequestException(problem);
+  }
   if (value.earlyCheckInPolicy === 'free_until' && !value.earlyCheckInUntil)
     throw new BadRequestException('Enter the free early check-in time.');
   if (value.lateCheckOutPolicy === 'free_until' && !value.lateCheckOutUntil)

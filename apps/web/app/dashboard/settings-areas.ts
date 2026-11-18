@@ -17,6 +17,14 @@ export type Property = {
   reservationsEmail?: string | null;
   description?: string | null;
   starRating?: number | null;
+  chainName?: string | null;
+  propertyType?: string | null;
+  starRatingOfficial?: boolean;
+  yearOpened?: number | null;
+  yearRenovated?: number | null;
+  summary?: string | null;
+  tourismLicence?: string | null;
+  vatRegistered?: boolean;
   allowSameDayBooking?: boolean;
   sameDayCutoffTime?: string | null;
   maxGuestsPerBooking?: number | null;
