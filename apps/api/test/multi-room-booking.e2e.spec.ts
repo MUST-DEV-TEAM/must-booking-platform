@@ -347,20 +347,35 @@ describe('Multi-room booking orders', () => {
       .set('Cookie', cookie)
       .send({ roomTypeId: secondType.body.id, startsOn, endsOn, availableUnits: 1 })
       .expect(204);
+    // A family of four in two rooms (task 40-4a): two adults, then one adult with a child.
+    const firstRoomGuests = { adults: 2, children: 0 };
+    const secondRoomGuests = { adults: 1, children: 1, childrenAges: [7] };
     const [availableFirstQuote, availableSecondQuote] = await Promise.all([
       quotes.create(tenantId, propertyId, sessionId, {
         roomTypeId: firstType.body.id,
         ratePlanId: ratePlan.body.id,
         startsOn,
         endsOn,
+        ...firstRoomGuests,
       }),
       quotes.create(tenantId, propertyId, sessionId, {
         roomTypeId: secondType.body.id,
         ratePlanId: ratePlan.body.id,
         startsOn,
         endsOn,
+        ...secondRoomGuests,
       }),
     ]);
+    // Nine adults in a room for two never get a quote.
+    await expect(
+      quotes.create(tenantId, propertyId, sessionId, {
+        roomTypeId: firstType.body.id,
+        ratePlanId: ratePlan.body.id,
+        startsOn,
+        endsOn,
+        adults: 9,
+      }),
+    ).rejects.toThrow();
     clockConnected = true;
     failSecondClockReservation = false;
     const heldCommand: Parameters<MultiRoomBookingService['create']>[1] = {
@@ -382,6 +397,7 @@ describe('Multi-room booking orders', () => {
           ratePlanId: ratePlan.body.id,
           total: availableFirstQuote.total,
           quoteToken: availableFirstQuote.quoteToken,
+          ...firstRoomGuests,
         },
         {
           roomTypeId: secondType.body.id,
@@ -389,6 +405,7 @@ describe('Multi-room booking orders', () => {
           total: availableSecondQuote.total,
           quoteToken: availableSecondQuote.quoteToken,
           guest: { firstName: 'Second', lastName: 'Guest' },
+          ...secondRoomGuests,
         },
       ],
     };
@@ -407,6 +424,7 @@ describe('Multi-room booking orders', () => {
       ratePlanId: ratePlan.body.id,
       startsOn,
       endsOn,
+      ...firstRoomGuests,
     });
     await admin.$executeRaw`
       UPDATE rooms SET is_active = false
@@ -459,6 +477,16 @@ describe('Multi-room booking orders', () => {
       WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
         AND id = ${secondType.body.id}::uuid
     `;
+    // A room sent with more guests than its quote was priced for is refused.
+    const moreGuestsThanQuoted = await orders.create(
+      { tenantId, propertyId },
+      {
+        ...heldCommand,
+        idempotencyKey: randomUUID(),
+        rooms: [{ ...heldCommand.rooms[0]!, adults: 3 }, heldCommand.rooms[1]!],
+      },
+    );
+    expect(moreGuestsThanQuoted).toMatchObject({ ok: false, error: { code: 'QUOTE_MISMATCH' } });
     clockConnected = true;
     const held = await orders.create({ tenantId, propertyId }, heldCommand);
     expect(held.ok).toBe(true);
@@ -466,6 +494,18 @@ describe('Multi-room booking orders', () => {
     expect(held.value.bookings.map((booking) => booking.status)).toEqual([
       'CONFIRMED',
       'CONFIRMED',
+    ]);
+    // Each room keeps its own guests.
+    const storedGuests = await admin.$queryRaw<
+      Array<{ adults: number; children: number; guestCount: number }>
+    >`
+      SELECT adults, children, guest_count AS "guestCount" FROM bookings
+      WHERE tenant_id = ${tenantId}::uuid AND order_reference = ${heldCommand.externalReference}
+      ORDER BY order_room_number
+    `;
+    expect(storedGuests).toEqual([
+      { adults: 2, children: 0, guestCount: 2 },
+      { adults: 1, children: 1, guestCount: 2 },
     ]);
     // The order gets one guest and staff confirmation that lists every room.
     const firstRoom = held.value.bookings[0]!;
