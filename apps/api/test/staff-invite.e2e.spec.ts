@@ -124,6 +124,19 @@ describe('staff invitations', () => {
     await migrationPrisma.$disconnect();
   });
 
+  async function freeSeat(email: string): Promise<void> {
+    for (const table of [
+      'property_staff_capability_overrides',
+      'property_staff_assignments',
+      'tenant_memberships',
+    ])
+      await migrationPrisma.$executeRawUnsafe(
+        `DELETE FROM "${table}" WHERE "tenant_id" = $1::uuid AND "user_id" = (SELECT "id" FROM "users" WHERE "email" = $2)`,
+        tenantId,
+        email,
+      );
+  }
+
   async function createInvite(
     email: string,
     roleTemplateId = frontDeskTemplateId,
@@ -260,6 +273,8 @@ describe('staff invitations', () => {
   });
 
   it('binds a new account to the invited address, and a typo does not use up the invitation (task 39-10b)', async () => {
+    // The plan has three staff seats and earlier tests fill them: free the new user's seat first.
+    await freeSeat(newEmail);
     const invitedEmail = `invited-${randomUUID()}@example.test`;
     const token = await createInvite(invitedEmail);
 
@@ -279,18 +294,7 @@ describe('staff invitations', () => {
       .send({ token, email: invitedEmail.toUpperCase(), password })
       .expect(204);
     // Free the staff seat again for the tests that follow.
-    await migrationPrisma.$executeRaw`
-      DELETE FROM "property_staff_capability_overrides" WHERE "tenant_id" = ${tenantId}::uuid
-        AND "user_id" = (SELECT "id" FROM "users" WHERE "email" = ${invitedEmail})
-    `;
-    await migrationPrisma.$executeRaw`
-      DELETE FROM "property_staff_assignments" WHERE "tenant_id" = ${tenantId}::uuid
-        AND "user_id" = (SELECT "id" FROM "users" WHERE "email" = ${invitedEmail})
-    `;
-    await migrationPrisma.$executeRaw`
-      DELETE FROM "tenant_memberships" WHERE "tenant_id" = ${tenantId}::uuid
-        AND "user_id" = (SELECT "id" FROM "users" WHERE "email" = ${invitedEmail})
-    `;
+    await freeSeat(invitedEmail);
   });
 
   it('refuses an invitation accepted by a signed-in user with another address (task 39-10b)', async () => {
