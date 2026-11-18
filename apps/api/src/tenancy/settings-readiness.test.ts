@@ -1,0 +1,66 @@
+import { describe, expect, it } from 'vitest';
+
+import { settingsReadiness, type ReadinessInput } from './settings-readiness';
+
+const hotel: ReadinessInput = {
+  name: 'Grand Hotel',
+  address: 'Beach Road 1',
+  timezone: 'Europe/Tirane',
+  minStayNights: 2,
+  maxStayNights: 7,
+  checkInTime: '15:00',
+  checkOutTime: '11:00',
+  paymentGateways: { stripe: false, pokpay: false, payAtHotel: true },
+  connectedProviders: [],
+  wordpressConnectedAt: null,
+  publicWebsiteOrigin: null,
+};
+const status = (input: ReadinessInput, key: string) =>
+  settingsReadiness(input).steps.find((step) => step.key === key)!.status;
+
+describe('settingsReadiness', () => {
+  it('reports each step from the saved settings only', () => {
+    const result = settingsReadiness(hotel);
+    expect(result.ready).toBe(false);
+    expect(result.steps.map((step) => [step.key, step.status])).toEqual([
+      ['profile', 'done'],
+      ['booking-rules', 'done'],
+      ['policies', 'done'],
+      ['payment-methods', 'done'],
+      ['website', 'todo'],
+    ]);
+    expect(result.steps.find((step) => step.key === 'policies')?.note).toBe('From 15:00 to 11:00.');
+  });
+
+  it('needs the website to be paired and have an address before it is done', () => {
+    const origin = { ...hotel, publicWebsiteOrigin: 'https://hotel.test' };
+    expect(status(origin, 'website')).toBe('todo');
+    const paired = { ...origin, wordpressConnectedAt: '2026-10-01' };
+    expect(status(paired, 'website')).toBe('done');
+    expect(settingsReadiness(paired).ready).toBe(true);
+  });
+
+  it('counts an online method only when its provider is connected and enabled', () => {
+    const online = {
+      ...hotel,
+      paymentGateways: { payAtHotel: false, stripe: true, pokpay: false },
+    };
+    expect(status(online, 'payment-methods')).toBe('attention');
+    expect(status({ ...online, connectedProviders: ['STRIPE'] }, 'payment-methods')).toBe('done');
+    expect(status({ ...online, connectedProviders: ['POKPAY'] }, 'payment-methods')).toBe(
+      'attention',
+    );
+  });
+
+  it('flags missing and inconsistent settings', () => {
+    expect(status({ ...hotel, address: ' ' }, 'profile')).toBe('attention');
+    expect(status({ ...hotel, minStayNights: 9 }, 'booking-rules')).toBe('attention');
+    expect(status({ ...hotel, sameDayCutoffTime: '25:00' }, 'booking-rules')).toBe('attention');
+    expect(status({ ...hotel, maxGuestsPerBooking: 0 }, 'booking-rules')).toBe('attention');
+    expect(status({ ...hotel, checkOutTime: null }, 'policies')).toBe('todo');
+    expect(status({ ...hotel, quietHoursFrom: '22:00' }, 'policies')).toBe('attention');
+    expect(
+      status({ ...hotel, earlyCheckInPolicy: 'free_until', earlyCheckInUntil: null }, 'policies'),
+    ).toBe('attention');
+  });
+});

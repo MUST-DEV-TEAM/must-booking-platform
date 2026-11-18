@@ -18,6 +18,7 @@ import { randomUUID } from 'node:crypto';
 import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
 import { AuditLogService } from './audit-log.service';
 import { PropertyRoleTemplatesService } from './property-role-templates.service';
+import { settingsReadiness, type SettingsReadiness } from './settings-readiness';
 
 export type ClockCancelRefundPolicy = 'NEVER' | 'FREE_WINDOW' | 'ALWAYS';
 export type ClockPaymentFolio = 'DEPOSIT' | 'MAIN';
@@ -58,6 +59,7 @@ type PropertyListItem = Property & {
   staffCount: number;
   pmsSource: 'MUST' | 'CLOCK_PMS';
   connectedProviders: string[];
+  readiness: SettingsReadiness;
 };
 type PropertyDeleteBlocker = { resource: string; count: number };
 @Injectable()
@@ -67,11 +69,29 @@ export class PropertiesService {
     @Inject(AuditLogService) private readonly audit: AuditLogService,
     @Inject(PropertyRoleTemplatesService) private readonly templates: PropertyRoleTemplatesService,
   ) {}
-  list(tenantId: string, userId: string): Promise<PropertyListItem[]> {
+  /** The hotels this user may see, each with its "ready to take bookings" status worked out here. */
+  async list(tenantId: string, userId: string): Promise<PropertyListItem[]> {
+    const rows = await this.listRows(tenantId, userId);
+    return rows.map((row) => ({ ...row, readiness: settingsReadiness(row) }));
+  }
+  /** One hotel's "ready to take bookings" status; refused for a hotel this user may not see. */
+  async settingsSummary(
+    tenantId: string,
+    userId: string,
+    propertyId: string,
+  ): Promise<SettingsReadiness> {
+    const hotel = (await this.list(tenantId, userId)).find((item) => item.id === propertyId);
+    if (!hotel) throw new NotFoundException('Property not found.');
+    return hotel.readiness;
+  }
+  private listRows(
+    tenantId: string,
+    userId: string,
+  ): Promise<Omit<PropertyListItem, 'readiness'>[]> {
     return this.database.withTenantTransaction(
       { tenantId },
       (tx) =>
-        tx.$queryRaw<PropertyListItem[]>`SELECT id, name, address, timezone,
+        tx.$queryRaw<Omit<PropertyListItem, 'readiness'>[]>`SELECT id, name, address, timezone,
           (SELECT count(*)::int FROM tenant_memberships members
            WHERE members.tenant_id=p.tenant_id AND (members.role IN ('OWNER','ADMIN') OR EXISTS (
              SELECT 1 FROM property_staff_assignments assignments

@@ -3,12 +3,7 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  areaHealth,
-  validateRules,
-  validTime,
-  type Property,
-} from '../../app/dashboard/settings-areas';
+import { validateRules, validTime } from '../../app/dashboard/settings-areas';
 import { ChecklistPanel } from './checklist-panel';
 import { SaveBar } from './save-bar';
 
@@ -26,75 +21,7 @@ async function render(element: React.ReactElement) {
   return container;
 }
 
-const property: Property = {
-  id: 'p',
-  name: 'Grand Hotel',
-  address: '1 Main Street',
-  timezone: 'Europe/Tirane',
-  logoUrl: null,
-  phone: null,
-  supportEmail: null,
-  minStayNights: 2,
-  maxStayNights: 7,
-  checkInTime: '15:00',
-  checkOutTime: '11:00',
-  rules: null,
-  advanceBookingDays: null,
-  freeCancellationDaysBeforeArrival: 21,
-  bookingMode: 'ROOM_TYPE_ONLY',
-  paymentGateways: { stripe: false, pokpay: false, payAtHotel: true },
-  wordpressConnectedAt: null,
-  publicWebsiteOrigin: null,
-};
-
 describe('settings status and checks', () => {
-  it('reports each area from the saved settings only', () => {
-    const health = areaHealth(property, 'Free');
-    expect(health.general.status).toBe('done');
-    expect(health['check-in-out'].note).toBe('From 15:00 to 11:00.');
-    expect(health.payments.status).toBe('done');
-    expect(health.branding.status).toBe('attention');
-    expect(health['managed-pages'].status).toBe('todo');
-    expect(health.billing.note).toBe('Plan: Free.');
-    expect(
-      areaHealth({ ...property, publicWebsiteOrigin: 'https://hotel.test' }, 'Free')[
-        'managed-pages'
-      ].status,
-    ).toBe('todo');
-    expect(
-      areaHealth(
-        {
-          ...property,
-          publicWebsiteOrigin: 'https://hotel.test',
-          wordpressConnectedAt: '2026-10-01',
-        },
-        'Free',
-      )['managed-pages'].status,
-    ).toBe('done');
-    const onlineOnly = {
-      ...property,
-      paymentGateways: { payAtHotel: false, stripe: true, pokpay: false },
-    };
-    expect(areaHealth(onlineOnly, 'Free', new Set()).payments.status).toBe('attention');
-    expect(areaHealth(onlineOnly, 'Free', new Set(['STRIPE'])).payments.status).toBe('done');
-    expect(health.email.status).toBe('none');
-    const broken = areaHealth(
-      {
-        ...property,
-        address: ' ',
-        minStayNights: 9,
-        paymentGateways: { stripe: false, pokpay: false, payAtHotel: false },
-        checkOutTime: null,
-      },
-      null,
-    );
-    expect(broken.general.status).toBe('attention');
-    expect(broken['booking-rules'].status).toBe('attention');
-    expect(broken.payments.status).toBe('attention');
-    expect(broken['check-in-out'].status).toBe('todo');
-    expect(broken.billing.status).toBe('todo');
-  });
-
   it('explains stay-limit mistakes in plain words', () => {
     const base = {
       minStayNights: '2',
