@@ -87,6 +87,18 @@ export class ClockPermissionsMonitorService implements OnModuleInit, OnModuleDes
     for (let index = 0; index < ids.length; index += BATCH)
       after = await this.permissions.check(scope, null, ids.slice(index, index + BATCH));
 
+    // Clock refusing everything (expired trial, disabled API user) is one problem, not a hundred
+    // missing rights: say it once when it starts, in words the hotel understands.
+    const lostNow = accessLostReason(after);
+    if (lostNow !== null) {
+      if (accessLostReason(before) !== null) return false;
+      await this.notifications.record(scope.tenantId, scope.propertyId, 'CLOCK_ACCESS_LOST', {
+        reason: lostNow,
+      });
+      this.logger.warn(`Clock access lost for property ${scope.propertyId}: ${lostNow}`);
+      return true;
+    }
+
     const firstCheck = before.checkedAt === null;
     const now = blockedRights(after, firstCheck);
     const earlier = blockedRights(before, firstCheck);
@@ -115,6 +127,24 @@ export class ClockPermissionsMonitorService implements OnModuleInit, OnModuleDes
       maxRetriesPerRequest: null,
     };
   }
+}
+
+const ACCESS_LOST_MIN_CHECKED = 10;
+
+/**
+ * Why Clock refuses the whole connection, or null when it does not. Access is lost only when enough
+ * requests were checked, none was allowed, and every refusal is a plain 403 that names no right (a
+ * missing right is named: "The User doesn't have <right>"). A request that could not reach Clock at all
+ * proves nothing, so any such result keeps this null.
+ */
+export function accessLostReason(report: ClockPermissionReport): string | null {
+  const checked = report.entries.filter(
+    (entry) => entry.probeable && entry.status !== 'pending' && entry.status !== 'untested',
+  );
+  if (checked.length < ACCESS_LOST_MIN_CHECKED) return null;
+  if (!checked.every((entry) => entry.status === 'missing' && !entry.right)) return null;
+  const message = checked.find((entry) => entry.message)?.message?.trim();
+  return (message || 'Clock refuses every request for this connection.').slice(0, 200);
 }
 
 /** Rights that a MUST feature depends on and Clock refuses, with the features each one blocks. */

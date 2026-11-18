@@ -1,7 +1,9 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { isStripeTestKey } from '../integrations/connection-mode';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
   type CheckoutSession,
   type CreateCheckoutSessionCommand,
+  type Money,
   type Payment,
   type PaymentProvider,
   type PaymentProviderContext,
@@ -12,9 +14,12 @@ import {
 import Stripe from 'stripe';
 
 import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
+import { fromStripeMinorUnits, stripeDecimals, toStripeMinorUnits } from './stripe-minor-units';
 
 @Injectable()
 export class StripePaymentProvider implements PaymentProvider {
+  private readonly logger = new Logger(StripePaymentProvider.name);
+
   constructor(
     @Inject(IntegrationConnectionsService)
     private readonly connections: IntegrationConnectionsService,
@@ -39,24 +44,36 @@ export class StripePaymentProvider implements PaymentProvider {
     context: PaymentProviderContext,
     command: CreateCheckoutSessionCommand,
   ): Promise<Result<CheckoutSession>> {
-    const configured = await this.tenantSecretKey(context);
+    const configured = await this.tenantConnection(context);
     if (!configured.ok) return configured;
-    const secretKey = configured.value;
-    if (!secretKey.startsWith('sk_test_')) {
+    const { secretKey, connectionId, publishableKey } = configured.value;
+    if (!isStripeTestKey(secretKey)) {
       return this.failure(
         'STRIPE_TEST_MODE_REQUIRED',
-        'Only a Stripe test-mode secret key may be used at this stage.',
+        'Only a Stripe test-mode key (sk_test_ or rk_test_) may be used at this stage.',
       );
     }
 
     try {
+      // The website can show Stripe's checkout inside its own page when this hotel saved its
+      // publishable key; without one, the guest goes to Stripe's own page as before.
+      const embedded = command.embedded === true && !!publishableKey;
       const session = await new Stripe(secretKey).checkout.sessions.create(
         {
           mode: 'payment',
           submit_type: 'book',
           client_reference_id: command.bookingId,
-          success_url: command.successUrl,
-          cancel_url: command.cancelUrl,
+          // The guest pays in the hotel's own currency: no local-currency offer with a conversion fee, so the
+          // ledger, the refunds and the hotel's balance all count the same amount (owner, 2026-11-16).
+          adaptive_pricing: { enabled: false },
+          ...(embedded
+            ? {
+                ui_mode: 'embedded_page' as const,
+                return_url: command.successUrl,
+                // Cards finish inside the page (the page is told); redirect methods use return_url.
+                redirect_on_completion: 'if_required' as const,
+              }
+            : { success_url: command.successUrl, cancel_url: command.cancelUrl }),
           metadata: this.bookingMetadata(context, command.bookingId),
           payment_intent_data: {
             metadata: this.bookingMetadata(context, command.bookingId),
@@ -66,7 +83,9 @@ export class StripePaymentProvider implements PaymentProvider {
               quantity: 1,
               price_data: {
                 currency: command.amount.currency.toLowerCase(),
-                unit_amount_decimal: this.amountInCents(command.amount.amount),
+                unit_amount_decimal: Stripe.Decimal.from(
+                  `${toStripeMinorUnits(command.amount.amount, command.amount.currency)}`,
+                ),
                 product_data: { name: `Hotel booking ${command.bookingId}` },
               },
             },
@@ -74,6 +93,24 @@ export class StripePaymentProvider implements PaymentProvider {
         },
         { idempotencyKey: command.idempotencyKey },
       );
+      if (embedded) {
+        if (!session.client_secret)
+          return this.failure(
+            'STRIPE_CHECKOUT_URL_MISSING',
+            'Stripe did not return an embedded checkout.',
+            true,
+          );
+        return {
+          ok: true,
+          value: {
+            id: session.id,
+            url: '',
+            connectionId,
+            clientSecret: session.client_secret,
+            publishableKey: publishableKey!,
+          },
+        };
+      }
       if (!session.url) {
         return this.failure(
           'STRIPE_CHECKOUT_URL_MISSING',
@@ -81,8 +118,12 @@ export class StripePaymentProvider implements PaymentProvider {
           true,
         );
       }
-      return { ok: true, value: { id: session.id, url: session.url } };
-    } catch {
+      return { ok: true, value: { id: session.id, url: session.url, connectionId } };
+    } catch (error) {
+      // Stripe's own error text names the problem (and never contains a key); keep it for the operator.
+      this.logger.warn(
+        `Stripe checkout could not be created: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
       return this.failure(
         'STRIPE_CHECKOUT_CREATION_FAILED',
         'Stripe checkout could not be created.',
@@ -91,24 +132,22 @@ export class StripePaymentProvider implements PaymentProvider {
     }
   }
 
-  // Deliberately still platform-wide, not tenant-owned: the webhook secret is
-  // what proves which tenant sent this event in the first place (the caller,
-  // stripe-webhook.controller.ts, has no real tenant context yet at this
-  // point — see WEBHOOK_VERIFICATION_CONTEXT there). Routing this per tenant
-  // (mirroring Clock's webhookPublicId-per-connection pattern) is real,
-  // separate follow-up work, not part of Milestone 11.5 Task 1's scope.
+  // Each hotel's Stripe connection has its own webhook secret. The public endpoint finds the
+  // connection by its random webhook id, then passes that connection's keys here; nothing is read
+  // from the server environment, so one hotel's secret can never verify another hotel's events.
   async verifyWebhookEvent(
-    context: PaymentProviderContext,
+    context: PaymentProviderContext & {
+      stripeWebhook?: { secretKey: string; webhookSecret: string };
+    },
     rawBody: Uint8Array,
     signature: string,
   ): Promise<Result<PaymentWebhookEvent>> {
-    void context;
-    const secretKey = this.platformSecretKey();
-    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
+    const secretKey = context.stripeWebhook?.secretKey.trim();
+    const webhookSecret = context.stripeWebhook?.webhookSecret.trim();
     if (!secretKey || !webhookSecret) {
       return this.failure(
         'STRIPE_WEBHOOK_NOT_CONFIGURED',
-        'Stripe webhook verification is not configured for this environment.',
+        'This Stripe connection has no webhook secret saved.',
       );
     }
     if (!signature.trim()) {
@@ -158,13 +197,15 @@ export class StripePaymentProvider implements PaymentProvider {
   }
 
   async refund(context: PaymentProviderContext, command: RefundCommand): Promise<Result<Payment>> {
-    const configured = await this.tenantSecretKey(context);
+    // A refund goes through the account that took the payment, even if the hotel has since switched
+    // to another one (test or live). Older sessions without a recorded account use the one in use.
+    const configured = await this.tenantConnection(context, command.paymentId);
     if (!configured.ok) return configured;
-    const secretKey = configured.value;
-    if (!secretKey.startsWith('sk_test_')) {
+    const secretKey = configured.value.secretKey;
+    if (!isStripeTestKey(secretKey)) {
       return this.failure(
         'STRIPE_TEST_MODE_REQUIRED',
-        'Only a Stripe test-mode secret key may be used at this stage.',
+        'Only a Stripe test-mode key (sk_test_ or rk_test_) may be used at this stage.',
       );
     }
 
@@ -180,7 +221,7 @@ export class StripePaymentProvider implements PaymentProvider {
       const refund = await stripe.refunds.create(
         {
           ...target,
-          amount: this.amountInMinorUnits(command.amount.amount),
+          amount: Number(toStripeMinorUnits(command.amount.amount, command.amount.currency)),
         },
         { idempotencyKey: command.idempotencyKey },
       );
@@ -193,8 +234,94 @@ export class StripePaymentProvider implements PaymentProvider {
           status: refund.status ?? 'succeeded',
         },
       };
+    } catch (error) {
+      // Stripe's own reason (never a key or a secret) so staff and the logs can see why a refund failed,
+      // for example an approval rule on the Stripe account.
+      const reason = error instanceof Stripe.errors.StripeError ? error.message : null;
+      this.logger.warn(
+        error instanceof Stripe.errors.StripeError
+          ? `Stripe refused a refund: ${error.type} ${error.code ?? ''} (request ${error.requestId ?? 'unknown'}): ${error.message}`
+          : 'A Stripe refund failed for a reason that is not a Stripe error.',
+      );
+      return this.failure(
+        'STRIPE_REFUND_FAILED',
+        reason
+          ? `Stripe could not complete the refund: ${reason.slice(0, 240)}`
+          : 'Stripe refund could not be completed.',
+        true,
+      );
+    }
+  }
+
+  /**
+   * Closes the guest's still-open Stripe page. A session that is already closed or paid counts as closed;
+   * only a failure to reach Stripe asks the caller to try again.
+   */
+  async expireCheckout(
+    context: PaymentProviderContext,
+    externalPaymentId: string,
+  ): Promise<Result<{ closed: boolean }>> {
+    const configured = await this.tenantConnection(context, externalPaymentId);
+    if (!configured.ok) return configured;
+    try {
+      await new Stripe(configured.value.secretKey).checkout.sessions.expire(externalPaymentId);
+      return { ok: true, value: { closed: true } };
+    } catch (error) {
+      const stripeError = error as { type?: string; statusCode?: number; message?: string };
+      // "Only open sessions can be expired": it is already expired or paid, nothing is left to close.
+      if (stripeError.type === 'StripeInvalidRequestError' && stripeError.statusCode === 400)
+        return { ok: true, value: { closed: true } };
+      this.logger.warn(
+        `Stripe checkout could not be closed: ${stripeError.message ?? 'unknown error'}`,
+      );
+      return { ok: true, value: { closed: false } };
+    }
+  }
+
+  /**
+   * Stripe's processing fee for one paid Checkout session, in the currency the guest paid in. Stripe reports
+   * the fee in the currency it settles in; when that differs, the balance transaction's own exchange rate
+   * converts it back.
+   */
+  async getPaymentFee(
+    context: PaymentProviderContext,
+    externalPaymentId: string,
+  ): Promise<Result<Money | null>> {
+    const configured = await this.tenantConnection(context, externalPaymentId);
+    if (!configured.ok) return configured;
+    try {
+      const session = await new Stripe(configured.value.secretKey).checkout.sessions.retrieve(
+        externalPaymentId,
+        { expand: ['payment_intent.latest_charge.balance_transaction'] },
+      );
+      const intent = session.payment_intent;
+      const charge = intent && typeof intent === 'object' ? intent.latest_charge : null;
+      const settlement = charge && typeof charge === 'object' ? charge.balance_transaction : null;
+      if (!charge || typeof charge !== 'object' || !settlement || typeof settlement !== 'object')
+        return { ok: true, value: null };
+      // The fee is in the account's settlement currency; the guest paid in the charge currency. Work in
+      // whole currency units so currencies with no or three decimals convert correctly.
+      let feeMajor = settlement.fee / 10 ** stripeDecimals(settlement.currency);
+      if (settlement.currency !== charge.currency) {
+        if (!settlement.exchange_rate) return { ok: true, value: null };
+        feeMajor = feeMajor / settlement.exchange_rate;
+      }
+      return {
+        ok: true,
+        value: {
+          amount: fromStripeMinorUnits(
+            feeMajor * 10 ** stripeDecimals(charge.currency),
+            charge.currency,
+          ),
+          currency: charge.currency.toUpperCase(),
+        },
+      };
     } catch {
-      return this.failure('STRIPE_REFUND_FAILED', 'Stripe refund could not be completed.', true);
+      return this.failure(
+        'STRIPE_FEE_UNAVAILABLE',
+        'Stripe could not report the payment fee.',
+        true,
+      );
     }
   }
 
@@ -209,32 +336,42 @@ export class StripePaymentProvider implements PaymentProvider {
     return value || null;
   }
 
-  /** Reads the tenant's own Stripe connection for this property (ADR-0026) —
-   * never the server environment. A property with no enabled Stripe
-   * connection cannot take Stripe payments, same as having none configured. */
-  private async tenantSecretKey(context: PaymentProviderContext): Promise<Result<string>> {
-    const credentials = await this.connections.activePaymentConnectionCredentials(
-      context.tenantId,
-      context.propertyId,
-      'STRIPE',
-    );
-    const secretKey = credentials?.secretKey?.trim();
-    if (!secretKey)
+  /** Reads the tenant's own Stripe connection for this property (ADR-0026), never the server
+   * environment: the account that took the given payment if it is recorded, otherwise the one in
+   * use. A property with no usable Stripe connection cannot take Stripe payments. */
+  private async tenantConnection(
+    context: PaymentProviderContext,
+    externalPaymentId?: string,
+  ): Promise<Result<{ secretKey: string; connectionId: string; publishableKey?: string }>> {
+    const connection =
+      (externalPaymentId
+        ? await this.connections.sessionPaymentConnection(
+            context.tenantId,
+            context.propertyId,
+            'STRIPE',
+            externalPaymentId,
+          )
+        : null) ??
+      (await this.connections.activePaymentConnection(
+        context.tenantId,
+        context.propertyId,
+        'STRIPE',
+      ));
+    const secretKey = connection?.credentials.secretKey?.trim();
+    if (!connection || !secretKey)
       return this.failure(
         'STRIPE_NOT_CONFIGURED',
         'Stripe checkout is not configured for this property.',
       );
-    return { ok: true, value: secretKey };
-  }
-
-  private amountInCents(amount: string): Stripe.Decimal {
-    const [whole, fraction = ''] = amount.split('.');
-    return Stripe.Decimal.from(`${BigInt(whole || '0') * 100n + BigInt(fraction.padEnd(2, '0'))}`);
-  }
-
-  private amountInMinorUnits(amount: string): number {
-    const [whole, fraction = ''] = amount.split('.');
-    return Number(BigInt(whole || '0') * 100n + BigInt(fraction.padEnd(2, '0')));
+    const publishableKey = connection.credentials.publishableKey?.trim();
+    return {
+      ok: true,
+      value: {
+        secretKey,
+        connectionId: connection.connectionId,
+        ...(publishableKey ? { publishableKey } : {}),
+      },
+    };
   }
 
   private async refundTarget(

@@ -25,7 +25,9 @@ import {
   validEmailDmarc,
 } from './email-domain-setup';
 
-type Mode = 'DEFAULT' | 'RESEND' | 'SMTP';
+type Mode = 'DEFAULT' | 'RESEND' | 'SMTP' | 'BREVO';
+/** Senders proven by a From-mailbox code and a saved connection check. */
+const mailboxMode = (mode: Mode) => mode === 'SMTP' || mode === 'BREVO';
 export type EmailSendingProfile = {
   version: number;
   mode: Mode;
@@ -47,6 +49,7 @@ export type EmailSendingProfile = {
   domainCheckedAt?: string | null;
   dnsRecords?: EmailDnsRecord[];
   dmarcEvidence?: EmailDmarcEvidence | null;
+  serverOutboundIp?: string | null;
 };
 type CheckResult = { id: string; state: string; version: number; message: string };
 type ProofResult = CheckResult & { deliveryStatus?: string };
@@ -54,6 +57,7 @@ const labels: Record<Mode, string> = {
   DEFAULT: 'Default MUST sender',
   RESEND: 'Own domain through Resend',
   SMTP: 'Custom SMTP',
+  BREVO: 'Own Brevo account',
 };
 const connectionLabels: Record<string, string> = {
   unknown: 'No current result',
@@ -267,7 +271,12 @@ function SendingEditor({
             disabled={disabled}
             options={Object.entries(labels).map(([value, label]) => ({ value, label }))}
             onChange={(value) => {
-              if (value === 'DEFAULT' || value === 'RESEND' || value === 'SMTP') {
+              if (
+                value === 'DEFAULT' ||
+                value === 'RESEND' ||
+                value === 'SMTP' ||
+                value === 'BREVO'
+              ) {
                 setMode(value);
                 setSecret('');
                 setUsername('');
@@ -318,7 +327,7 @@ function SendingEditor({
                   onChange={(e) => setDomain(e.target.value)}
                 />
               </FormField>
-            ) : (
+            ) : mode === 'SMTP' ? (
               <div className="grid gap-4 md:grid-cols-2">
                 <FormField
                   label="SMTP hostname"
@@ -348,7 +357,46 @@ function SendingEditor({
                   />
                 </FormField>
               </div>
-            )}
+            ) : null}
+            {mode === 'BREVO' ? (
+              <Alert>
+                <AlertDescription className="flex flex-col gap-2">
+                  <span>
+                    In Brevo, create an API key under SMTP &amp; API → API keys. The From address
+                    must be an active sender in that Brevo account.
+                  </span>
+                  <span>
+                    If your Brevo account blocks unknown IP addresses, add MUST&apos;s server under
+                    Security → Authorised IPs:{' '}
+                    <strong>
+                      {profile.serverOutboundIp ?? 'ask MUST support for the address'}
+                    </strong>
+                  </span>
+                  <span>
+                    Authenticate your domain in Brevo (Senders, domains → Domains). Until then,
+                    Brevo shows its own address as the sender instead of yours.
+                  </span>
+                  <div className="flex flex-wrap gap-3">
+                    <a
+                      className="underline"
+                      href="https://app.brevo.com/settings/keys/api"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Brevo API keys
+                    </a>
+                    <a
+                      className="underline"
+                      href="https://app.brevo.com/security/authorised_ips"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Brevo authorised IPs
+                    </a>
+                  </div>
+                </AlertDescription>
+              </Alert>
+            ) : null}
             {mode === 'SMTP' ? (
               <Alert>
                 <AlertDescription className="flex flex-col gap-2">
@@ -422,7 +470,13 @@ function SendingEditor({
                   </FormField>
                 ) : null}
                 <FormField
-                  label={mode === 'SMTP' ? 'SMTP password / app password' : 'Resend API key'}
+                  label={
+                    mode === 'SMTP'
+                      ? 'SMTP password / app password'
+                      : mode === 'BREVO'
+                        ? 'Brevo API key'
+                        : 'Resend API key'
+                  }
                   htmlFor="sending-secret"
                   required
                   hint="Encrypted for this hotel. Never returned; rotate by replacement."
@@ -461,7 +515,7 @@ function SendingEditor({
             </AlertDescription>
           </Alert>
         ) : null}
-        {profile.mode !== 'SMTP' ? (
+        {!mailboxMode(profile.mode) ? (
           <EmailDomainSetup
             base={base}
             version={profile.version}
@@ -477,12 +531,13 @@ function SendingEditor({
             refresh={refresh}
           />
         ) : null}
-        {profile.mode === 'SMTP' ? (
+        {mailboxMode(profile.mode) ? (
           <>
             <DetailList
               items={[
                 {
-                  label: 'Saved SMTP connection',
+                  label:
+                    profile.mode === 'BREVO' ? 'Saved Brevo connection' : 'Saved SMTP connection',
                   value: (
                     <Badge variant="outline">
                       {connectionLabels[
@@ -509,7 +564,9 @@ function SendingEditor({
               }
               onClick={() => setApproval({ kind: 'check', version: profile.version })}
             >
-              Check saved SMTP connection
+              {profile.mode === 'BREVO'
+                ? 'Check saved Brevo connection'
+                : 'Check saved SMTP connection'}
             </Button>
             {dirty ? (
               <p className="m-0 text-xs text-muted-foreground">
@@ -595,9 +652,7 @@ function SendingEditor({
           onOpenChange={(open) => {
             if (!open) setApproval(null);
           }}
-          title={
-            approval?.kind === 'check' ? 'Check saved SMTP connection?' : 'Save sending setup?'
-          }
+          title={approval?.kind === 'check' ? 'Check saved connection?' : 'Save sending setup?'}
           description={
             approval?.kind === 'check'
               ? 'Checks DNS, encrypted connection and authentication only. No email is sent and the selected sender is unchanged.'

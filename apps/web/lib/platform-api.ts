@@ -72,6 +72,12 @@ export const consolePost = <T>(path: string, body: unknown = {}) =>
 export const consolePatch = <T>(path: string, body: unknown) =>
   consoleRequest<T>('PATCH', path, body);
 
+export type DeadLetterStats = {
+  count: number;
+  oldestAgeSeconds: number | null;
+  alertedCount: number;
+};
+
 export type LifecycleState =
   'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'SUSPENDED' | 'CANCELLED' | 'ARCHIVED';
 
@@ -189,6 +195,8 @@ export type ConnectionRow = {
   provider: string;
   name: string;
   status: 'PENDING' | 'CONNECTED' | 'FAILED';
+  /** TEST or LIVE for a payment account; null for Clock. */
+  mode?: 'TEST' | 'LIVE' | null;
   lastTestedAt: string | null;
   lastTestResult: string | null;
   lastWebhookReceivedAt: string | null;

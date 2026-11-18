@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
+import { guestStatusLabel } from './guest-status-label';
 import { Textarea } from '../../../components/ui/input';
 import { FormField } from '../../../components/ui/form-field';
 import { SettingToggle } from '../../../components/ui/setting-toggle';
@@ -155,7 +156,7 @@ export function GuestBookingManage() {
                   {booking.startsOn} to {booking.endsOn}
                 </dd>
                 <dt>Status</dt>
-                <dd className="text-right">{booking.status.replaceAll('_', ' ')}</dd>
+                <dd className="text-right">{guestStatusLabel(booking.status)}</dd>
               </dl>
               {booking.status === 'CONFIRMED' ? (
                 <>

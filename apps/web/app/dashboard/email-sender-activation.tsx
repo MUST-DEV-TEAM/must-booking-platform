@@ -36,7 +36,7 @@ export function EmailSenderActivation({
           ? 'New hotel emails use the custom sender. Pause it before running domain or connection diagnostics.'
           : ready
             ? 'Saved setup is verified. Activate it to use this sender for new hotel emails.'
-            : profile.mode === 'SMTP'
+            : profile.mode === 'SMTP' || profile.mode === 'BREVO'
               ? 'Check the saved connection and verify the From mailbox before activation.'
               : 'Verify the saved sending domain before activation.'}
       </p>

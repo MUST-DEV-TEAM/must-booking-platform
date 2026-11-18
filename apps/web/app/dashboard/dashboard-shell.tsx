@@ -57,7 +57,8 @@ import { MyAccount } from './my-account';
 import { ReservationDetail } from './reservation-detail';
 import { ReservationsPage } from './reservations-page';
 import { EmailSettings, isEmailTab, type EmailTab } from './email-settings';
-import { DashboardSettings, isSettingsArea, SettingsHub, type SettingsArea } from './settings';
+import { DashboardSettings, SettingsFrame, SettingsOverview } from './settings';
+import { resolveSettingsTab, settingsTabHref, type SettingsTab } from './settings-registry';
 import { DashboardNotifications, NotificationsInbox } from './notifications';
 import { EmailsWorkspace } from './emails';
 import { DashboardReports } from './reports';
@@ -370,7 +371,7 @@ export function DashboardShell({
   // The restaurant open on the Restaurants page (?venue=<venueId>).
   const [venueId, setVenueId] = useState<string | null>(null);
   const [tab, setTab] = useState<DashboardTab>('overview');
-  const [settingsArea, setSettingsArea] = useState<SettingsArea | null>(null);
+  const [settingsArea, setSettingsArea] = useState<SettingsTab>('overview');
   const [emailTab, setEmailTab] = useState<EmailTab | undefined>(undefined);
   const selectedProperty =
     properties?.find((property) => property.id === selectedPropertyId) ?? properties?.[0];
@@ -382,6 +383,7 @@ export function DashboardShell({
       const requested = params.get('tab');
       setTab(isDashboardTab(requested) ? requested : 'overview');
       setVenueId(params.get('venue'));
+      setSettingsArea(resolveSettingsTab(params.get('settingsArea')));
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
@@ -421,8 +423,7 @@ export function DashboardShell({
         setSection(params.get('section') ?? 'overview');
         const requestedTab = params.get('tab');
         setTab(isDashboardTab(requestedTab) ? requestedTab : 'overview');
-        const requestedSettingsArea = params.get('settingsArea');
-        setSettingsArea(isSettingsArea(requestedSettingsArea) ? requestedSettingsArea : null);
+        setSettingsArea(resolveSettingsTab(params.get('settingsArea')));
         const requestedEmailTab = params.get('emailTab');
         setEmailTab(isEmailTab(requestedEmailTab) ? requestedEmailTab : undefined);
         setSelectedPropertyId(
@@ -567,7 +568,7 @@ export function DashboardShell({
                   setSelectedPropertyId(value);
                   setSection('overview');
                   setTab('overview');
-                  setSettingsArea(null);
+                  setSettingsArea('overview');
                   window.location.href = `/dashboard/${tenantId}?propertyId=${encodeURIComponent(value)}&section=overview`;
                 }}
               >
@@ -823,31 +824,59 @@ export function DashboardShell({
           <DashboardReports tenantId={tenantId} propertyId={selectedProperty.id} />
         ) : null}
         {selectedProperty && role && canViewSection && section === 'settings' ? (
-          settingsArea === 'email' ? (
-            <EmailSettings
-              viewerId={user?.id}
-              tenantId={tenantId}
-              propertyId={selectedProperty.id}
-              initialTab={emailTab}
-              canWrite={user?.emailVerified === true && canChange('settings.manage')}
-            />
-          ) : settingsArea ? (
-            <DashboardSettings
-              key={selectedProperty.id}
-              tenantId={tenantId}
-              propertyId={selectedProperty.id}
-              settingsArea={settingsArea}
-              canWrite={user?.emailVerified === true && canChange('settings.manage')}
-              canManagePhotos={canChange('photos.manage')}
-              onPropertySaved={(updated) =>
-                setProperties((current) =>
-                  current?.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)),
-                )
-              }
-            />
-          ) : (
-            <SettingsHub tenantId={tenantId} propertyId={selectedProperty.id} />
-          )
+          <SettingsFrame
+            tenantId={tenantId}
+            propertyId={selectedProperty.id}
+            tab={settingsArea}
+            onNavigate={(next) => {
+              setSettingsArea(next);
+              window.history.pushState(
+                null,
+                '',
+                settingsTabHref(tenantId, selectedProperty.id, next),
+              );
+            }}
+          >
+            {settingsArea === 'overview' ? (
+              <SettingsOverview
+                key={selectedProperty.id}
+                tenantId={tenantId}
+                propertyId={selectedProperty.id}
+                canWrite={user?.emailVerified === true && canChange('settings.manage')}
+              />
+            ) : settingsArea === 'emails' ? (
+              <EmailSettings
+                key={selectedProperty.id}
+                viewerId={user?.id}
+                tenantId={tenantId}
+                propertyId={selectedProperty.id}
+                initialTab={emailTab}
+                canWrite={user?.emailVerified === true && canChange('settings.manage')}
+              />
+            ) : settingsArea === 'team' ? (
+              <DashboardStaff tenantId={tenantId} propertyId={selectedProperty.id} />
+            ) : settingsArea === 'audit-log' ? (
+              <ActivityAudit
+                tenantId={tenantId}
+                propertyId={selectedProperty.id}
+                userId={user?.id}
+              />
+            ) : (
+              <DashboardSettings
+                key={selectedProperty.id}
+                tenantId={tenantId}
+                propertyId={selectedProperty.id}
+                settingsArea={settingsArea}
+                canWrite={user?.emailVerified === true && canChange('settings.manage')}
+                canManagePhotos={canChange('photos.manage')}
+                onPropertySaved={(updated) =>
+                  setProperties((current) =>
+                    current?.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)),
+                  )
+                }
+              />
+            )}
+          </SettingsFrame>
         ) : null}
       </AppShell>
     </HotelDateFormatProvider>

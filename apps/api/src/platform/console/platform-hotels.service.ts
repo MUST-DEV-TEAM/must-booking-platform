@@ -364,6 +364,7 @@ export class PlatformHotelsService {
             provider: string;
             name: string;
             status: 'PENDING' | 'CONNECTED' | 'FAILED';
+            mode: 'TEST' | 'LIVE' | null;
             lastTestedAt: string | null;
             lastTestResult: string | null;
             lastWebhookReceivedAt: string | null;
@@ -371,7 +372,7 @@ export class PlatformHotelsService {
           }>
         >`
           SELECT "id", "kind"::text AS "kind", "provider"::text AS "provider", "name",
-            "status"::text AS "status", "last_tested_at" AS "lastTestedAt",
+            "status"::text AS "status", "mode", "last_tested_at" AS "lastTestedAt",
             "last_test_result" AS "lastTestResult",
             "last_webhook_received_at" AS "lastWebhookReceivedAt", "created_at" AS "createdAt"
           FROM "integration_connections" ORDER BY "created_at"

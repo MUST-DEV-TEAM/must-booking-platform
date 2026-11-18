@@ -74,6 +74,7 @@ const LABELS: Record<string, string> = {
   'booking.staff_cancelled': 'Booking cancelled (staff)',
   'guest.pre_arrival': 'Pre-arrival reminder (guest)',
   'guest.booking_changed': 'Booking changed (guest)',
+  'guest.cancellation_request_received': 'Cancellation request received (guest)',
   'guest.payment_not_completed': 'Payment not completed (guest)',
   'guest.post_stay': 'Post-stay thank-you (guest)',
   'owner.alert': 'Alert (owner)',
@@ -433,7 +434,7 @@ export class EmailActivityService {
         domainAuthentication:
           sender &&
           sender.mode === sender.activeMode &&
-          sender.mode !== 'SMTP' &&
+          sender.mode === 'RESEND' &&
           sender.status === 'verified'
             ? 'VERIFIED'
             : 'UNKNOWN',

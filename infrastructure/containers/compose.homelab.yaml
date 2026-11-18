@@ -39,6 +39,8 @@ services:
     logging: *logging
     image: redis:7-alpine
     restart: unless-stopped
+    # Append-only file, flushed once a second: a crash loses at most a second of sessions, links and queued jobs.
+    command: ['redis-server', '--appendonly', 'yes', '--appendfsync', 'everysec']
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
@@ -55,6 +57,19 @@ services:
       context: ../..
       dockerfile: infrastructure/containers/api.Dockerfile
     restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    # The image has no curl or wget, so the check uses node's own fetch against the readiness path.
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/health/ready').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     depends_on:
       postgres:
         condition: service_healthy

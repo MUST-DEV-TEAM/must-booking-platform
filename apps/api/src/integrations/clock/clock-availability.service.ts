@@ -2105,7 +2105,7 @@ export class ClockAvailabilityService {
         timeoutMs: 15_000,
       });
       if (response.status < 200 || response.status >= 300) {
-        if (response.status !== 429) this.circuitBreaker.recordFailure(breakerKey);
+        if (response.status !== 429) this.circuitBreaker.recordFailure(breakerKey, response.status);
         return failure(classifyClockHttpResponse(response.status, response.body));
       }
       this.circuitBreaker.recordSuccess(breakerKey);

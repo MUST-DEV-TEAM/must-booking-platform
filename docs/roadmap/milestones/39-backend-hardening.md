@@ -1,6 +1,6 @@
 # Milestone 39: Backend hardening
 
-Status: **Planned 2026-11-14. Owner decisions recorded the same day (section 2). Task 5 (reading) done 2026-11-14. Nothing else built. Ready to execute.**
+Status: **Planned 2026-11-14. Owner decisions recorded the same day (section 2). Task 5 (reading) done 2026-11-14. Merged 2026-11-15: task 1 (#487), task 4 (#488), task 3 (#490). Task 9: append-only switched on live 2026-11-15 23:21 UTC, compose change in #496. The rest is not built or in review.**
 
 Source: [backend review, 2026-11-13](../../audit/backend-review-2026-11-13.md) (tasks B1 to B13) and items 7, 8, 9 and 11 of the [database review](../../audit/database-review-2026-11-13.md), which [Milestone 38](38-database-hardening.md) handed to this plan. The task table is the spec; the reviews hold the evidence.
 
@@ -38,6 +38,8 @@ The decisions approve the approach. Each merge still deploys and needs the owner
 - Model tiers: Sonnet for routine tasks, Opus for the ones marked so, Fable for the reading and design tasks.
 
 ## 4. Tasks, in execution order
+
+The tasks are split into one-agent slices, with their order across milestones, in the [hardening execution queue](../hardening-queue.md).
 
 | # | Task | Closes | Needs | Risk | Runs |
 | --- | --- | --- | --- | --- | --- |
@@ -138,9 +140,9 @@ Tasks 1 to 5 are independent of the owner decisions and can start at once; 1 goe
 
 ### Task 10. Two security findings, before hotels sign up on their own
 
-- **Clock host (MBA-105):** `parseClockCredentials` (`apps/api/src/integrations/clock/clock-credentials.ts`) accepts any host an admin types, and the server then sends requests there. Restrict it to Clock's real API domains. Take the allowed pattern from `docs/integrations/clock`; if the docs do not state it, record it as unverified and ask, do not guess. Check the saved connections on live against the pattern first (read-only), so no working hotel is refused.
-- **Invitation activation (MBA-107):** first a test that shows whether the new-account path of `StaffInviteService.activate` accepts a different email than the invited one. If it does, bind the new account to the invited address and refuse a mismatch.
-- **Priority: now.** The owner confirmed on 2026-11-14 that anyone can create a hotel account at `/signup` ([Milestone 41](41-frontend-hardening.md), decision D1), so a new account's admin can already type a Clock host. Do this task right after task 1.
+- **Clock host (MBA-105):** `parseClockCredentials` (`apps/api/src/integrations/clock/clock-credentials.ts`) accepts any host an admin types, and the server then sends requests there. Restrict it to Clock's real API domains. Take the allowed pattern from `docs/integrations/clock`; if the docs do not state it, record it as unverified and ask, do not guess. Check the saved connections on live against the pattern first (read-only), so no working hotel is refused. **Done 2026-11-18 (`fix/m39-clock-host-allowlist`). The Clock docs name no host pattern; the only verified host is `sky-eu1.clock-software.com`, and the read-only live check found all three connections (Empire, Luxury, Must Hotel) on it. So the allowlist is exactly that host (`CLOCK_API_HOSTS` in `clock-credentials.ts`), checked when a connection is created and before every request in `ClockHttpClient`. Unverified, ask Clock before a hotel on another region connects: Clock's other regional hosts. Test stubs add exact names through `CLOCK_EXTRA_API_HOSTS` (set in `vitest.config.ts`, never in production).**
+- **Invitation activation (MBA-107):** first a test that shows whether the new-account path of `StaffInviteService.activate` accepts a different email than the invited one. If it does, bind the new account to the invited address and refuse a mismatch. **Done 2026-11-18 (`fix/m39-invite-email-binding`). The test showed it did: a hotel staff invitation created an account for any email typed (only restaurant invitations checked the address), and a signed-in user with another address could accept it too. Now both paths require the invited address (case-insensitive), and the invitation is used up only after every check passed, inside the same transaction, so a typo or a refused attempt leaves it valid.**
+- **Priority (2026-11-14):** raised to now, because the owner confirmed that anyone can create a hotel account at `/signup` ([Milestone 41](41-frontend-hardening.md), decision D1). Both items above were done on 2026-11-18.
 
 ### Task 11. Tests for the native booking path
 

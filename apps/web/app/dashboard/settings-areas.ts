@@ -3,9 +3,13 @@ export type PaymentGateways = { stripe: boolean; pokpay: boolean; payAtHotel: bo
 export type BookingMode = 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
 /** What happens to the guest's online payment when the hotel cancels the booking inside Clock. */
 export type ClockCancelRefundPolicy = 'NEVER' | 'FREE_WINDOW' | 'ALWAYS';
+export type ClockPaymentFolio = 'DEPOSIT' | 'MAIN';
 
 export type Property = {
   dateFormat?: string;
+  timeFormat?: string;
+  weekStart?: string;
+  numberFormat?: string;
   legalName?: string | null;
   taxNumber?: string | null;
   country?: string | null;
@@ -16,6 +20,31 @@ export type Property = {
   reservationsEmail?: string | null;
   description?: string | null;
   starRating?: number | null;
+  chainName?: string | null;
+  propertyType?: string | null;
+  starRatingOfficial?: boolean;
+  yearOpened?: number | null;
+  yearRenovated?: number | null;
+  summary?: string | null;
+  tourismLicence?: string | null;
+  vatRegistered?: boolean;
+  addressLine2?: string | null;
+  city?: string | null;
+  region?: string | null;
+  postalCode?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  directions?: string | null;
+  nearestAirportCode?: string | null;
+  nearestAirportKm?: number | null;
+  whatsappSameAsPhone?: boolean;
+  whatsappNumber?: string | null;
+  afterHoursPhone?: string | null;
+  receptionOpen24h?: boolean;
+  receptionFrom?: string | null;
+  receptionTo?: string | null;
+  accentColour?: string | null;
+  onlineProfiles?: Record<string, string>;
   allowSameDayBooking?: boolean;
   sameDayCutoffTime?: string | null;
   maxGuestsPerBooking?: number | null;
@@ -41,7 +70,10 @@ export type Property = {
   timezone: string;
   onlinePaymentHoldMinutes?: number;
   autoRefundOnFreeCancellation?: boolean;
+  /** A refund the guest asked for keeps back the payment provider's fee. */
+  deductPaymentFeeOnGuestRefund?: boolean;
   clockCancelRefundPolicy?: ClockCancelRefundPolicy;
+  clockPaymentFolio?: ClockPaymentFolio;
   brandColour?: string | null;
   emailFooterText?: string | null;
   termsUrl?: string | null;
@@ -124,76 +156,15 @@ export function isSettingsArea(value: string | null): value is SettingsArea {
   return settingsAreas.some((area) => area.key === value);
 }
 
-/** The required checks shown by the Settings hub, also used by the Hotels directory. */
-export const bookingReadinessAreas = [
-  { key: 'general', label: 'Hotel identity' },
-  { key: 'booking-rules', label: 'Booking rules' },
-  { key: 'check-in-out', label: 'Check-in and check-out times' },
-  { key: 'payments', label: 'Payment method' },
-  { key: 'managed-pages', label: 'Website connection' },
-] as const;
-export type AreaHealth = { status: 'done' | 'attention' | 'todo' | 'none'; note: string };
-
-/** What each area looks like from the saved settings alone; nothing is guessed. */
-export function areaHealth(
-  property: Property,
-  planName: string | null,
-  connectedProviders?: Set<string>,
-): Record<SettingsArea, AreaHealth> {
-  const present = (value: string | null | undefined) => !!value && value.trim() !== '';
-  const stayOrderWrong =
-    property.minStayNights !== null &&
-    property.maxStayNights !== null &&
-    property.minStayNights > property.maxStayNights;
-  const invalidLimits =
-    [property.maxGuestsPerBooking, property.maxRoomsPerBooking].some(
-      (v) => v != null && (!Number.isInteger(v) || v < 1),
-    ) ||
-    (!!property.sameDayCutoffTime && !validTime(property.sameDayCutoffTime));
-  const invalidArrival =
-    (property.earlyCheckInPolicy === 'free_until' && !property.earlyCheckInUntil) ||
-    (property.lateCheckOutPolicy === 'free_until' && !property.lateCheckOutUntil) ||
-    Boolean(property.quietHoursFrom) !== Boolean(property.quietHoursTo);
-  const gateways = property.paymentGateways;
-  return {
-    general:
-      present(property.name) && present(property.address) && present(property.timezone)
-        ? { status: 'done', note: 'Name, address and time zone are set.' }
-        : { status: 'attention', note: 'The name, address or time zone is missing.' },
-    'booking-rules': invalidLimits
-      ? { status: 'attention', note: 'Check the same-day cutoff and booking size limits.' }
-      : stayOrderWrong
-        ? { status: 'attention', note: 'The minimum stay is longer than the maximum stay.' }
-        : { status: 'done', note: 'Stay limits and cancellation window are set.' },
-    'check-in-out': invalidArrival
-      ? { status: 'attention', note: 'Complete the free-until or quiet-hours times.' }
-      : present(property.checkInTime) && present(property.checkOutTime)
-        ? { status: 'done', note: `From ${property.checkInTime} to ${property.checkOutTime}.` }
-        : { status: 'todo', note: 'Guests are not shown a check-in or check-out time.' },
-    payments:
-      gateways.payAtHotel ||
-      (gateways.stripe && connectedProviders?.has('STRIPE')) ||
-      (gateways.pokpay && connectedProviders?.has('POKPAY'))
-        ? { status: 'done', note: 'At least one payment method is available to guests.' }
-        : {
-            status: 'attention',
-            note: 'Switch on pay at hotel or connect an enabled online payment provider.',
-          },
-    branding:
-      present(property.supportEmail) && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(property.supportEmail!)
-        ? { status: 'done', note: 'A support email is set for guests.' }
-        : { status: 'attention', note: 'Guests have no support email in booking emails.' },
-    email: { status: 'none', note: '' },
-    integrations: { status: 'none', note: 'Connections, credentials and synchronization.' },
-    'managed-pages':
-      property.wordpressConnectedAt && present(property.publicWebsiteOrigin)
-        ? { status: 'done', note: 'The hotel website is connected.' }
-        : { status: 'todo', note: 'The hotel website is not connected yet.' },
-    billing: planName
-      ? { status: 'done', note: `Plan: ${planName}.` }
-      : { status: 'todo', note: 'No plan information is available.' },
-  };
-}
+/** "Ready to take bookings": worked out by the server (G-65); the browser only shows it. */
+export type ReadinessStep = {
+  key: 'profile' | 'booking-rules' | 'policies' | 'payment-methods' | 'website';
+  tab: 'profile' | 'booking-rules' | 'policies' | 'payment-methods' | 'integrations';
+  label: string;
+  status: 'done' | 'attention' | 'todo';
+  note: string;
+};
+export type SettingsReadiness = { ready: boolean; steps: ReadinessStep[] };
 
 export function timeZoneOptions(current: string): string[] {
   let zones: string[] = [];

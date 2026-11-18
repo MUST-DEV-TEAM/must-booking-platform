@@ -1,4 +1,5 @@
 import * as crypto from 'node:crypto';
+import { CredentialCipherService } from '../src/integrations/credential-cipher';
 import { randomUUID } from 'node:crypto';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -72,6 +73,8 @@ const admin = new PrismaClient({
 
 const stripeSecretKey = 'sk_test_webhook_e2e';
 const stripeWebhookSecret = 'whsec_webhook_e2e';
+// Each Stripe connection has its own webhook address; set once the connection is saved below.
+let stripeWebhookPublicId = '';
 
 let mailRedis: IORedis | undefined;
 let mailQueue: Queue | undefined;
@@ -238,7 +241,6 @@ describe('LocalPmsProvider', () => {
     process.env.REDIS_URL = 'redis://localhost:6379';
     process.env.WEB_APP_URL = 'http://localhost:3001';
     process.env.STRIPE_SECRET_KEY = stripeSecretKey;
-    process.env.STRIPE_WEBHOOK_SECRET = stripeWebhookSecret;
     await clearSignupRateLimits();
     const { AppModule } = await import('../src/app.module');
     const moduleBuilder = Test.createTestingModule({ imports: [AppModule] })
@@ -684,7 +686,7 @@ describe('LocalPmsProvider', () => {
       .set('Cookie', guestCookie)
       .set('Idempotency-Key', randomUUID())
       .send(bookingRequest)
-      .expect(201)
+      .expect(422)
       .expect((response) => {
         expect(response.body).toMatchObject({
           ok: false,
@@ -719,14 +721,18 @@ describe('LocalPmsProvider', () => {
     // guests when the property also has a real, connected integration --
     // the enabled toggle alone (above) is no longer enough. The payment
     // *provider* stays mocked for this test (see PAYMENT_PROVIDER override),
-    // so a direct row insert is sufficient; nothing here ever decrypts it.
+    // so a direct row insert is sufficient. Its keys are real (encrypted) because the webhook
+    // endpoint verifies each call with the connection's own webhook secret.
     const stripeConnectionId = randomUUID();
+    const stripeCredentials = app!
+      .get(CredentialCipherService)
+      .encrypt({ secretKey: stripeSecretKey, webhookSecret: stripeWebhookSecret });
     await admin.$executeRaw`
       INSERT INTO integration_connections
         (id, tenant_id, kind, provider, name, encrypted_credentials, status)
       VALUES (
         ${stripeConnectionId}::uuid, ${tenantId}::uuid, 'PAYMENT', 'STRIPE',
-        'Stripe (e2e)', 'not-decrypted-in-this-test', 'CONNECTED'
+        'Stripe (e2e)', ${stripeCredentials}, 'CONNECTED'
       )
     `;
     await admin.$executeRaw`
@@ -734,6 +740,10 @@ describe('LocalPmsProvider', () => {
         (tenant_id, property_id, connection_id, kind, enabled)
       VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${stripeConnectionId}::uuid, 'PAYMENT', true)
     `;
+    stripeWebhookPublicId = (
+      await admin.$queryRaw<Array<{ id: string }>>`
+        SELECT webhook_public_id::text AS id FROM integration_connections WHERE id = ${stripeConnectionId}::uuid`
+    )[0]!.id;
     await request(app!.getHttpServer())
       .get(`${propertyUrl}/public/catalog`)
       .set('Cookie', guestCookie)
@@ -746,7 +756,7 @@ describe('LocalPmsProvider', () => {
       .set('Cookie', guestCookie)
       .set('Idempotency-Key', randomUUID())
       .send({ ...bookingRequest, adults: 0 })
-      .expect(201)
+      .expect(422)
       .expect((response) => {
         expect(response.body).toMatchObject({
           ok: false,
@@ -792,37 +802,14 @@ describe('LocalPmsProvider', () => {
           { date: '2027-09-02', amount: '90.00' },
         ]);
       });
-    const createdNotifications = await admin.$queryRaw<Array<{ type: string }>>`
-      SELECT type FROM notifications
-      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
-        AND type = 'BOOKING_CREATED' AND payload->>'bookingId' = ${created.value.id}
-    `;
-    expect(createdNotifications).toEqual([{ type: 'BOOKING_CREATED' }]);
-    const notificationPage = await request(app!.getHttpServer())
-      .get(`${propertyUrl}/notifications?page=1&pageSize=20`)
-      .set('Cookie', cookie)
-      .expect(200);
-    const createdNotification = notificationPage.body.items.find(
-      (item: { type: string; booking: { id?: string } | null }) =>
-        item.type === 'BOOKING_CREATED' && item.booking?.id === created.value.id,
-    );
-    expect(createdNotification).toEqual(expect.objectContaining({ readAt: null }));
-    if (!createdNotification) throw new Error('Expected booking-created notification.');
-    const notificationReadKey = randomUUID();
-    const firstMarkRead = await request(app!.getHttpServer())
-      .patch(`${propertyUrl}/notifications/${createdNotification.id}`)
-      .set('Cookie', cookie)
-      .set('Idempotency-Key', notificationReadKey)
-      .send({ version: notificationPage.body.version })
-      .expect(200);
-    const secondMarkRead = await request(app!.getHttpServer())
-      .patch(`${propertyUrl}/notifications/${createdNotification.id}`)
-      .set('Cookie', cookie)
-      .set('Idempotency-Key', notificationReadKey)
-      .send({ version: notificationPage.body.version })
-      .expect(200);
-    expect(secondMarkRead.body).toEqual(firstMarkRead.body);
-    expect(firstMarkRead.body.updated).toBe(1);
+    // An unpaid attempt tells staff nothing (decision D4): the notice comes with the confirmation.
+    await expect(
+      admin.$queryRaw<Array<{ type: string }>>`
+        SELECT type FROM notifications
+        WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+          AND type = 'BOOKING_CREATED' AND payload->>'bookingId' = ${created.value.id}
+      `,
+    ).resolves.toEqual([]);
     const otherGuestQuote = await request(app!.getHttpServer())
       .post(`${propertyUrl}/quotes`)
       .send({ roomTypeId, ratePlanId, startsOn: '2027-09-01', endsOn: '2027-09-03' })
@@ -1224,7 +1211,7 @@ describe('LocalPmsProvider', () => {
     });
     failPaymentConfirmationDelivery = true;
     await request(app!.getHttpServer())
-      .post('/webhooks/stripe')
+      .post(`/webhooks/stripe/${stripeWebhookPublicId}`)
       .set('Content-Type', 'application/json')
       .set('Stripe-Signature', stripeSignature)
       .send(webhookPayload)
@@ -1235,6 +1222,38 @@ describe('LocalPmsProvider', () => {
       status: 'CONFIRMED',
       total: { amount: '180.00', currency: 'EUR' },
     });
+    // The confirmation is what tells staff: one notice, which they can read and mark as read.
+    const createdNotifications = await admin.$queryRaw<Array<{ type: string }>>`
+      SELECT type FROM notifications
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND type = 'BOOKING_CREATED' AND payload->>'bookingId' = ${created.value.id}
+    `;
+    expect(createdNotifications).toEqual([{ type: 'BOOKING_CREATED' }]);
+    const notificationPage = await request(app!.getHttpServer())
+      .get(`${propertyUrl}/notifications?page=1&pageSize=20`)
+      .set('Cookie', cookie)
+      .expect(200);
+    const createdNotification = notificationPage.body.items.find(
+      (item: { type: string; booking: { id?: string } | null }) =>
+        item.type === 'BOOKING_CREATED' && item.booking?.id === created.value.id,
+    );
+    expect(createdNotification).toEqual(expect.objectContaining({ readAt: null }));
+    if (!createdNotification) throw new Error('Expected booking-created notification.');
+    const notificationReadKey = randomUUID();
+    const firstMarkRead = await request(app!.getHttpServer())
+      .patch(`${propertyUrl}/notifications/${createdNotification.id}`)
+      .set('Cookie', cookie)
+      .set('Idempotency-Key', notificationReadKey)
+      .send({ version: notificationPage.body.version })
+      .expect(200);
+    const secondMarkRead = await request(app!.getHttpServer())
+      .patch(`${propertyUrl}/notifications/${createdNotification.id}`)
+      .set('Cookie', cookie)
+      .set('Idempotency-Key', notificationReadKey)
+      .send({ version: notificationPage.body.version })
+      .expect(200);
+    expect(secondMarkRead.body).toEqual(firstMarkRead.body);
+    expect(firstMarkRead.body.updated).toBe(1);
     // A failed send no longer blocks confirmation: the durable mail queue
     // (Milestone 22) retries it, and it is delivered exactly once.
     await settleMail();
@@ -1266,7 +1285,7 @@ describe('LocalPmsProvider', () => {
     ]);
 
     await request(app!.getHttpServer())
-      .post('/webhooks/stripe')
+      .post(`/webhooks/stripe/${stripeWebhookPublicId}`)
       .set('Content-Type', 'application/json')
       .set('Stripe-Signature', stripeSignature)
       .send(webhookPayload)
@@ -1401,7 +1420,7 @@ describe('LocalPmsProvider', () => {
       secret: stripeWebhookSecret,
     });
     await request(app!.getHttpServer())
-      .post('/webhooks/stripe')
+      .post(`/webhooks/stripe/${stripeWebhookPublicId}`)
       .set('Content-Type', 'application/json')
       .set('Stripe-Signature', failedRefundWebhookSignature)
       .send(failedRefundWebhookPayload)
@@ -1537,7 +1556,7 @@ describe('LocalPmsProvider', () => {
     await Promise.all(
       [1, 2].map(() =>
         request(app!.getHttpServer())
-          .post('/webhooks/stripe')
+          .post(`/webhooks/stripe/${stripeWebhookPublicId}`)
           .set('Content-Type', 'application/json')
           .set('Stripe-Signature', concurrentWebhookSignature)
           .send(concurrentWebhookPayload)
@@ -1703,7 +1722,7 @@ describe('LocalPmsProvider', () => {
         externalReference: `must-${randomUUID()}`,
         paymentMethod: undefined,
       })
-      .expect(201)
+      .expect(422)
       .expect((response) => {
         expect(response.body).toMatchObject({
           ok: false,
@@ -2044,7 +2063,7 @@ describe('LocalPmsProvider', () => {
       secret: stripeWebhookSecret,
     });
     await request(app!.getHttpServer())
-      .post('/webhooks/stripe')
+      .post(`/webhooks/stripe/${stripeWebhookPublicId}`)
       .set('Content-Type', 'application/json')
       .set('Stripe-Signature', manualRefundSignature)
       .send(manualRefundWebhookPayload)
@@ -2744,14 +2763,14 @@ describe('LocalPmsProvider', () => {
       secret: stripeWebhookSecret,
     });
     await request(app!.getHttpServer())
-      .post('/webhooks/stripe')
+      .post(`/webhooks/stripe/${stripeWebhookPublicId}`)
       .set('Content-Type', 'application/json')
       .set('Stripe-Signature', lateStripeSignature)
       .send(lateWebhookPayload)
       .expect(200)
       .expect({ received: true });
     await request(app!.getHttpServer())
-      .post('/webhooks/stripe')
+      .post(`/webhooks/stripe/${stripeWebhookPublicId}`)
       .set('Content-Type', 'application/json')
       .set('Stripe-Signature', lateStripeSignature)
       .send(lateWebhookPayload)

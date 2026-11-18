@@ -15,7 +15,7 @@ REPO_ROOT="$(cd ../.. && pwd)"
 SHA="${1:-}"
 REGISTRY_USER="${2:-must-deploy}"
 STATE_FILE="$PWD/.deployed-release"
-HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:4011/api/health}"
+HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:4011/api/health/ready}"
 # In the deploy user's own home: /var/backups/must-booking is root-only (the backup script uses umask 077).
 PRE_DEPLOY_BACKUP_DIR="${PRE_DEPLOY_BACKUP_DIR:-$HOME/pre-deploy-backups}"
 
@@ -120,7 +120,8 @@ finish() {
     else
       docker compose -f compose.homelab.yaml --env-file .env up -d --no-build api web
     fi
-    if healthy; then
+    # The previous release may be older than the readiness path: fall back to the liveness path for it.
+    if healthy || HEALTH_URL="${HEALTH_URL%/ready}" healthy; then
       echo "Rolled back to ${PREVIOUS_TAG:-the previous local images}; the site is healthy." >&2
     else
       echo "Rollback is not healthy either. Check the server now." >&2

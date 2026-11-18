@@ -5,6 +5,7 @@ import type { MailBrand } from '@must/domain-contracts';
 import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant-database.service';
 import {
   bookingChangedEmail,
+  cancellationRequestReceivedEmail,
   paymentNotCompletedEmail,
   type GuestStay,
 } from './booking-update-email-content';
@@ -119,6 +120,46 @@ export class BookingUpdateNotificationService {
     } catch (error) {
       this.logger.error(
         `Could not send the booking-changed email for booking ${bookingId}.`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+  }
+
+  /** One email per cancellation request a guest makes online: it arrived, and the hotel will decide. */
+  async sendCancellationRequestReceived(
+    context: Context,
+    bookingId: string,
+    requestId: string,
+  ): Promise<void> {
+    try {
+      const work = await this.database.withTenantTransaction(context, async (tx) => {
+        if (!(await guestNotificationEnabled(tx, context, 'cancellation_request_received')))
+          return null;
+        const rows = await this.stayRows(tx, context, 'b.id = $3::uuid', bookingId, 'CONFIRMED');
+        if (!rows.length) return null;
+        return {
+          rows,
+          brand: await this.brand(tx, context),
+          template: await savedTemplate(tx, context, 'cancellation_request_received'),
+        };
+      });
+      if (!work) return;
+      const stay = this.stay(work.rows);
+      await this.delivery.dispatch(
+        'rendered',
+        {
+          ...cancellationRequestReceivedEmail(
+            stay,
+            work.brand,
+            this.message('cancellation_request_received', work.template, stay, work.brand),
+          ),
+          idempotencyKey: `cancellation-request-received/${requestId}`,
+        },
+        context,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Could not send the cancellation-request-received email for booking ${bookingId}.`,
         error instanceof Error ? error.stack : String(error),
       );
     }

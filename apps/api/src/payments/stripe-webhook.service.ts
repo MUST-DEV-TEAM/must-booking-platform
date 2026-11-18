@@ -38,6 +38,7 @@ export class StripeWebhookService {
 
   async processPaymentSucceeded(
     event: PaymentWebhookEvent,
+    connectionId?: string,
   ): Promise<Result<{ duplicate: boolean }>> {
     if (!event.tenantId || !event.propertyId || !event.bookingId) {
       return this.failure(
@@ -71,7 +72,36 @@ export class StripeWebhookService {
       `;
         const booking = bookings[0];
         if (!booking) return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
-        if (booking.status === BookingStatus.EXPIRED) {
+        if (connectionId) {
+          // The payment session names the Stripe account that created it. A signed event from any
+          // other connection is refused; a session with no recorded account (created before accounts
+          // were recorded) takes the verified one, so the payment is marked and refunded correctly.
+          await tx.$executeRaw`
+            INSERT INTO payment_provider_sessions (
+              tenant_id, property_id, booking_id, provider, external_payment_id, connection_id
+            ) VALUES (
+              ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${booking.id}::uuid,
+              'stripe', ${event.externalPaymentId}, ${connectionId}::uuid
+            )
+            ON CONFLICT (tenant_id, provider, external_payment_id) DO NOTHING`;
+          await tx.$executeRaw`
+            UPDATE payment_provider_sessions SET connection_id = ${connectionId}::uuid
+            WHERE tenant_id = ${context.tenantId}::uuid AND provider = 'stripe'
+              AND external_payment_id = ${event.externalPaymentId} AND connection_id IS NULL`;
+          const owner = await tx.$queryRaw<Array<{ connectionId: string | null }>>`
+            SELECT connection_id AS "connectionId" FROM payment_provider_sessions
+            WHERE tenant_id = ${context.tenantId}::uuid AND provider = 'stripe'
+              AND external_payment_id = ${event.externalPaymentId}`;
+          if (owner[0]?.connectionId && owner[0].connectionId !== connectionId)
+            return this.failure(
+              'STRIPE_CONNECTION_MISMATCH',
+              'This payment belongs to a different Stripe connection.',
+            );
+        }
+        // A paid event the booking can no longer accept (the hold expired, or staff or the guest cancelled it
+        // before payment, or it is already paid another way) is recorded and refunded in full, never left as
+        // an error that Stripe retries while the guest's money sits uncredited.
+        if (booking.status !== BookingStatus.PAYMENT_PENDING) {
           const inserted = await tx.$queryRaw<Array<{ id: string }>>`
           INSERT INTO payments (
             tenant_id, property_id, booking_id, kind, provider, external_payment_id, status, amount, currency
@@ -91,7 +121,10 @@ export class StripeWebhookService {
               action: 'payment.late_webhook_rejected',
               targetType: 'booking',
               targetId: booking.id,
-              details: { externalPaymentId: event.externalPaymentId },
+              details: {
+                externalPaymentId: event.externalPaymentId,
+                bookingStatus: booking.status,
+              },
             });
             const refunded = await this.refunds.refundCharge(
               tx,
@@ -113,19 +146,6 @@ export class StripeWebhookService {
           }
           return { ok: true, value: { duplicate: !inserted[0] } };
         }
-        if (booking.status !== BookingStatus.PAYMENT_PENDING) {
-          const existing = await tx.$queryRaw<Array<{ id: string }>>`
-          SELECT id FROM payments
-          WHERE tenant_id = ${context.tenantId}::uuid
-            AND external_payment_id = ${event.externalPaymentId}
-        `;
-          if (existing[0]) return { ok: true, value: { duplicate: true } };
-          return this.failure(
-            'INVALID_BOOKING_STATE',
-            `Booking cannot accept payment from ${booking.status}.`,
-          );
-        }
-
         const inserted = await tx.$queryRaw<Array<{ id: string }>>`
         INSERT INTO payments (
           tenant_id, property_id, booking_id, kind, provider, external_payment_id, status, amount, currency

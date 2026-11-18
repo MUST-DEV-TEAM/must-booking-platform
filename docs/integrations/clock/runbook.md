@@ -47,6 +47,16 @@ Open questions to settle from that capture: Clock's event name for folio create 
 
 Status, executed 2026-09-30 with the owner's explicit approval: steps 1-3 done. Clock returned subscription `PUSH_14688_EMPIRE_BEACH_RESORT` (account 14688), the bare topic ARN `arn:aws:sns:eu-west-1:006467213368:PUSH_14688_EMPIRE_BEACH_RESORT` was pinned in the connection's encrypted credentials (prior encrypted blob backed up inside the API container at `/tmp/cred-backup-<connectionId>.txt`, lost on rebuild), the re-POST was sent, and two signed deliveries to the webhook URL returned 200 with no "Rejected Clock webhook" warning. `GET /webhook_subscription` then showed `pending_confirmation: false`. Step 4 (a real folio/booking event reaching `provider_events` and being applied) is still to do. The one-off scripts were not committed, per the 2026-09-03 convention.
 
+### Luxury production: webhook subscription (2026-11-16)
+
+Clock granted `base_api_webhook_subscription_show` and `pms_api_booking_folios_create` on 2026-11-16 (the permissions monitor's daily re-check at 14:39 UTC showed Luxury equal to Empire on every shared right). `GET /webhook_subscription` answered `400 webhook_subscription_not_found`: the right works, no subscription existed.
+
+Executed with the owner's yes, the same procedure as Empire: POST create (`PUSH_15668_Luxury_Premium_Finese_-_SPA`), pin the topic ARN as `snsTopicArn` in the connection's encrypted credentials, re-POST. The first delivery before the pin was rejected with 400 (topic mismatch, expected); after the pin the next delivery returned 200, `GET` shows `pending_confirmation: false` and `last_webhook_received_at` is set. No `provider_events` row yet: the first real Clock event is still to be seen.
+
+Lesson: the one-off script printed the new encrypted blob on stdout, but the app's logger also writes to stdout, so log lines ended up inside the stored blob and Luxury's credentials were unreadable for a few minutes. They were restored from the backup (the ciphertext backup is `/root/cred-backup-luxury-<connectionId>.txt` on the host, root only). No sync ran in that window (no decrypt errors logged). Rule for any such edit: write the new blob to a file, check it by decrypting before the database is touched, update with `WHERE encrypted_credentials = <old blob>`, and read it back.
+
+Automatic from now on (2026-11-16, `ClockLiveUpdatesService`): linking a Clock connection to a hotel switches its live updates on without any manual step. It reads the subscription list, creates the subscription when there is none, pins `snsTopicArn` (checked by decrypting the new blob first, saved only if the stored credentials are unchanged, audited as `integration_connection.live_updates_pinned`), sends the creation again so AWS asks for confirmation once the topic is pinned, and verifies. It never deletes or replaces anything: a subscription that points at another address is left alone and reported (`endpoint_differs`). It runs only when `WEB_APP_URL` is a public https address, so tests and local machines never subscribe a Clock account to a dead URL. If the Clock API user lacks the webhook subscription right, the dashboard says so; after Clock grants it, the "Turn on live updates" button on the connection (`POST /integration-connections/:id/live-updates`) runs it again. The hand procedure above stays as the fallback for an `endpoint_differs` or a failed run.
+
 ## Inspecting a live booking read-only (lessons from 2026-09-30)
 
 Use this to compare a MUST booking with what the hotel sees in Clock. It performs GETs only.
@@ -122,3 +132,12 @@ Manual-review resolution is not automatic recovery. No general queue replay/reco
 The [archived sandbox report](../../archive/clock-sandbox-validation-2026-08-05.md), [test log](../../archive/clock-test-evidence-2026-09-04.md) and [Milestone 21](../../roadmap/milestones/21-clock-certification-fixes.md) record past observations. They do not certify today's deployment. Current deposit behavior leaves folios open; old close instructions are superseded. Retain the distinction between local tests, sandbox observations and production verification in every new report.
 
 - [Clock booking status survey script](status-survey-script.md): the read-only script used on 2026-10-09 to see which statuses Clock returns for the sandbox property.
+
+## Clock refuses every request (expired trial or disabled API user)
+
+First seen 2026-11-16: the Clock demo account 16307 ("Must Hotel Testing") answered 403 "The trial period of this account has expired." to every call, which opened the circuit breaker and produced 899 Sentry alerts overnight. Nothing was broken on our side.
+
+- A 401/403 is a refusal, not an outage: it no longer counts toward the circuit breaker, and the breaker alerts once per opening only.
+- The daily permissions monitor detects "every probe refused, none names a right" and records one `CLOCK_ACCESS_LOST` in-app notification (with Clock's reason) when it starts. The owners' problem-alert email (topic `owner_alerts`, off by default for older properties) carries it too.
+- Fix: renew the account or its API user with Clock, then run the permissions check on the hotel. The sandbox behaves like any other hotel here.
+- Check without the dashboard (read-only GET probe through the app's own code) is how the rights change of 2026-11-16 was confirmed; see [the reply to Clock](correspondence/2026-11-16-endpoint-list-reply.md).

@@ -1,6 +1,6 @@
 # Milestone 40: Booking and payment flow hardening
 
-Status: **Planned 2026-11-14. Owner decisions recorded the same day (section 2). Nothing built. Ready to execute.**
+Status: **Planned 2026-11-14. Owner decisions recorded the same day (section 2). Task 8 closed 2026-11-15 (no change needed). Merged: task 1 first part (#489), task 3 step 1 (#492). Task 4 blocked (see the task).**
 
 Source: [booking flow review, 2026-11-13](../../audit/booking-flow-review-2026-11-13.md) (tasks L1 to L18, found by walking real test bookings) and the September findings that the [2026-11-14 re-check](../../audit/FINDINGS.md) left open for this plan (MBA-002, 003, 004, 008, 014 and the L3 part of 016). The task table is the spec; the review holds the evidence.
 
@@ -26,6 +26,8 @@ Out of scope here, planned elsewhere:
 | D5 | A booking paid part cash, part card is cancelled with a refund (L14). | Refund the card part automatically and tell staff the cash amount to return by hand. |
 | D6 | When the hotel cancels inside Clock and there was no online payment, should MUST clear the room charges in Clock (L4)? | No. That stays reception's job; MUST shows what is still open. |
 | D7 | Bookings still "expected" days after arrival, and stay emails (L10). | Flag them for staff after 2 days; do not change them or the reports automatically. Stay emails stay the owner's call per hotel. |
+| D9 | Stay emails (2026-11-16, replaces the last sentence of D7). | On for all hotels by default, once task 15 stores the check-in time correctly. A hotel can switch them off in its settings. |
+| D10 | Who builds task 10 (2026-11-16). | Opus, from the approved ADR of task 9, with Fable review. |
 | D8 | Refund the amount received minus the payment provider's commission (owner's note of 2026-11-13). | Build it as each hotel's own choice: a setting per hotel, off unless the hotel turns it on (task 17). The hotel is responsible for its booking terms. |
 
 The decisions approve the approach. Each merge still deploys and needs the owner's go for that task.
@@ -38,6 +40,8 @@ The decisions approve the approach. Each merge still deploys and needs the owner
 - No task sends a request to a real hotel's Clock or to live PokPay. Sending test emails from Empire or Luxury (task 6) needs the owner's go for that send.
 
 ## 4. Tasks, in execution order
+
+The tasks are split into one-agent slices, with their order across milestones, in the [hardening execution queue](../hardening-queue.md).
 
 | # | Task | Closes | Needs | Risk | Runs |
 | --- | --- | --- | --- | --- | --- |
@@ -93,6 +97,19 @@ Tasks 1 to 4 are the "now" group: each is a case where money or a promise goes w
 - **Change:** refuse a quote above the room type's `max_occupancy` or the hotel's "max guests" setting, for Clock hotels too. Pass each room's adults and children into the quote check of a multi-room order, and store what was quoted.
 - **Check first (read-only):** that no real hotel's room type has a limit lower than what it sells today, so no valid booking starts being refused.
 - **Verify (test 7):** 9 adults in a room for 2 is refused; a family of 4 in two rooms is accepted with the right occupancy on each room.
+- **Blocked 2026-11-16 by the read-only check.** Bookings of the last 12 months above the room type's saved `max_occupancy`: Empire 1 (one room type, 3 guests where the limit is 2); Luxury 1,160, on all ten of its room types, which are all saved with a limit of 2 or 4 while the hotel sells up to 7 guests in them. Luxury's saved limits are not its real ones. Enforcing them would refuse most Luxury bookings. Before this task: take each room type's real capacity from Clock (or have the hotel set it) and repeat the check until it is zero for both hotels. Must Hotel also has 5 test bookings above its limits.
+- **Owner decision 2026-11-16:** capacity comes from Clock, for Luxury and every other hotel. What Clock holds (already recorded in [data mapping, Guest capacity](../../integrations/clock/data-mapping.md#guest-capacity-2026-10-28)): `/room_types` has no capacity, only `beds_count`; the only capacity Clock states is on rates (`rate_restriction.max_adults` / `max_children`). The rule since 2026-10-28 is that a Clock hotel's local `max_occupancy` never refuses guests, and the rates job copies the largest rate limit into it for display, leaving it unchanged when a rate has no adult limit. So the first sentence of this task's change ("refuse a quote above the room type's `max_occupancy` ... for Clock hotels too") is withdrawn: it contradicts that rule and the live data.
+- **The task as it stands now:**
+  1. Multi-room: pass each room's adults and children into the quote check and store what was quoted (unchanged).
+  2. Clock hotels: refuse a quote above the chosen rate's own `max_adults` / `max_children` when Clock states them, before the guest reaches payment. Check first whether the quote already gets this refusal from Clock's pricing answer; if it does, only the missing-occupancy default (line 628) and the multi-room path need fixing.
+  3. A rate with no limit in Clock: keep the hotel's "max guests" setting as the only upper bound. The limit itself is set by the hotel on the rate in Clock. Not verified: whether Luxury's website rates carry limits (its saved values of 2 and 4 suggest they do not).
+  4. Hotels without Clock: `max_occupancy` is enforced as today.
+- **Plan agreed 2026-11-16 (owner: do it by industry standard).** Capacity belongs to the room type, a rate may only be stricter, and MUST holds the room type's capacity because Clock does not. In order:
+  - **4a. Multi-room occupancy.** Point 1 above. Independent of the rest; goes first. **Built 2026-11-18 on `fix/m40-occupancy-checks`: each room's adults, children and child ages go into its quote check and are stored on its booking (before, every room was checked and stored as one adult). Live had 0 multi-room bookings, so nothing changes for existing data. Found G-39 (Clock rate and promo code also not passed).**
+  - **4b. Capacity the hotel can edit and confirm.** Unlock the capacity field for Clock hotels. Add `room_types.capacity_confirmed_at` (nullable; additive migration). Show a suggested value next to the field: the largest rate limit from Clock when there is one, otherwise the most guests sold in that room type in the last 12 months. Saving the field sets the confirmation. The rates job stops overwriting a confirmed value. **Built 2026-11-18 (`fix/m40-4b-capacity`): new nullable columns `capacity_confirmed_at` and `clock_rate_capacity`; the rates job keeps Clock's rate limit in `clock_rate_capacity` and changes `max_occupancy` only while it is unconfirmed; the room type dialog lets a Clock hotel edit the number, shows the higher of the two suggestions with a "Use N" button, and has an "I have checked this number" box; the room type checklist counts a Clock hotel's occupancy as set only once confirmed, so the accommodation overview lists the unconfirmed ones. Nothing is refused yet (that is 4c).**
+  - **4c. Enforce.** A quote is refused when the guests exceed the rate's limit from Clock, or the room type's capacity when it is confirmed. An unconfirmed room type is not enforced, so nothing changes for a hotel until it has checked its numbers. Hotels without Clock: enforced as today. **Built 2026-11-18 (`fix/m40-4c-enforce`): one rule, `enforcedRoomCapacity`, used by the guest quote and search, the staff booking rules check, staff stay changes and staff availability. Checked first: Clock already refuses a rate's own `max_adults`/`max_children`, because every price request sends the real adults and children (`product_search[adult_count]`/`[children_count]`), so no extra rate check was needed. Nothing changes for a hotel until it confirms a room type.**
+  - **4d. Per hotel, read-only, before telling a hotel it is on:** the count of last-12-months bookings above each confirmed capacity is zero, or each case is explained. **Must Hotel, 2026-11-18:** the owner said yes; Claude confirmed its four room types through the dashboard API with the named test staff login (APP 4, DBL 2, FAM 4, Standard Rooms 2; Clock gave no rate limit to suggest, as the sandbox trial has expired). Count above capacity: 5 DBL bookings (largest 10 guests), all test bookings on the sandbox hotel, so explained. **Empire and Luxury: not yet due**: run it per hotel when its first room types are confirmed, before telling the hotel.
+  - The dashboard shows the room types still unconfirmed, so the list shrinks to nothing.
 
 ### Task 5. A booking's version changes only when the booking does; requests can be approved
 
@@ -117,6 +134,7 @@ Tasks 1 to 4 are the "now" group: each is a case where money or a promise goes w
 - **Seen:** two payments produced four "payment received" emails; a repeated click and the payment re-check each sent it again.
 - **Change:** key the receipt email on the payment id, so the delivery queue sends it once.
 - **Verify (tests 24, 25):** two payments, two receipts.
+- **Closed 2026-11-15, no change needed.** The receipt is already sent once per payment: the delivery queue keys it on the PokPay order (`balance-receipt/<order>` for the guest, `balance-receipt/staff/<order>/<staff user>` for each staff member) and never re-sends a key. Read on live for the test booking (Must Hotel): 1 guest receipt and 6 staff receipts, one per staff user, 7 emails with 7 different keys. The "four emails" of the review were the guest copy and staff copies arriving in one test inbox.
 
 ### Task 9. Design: cancellation, payment confirmation and refunds as saved steps
 

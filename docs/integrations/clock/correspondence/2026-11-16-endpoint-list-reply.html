@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Reply to Clock</title>
+<style>
+  body { font-family: Calibri, Arial, sans-serif; font-size: 14px; color: #222; max-width: 760px; margin: 24px auto; padding: 0 16px; }
+  table { border-collapse: collapse; margin: 8px 0 16px; width: 100%; }
+  th, td { border: 1px solid #bbb; padding: 6px 10px; text-align: left; vertical-align: top; }
+  th { background: #f0f0f0; }
+</style>
+</head>
+<body>
+<p><b>Subject:</b> Endpoints used by the MUST integration, for the standard permission profile</p>
+
+<p>Hello,</p>
+
+<p>Thank you for updating the API users. We re-tested Empire (14688) and Luxury (15668) today. The rights you added work, and both accounts now have the same set of rights.</p>
+
+<p>One more thing about our test account 16307: Clock now answers every request with "The trial period of this account has expired." Could you extend or renew the trial, or tell us how to get a new demo account? We need it to test the cancel flow.</p>
+
+<p>Below is the full list of endpoints our integration uses. "Now" means the code calls it today. "Next" means it is built or planned and we asked for the right ahead of use.</p>
+
+<p><b>Reading (now)</b></p>
+<table>
+<tr><th>API</th><th>Request</th><th>What we use it for</th></tr>
+<tr><td>pms_api</td><td>GET /room_types, /rooms</td><td>Importing room types and rooms</td></tr>
+<tr><td>pms_api</td><td>GET /rates/, /rates/:id</td><td>Rates and the rate choice</td></tr>
+<tr><td>pms_api</td><td>GET /rates_availability</td><td>Availability calendar and search</td></tr>
+<tr><td>pms_api</td><td>GET /products</td><td>The price of a stay</td></tr>
+<tr><td>pms_api</td><td>GET /guests/search, /guests, /guests/:id</td><td>Matching returning guests</td></tr>
+<tr><td>pms_api</td><td>GET /bookings/, /bookings/:id</td><td>Reading and syncing reservations</td></tr>
+<tr><td>pms_api</td><td>GET /bookings/:id/folios/</td><td>Finding a booking's folios</td></tr>
+<tr><td>base_api</td><td>GET /folios/:id</td><td>Reading a folio's balance and state</td></tr>
+<tr><td>base_api</td><td>GET /folios/:id/credit_items</td><td>Reconciling payments</td></tr>
+</table>
+
+<p><b>Writing (now)</b></p>
+<table>
+<tr><th>API</th><th>Request</th><th>What we use it for</th></tr>
+<tr><td>pms_api</td><td>POST /bookings/</td><td>Creating a reservation</td></tr>
+<tr><td>pms_api</td><td>PUT /bookings/:id</td><td>Changing or cancelling a reservation</td></tr>
+<tr><td>pms_api</td><td>POST /bookings/:id/folios/</td><td>Creating the deposit folio for an online card payment</td></tr>
+<tr><td>base_api</td><td>POST /folios/:id/credit_items</td><td>Recording a payment or a refund on the folio</td></tr>
+<tr><td>base_api</td><td>DELETE /folios/:id</td><td>Voiding the room folio when a booking is cancelled free of charge</td></tr>
+</table>
+
+<p><b>Live updates (now)</b></p>
+<table>
+<tr><th>API</th><th>Request</th><th>What we use it for</th></tr>
+<tr><td>base_api</td><td>GET and POST /webhook_subscription</td><td>Creating and reading the live-updates subscription once per hotel, when it is activated (done by our team by hand, not by a background job)</td></tr>
+</table>
+
+<p><b>Next (right asked for ahead of use)</b></p>
+<table>
+<tr><th>API</th><th>Request</th><th>What for</th></tr>
+<tr><td>pms_api</td><td>GET /rate_plans/, /rate_plans/:id</td><td>Real rate plans instead of our own hidden ones</td></tr>
+<tr><td>pms_api</td><td>GET /rate_packages/</td><td>Package rates</td></tr>
+<tr><td>pms_api</td><td>DELETE /bookings/:id/booking_guests/:id</td><td>Removing a guest from a booking</td></tr>
+<tr><td>base_api</td><td>GET /charges, /charge_templates</td><td>Showing and posting extra charges</td></tr>
+<tr><td>base_api</td><td>GET /document_types, /payment_sub_types</td><td>Reading document and payment types</td></tr>
+</table>
+
+<p>We are constantly updating our system according to our clients' demands, so we may need to add more permissions in the future. We will always ask in advance, with a clear reason for each right, as we did this time. Because of that, we would like the standard profile to be easy to extend for all our accounts at once.</p>
+
+<p>Best regards,</p>
+</body>
+</html>

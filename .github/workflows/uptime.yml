@@ -21,7 +21,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  SITE_URL: https://booking.must.al/api/health
+  SITE_URL: https://booking.must.al/api/health/ready
   ISSUE_LABEL: uptime-alert
 
 jobs:

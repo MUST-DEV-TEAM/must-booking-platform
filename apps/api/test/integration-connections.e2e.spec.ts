@@ -200,6 +200,18 @@ describe('integration connections', () => {
         credentials: { apiUser: 'must_1', apiKey: 'secret-a' },
       })
       .expect(201);
+    // A Clock connection may only point at Clock's API (task 39-10a).
+    const wrongHost = await request(app!.getHttpServer())
+      .post(`${tenantUrl}/integration-connections`)
+      .set('Cookie', cookie)
+      .send({
+        kind: 'PMS',
+        provider: 'CLOCK_PMS',
+        name: 'Clock elsewhere',
+        credentials: { host: '169.254.169.254', apiUser: 'must_3', apiKey: 'secret-c' },
+      })
+      .expect(400);
+    expect(wrongHost.body.message).toMatch(/Clock's API address/);
     const clockB = await request(app!.getHttpServer())
       .post(`${tenantUrl}/integration-connections`)
       .set('Cookie', cookie)
@@ -360,6 +372,84 @@ describe('integration connections', () => {
       .send({ enabled: true })
       .expect(200);
   });
+  it('switches Stripe between its test and live keys, one in use at a time, and keeps both saved', async () => {
+    app!
+      .get(ConnectionTestRegistry)
+      .register({ provider: 'STRIPE', test: async () => ({ ok: true, message: 'Verified' }) });
+    const tenantUrl = `/tenants/${tenantId}`;
+    const propertyUrl = `${tenantUrl}/properties/${propertyId}`;
+    const create = (name: string, secretKey: string) =>
+      request(app!.getHttpServer())
+        .post(`${tenantUrl}/integration-connections`)
+        .set('Cookie', cookie)
+        .send({ kind: 'PAYMENT', provider: 'STRIPE', name, credentials: { secretKey } })
+        .expect(201);
+    const testAccount = (await create('Stripe Sandbox', 'rk_test_stripe-private-value')).body;
+    const liveAccount = (await create('Stripe Live', 'sk_live_stripe-private-value')).body;
+    expect(testAccount.mode).toBe('TEST');
+    expect(liveAccount.mode).toBe('LIVE');
+    const use = (id: string) =>
+      request(app!.getHttpServer())
+        .patch(`${propertyUrl}/integration-connections/${id}`)
+        .set('Cookie', cookie)
+        .send({ enabled: true })
+        .expect(200);
+    const modes = async () =>
+      (
+        await request(app!.getHttpServer())
+          .get(`${propertyUrl}/payment-modes`)
+          .set('Cookie', cookie)
+          .expect(200)
+      ).body.filter((row: { provider: string }) => row.provider === 'STRIPE');
+
+    await use(testAccount.id);
+    expect(await modes()).toEqual([{ provider: 'STRIPE', name: 'Stripe Sandbox', mode: 'TEST' }]);
+    await use(liveAccount.id);
+    expect(await modes()).toEqual([{ provider: 'STRIPE', name: 'Stripe Live', mode: 'LIVE' }]);
+    await use(testAccount.id);
+    expect(await modes()).toEqual([{ provider: 'STRIPE', name: 'Stripe Sandbox', mode: 'TEST' }]);
+    expect(JSON.stringify(await modes())).not.toContain('private-value');
+
+    // The webhook signing secret is saved after the connection exists (its address needs the
+    // connection's id first); the key can be replaced the same way, and only those two fields.
+    await request(app!.getHttpServer())
+      .patch(`${tenantUrl}/integration-connections/${testAccount.id}/credentials`)
+      .set('Cookie', cookie)
+      .send({ credentials: { webhookSecret: 'whsec_private-value' } })
+      .expect(200);
+    const stored = await app!
+      .get(IntegrationConnectionsService)
+      .stripeWebhookConnection(testAccount.webhookPublicId);
+    expect(stored).toMatchObject({
+      tenantId,
+      connectionId: testAccount.id,
+      secretKey: 'rk_test_stripe-private-value',
+      webhookSecret: 'whsec_private-value',
+    });
+    await request(app!.getHttpServer())
+      .patch(`${tenantUrl}/integration-connections/${testAccount.id}/credentials`)
+      .set('Cookie', cookie)
+      .send({ credentials: { accountId: 'acct_other' } })
+      .expect(400);
+    // Keys of the other mode are a new connection, never a replacement: the stored mark stays true.
+    await request(app!.getHttpServer())
+      .patch(`${tenantUrl}/integration-connections/${testAccount.id}/credentials`)
+      .set('Cookie', cookie)
+      .send({ credentials: { secretKey: 'sk_live_swapped-in' } })
+      .expect(400);
+    // A connection with no webhook secret saved cannot receive webhooks.
+    await expect(
+      app!.get(IntegrationConnectionsService).stripeWebhookConnection(liveAccount.webhookPublicId),
+    ).resolves.toBeNull();
+
+    // Leave the shared test hotel as found: no Stripe account in use.
+    await request(app!.getHttpServer())
+      .patch(`${propertyUrl}/integration-connections/${testAccount.id}`)
+      .set('Cookie', cookie)
+      .send({ enabled: false })
+      .expect(200);
+    expect(await modes()).toEqual([]);
+  });
   it('switches PokPay freely between test and live accounts and keeps each payment on its own account', async () => {
     app!
       .get(ConnectionTestRegistry)
@@ -485,5 +575,61 @@ describe('integration connections', () => {
       [liveAccount.id, { provider: 'POKPAY', mode: 'LIVE', switchedFrom: [testAccount.id] }],
     ]);
     expect(JSON.stringify(logs)).not.toContain('private-value');
+
+    // Test payments are marked from the account that took their order, and their refunds follow.
+    await admin.$executeRaw`INSERT INTO payment_provider_sessions(tenant_id,property_id,booking_id,provider,external_payment_id,connection_id) VALUES(${tenantId}::uuid,${propertyId}::uuid,${olderBooking}::uuid,'pokpay','order-test-1',${testAccount.id}::uuid)`;
+    await admin.$executeRaw`INSERT INTO payments(tenant_id,property_id,booking_id,kind,provider,external_payment_id,status,amount,currency) VALUES
+      (${tenantId}::uuid,${propertyId}::uuid,${olderBooking}::uuid,'CHARGE','pokpay','order-test-1','PAID',100,'EUR'),
+      (${tenantId}::uuid,${propertyId}::uuid,${olderBooking}::uuid,'REFUND','pokpay','order-test-1:refund:k1','REFUNDED',40,'EUR'),
+      (${tenantId}::uuid,${propertyId}::uuid,${olderBooking}::uuid,'CHARGE','pokpay','order-older-1','PAID',100,'EUR')`;
+    const marks = async () =>
+      Object.fromEntries(
+        (
+          await admin.$queryRaw<Array<{ id: string; isTest: boolean }>>`
+            SELECT external_payment_id AS id, is_test AS "isTest" FROM payments
+            WHERE tenant_id=${tenantId}::uuid AND provider='pokpay' ORDER BY external_payment_id`
+        ).map((row) => [row.id, row.isTest]),
+      );
+    expect(await marks()).toEqual({
+      'order-live-1': false,
+      'order-older-1': false,
+      'order-test-1': true,
+      'order-test-1:refund:k1': true,
+    });
+
+    // A refund whose id does not carry the order id (Stripe's "re_...") takes the mark of its booking's charge.
+    await admin.$executeRaw`INSERT INTO payments(tenant_id,property_id,booking_id,kind,provider,external_payment_id,status,amount,currency) VALUES(${tenantId}::uuid,${propertyId}::uuid,${booking}::uuid,'REFUND','pokpay','re_without_order_id','REFUNDED',10,'EUR')`;
+    const bookingMark = async (id: string) =>
+      (
+        await admin.$queryRaw<Array<{ isTest: boolean }>>`
+          SELECT is_test AS "isTest" FROM payments WHERE tenant_id=${tenantId}::uuid AND external_payment_id=${id}`
+      )[0]?.isTest;
+    // `booking` carries the live account's charge: its refund is real money.
+    expect(await bookingMark('re_without_order_id')).toBe(false);
+    await admin.$executeRaw`DELETE FROM payments WHERE tenant_id=${tenantId}::uuid AND external_payment_id='re_without_order_id'`;
+    await admin.$executeRaw`INSERT INTO payments(tenant_id,property_id,booking_id,kind,provider,external_payment_id,status,amount,currency) VALUES(${tenantId}::uuid,${propertyId}::uuid,${olderBooking}::uuid,'REFUND','pokpay','re_without_order_id','REFUNDED',10,'EUR')`;
+    // `olderBooking` has a test charge (and a real one): any test charge makes its refund a test refund.
+    expect(await bookingMark('re_without_order_id')).toBe(true);
+    await admin.$executeRaw`DELETE FROM payments WHERE tenant_id=${tenantId}::uuid AND external_payment_id='re_without_order_id'`;
+
+    // An account saved before modes were stored gets its mode when the API starts, and its earlier
+    // payments are re-marked; so does an older order once its account is found.
+    await admin.$executeRaw`UPDATE integration_connections SET mode=NULL WHERE tenant_id=${tenantId}::uuid AND id=${testAccount.id}::uuid`;
+    await admin.$executeRaw`UPDATE payments SET is_test=false WHERE tenant_id=${tenantId}::uuid AND provider='pokpay'`;
+    await connections.fillMissingModes();
+    await admin.$executeRaw`UPDATE payment_provider_sessions SET connection_id=NULL WHERE tenant_id=${tenantId}::uuid AND external_payment_id='order-older-1'`;
+    await connections.rememberSessionConnection(
+      tenantId,
+      propertyId,
+      'POKPAY',
+      'order-older-1',
+      testAccount.id,
+    );
+    expect(await marks()).toEqual({
+      'order-live-1': false,
+      'order-older-1': true,
+      'order-test-1': true,
+      'order-test-1:refund:k1': true,
+    });
   });
 });

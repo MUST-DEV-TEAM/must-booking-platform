@@ -17,6 +17,12 @@ export const NOTIFICATION_TOPICS = {
     staff: true,
     defaultStaff: 'assigned-or-owners',
   },
+  /** The guest asked online to cancel a booking; the hotel has to review it. The guest is told it arrived. */
+  cancellation_request_received: {
+    label: 'Cancellation request received',
+    guest: true,
+    staff: false,
+  },
   refund_processed: {
     label: 'Refund processed',
     guest: true,

@@ -21,6 +21,18 @@ export class PropertiesController {
   @Get() @TenantScoped() list(@Req() r: { tenantContext: { tenantId: string; userId: string } }) {
     return this.properties.list(r.tenantContext.tenantId, r.tenantContext.userId);
   }
+  @Get(':propertyId/settings-summary')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  settingsSummary(
+    @Param('propertyId') propertyId: string,
+    @Req() r: { tenantContext: { tenantId: string; userId: string } },
+  ) {
+    return this.properties.settingsSummary(
+      r.tenantContext.tenantId,
+      r.tenantContext.userId,
+      propertyId,
+    );
+  }
   @Post()
   @TenantScoped()
   @Roles(Role.TenantOwner, Role.TenantAdmin)

@@ -50,6 +50,8 @@ export interface ClockBookingDetail {
   arrival: string;
   departure: string;
   status: string;
+  /** When Clock last changed the status. For a checked-in booking this is the real check-in time. */
+  status_changed_at?: string | null;
   adults?: number | null;
   children?: number | null;
   children_ages?: unknown;
@@ -314,6 +316,36 @@ export class ClockBookingHydrationService {
         // Never assume a currency: a total in an unknown currency is worse than a booking waiting for review.
         const billedIn = billedCurrency(detail.total_booking_value);
         if (!billedIn) {
+          // Nothing for a person to do in two cases: a cancelled or zero-value reservation MUST never
+          // held (no booking to protect, no amount to check), and a reservation that is cancelled on both
+          // sides already (743 open items at Empire were of this kind, 2026-11-16). Anything live is raised.
+          // Clock sends no total at all for a cancelled booking. A booking MUST holds as live and that the hotel
+          // cancelled in Clock is cancelled here too: only its status changes, never its amount, currency, dates
+          // or rate plan (gap G-36). Without this the cancellation was never applied and no error was shown.
+          if (existing && mappedStatus === 'CANCELLED' && existing.status !== 'CANCELLED') {
+            await tx.$executeRaw`
+              UPDATE bookings SET status = 'CANCELLED'::"BookingStatus", pms_stay_status = ${detail.status.slice(0, 40)},
+                pms_source_updated_at = COALESCE(${sourceUpdatedAt}::timestamptz, pms_source_updated_at),
+                version = version + 1,
+                updated_at = CASE WHEN ${options.notify === false} THEN COALESCE(${options.notify === false ? providerTimestamp(detail.updated_at) : null}::timestamptz, updated_at) ELSE CURRENT_TIMESTAMP END
+              WHERE id = ${existing.id}::uuid AND tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+                AND status <> 'CANCELLED'`;
+            await tx.$executeRaw`UPDATE manual_review_items SET status='RESOLVED',resolved_at=now(),updated_at=now(),context=COALESCE(context,'{}'::jsonb)||'{"resolution":"The booking was cancelled in Clock and the cancellation was applied."}'::jsonb WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND category='UNKNOWN_RESULT' AND reference_type='clock_booking' AND reference_id=${String(detail.id)} AND status='OPEN'`;
+            if (ownership) await this.finalizeOwnedEvent(tx, tenantId, ownership, 'HYDRATED');
+            return {
+              outcome: 'updated',
+              bookingId: existing.id,
+              cancelledInPms: true,
+            };
+          }
+          const cents = detail.total_booking_value?.cents;
+          const neverHeld = !existing && (mappedStatus === 'CANCELLED' || !cents);
+          const cancelledOnBothSides =
+            existing?.status === 'CANCELLED' && mappedStatus === 'CANCELLED';
+          if (neverHeld || cancelledOnBothSides) {
+            if (ownership) await this.finalizeOwnedEvent(tx, tenantId, ownership, 'IGNORED');
+            return { outcome: 'unknown_status' };
+          }
           await this.manualReview.recordInTransaction(tx, {
             tenantId,
             propertyId,
@@ -366,11 +398,11 @@ export class ClockBookingHydrationService {
           `INSERT INTO bookings (
            tenant_id, property_id, room_type_id, room_id, guest_id, external_reference,
            external_booking_id, status, payment_method, starts_on, ends_on, rate_plan_id,
-           total_amount, adults, children, guest_count, nightly_rates, pms_stay_status, created_at, updated_at, pms_source_updated_at, children_ages, guest_contact, currency
+           total_amount, adults, children, guest_count, nightly_rates, pms_stay_status, created_at, updated_at, pms_source_updated_at, children_ages, guest_contact, currency, checked_in_at
          ) VALUES (
            $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, $7, $8::"BookingStatus",
            'PAY_AT_HOTEL'::"BookingPaymentMethod", $9::date, $10::date, $11::uuid, $12::decimal,
-           $13, $14, $15, $16::jsonb, $17, COALESCE($19::timestamptz,CURRENT_TIMESTAMP), COALESCE($20::timestamptz,CURRENT_TIMESTAMP), $21::timestamptz, $22::jsonb, $23::jsonb, $24
+           $13, $14, $15, $16::jsonb, $17, COALESCE($19::timestamptz,CURRENT_TIMESTAMP), COALESCE($20::timestamptz,CURRENT_TIMESTAMP), $21::timestamptz, $22::jsonb, $23::jsonb, $24, $25::timestamptz
          )
          ON CONFLICT (tenant_id, property_id, external_booking_id) DO UPDATE SET
            room_type_id = EXCLUDED.room_type_id,
@@ -389,8 +421,18 @@ export class ClockBookingHydrationService {
            guest_count = EXCLUDED.guest_count,
            nightly_rates = EXCLUDED.nightly_rates,
            pms_stay_status = EXCLUDED.pms_stay_status,
+           -- Clock's own time for the check-in (only sent while the booking is checked in); otherwise keep what we have.
+           checked_in_at = COALESCE(EXCLUDED.checked_in_at, bookings.checked_in_at),
            pms_source_updated_at = COALESCE(EXCLUDED.pms_source_updated_at,bookings.pms_source_updated_at),
-           version = bookings.version + 1,
+           version = bookings.version + CASE WHEN (
+             bookings.status, bookings.starts_on, bookings.ends_on, bookings.room_type_id, bookings.room_id,
+             bookings.total_amount, bookings.adults, bookings.children, bookings.children_ages,
+             bookings.guest_id
+           ) IS DISTINCT FROM (
+             EXCLUDED.status, EXCLUDED.starts_on, EXCLUDED.ends_on, EXCLUDED.room_type_id, EXCLUDED.room_id,
+             EXCLUDED.total_amount, EXCLUDED.adults, EXCLUDED.children, EXCLUDED.children_ages,
+             COALESCE(EXCLUDED.guest_id, bookings.guest_id)
+           ) THEN 1 ELSE 0 END,
            created_at = CASE WHEN $18::boolean AND bookings.external_reference LIKE 'CLOCK-%' THEN COALESCE($19::timestamptz,bookings.created_at) ELSE bookings.created_at END,
            updated_at = CASE WHEN $18::boolean THEN COALESCE($20::timestamptz,bookings.updated_at) ELSE CURRENT_TIMESTAMP END
          RETURNING id, (xmax = 0) AS inserted`,
@@ -427,9 +469,12 @@ export class ClockBookingHydrationService {
             phone: detail.guest_phone_number?.trim() || null,
           }),
           billedIn,
+          detail.status === 'checked_in' ? providerTimestamp(detail.status_changed_at) : null,
         );
 
         const row = rows[0]!;
+        // The import worked, so an earlier "no valid currency" note for this reservation no longer applies.
+        await tx.$executeRaw`UPDATE manual_review_items SET status='RESOLVED',resolved_at=now(),updated_at=now(),context=COALESCE(context,'{}'::jsonb)||'{"resolution":"The booking imported successfully on a later sync."}'::jsonb WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND category='UNKNOWN_RESULT' AND reference_type='clock_booking' AND reference_id=${String(detail.id)} AND status='OPEN'`;
         if (ownership) await this.finalizeOwnedEvent(tx, tenantId, ownership, 'HYDRATED');
         const changed =
           existing !== undefined &&
@@ -535,7 +580,7 @@ export class ClockBookingHydrationService {
     tx: TenantTransaction,
     tenantId: string,
     ownership: EventOwnership,
-    status: 'HYDRATED' | 'FAILED',
+    status: 'HYDRATED' | 'FAILED' | 'IGNORED',
   ): Promise<void> {
     const [sql, params] = guardedTransitionSql({
       tenantId,
@@ -740,7 +785,7 @@ export class ClockBookingHydrationService {
           continue;
         }
         if (response.status < 200 || response.status >= 300) {
-          this.circuitBreaker.recordFailure(breakerKey);
+          this.circuitBreaker.recordFailure(breakerKey, response.status);
           throw new ClockBookingReadError(
             classifyClockHttpResponse(response.status, response.body),
           );

@@ -1,12 +1,55 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { COUNTRY_CODES } from '@must/domain-contracts';
+import {
+  ALBANIA_REGIONS,
+  COMMON_LANGUAGE_CODES,
+  COUNTRY_CODES,
+  LANGUAGE_CODES,
+  DESCRIPTION_MAX,
+  PROFILE_FIELD_KEYS,
+  PROPERTY_TYPES,
+  SUMMARY_MAX,
+  checkProfileCombination,
+  checkProfileField,
+  normaliseProfileValue,
+  type ProfileFieldKey,
+} from '@must/domain-contracts';
 import {
   SettingsFields,
   type SettingValue,
   type SettingGroup,
 } from '../../components/ui/settings-fields';
 import type { Property } from './settings-areas';
+/** "Albanian · Shqip", the common languages first, then every other one by name. */
+export function languageOptions() {
+  const english = new Intl.DisplayNames(['en'], { type: 'language' });
+  const label = (code: string) => {
+    const name = english.of(code) ?? code;
+    let own = name;
+    try {
+      own = new Intl.DisplayNames([code], { type: 'language' }).of(code) ?? name;
+    } catch {
+      /* no native name known */
+    }
+    return own && own.toLowerCase() !== name.toLowerCase()
+      ? `${name} · ${own.charAt(0).toUpperCase()}${own.slice(1)}`
+      : name;
+  };
+  const common = new Set<string>(COMMON_LANGUAGE_CODES);
+  const all = LANGUAGE_CODES.map((code) => ({ value: code, label: label(code) })).sort((x, y) =>
+    x.label.localeCompare(y.label),
+  );
+  return [
+    ...COMMON_LANGUAGE_CODES.map((code) => ({
+      value: code,
+      label: label(code),
+      group: 'Common',
+    })),
+    ...all
+      .filter((item) => !common.has(item.value))
+      .map((item) => ({ ...item, group: 'All languages' })),
+  ];
+}
 const options = (pairs: string[][]) => pairs.map(([value, label]) => ({ value, label }));
 const arrival = options([
   ['not_offered', 'Not offered'],
@@ -24,44 +67,9 @@ export const hotelSettingGroups: Record<
 > = {
   general: [
     {
-      title: 'Business',
-      description:
-        'Hotel business details. The default currency is a preference; it never converts existing prices.',
+      title: 'Currency and languages',
+      description: 'The default currency is a preference; it never converts existing prices.',
       fields: [
-        {
-          key: 'supportEmail',
-          label: 'Guest contact email',
-          placeholder: 'reservations@example.com',
-          hint: 'Shown as an Email link in guest messages.',
-          max: 254,
-        },
-        {
-          key: 'phone',
-          label: 'Guest contact phone',
-          placeholder: '+355 ...',
-          hint: 'Include the country code. Shown as a clickable phone number.',
-          max: 100,
-        },
-        {
-          key: 'dateFormat',
-          defaultValue: 'DD/MM/YYYY',
-          label: 'Hotel date format',
-          kind: 'choice',
-          options: options([
-            ['DD/MM/YYYY', 'DD/MM/YYYY'],
-            ['MM/DD/YYYY', 'MM/DD/YYYY'],
-            ['YYYY-MM-DD', 'YYYY-MM-DD'],
-          ]),
-          hint: 'Shared by everyone working in this hotel.',
-        },
-        { key: 'legalName', label: 'Legal business name', max: 200 },
-        {
-          key: 'taxNumber',
-          label: 'Tax number (NUIS)',
-          hint: 'Optional. Enter the hotel business tax reference.',
-          max: 100,
-        },
-        { key: 'country', label: 'Country', kind: 'country' },
         { key: 'defaultCurrency', label: 'Default currency', kind: 'currency' },
         {
           key: 'languages',
@@ -69,42 +77,71 @@ export const hotelSettingGroups: Record<
           kind: 'multi',
           defaultValue: [],
           hint: 'Languages the hotel offers. This does not translate booking pages or emails.',
-          options: options([
-            ['en', 'English'],
-            ['sq', 'Albanian'],
-            ['it', 'Italian'],
-            ['de', 'German'],
-            ['fr', 'French'],
-            ['es', 'Spanish'],
-            ['el', 'Greek'],
-            ['tr', 'Turkish'],
-          ]),
+          options: languageOptions(),
+        },
+      ],
+    },
+    {
+      title: 'Location',
+      description: 'Where the hotel is. The street address is in Hotel identity above.',
+      fields: [
+        { key: 'addressLine2', label: 'Address line 2', max: 200, hint: 'Optional.' },
+        { key: 'city', label: 'City', max: 100 },
+        { key: 'country', label: 'Country', kind: 'country' },
+        {
+          key: 'region',
+          label: 'Region',
+          kind: 'region',
+          max: 100,
+          optionsByCountry: { AL: ALBANIA_REGIONS },
+          hint: 'Albania: choose the county.',
+        },
+        { key: 'postalCode', label: 'Postal code', max: 20, hint: 'Albania: 4 digits.' },
+        {
+          key: 'latitude',
+          label: 'Latitude',
+          kind: 'decimal',
+          hint: 'Optional. From -90 to 90, up to 6 decimals.',
         },
         {
-          key: 'website',
-          label: 'Hotel website',
-          hint: 'Use a full https address. This does not change the WordPress connection.',
-          max: 2048,
+          key: 'longitude',
+          label: 'Longitude',
+          kind: 'decimal',
+          hint: 'Optional. From -180 to 180, up to 6 decimals.',
         },
         {
-          key: 'reservationsEmail',
-          label: 'Reservations email',
-          hint: 'Stored separately from the support email used by existing booking emails.',
-          max: 254,
+          key: 'directions',
+          label: 'Directions',
+          kind: 'textarea',
+          max: 300,
+          counter: true,
+          hint: 'Shown in the confirmation email, for example how to find the entrance.',
+        },
+        {
+          key: 'nearestAirportCode',
+          label: 'Nearest airport',
+          max: 3,
+          placeholder: 'TIA',
+          hint: '3-letter airport code.',
+        },
+        {
+          key: 'nearestAirportKm',
+          label: 'Distance to the airport (km)',
+          kind: 'decimal',
+          hint: '0 to 500, one decimal.',
         },
       ],
     },
     {
       title: 'About the hotel',
-      description:
-        'Optional descriptive information. No pricing or booking decisions use these fields.',
+      description: 'How the hotel is classified and described to guests.',
       fields: [
+        { key: 'chainName', label: 'Chain or brand', max: 120, hint: 'Optional.' },
         {
-          key: 'description',
-          label: 'Description',
-          kind: 'textarea',
-          max: 1000,
-          hint: 'Plain text, up to 1000 characters.',
+          key: 'propertyType',
+          label: 'Property type',
+          kind: 'choice',
+          options: PROPERTY_TYPES,
         },
         {
           key: 'starRating',
@@ -119,6 +156,93 @@ export const hotelSettingGroups: Record<
           ]),
           hint: 'Leave not set for no star rating.',
         },
+        {
+          key: 'starRatingOfficial',
+          label: 'Rating issued by the national tourism authority',
+          kind: 'boolean',
+          defaultValue: false,
+          whenSet: 'starRating',
+        },
+        { key: 'yearOpened', label: 'Year opened', kind: 'year' },
+        { key: 'yearRenovated', label: 'Last renovated', kind: 'year' },
+        {
+          key: 'summary',
+          label: 'Short summary',
+          max: SUMMARY_MAX,
+          counter: true,
+          hint: 'One line shown in search results and emails.',
+        },
+        {
+          key: 'description',
+          label: 'Description',
+          kind: 'textarea',
+          max: DESCRIPTION_MAX,
+          counter: true,
+          hint: 'Plain text, 50 to 1000 characters, or leave empty.',
+        },
+      ],
+    },
+    {
+      title: 'Formats',
+      description: "How dates, times and numbers are shown to this hotel's staff.",
+      fields: [
+        {
+          key: 'dateFormat',
+          defaultValue: 'DD/MM/YYYY',
+          label: 'Hotel date format',
+          kind: 'choice',
+          options: options([
+            ['DD/MM/YYYY', 'DD/MM/YYYY'],
+            ['MM/DD/YYYY', 'MM/DD/YYYY'],
+            ['YYYY-MM-DD', 'YYYY-MM-DD'],
+          ]),
+          hint: 'Shared by everyone working in this hotel.',
+        },
+        {
+          key: 'timeFormat',
+          label: 'Time format',
+          kind: 'choice',
+          defaultValue: '24h',
+          options: options([
+            ['24h', '24 hour (15:30)'],
+            ['12h', '12 hour (3:30 PM)'],
+          ]),
+        },
+        {
+          key: 'weekStart',
+          label: 'First day of the week',
+          kind: 'choice',
+          defaultValue: 'monday',
+          options: options([
+            ['monday', 'Monday'],
+            ['sunday', 'Sunday'],
+          ]),
+        },
+        {
+          key: 'numberFormat',
+          label: 'Number format',
+          kind: 'choice',
+          defaultValue: 'comma_dot',
+          options: options([
+            ['comma_dot', '1,234.56'],
+            ['dot_comma', '1.234,56'],
+          ]),
+        },
+      ],
+    },
+    {
+      title: 'Legal and tax',
+      description: 'The legal name and tax number appear in payment and refund emails.',
+      fields: [
+        { key: 'legalName', label: 'Legal business name', max: 200 },
+        {
+          key: 'taxNumber',
+          label: 'Tax number (NUIS)',
+          hint: 'Albania: a letter, 8 digits and a letter, such as L12345678A.',
+          max: 30,
+        },
+        { key: 'vatRegistered', label: 'VAT registered', kind: 'boolean', defaultValue: false },
+        { key: 'tourismLicence', label: 'Tourism licence number', max: 50 },
       ],
     },
   ],
@@ -269,19 +393,36 @@ export function useHotelSettings(
         errors[f.key] = 'Use a time such as 15:00.';
     }
   }
-  if (values.website) {
-    try {
-      const u = new URL(String(values.website));
-      if (u.protocol !== 'https:' || u.username || u.password) throw new Error();
-    } catch {
-      errors.website = 'Enter a full https website address.';
-    }
+  const changed = (key: string) => JSON.stringify(values[key]) !== JSON.stringify(saved[key]);
+  const yearNow = new Date().getFullYear();
+  const typed = (key: string): unknown => {
+    const v = values[key];
+    if (key === 'yearOpened' || key === 'yearRenovated') return v === '' ? null : Number(v);
+    if (key === 'latitude' || key === 'longitude' || key === 'nearestAirportKm')
+      return typeof v === 'string' ? normaliseProfileValue(key, v) : v;
+    return typeof v === 'string' ? normaliseProfileValue(key as ProfileFieldKey, v) : v;
+  };
+  for (const key of PROFILE_FIELD_KEYS) {
+    if (!(key in values)) continue;
+    if (!changed(key) && !(key === 'taxNumber' && changed('country'))) continue;
+    const message = checkProfileField(key, typed(key), {
+      country: String(values.country || '') || null,
+      year: yearNow,
+    });
+    if (message) errors[key] = message;
   }
-  if (
-    values.reservationsEmail &&
-    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(values.reservationsEmail))
-  )
-    errors.reservationsEmail = 'Enter a valid reservations email address.';
+  if (['yearOpened', 'yearRenovated', 'starRating', 'starRatingOfficial'].some(changed))
+    Object.assign(
+      errors,
+      checkProfileCombination({
+        yearOpened: typed('yearOpened') as number | null,
+        yearRenovated: typed('yearRenovated') as number | null,
+        starRating: values.starRating ? Number(values.starRating) : null,
+        starRatingOfficial: Boolean(values.starRating) && values.starRatingOfficial === true,
+      }),
+    );
+  if (changed('languages') && Array.isArray(values.languages) && values.languages.length === 0)
+    errors.languages = 'Choose at least one language.';
   if (values.country && !(COUNTRY_CODES as readonly string[]).includes(String(values.country)))
     errors.country = 'Choose a country from the list.';
   for (const prefix of ['earlyCheckIn', 'lateCheckOut'])
@@ -289,21 +430,23 @@ export function useHotelSettings(
       errors[prefix + 'Until'] = 'Enter the free-until time.';
   if (Boolean(values.quietHoursFrom) !== Boolean(values.quietHoursTo))
     errors.quietHoursTo = 'Enter both quiet-hours times, or leave both empty.';
-  if (values.supportEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(values.supportEmail)))
-    errors.supportEmail = 'Enter a valid contact email.';
   const update: Partial<Property> = {};
   for (const f of fields)
     if (JSON.stringify(values[f.key]) !== JSON.stringify(saved[f.key])) {
       const v = values[f.key];
       (update as Record<string, unknown>)[f.key] =
-        f.kind === 'number' || f.key === 'starRating'
+        f.kind === 'number' || f.kind === 'year' || f.key === 'starRating'
           ? v === ''
             ? null
             : Number(v)
           : typeof v === 'string'
-            ? v.trim() || null
+            ? (PROFILE_FIELD_KEYS as readonly string[]).includes(f.key)
+              ? (normaliseProfileValue(f.key as ProfileFieldKey, v) as string | null)
+              : v.trim() || null
             : v;
     }
+  if (update.starRating === null && saved.starRatingOfficial === true)
+    update.starRatingOfficial = false;
   return {
     dirty,
     errors,

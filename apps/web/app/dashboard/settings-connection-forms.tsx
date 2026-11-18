@@ -12,6 +12,18 @@ import {
 import { Input } from '../../components/ui/input';
 import { ColourField } from '../../components/ui/colour-field';
 import { Switch } from '../../components/ui/switch';
+import { TimeField } from '../../components/ui/time-field';
+import { PhoneInput, parsePhone, phoneToString } from '../../components/ui/phone-input';
+import {
+  ONLINE_PROFILE_SITES,
+  checkOnlineProfile,
+  contrastWithWhite,
+  darkerForWhiteText,
+  checkProfileCombination,
+  checkProfileField,
+  normaliseProfileValue,
+  type ProfileFieldKey,
+} from '@must/domain-contracts';
 import {
   Select,
   SelectContent,
@@ -22,7 +34,12 @@ import {
 import { SaveBar } from '../../components/ui/save-bar';
 import { EmailBrandingPreview } from '../../components/ui/email-branding-preview';
 import { useUnsavedChanges } from '../../components/ui/unsaved-changes';
-import type { ClockCancelRefundPolicy, PaymentGateways, Property } from './settings-areas';
+import type {
+  ClockCancelRefundPolicy,
+  ClockPaymentFolio,
+  PaymentGateways,
+  Property,
+} from './settings-areas';
 import { settingsAreaHref } from './settings-hub';
 
 type Common = { property: Property; saving: boolean; canWrite: boolean };
@@ -46,6 +63,47 @@ const webUrl = (s: string, originOnly = false) => {
     return false;
   }
 };
+type BrandingDraft = {
+  logoUrl: string;
+  brandColour: string;
+  emailFooterText: string;
+  termsUrl: string;
+  supportEmail: string;
+  reservationsEmail: string;
+  phone: string;
+  whatsappSameAsPhone: boolean;
+  whatsappNumber: string;
+  afterHoursPhone: string;
+  receptionOpen24h: boolean;
+  receptionFrom: string;
+  receptionTo: string;
+  website: string;
+  accentColour: string;
+  profiles: Record<string, string>;
+};
+const phoneKeys = ['phone', 'whatsappNumber', 'afterHoursPhone'] as const;
+const textKeys = [
+  'logoUrl',
+  'supportEmail',
+  'reservationsEmail',
+  'phone',
+  'whatsappNumber',
+  'afterHoursPhone',
+  'receptionFrom',
+  'receptionTo',
+  'website',
+  'brandColour',
+  'accentColour',
+  'emailFooterText',
+  'termsUrl',
+] as const;
+const shared = (key: ProfileFieldKey, text: string) =>
+  text.trim()
+    ? checkProfileField(key, normaliseProfileValue(key, text.trim()), {
+        year: new Date().getFullYear(),
+      })
+    : null;
+
 export function BrandingSettings({
   property,
   saving,
@@ -58,29 +116,41 @@ export function BrandingSettings({
   canManagePhotos?: boolean;
   onSave: (update: Partial<Property>) => void;
 }) {
-  const initial = {
+  const initial: BrandingDraft = {
     logoUrl: property.logoUrl ?? '',
     brandColour: property.brandColour ?? '',
     emailFooterText: property.emailFooterText ?? '',
     termsUrl: property.termsUrl ?? '',
     supportEmail: property.supportEmail ?? '',
+    reservationsEmail: property.reservationsEmail ?? '',
     phone: property.phone ?? '',
+    whatsappSameAsPhone: property.whatsappSameAsPhone ?? true,
+    whatsappNumber: property.whatsappNumber ?? '',
+    afterHoursPhone: property.afterHoursPhone ?? '',
+    receptionOpen24h: property.receptionOpen24h ?? true,
+    receptionFrom: property.receptionFrom ?? '',
+    receptionTo: property.receptionTo ?? '',
+    website: property.website ?? '',
+    accentColour: property.accentColour ?? '',
+    profiles: Object.fromEntries(
+      ONLINE_PROFILE_SITES.map((site) => [site.key, property.onlineProfiles?.[site.key] ?? '']),
+    ),
   };
   const [draft, setDraft] = useState(initial);
-  useEffect(
-    () => setDraft(initial),
-    [
-      property.logoUrl,
-      property.supportEmail,
-      property.phone,
-      property.brandColour,
-      property.emailFooterText,
-      property.termsUrl,
-    ],
-  );
-  const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
+  const savedText = JSON.stringify(initial);
+  useEffect(() => setDraft(JSON.parse(savedText) as BrandingDraft), [savedText]);
+  const dirty = JSON.stringify(draft) !== savedText;
   useUnsavedChanges(canWrite && dirty);
-  const errors = {
+  const changed = (key: keyof BrandingDraft) =>
+    JSON.stringify(draft[key]) !== JSON.stringify(initial[key]);
+  const combination = checkProfileCombination({
+    whatsappSameAsPhone: draft.whatsappSameAsPhone,
+    whatsappNumber: draft.whatsappNumber.trim() || null,
+    receptionOpen24h: draft.receptionOpen24h,
+    receptionFrom: draft.receptionFrom || null,
+    receptionTo: draft.receptionTo || null,
+  });
+  const errors: Record<string, string | null> = {
     brandColour:
       !draft.brandColour || /^#[0-9a-f]{6}$/i.test(draft.brandColour)
         ? null
@@ -91,41 +161,77 @@ export function BrandingSettings({
       !draft.termsUrl || (webUrl(draft.termsUrl) && draft.termsUrl.startsWith('https://'))
         ? null
         : 'Enter a full https terms link.',
-    supportEmail: validEmail(draft.supportEmail.trim())
+    supportEmail:
+      !draft.supportEmail.trim() && initial.supportEmail
+        ? 'Enter the guest contact email.'
+        : shared('supportEmail', draft.supportEmail),
+    reservationsEmail: shared('reservationsEmail', draft.reservationsEmail),
+    phone: shared('phone', draft.phone),
+    whatsappNumber: draft.whatsappSameAsPhone
       ? null
-      : 'Enter an email address such as hello@hotel.com.',
-    phone: validPhone(draft.phone.trim())
+      : (shared('whatsappNumber', draft.whatsappNumber) ?? combination.whatsappNumber ?? null),
+    afterHoursPhone: shared('afterHoursPhone', draft.afterHoursPhone),
+    receptionFrom: draft.receptionOpen24h
       ? null
-      : 'Enter a phone number with 6 to 15 digits, optionally starting with +.',
+      : (shared('receptionFrom', draft.receptionFrom) ?? combination.receptionFrom ?? null),
+    receptionTo: draft.receptionOpen24h
+      ? null
+      : (shared('receptionTo', draft.receptionTo) ?? combination.receptionTo ?? null),
+    website: shared('website', draft.website),
+    accentColour: shared('accentColour', draft.accentColour),
+    ...Object.fromEntries(
+      ONLINE_PROFILE_SITES.map((site) => [
+        `profile-${site.key}`,
+        checkOnlineProfile(site.key, (draft.profiles[site.key] ?? '').trim()),
+      ]),
+    ),
   };
   const labels = {
-    supportEmail: 'Support email',
-    phone: 'Hotel phone',
+    supportEmail: 'Guest contact email',
+    reservationsEmail: 'Reservations email',
+    phone: 'Phone',
+    whatsappNumber: 'WhatsApp number',
+    afterHoursPhone: 'After-hours phone',
+    website: 'Website address',
     brandColour: 'Brand colour',
+    accentColour: 'Accent colour',
     emailFooterText: 'Email footer text',
     termsUrl: 'Terms and conditions link',
   } as const;
+  const shown = (key: keyof typeof errors) =>
+    changed(key as keyof BrandingDraft) ||
+    (dirty && ['whatsappNumber', 'receptionFrom', 'receptionTo'].includes(key))
+      ? errors[key]
+      : null;
   const field = (key: keyof typeof labels, hint?: string) => (
     <FormField
       key={key}
       htmlFor={`branding-${key}`}
       label={labels[key]}
       hint={hint}
-      error={dirty ? errors[key] : null}
+      error={shown(key)}
     >
-      {key === 'brandColour' ? (
+      {key === 'brandColour' || key === 'accentColour' ? (
         <ColourField
-          id="branding-brandColour"
-          value={draft.brandColour}
+          id={`branding-${key}`}
+          value={draft[key]}
           disabled={!canWrite}
-          invalid={!!errors.brandColour}
-          onChange={(brandColour) => setDraft({ ...draft, brandColour })}
+          invalid={!!errors[key]}
+          onChange={(colour) => setDraft({ ...draft, [key]: colour })}
+        />
+      ) : (phoneKeys as readonly string[]).includes(key) ? (
+        <PhoneInput
+          id={`branding-${key}`}
+          disabled={!canWrite}
+          invalid={!!shown(key)}
+          value={parsePhone(draft[key as (typeof phoneKeys)[number]])}
+          onChange={(value) => setDraft({ ...draft, [key]: phoneToString(value) })}
         />
       ) : (
         <Input
           id={`branding-${key}`}
           disabled={!canWrite}
-          value={draft[key]}
+          value={draft[key as 'supportEmail']}
           onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
         />
       )}
@@ -151,14 +257,118 @@ export function BrandingSettings({
               canManage={canWrite && canManagePhotos}
             />
             {field('brandColour', 'Used for buttons and headings in emails, for example #224858.')}
+            {field('accentColour', 'Optional second colour for links and highlights.')}
+            {(
+              [
+                ['brandColour', 'Brand colour'],
+                ['accentColour', 'Accent colour'],
+              ] as const
+            ).map(([key, name]) =>
+              /^#[0-9a-f]{6}$/i.test(draft[key]) && contrastWithWhite(draft[key]) < 4.5 ? (
+                <p key={key} className="m-0 text-xs text-warning">
+                  White text is hard to read on the {name.toLowerCase()}. Try{' '}
+                  {darkerForWhiteText(draft[key])}.
+                </p>
+              ) : null,
+            )}
           </FormSection>
           <FormSection
-            title="Contact details"
-            description="Guests see these in booking emails. Leave a field empty to leave it out."
+            title="Guest contact"
+            description="Guests see these in booking emails and on the booking page. Leave a field empty to leave it out."
           >
-            {field('supportEmail')}
-            {field('phone')}
+            {field('supportEmail', 'Also the default reply-to address of guest emails.')}
+            {field(
+              'reservationsEmail',
+              'Where new, changed and cancelled booking notices go by default.',
+            )}
+            {field('phone', 'Choose the country, then type the number.')}
+            <FormField label="WhatsApp" layout="toggle" htmlFor="branding-whatsappSameAsPhone">
+              <Switch
+                id="branding-whatsappSameAsPhone"
+                aria-label="WhatsApp is the same as the phone"
+                disabled={!canWrite}
+                checked={draft.whatsappSameAsPhone}
+                onCheckedChange={(whatsappSameAsPhone) =>
+                  setDraft({ ...draft, whatsappSameAsPhone })
+                }
+              />
+            </FormField>
+            <p className="m-0 -mt-2 text-xs text-muted-foreground">
+              {draft.whatsappSameAsPhone
+                ? 'Guests message the hotel on the phone number above.'
+                : 'Guests message the hotel on the number below.'}
+            </p>
+            {draft.whatsappSameAsPhone ? null : field('whatsappNumber')}
+            {field('afterHoursPhone', 'Used in pre-arrival and check-in day emails.')}
+            <FormField
+              label="Open 24 hours"
+              layout="toggle"
+              htmlFor="branding-receptionOpen24h"
+              hint="Reception hours shown on the booking page and in the pre-arrival email."
+            >
+              <Switch
+                id="branding-receptionOpen24h"
+                disabled={!canWrite}
+                checked={draft.receptionOpen24h}
+                onCheckedChange={(receptionOpen24h) => setDraft({ ...draft, receptionOpen24h })}
+              />
+            </FormField>
+            {draft.receptionOpen24h ? null : (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <FormField label="Reception opens" error={shown('receptionFrom')}>
+                  <TimeField
+                    label="Reception opens"
+                    value={draft.receptionFrom}
+                    onChange={(receptionFrom) => setDraft({ ...draft, receptionFrom })}
+                  />
+                </FormField>
+                <FormField
+                  label="Reception closes"
+                  hint="May be after midnight."
+                  error={shown('receptionTo')}
+                >
+                  <TimeField
+                    label="Reception closes"
+                    value={draft.receptionTo}
+                    onChange={(receptionTo) => setDraft({ ...draft, receptionTo })}
+                  />
+                </FormField>
+              </div>
+            )}
+            {field('website', 'A full https address. Does not change the website connection.')}
             {field('termsUrl', `${draft.termsUrl.length} characters`)}
+          </FormSection>
+          <FormSection
+            title="Online profiles"
+            description="The hotel's pages on other sites. Full https addresses on that site only. Leave empty to leave one out."
+          >
+            {ONLINE_PROFILE_SITES.map((site) => (
+              <FormField
+                key={site.key}
+                label={site.label}
+                htmlFor={`branding-profile-${site.key}`}
+                error={
+                  JSON.stringify(draft.profiles[site.key]) !==
+                  JSON.stringify(initial.profiles[site.key])
+                    ? errors[`profile-${site.key}`]
+                    : null
+                }
+              >
+                <Input
+                  id={`branding-profile-${site.key}`}
+                  disabled={!canWrite}
+                  inputMode="url"
+                  placeholder="https://"
+                  value={draft.profiles[site.key] ?? ''}
+                  onChange={(e) =>
+                    setDraft({
+                      ...draft,
+                      profiles: { ...draft.profiles, [site.key]: e.target.value },
+                    })
+                  }
+                />
+              </FormField>
+            ))}
           </FormSection>
           <FormSection
             title="Email footer"
@@ -186,17 +396,20 @@ export function BrandingSettings({
           canSave={!Object.values(errors).some(Boolean)}
           onDiscard={() => setDraft(initial)}
           onSave={() => {
-            const update: Partial<Property> = {};
-            for (const key of [
-              'logoUrl',
-              'supportEmail',
-              'phone',
-              'brandColour',
-              'emailFooterText',
-              'termsUrl',
-            ] as const)
-              if (draft[key] !== initial[key]) update[key] = draft[key].trim() || null;
-            onSave(update);
+            const update: Record<string, unknown> = {};
+            for (const key of textKeys)
+              if (draft[key] !== initial[key])
+                update[key] =
+                  normaliseProfileValue(key as ProfileFieldKey, draft[key].trim()) ?? null;
+            if (changed('profiles'))
+              update.onlineProfiles = Object.fromEntries(
+                Object.entries(draft.profiles)
+                  .map(([site, url]) => [site, url.trim()])
+                  .filter(([, url]) => url),
+              );
+            for (const key of ['whatsappSameAsPhone', 'receptionOpen24h'] as const)
+              if (draft[key] !== initial[key]) update[key] = draft[key];
+            onSave(update as Partial<Property>);
           }}
         />
       ) : null}
@@ -227,17 +440,25 @@ export function PaymentSettings({
   useEffect(() => setDraft(property.paymentGateways), [property.paymentGateways]);
   const [hold, setHold] = useState(String(property.onlinePaymentHoldMinutes ?? 30)),
     [autoRefund, setAutoRefund] = useState(property.autoRefundOnFreeCancellation ?? true),
+    [keepFee, setKeepFee] = useState(property.deductPaymentFeeOnGuestRefund ?? true),
     [clockRefund, setClockRefund] = useState<ClockCancelRefundPolicy>(
       property.clockCancelRefundPolicy ?? 'NEVER',
+    ),
+    [clockFolio, setClockFolio] = useState<ClockPaymentFolio>(
+      property.clockPaymentFolio ?? 'DEPOSIT',
     );
   useEffect(() => {
     setHold(String(property.onlinePaymentHoldMinutes ?? 30));
     setAutoRefund(property.autoRefundOnFreeCancellation ?? true);
+    setKeepFee(property.deductPaymentFeeOnGuestRefund ?? true);
     setClockRefund(property.clockCancelRefundPolicy ?? 'NEVER');
+    setClockFolio(property.clockPaymentFolio ?? 'DEPOSIT');
   }, [
     property.onlinePaymentHoldMinutes,
     property.autoRefundOnFreeCancellation,
+    property.deductPaymentFeeOnGuestRefund,
     property.clockCancelRefundPolicy,
+    property.clockPaymentFolio,
   ]);
   const holdError =
     !/^\d+$/.test(hold) || Number(hold) < 10 || Number(hold) > 1440
@@ -247,10 +468,12 @@ export function PaymentSettings({
     JSON.stringify(draft) !== JSON.stringify(property.paymentGateways) ||
     hold !== String(property.onlinePaymentHoldMinutes ?? 30) ||
     autoRefund !== (property.autoRefundOnFreeCancellation ?? true) ||
-    clockRefund !== (property.clockCancelRefundPolicy ?? 'NEVER');
+    keepFee !== (property.deductPaymentFeeOnGuestRefund ?? true) ||
+    clockRefund !== (property.clockCancelRefundPolicy ?? 'NEVER') ||
+    clockFolio !== (property.clockPaymentFolio ?? 'DEPOSIT');
   useUnsavedChanges(canWrite && dirty);
   // There is no independent online-booking enable switch in the property contract.
-  const error = !(draft.payAtHotel || draft.pokpay)
+  const error = !(draft.payAtHotel || draft.pokpay || draft.stripe)
     ? 'Keep at least one payment method on so guests can complete an online booking.'
     : null;
   return (
@@ -259,7 +482,7 @@ export function PaymentSettings({
         title="Payment methods"
         description="Choose how guests can pay for bookings at this hotel."
       >
-        {(['pokpay', 'payAtHotel'] as const).map((key) => (
+        {(['stripe', 'pokpay', 'payAtHotel'] as const).map((key) => (
           <FormField
             key={key}
             layout="toggle"
@@ -283,7 +506,7 @@ export function PaymentSettings({
             />
             {key !== 'payAtHotel' ? (
               <Badge variant="outline">
-                {connectedProviders.has('POKPAY')
+                {connectedProviders.has(key === 'stripe' ? 'STRIPE' : 'POKPAY')
                   ? 'Connected to this hotel'
                   : 'Not connected - unavailable to guests'}
               </Badge>
@@ -323,6 +546,19 @@ export function PaymentSettings({
             onCheckedChange={setAutoRefund}
           />
         </FormField>
+        <FormField
+          layout="toggle"
+          label="A guest who cancels pays the payment fee"
+          htmlFor="payment-keep-fee"
+          hint="When a guest cancels on their own, the card payment fee is kept back from their refund. When the hotel cancels, the guest is always refunded in full. It is on unless you turn it off here. Say so in your booking terms, so guests know before they book."
+        >
+          <Switch
+            id="payment-keep-fee"
+            checked={keepFee}
+            disabled={!canWrite}
+            onCheckedChange={setKeepFee}
+          />
+        </FormField>
         {clockConnected ? (
           <FormField
             label="When the hotel cancels a booking in Clock"
@@ -347,6 +583,27 @@ export function PaymentSettings({
             </Select>
           </FormField>
         ) : null}
+        {clockConnected ? (
+          <FormField
+            label="Where Clock records a website payment"
+            htmlFor="payment-clock-folio"
+            hint="A deposit folio is converted to an advance invoice by your reception. The booking's own folio needs no conversion, but no advance invoice is issued: the payment is only deducted from the final invoice."
+          >
+            <Select
+              value={clockFolio}
+              disabled={!canWrite}
+              onValueChange={(value) => setClockFolio(value as ClockPaymentFolio)}
+            >
+              <SelectTrigger id="payment-clock-folio">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="DEPOSIT">Deposit folio (advance invoice)</SelectItem>
+                <SelectItem value="MAIN">Booking's own folio (nothing to convert)</SelectItem>
+              </SelectContent>
+            </Select>
+          </FormField>
+        ) : null}
         <Button variant="outline" asChild>
           <a href={operationsHref}>Open payment operations</a>
         </Button>
@@ -365,14 +622,19 @@ export function PaymentSettings({
             setDraft(property.paymentGateways);
             setHold(String(property.onlinePaymentHoldMinutes ?? 30));
             setAutoRefund(property.autoRefundOnFreeCancellation ?? true);
+            setKeepFee(property.deductPaymentFeeOnGuestRefund ?? true);
             setClockRefund(property.clockCancelRefundPolicy ?? 'NEVER');
+            setClockFolio(property.clockPaymentFolio ?? 'DEPOSIT');
           }}
           onSave={() =>
             onPropertySave(
               {
                 onlinePaymentHoldMinutes: Number(hold),
                 autoRefundOnFreeCancellation: autoRefund,
-                ...(clockConnected ? { clockCancelRefundPolicy: clockRefund } : {}),
+                deductPaymentFeeOnGuestRefund: keepFee,
+                ...(clockConnected
+                  ? { clockCancelRefundPolicy: clockRefund, clockPaymentFolio: clockFolio }
+                  : {}),
               },
               draft,
             )

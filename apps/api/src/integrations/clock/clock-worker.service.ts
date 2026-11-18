@@ -19,6 +19,7 @@ import {
   type ProcessingSnapshot,
   type ProviderEventStatus,
 } from './clock-provider-event-status';
+import { errorText, failureReason } from './clock-failure-reason';
 import { ClockBookingConsistencyService } from './clock-booking-consistency.service';
 import { ClockBookingHydrationService } from './clock-booking-hydration.service';
 import { ClockFolioHydrationService } from './clock-folio-hydration.service';
@@ -190,6 +191,12 @@ export class ClockWorkerService implements OnModuleInit, OnModuleDestroy {
         this.logger.warn(
           `Clock queue "${name}" job ${job.id} failed (attempt ${job.attemptsMade}/${attempts}): ${error.message}`,
         );
+        if (
+          name === 'clock.webhooks' &&
+          job.name === 'hydrate-event' &&
+          isHydrateEventJobData(job.data)
+        )
+          void this.recordHydrateEventFailureReason(job.data, error);
         if (job.attemptsMade >= attempts) {
           void this.queues.deadLetter(name, job.name, job.data, error.message);
           reportOperationalFailure(error, {
@@ -627,6 +634,32 @@ export class ClockWorkerService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       this.logger.error(
         `Failed to mark provider_events FAILED for event ${data.eventId}: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  /** Saves why a hydrate-event attempt failed, on every failed attempt. A plain write of `last_error` only: it
+   * never touches status, attempts or the token (ADR-0031), and never throws, so it cannot disturb the retry or
+   * the dead-letter and FAILED steps next to it. */
+  private async recordHydrateEventFailureReason(
+    data: HydrateEventJobData,
+    error: unknown,
+  ): Promise<void> {
+    try {
+      const eventRowId = await this.eventRowId(data);
+      await this.database.withTenantTransaction(
+        { tenantId: data.tenantId, propertyId: data.propertyId },
+        (tx) =>
+          tx.$executeRawUnsafe(
+            `UPDATE provider_events SET last_error = $3 WHERE tenant_id = $1::uuid AND id = $2::uuid`,
+            data.tenantId,
+            eventRowId,
+            failureReason(error),
+          ),
+      );
+    } catch (writeError) {
+      this.logger.error(
+        `Failed to save the failure reason for event ${data.eventId}: ${errorText(writeError)}`,
       );
     }
   }

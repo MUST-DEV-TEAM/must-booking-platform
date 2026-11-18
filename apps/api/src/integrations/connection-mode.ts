@@ -1,5 +1,11 @@
 import { POKPAY_STAGING_BASE_URL, resolvePokpayBaseUrl } from '../payments/pokpay-environments';
 
+/** A Stripe test-mode key: a secret key (`sk_test_`) or a restricted key (`rk_test_`). */
+export function isStripeTestKey(key: string | undefined | null): boolean {
+  const value = key?.trim() ?? '';
+  return value.startsWith('sk_test_') || value.startsWith('rk_test_');
+}
+
 /** Whether a payment connection moves real money (LIVE) or is a provider test account (TEST). */
 export type ConnectionMode = 'TEST' | 'LIVE';
 
@@ -14,7 +20,6 @@ export function connectionMode(
 ): ConnectionMode | null {
   if (provider === 'POKPAY')
     return resolvePokpayBaseUrl(credentials ?? {}) === POKPAY_STAGING_BASE_URL ? 'TEST' : 'LIVE';
-  if (provider === 'STRIPE')
-    return credentials?.secretKey?.trim().startsWith('sk_test_') ? 'TEST' : 'LIVE';
+  if (provider === 'STRIPE') return isStripeTestKey(credentials?.secretKey) ? 'TEST' : 'LIVE';
   return null;
 }

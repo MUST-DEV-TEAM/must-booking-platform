@@ -123,6 +123,7 @@ describe('email templates (a property’s own wording for guest emails)', () => 
     expect(list.body.map((t: { key: string }) => t.key)).toEqual([
       'booking_confirmed',
       'booking_cancelled',
+      'cancellation_request_received',
       'refund_processed',
       'pre_arrival',
       'booking_changed',
@@ -148,7 +149,7 @@ describe('email templates (a property’s own wording for guest emails)', () => 
       'staff_invitation',
       'staff_account_created',
     ]);
-    expect(list.body[3]).toMatchObject({
+    expect(list.body.find((t: { key: string }) => t.key === 'pre_arrival')).toMatchObject({
       key: 'pre_arrival',
       custom: false,
       language: 'en',
@@ -718,6 +719,7 @@ describe('email templates (a property’s own wording for guest emails)', () => 
       'booking_confirmed',
       'booking_confirmed_pay_at_hotel',
       'booking_cancelled',
+      'cancellation_request_received',
       'refund_processed',
       'pre_arrival',
       'booking_changed',

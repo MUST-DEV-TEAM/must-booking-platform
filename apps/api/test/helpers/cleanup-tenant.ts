@@ -88,6 +88,9 @@ export async function cleanupTenant(
   await admin.$executeRaw`DELETE FROM integration_operations WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM audit_logs WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM clock_folios WHERE tenant_id = ${tenantId}::uuid`;
+  // ADR-0043 saved flows point at bookings; their step history points at the flows.
+  await admin.$executeRaw`DELETE FROM booking_flow_events WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM booking_flows WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM bookings WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM availability_blocks WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM property_staff_assignments WHERE tenant_id = ${tenantId}::uuid`;

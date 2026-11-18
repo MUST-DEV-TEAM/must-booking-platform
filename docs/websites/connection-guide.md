@@ -4,7 +4,7 @@ Status: written 2026-11-09 from the public guest API ([API reference](../archite
 
 **Two parts.** Part 1 is for people (owner, developers, designers): what each side is responsible for and what a good website does on every screen. Part 2 is written for AI assistants (Codex, ChatGPT, Claude): short rules, tables and pseudo-code that can be followed without reading anything else. Both say the same thing; if they ever disagree, the API reference wins, then tell the owner.
 
-Related: [API reference](../architecture/public-guest-api.md) (every endpoint and field), [Astro website playbook](astro-playbook-checklist.md) (how to build the site itself), [Milestone 26](../roadmap/milestones/26-public-api.md) (API keys, not built yet).
+Related: [API reference](../architecture/public-guest-api.md) (every endpoint and field), the Astro website playbook (a local Claude skill on the owner's laptop, not in this repository: how to build the site itself), [Milestone 26](../roadmap/milestones/26-public-api.md) (API keys, not built yet).
 
 ---
 

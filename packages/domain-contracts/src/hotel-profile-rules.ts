@@ -1,0 +1,578 @@
+import { parsePhoneNumberFromString } from 'libphonenumber-js';
+
+/**
+ * The rules for the hotel Profile fields, written once. The Settings form shows these messages as
+ * the owner types and the API refuses the same values, so the two can never disagree
+ * (settings redesign plan, S0d and S2a).
+ */
+export const PROPERTY_TYPES = [
+  { value: 'hotel', label: 'Hotel' },
+  { value: 'resort', label: 'Resort' },
+  { value: 'boutique_hotel', label: 'Boutique hotel' },
+  { value: 'apartment_hotel', label: 'Apartment hotel' },
+  { value: 'apartments', label: 'Apartments' },
+  { value: 'guesthouse', label: 'Guesthouse or B&B' },
+  { value: 'hostel', label: 'Hostel' },
+  { value: 'villa', label: 'Villa' },
+  { value: 'motel', label: 'Motel' },
+  { value: 'campsite', label: 'Campsite or glamping' },
+] as const;
+
+export type ProfileFieldKey =
+  | 'chainName'
+  | 'propertyType'
+  | 'starRatingOfficial'
+  | 'yearOpened'
+  | 'yearRenovated'
+  | 'summary'
+  | 'description'
+  | 'legalName'
+  | 'taxNumber'
+  | 'tourismLicence'
+  | 'vatRegistered'
+  | 'addressLine2'
+  | 'city'
+  | 'region'
+  | 'postalCode'
+  | 'latitude'
+  | 'longitude'
+  | 'directions'
+  | 'nearestAirportCode'
+  | 'nearestAirportKm'
+  | 'phone'
+  | 'whatsappNumber'
+  | 'afterHoursPhone'
+  | 'whatsappSameAsPhone'
+  | 'receptionOpen24h'
+  | 'receptionFrom'
+  | 'receptionTo'
+  | 'website'
+  | 'reservationsEmail'
+  | 'supportEmail'
+  | 'accentColour';
+
+export const PROFILE_FIELD_KEYS: readonly ProfileFieldKey[] = [
+  'chainName',
+  'propertyType',
+  'starRatingOfficial',
+  'yearOpened',
+  'yearRenovated',
+  'summary',
+  'description',
+  'legalName',
+  'taxNumber',
+  'tourismLicence',
+  'vatRegistered',
+  'addressLine2',
+  'city',
+  'region',
+  'postalCode',
+  'latitude',
+  'longitude',
+  'directions',
+  'nearestAirportCode',
+  'nearestAirportKm',
+  'phone',
+  'whatsappNumber',
+  'afterHoursPhone',
+  'whatsappSameAsPhone',
+  'receptionOpen24h',
+  'receptionFrom',
+  'receptionTo',
+  'website',
+  'reservationsEmail',
+  'supportEmail',
+  'accentColour',
+];
+
+/** ISO 639-1 language codes a hotel can say it speaks (G-59). */
+export const LANGUAGE_CODES: readonly string[] = [
+  'aa',
+  'ab',
+  'ae',
+  'af',
+  'ak',
+  'am',
+  'an',
+  'ar',
+  'as',
+  'av',
+  'ay',
+  'az',
+  'ba',
+  'be',
+  'bg',
+  'bh',
+  'bi',
+  'bm',
+  'bn',
+  'bo',
+  'br',
+  'bs',
+  'ca',
+  'ce',
+  'ch',
+  'co',
+  'cr',
+  'cs',
+  'cu',
+  'cv',
+  'cy',
+  'da',
+  'de',
+  'dv',
+  'dz',
+  'ee',
+  'el',
+  'en',
+  'eo',
+  'es',
+  'et',
+  'eu',
+  'fa',
+  'ff',
+  'fi',
+  'fj',
+  'fo',
+  'fr',
+  'fy',
+  'ga',
+  'gd',
+  'gl',
+  'gn',
+  'gu',
+  'gv',
+  'ha',
+  'he',
+  'hi',
+  'ho',
+  'hr',
+  'ht',
+  'hu',
+  'hy',
+  'hz',
+  'ia',
+  'id',
+  'ie',
+  'ig',
+  'ii',
+  'ik',
+  'io',
+  'is',
+  'it',
+  'iu',
+  'ja',
+  'jv',
+  'ka',
+  'kg',
+  'ki',
+  'kj',
+  'kk',
+  'kl',
+  'km',
+  'kn',
+  'ko',
+  'kr',
+  'ks',
+  'ku',
+  'kv',
+  'kw',
+  'ky',
+  'la',
+  'lb',
+  'lg',
+  'li',
+  'ln',
+  'lo',
+  'lt',
+  'lu',
+  'lv',
+  'mg',
+  'mh',
+  'mi',
+  'mk',
+  'ml',
+  'mn',
+  'mr',
+  'ms',
+  'mt',
+  'my',
+  'na',
+  'nb',
+  'nd',
+  'ne',
+  'ng',
+  'nl',
+  'nn',
+  'no',
+  'nr',
+  'nv',
+  'ny',
+  'oc',
+  'oj',
+  'om',
+  'or',
+  'os',
+  'pa',
+  'pi',
+  'pl',
+  'ps',
+  'pt',
+  'qu',
+  'rm',
+  'rn',
+  'ro',
+  'ru',
+  'rw',
+  'sa',
+  'sc',
+  'sd',
+  'se',
+  'sg',
+  'si',
+  'sk',
+  'sl',
+  'sm',
+  'sn',
+  'so',
+  'sq',
+  'sr',
+  'ss',
+  'st',
+  'su',
+  'sv',
+  'sw',
+  'ta',
+  'te',
+  'tg',
+  'th',
+  'ti',
+  'tk',
+  'tl',
+  'tn',
+  'to',
+  'tr',
+  'ts',
+  'tt',
+  'tw',
+  'ty',
+  'ug',
+  'uk',
+  'ur',
+  'uz',
+  've',
+  'vi',
+  'vo',
+  'wa',
+  'wo',
+  'xh',
+  'yi',
+  'yo',
+  'za',
+  'zh',
+  'zu',
+];
+
+/** The languages shown first, because most hotels here speak them. */
+export const COMMON_LANGUAGE_CODES = [
+  'sq',
+  'en',
+  'it',
+  'de',
+  'fr',
+  'el',
+  'es',
+  'tr',
+  'ru',
+] as const;
+
+export const TIME_FORMATS = ['24h', '12h'] as const;
+export const WEEK_STARTS = ['monday', 'sunday'] as const;
+export const NUMBER_FORMATS = ['comma_dot', 'dot_comma'] as const;
+
+export const FIRST_YEAR = 1800;
+export const SUMMARY_MAX = 160;
+export const DESCRIPTION_MIN = 50;
+export const DESCRIPTION_MAX = 1000;
+
+const TEXT_MAX: Partial<Record<ProfileFieldKey, number>> = {
+  chainName: 120,
+  summary: SUMMARY_MAX,
+  description: DESCRIPTION_MAX,
+  legalName: 200,
+  tourismLicence: 50,
+  addressLine2: 200,
+  city: 100,
+  region: 100,
+  postalCode: 20,
+  directions: 300,
+  website: 500,
+  reservationsEmail: 254,
+  supportEmail: 254,
+};
+
+const PHONE_KEYS: readonly ProfileFieldKey[] = ['phone', 'whatsappNumber', 'afterHoursPhone'];
+const isPhoneKey = (key: ProfileFieldKey) => PHONE_KEYS.includes(key);
+
+/** A phone as it is stored: international form with no spaces (E.164), or the text unchanged when it is not a valid number. */
+export function toE164(text: string): string {
+  const parsed = parsePhoneNumberFromString(text);
+  return parsed?.isValid() ? parsed.number : text;
+}
+
+/** Albania's 12 counties (qarqe), the choices for Region when the country is Albania. */
+export const ALBANIA_REGIONS = [
+  'Berat',
+  'Dibër',
+  'Durrës',
+  'Elbasan',
+  'Fier',
+  'Gjirokastër',
+  'Korçë',
+  'Kukës',
+  'Lezhë',
+  'Shkodër',
+  'Tiranë',
+  'Vlorë',
+] as const;
+
+const decimals = (value: number) => Math.abs(Math.round(value * 1e6) / 1e6 - value) < 1e-9;
+
+/** Trims text, makes a tax number upper case without spaces, and turns empty text into null. */
+export function normaliseProfileValue(key: ProfileFieldKey, raw: unknown): unknown {
+  if (typeof raw !== 'string') return raw;
+  let value = raw.trim();
+  if (key === 'taxNumber') value = value.replace(/\s+/g, '').toUpperCase();
+  if (key === 'nearestAirportCode') value = value.toUpperCase();
+  if (isPhoneKey(key) && value) value = toE164(value);
+  if (key === 'website' || key === 'reservationsEmail' || key === 'supportEmail')
+    value = value.replace(/\s+/g, '');
+  if (key === 'accentColour') value = value.toLowerCase();
+  if (key === 'latitude' || key === 'longitude' || key === 'nearestAirportKm')
+    return value === '' ? null : Number(value.replace(',', '.'));
+  return value === '' ? null : value;
+}
+
+/** The message for one field's value, or null when it is fine. `year` is the current year. */
+export function checkProfileField(
+  key: ProfileFieldKey,
+  value: unknown,
+  context: { country?: string | null; year: number },
+): string | null {
+  if (value === null || value === undefined) return null;
+  if (
+    key === 'starRatingOfficial' ||
+    key === 'vatRegistered' ||
+    key === 'whatsappSameAsPhone' ||
+    key === 'receptionOpen24h'
+  )
+    return typeof value === 'boolean' ? null : 'Choose yes or no.';
+  if (key === 'yearOpened' || key === 'yearRenovated')
+    return Number.isInteger(value) &&
+      (value as number) >= FIRST_YEAR &&
+      (value as number) <= context.year
+      ? null
+      : `Choose a year from ${FIRST_YEAR} to ${context.year}.`;
+  if (key === 'latitude' || key === 'longitude') {
+    const limit = key === 'latitude' ? 90 : 180;
+    return typeof value === 'number' &&
+      Number.isFinite(value) &&
+      Math.abs(value) <= limit &&
+      decimals(value)
+      ? null
+      : `Enter a number from -${limit} to ${limit} with up to 6 decimals.`;
+  }
+  if (key === 'nearestAirportKm')
+    return typeof value === 'number' &&
+      Number.isFinite(value) &&
+      value >= 0 &&
+      value <= 500 &&
+      Math.abs(Math.round(value * 10) / 10 - value) < 1e-9
+      ? null
+      : 'Enter a distance from 0 to 500 km with at most 1 decimal.';
+  if (typeof value !== 'string') return 'Enter text.';
+  const max = TEXT_MAX[key];
+  if (max && value.length > max) return `Keep this to ${max} characters or fewer.`;
+  if (/[\r\n]/.test(value) && key !== 'description') return 'Use a single line.';
+  if (/[<>\\`]/.test(value)) return 'Remove the characters < > \\ and `.';
+  if (key === 'propertyType')
+    return PROPERTY_TYPES.some((type) => type.value === value)
+      ? null
+      : 'Choose a property type from the list.';
+  if (key === 'description' && value.length < DESCRIPTION_MIN)
+    return `Write at least ${DESCRIPTION_MIN} characters, or leave it empty.`;
+  if (isPhoneKey(key)) {
+    const parsed = parsePhoneNumberFromString(value);
+    return value.startsWith('+') && parsed?.isValid() && parsed.number === value
+      ? null
+      : 'Enter a full phone number with the country code, such as +355 69 123 4567.';
+  }
+  if (key === 'receptionFrom' || key === 'receptionTo')
+    return /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? null : 'Use a time such as 08:00.';
+  if (key === 'accentColour')
+    return /^#[0-9a-f]{6}$/.test(value) ? null : 'Enter a colour such as #224858.';
+  if (key === 'supportEmail' || key === 'reservationsEmail')
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+      ? null
+      : 'Enter an email address such as hello@hotel.com.';
+  if (key === 'website') {
+    try {
+      const url = new URL(value);
+      if (url.protocol !== 'https:' || url.username || url.password || !url.hostname.includes('.'))
+        throw new Error();
+    } catch {
+      return 'Enter a full https website address, such as https://hotel.com.';
+    }
+    return null;
+  }
+  if (key === 'nearestAirportCode')
+    return /^[A-Z]{3}$/.test(value) ? null : 'Use the 3-letter airport code, such as TIA.';
+  if (key === 'region' && context.country === 'AL')
+    return (ALBANIA_REGIONS as readonly string[]).includes(value)
+      ? null
+      : 'Choose one of the 12 Albanian counties.';
+  if (key === 'postalCode')
+    return context.country === 'AL'
+      ? /^\d{4}$/.test(value)
+        ? null
+        : 'An Albanian postal code has 4 digits.'
+      : /^[A-Za-z0-9][A-Za-z0-9 -]{1,10}[A-Za-z0-9]$/.test(value)
+        ? null
+        : 'Enter a valid postal code.';
+  if (key === 'taxNumber') {
+    if (context.country === 'AL')
+      return /^[A-Z]\d{8}[A-Z]$/.test(value)
+        ? null
+        : 'An Albanian NUIS is a letter, 8 digits and a letter, such as L12345678A.';
+    return /^[A-Z0-9]{3,30}$/.test(value)
+      ? null
+      : 'Use 3 to 30 letters and digits, with no symbols.';
+  }
+  return null;
+}
+
+/** Rules that look at more than one field; returns messages by field. */
+export function checkProfileCombination(values: {
+  yearOpened?: number | null;
+  yearRenovated?: number | null;
+  starRating?: number | null;
+  starRatingOfficial?: boolean;
+  latitude?: number | null;
+  longitude?: number | null;
+  whatsappSameAsPhone?: boolean;
+  whatsappNumber?: string | null;
+  receptionOpen24h?: boolean;
+  receptionFrom?: string | null;
+  receptionTo?: string | null;
+}): Partial<Record<ProfileFieldKey, string>> {
+  const out: Partial<Record<ProfileFieldKey, string>> = {};
+  if (
+    values.yearOpened != null &&
+    values.yearRenovated != null &&
+    values.yearRenovated < values.yearOpened
+  )
+    out.yearRenovated = 'The last renovation cannot be before the year opened.';
+  if (values.starRatingOfficial && !values.starRating)
+    out.starRatingOfficial = 'Set a star rating first, or switch this off.';
+  if ((values.latitude == null) !== (values.longitude == null))
+    out.longitude = 'Enter both latitude and longitude, or leave both empty.';
+  if (values.whatsappSameAsPhone === false && !values.whatsappNumber)
+    out.whatsappNumber = 'Enter the WhatsApp number, or choose "Same as phone".';
+  if (values.receptionOpen24h === false) {
+    if (!values.receptionFrom) out.receptionFrom = 'Enter the opening time.';
+    else if (!values.receptionTo) out.receptionTo = 'Enter the closing time.';
+    else if (values.receptionFrom === values.receptionTo)
+      out.receptionTo = 'Closing time must differ from opening time, or choose "Open 24 hours".';
+  }
+  return out;
+}
+
+/** The hotel's pages on other sites. Each address must be https and belong to that site. */
+export const ONLINE_PROFILE_SITES = [
+  {
+    key: 'google',
+    label: 'Google Business Profile',
+    domains: ['google.com', 'google.al', 'g.page', 'goo.gl'],
+  },
+  {
+    key: 'tripadvisor',
+    label: 'Tripadvisor',
+    domains: [
+      'tripadvisor.com',
+      'tripadvisor.co.uk',
+      'tripadvisor.it',
+      'tripadvisor.de',
+      'tripadvisor.fr',
+      'tripadvisor.es',
+    ],
+  },
+  { key: 'booking_com', label: 'Booking.com', domains: ['booking.com'] },
+  { key: 'facebook', label: 'Facebook', domains: ['facebook.com', 'fb.com', 'fb.me'] },
+  { key: 'instagram', label: 'Instagram', domains: ['instagram.com'] },
+  { key: 'tiktok', label: 'TikTok', domains: ['tiktok.com'] },
+  { key: 'youtube', label: 'YouTube', domains: ['youtube.com', 'youtu.be'] },
+] as const;
+export type OnlineProfileKey = (typeof ONLINE_PROFILE_SITES)[number]['key'];
+export type OnlineProfiles = Partial<Record<OnlineProfileKey, string>>;
+
+/** The message for one profile address, or null when it is fine (empty is fine). */
+export function checkOnlineProfile(key: OnlineProfileKey, value: string): string | null {
+  const site = ONLINE_PROFILE_SITES.find((item) => item.key === key);
+  if (!site) return 'Unknown site.';
+  if (!value) return null;
+  if (value.length > 500) return 'Keep the address to 500 characters or fewer.';
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase().replace(/^www\./, '');
+    if (url.protocol !== 'https:' || url.username || url.password) throw new Error();
+    if (!site.domains.some((domain) => host === domain || host.endsWith('.' + domain)))
+      return `This is not a ${site.label} address. Use a link on ${site.domains[0]}.`;
+  } catch {
+    return 'Enter a full https address.';
+  }
+  return null;
+}
+
+/** Cleans a whole set of profiles from a form; returns the messages by site instead of throwing. */
+export function normaliseOnlineProfiles(raw: unknown): {
+  value: OnlineProfiles;
+  errors: Partial<Record<OnlineProfileKey, string>>;
+} {
+  const value: OnlineProfiles = {};
+  const errors: Partial<Record<OnlineProfileKey, string>> = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw))
+    return { value, errors: { google: 'Send the profiles as an object.' } };
+  for (const [key, entry] of Object.entries(raw)) {
+    const site = ONLINE_PROFILE_SITES.find((item) => item.key === key);
+    if (!site) {
+      errors.google = `Unknown site: ${key}.`;
+      continue;
+    }
+    if (entry === null || entry === undefined || entry === '') continue;
+    const text = typeof entry === 'string' ? entry.trim() : '';
+    const message = text ? checkOnlineProfile(site.key, text) : 'Enter a full https address.';
+    if (message) errors[site.key] = message;
+    else value[site.key] = text;
+  }
+  return { value, errors };
+}
+
+/** How readable white text is on a colour (WCAG contrast ratio), and a darker colour that passes. */
+export function contrastWithWhite(hex: string): number {
+  const channel = (index: number) => {
+    const v = parseInt(hex.slice(1 + index * 2, 3 + index * 2), 16) / 255;
+    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  };
+  const luminance = 0.2126 * channel(0) + 0.7152 * channel(1) + 0.0722 * channel(2);
+  return 1.05 / (luminance + 0.05);
+}
+export function darkerForWhiteText(hex: string): string {
+  let colour = hex;
+  for (let i = 0; i < 40 && contrastWithWhite(colour) < 4.5; i += 1) {
+    const parts = [0, 1, 2].map((index) =>
+      Math.max(0, Math.floor(parseInt(colour.slice(1 + index * 2, 3 + index * 2), 16) * 0.92)),
+    );
+    colour = '#' + parts.map((part) => part.toString(16).padStart(2, '0')).join('');
+  }
+  return colour;
+}

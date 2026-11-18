@@ -60,7 +60,7 @@ async function mount(node: React.ReactNode) {
     },
   };
 }
-it('shows only the two hotel methods, validates hold bounds and saves settings with the existing Stripe flag preserved', async () => {
+it('shows the three payment methods, validates hold bounds and saves the settings, including the Stripe switch and the fee setting', async () => {
   const save = vi.fn(),
     props = {
       tenantId: 't',
@@ -73,21 +73,29 @@ it('shows only the two hotel methods, validates hold bounds and saves settings w
     };
   const m = await mount(<PaymentSettings {...props} />);
   try {
-    expect(document.querySelector('#payment-stripe')).toBeNull();
+    expect(document.querySelector('#payment-stripe')).not.toBeNull();
     expect(document.body.textContent).toContain('Pay online in full');
-    await act(async () => {
-      (document.querySelector('#payment-payAtHotel') as HTMLButtonElement).click();
-    });
+    expect(document.body.textContent).toContain('A guest who cancels pays the payment fee');
+    // With Stripe, PokPay and pay-at-hotel all off there is no way to book online: the form says so.
+    for (const id of ['payment-payAtHotel', 'payment-stripe'])
+      await act(async () => {
+        (document.querySelector(`#${id}`) as HTMLButtonElement).click();
+      });
     expect(document.body.textContent).toContain('Keep at least one');
-    await act(async () => {
-      (document.querySelector('#payment-pokpay') as HTMLButtonElement).click();
-    });
+    for (const id of ['payment-pokpay', 'payment-stripe'])
+      await act(async () => {
+        (document.querySelector(`#${id}`) as HTMLButtonElement).click();
+      });
     await value('payment-hold', '9');
     expect(document.body.textContent).toContain('between 10 and 1440');
     await value('payment-hold', '45');
     await click('Save changes');
     expect(save).toHaveBeenCalledWith(
-      { onlinePaymentHoldMinutes: 45, autoRefundOnFreeCancellation: true },
+      {
+        onlinePaymentHoldMinutes: 45,
+        autoRefundOnFreeCancellation: true,
+        deductPaymentFeeOnGuestRefund: true,
+      },
       { stripe: true, pokpay: true, payAtHotel: false },
     );
     await act(async () => m.root.render(<PaymentSettings {...props} canWrite={false} />));

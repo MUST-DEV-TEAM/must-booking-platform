@@ -27,6 +27,8 @@ import {
 
 import { AvailabilityService } from '../tenancy/availability.service';
 import { AuditLogService } from '../tenancy/audit-log.service';
+import { loadCheckoutDescription } from '../payments/checkout-description';
+import { checkoutHoldMinutes } from '../payments/checkout-hold';
 import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant-database.service';
 import { PaymentProviderRegistry } from '../payments/payment-provider-registry';
 import { PaymentRefundService, type RefundConfirmation } from '../payments/payment-refund.service';
@@ -64,6 +66,8 @@ export type LocalCreateBookingCommand = CreateBookingCommand & {
   /** Only the local development demo seed sets this, to create booking history in the past. */
   allowPastStay?: boolean;
   returnUrl?: string;
+  /** The website shows the card checkout inside its own page (Stripe, when the hotel saved its publishable key). */
+  embeddedCheckout?: boolean;
 };
 
 export type ResendPokPayCheckoutCommand = {
@@ -105,7 +109,13 @@ type IntegrationOperationRow = {
   result: Result<BookingWithCheckout> | null;
 };
 
-type BookingWithCheckout = Booking & { checkoutUrl?: string; checkoutOrderId?: string };
+type BookingWithCheckout = Booking & {
+  checkoutUrl?: string;
+  checkoutOrderId?: string;
+  /** Set when the checkout is shown inside the website's page: the website's script mounts it. */
+  checkoutClientSecret?: string;
+  stripePublishableKey?: string;
+};
 
 type ConfirmedPaymentDetails = {
   reference: string;
@@ -449,12 +459,6 @@ export class LocalPmsProvider implements PmsProvider {
                 targetId: bookingId,
                 details: { guestId },
               });
-              await this.notificationsService.recordInTransaction(tx, {
-                tenantId: context.tenantId,
-                propertyId: context.propertyId,
-                type: 'BOOKING_CREATED',
-                payload: { bookingId, guestId },
-              });
               let status = BookingStatus.DRAFT;
               status = await this.transition(tx, context, bookingId, status, BookingStatus.QUOTED);
               status = await this.transition(
@@ -609,18 +613,22 @@ export class LocalPmsProvider implements PmsProvider {
                 const checkout = await provider.createCheckoutSession(context, {
                   idempotencyKey: command.idempotencyKey,
                   bookingId,
+                  description: await loadCheckoutDescription(tx, context, bookingId),
+                  expiresAfterMinutes: await checkoutHoldMinutes(tx, context, bookingId),
                   amount: command.total,
                   successUrl: this.checkoutReturnUrl(bookingId, 'success', guestReturnUrl, context),
                   cancelUrl: this.checkoutReturnUrl(bookingId, 'cancel', guestReturnUrl, context),
+                  ...(command.embeddedCheckout ? { embedded: true } : {}),
                 });
                 if (!checkout.ok) throw new CheckoutSessionCreationError(checkout);
-                if (paymentMethod.value === BookingPaymentMethod.POKPAY) {
+                {
                   await tx.$executeRaw`
                   INSERT INTO payment_provider_sessions (
                     tenant_id, property_id, booking_id, provider, external_payment_id, connection_id
                   ) VALUES (
                     ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${bookingId}::uuid,
-                    'pokpay', ${checkout.value.id}, ${checkout.value.connectionId ?? null}::uuid
+                    ${paymentMethod.value === BookingPaymentMethod.POKPAY ? 'pokpay' : 'stripe'},
+                    ${checkout.value.id}, ${checkout.value.connectionId ?? null}::uuid
                   )
                   ON CONFLICT (tenant_id, provider, external_payment_id) DO NOTHING
                 `;
@@ -634,6 +642,12 @@ export class LocalPmsProvider implements PmsProvider {
                         ...booking,
                         checkoutUrl: checkout.value.url,
                         checkoutOrderId: checkout.value.id,
+                        ...(checkout.value.clientSecret && checkout.value.publishableKey
+                          ? {
+                              checkoutClientSecret: checkout.value.clientSecret,
+                              stripePublishableKey: checkout.value.publishableKey,
+                            }
+                          : {}),
                       },
                     }
                   : this.failure('BOOKING_NOT_FOUND', 'Created booking could not be loaded.');
@@ -928,6 +942,8 @@ export class LocalPmsProvider implements PmsProvider {
             const checkout = await provider.createCheckoutSession(context, {
               idempotencyKey: command.idempotencyKey,
               bookingId: booking.id,
+              description: await loadCheckoutDescription(tx, context, booking.id),
+              expiresAfterMinutes: await checkoutHoldMinutes(tx, context, booking.id),
               amount: { amount: checkoutAmount, currency: booking.currency },
               successUrl: this.checkoutReturnUrl(
                 booking.id,
@@ -1215,7 +1231,14 @@ export class LocalPmsProvider implements PmsProvider {
 
   async cancelBooking(
     context: PmsProviderContext,
-    command: CancelBookingCommand & { notifyGuest?: boolean; singleBooking?: boolean },
+    command: CancelBookingCommand & {
+      notifyGuest?: boolean;
+      singleBooking?: boolean;
+      /** Set only when a reviewer approved a saved cancellation request. The booking's version may have moved
+       * for harmless reasons, so it is not compared; instead the dates and total the request was made on (when
+       * it saved them) are checked here, under the booking's row lock, and must still be the same. */
+      approvedRequest?: { startsOn?: string; endsOn?: string; total?: string };
+    },
   ): Promise<Result<Booking>> {
     const refundConfirmations: RefundConfirmation[] = [];
     const cancelledBookingIds: string[] = [];
@@ -1230,11 +1253,27 @@ export class LocalPmsProvider implements PmsProvider {
           command.bookingId,
           null,
           async () => {
+            if (command.approvedRequest)
+              await tx.$queryRaw`SELECT id FROM bookings WHERE id = ${command.bookingId}::uuid
+                AND tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid FOR UPDATE`;
             const row = await this.bookingById(tx, context, command.bookingId);
             if (!row) return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
             if (!command.staffActorId && row.guestSessionId !== command.guestSessionId)
               return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
-            if (row.version !== command.expectedVersion)
+            const approved = command.approvedRequest;
+            if (
+              approved &&
+              ((approved.startsOn !== undefined && approved.startsOn !== row.startsOn) ||
+                (approved.endsOn !== undefined && approved.endsOn !== row.endsOn) ||
+                (approved.total !== undefined && approved.total !== row.totalAmount))
+            )
+              return this.failure(
+                'VERSION_CONFLICT',
+                'The booking changed since the request was made; reject it and create a fresh request.',
+                true,
+              );
+            const expectedVersion = approved ? row.version : command.expectedVersion;
+            if (row.version !== expectedVersion)
               return this.failure(
                 'VERSION_CONFLICT',
                 'Booking has changed; reload it before cancelling.',
@@ -1327,6 +1366,8 @@ export class LocalPmsProvider implements PmsProvider {
                 context,
                 row.id,
                 `cancellation-refund:${command.idempotencyKey}`,
+                // A guest who cancels on their own bears the payment fee (when the hotel says so).
+                { guestDecision: !command.staffActorId },
               );
               if (!refunded.result.ok)
                 await this.recordAutomaticRefundFailure(tx, context, row.id, refunded.result.error);
@@ -1358,7 +1399,7 @@ export class LocalPmsProvider implements PmsProvider {
         WHERE id = ${row.id}::uuid
           AND tenant_id = ${context.tenantId}::uuid
           AND property_id = ${context.propertyId}::uuid
-          AND version = ${command.expectedVersion}
+          AND version = ${expectedVersion}
       `;
             await this.audit.recordInTransaction(tx, {
               tenantId: context.tenantId,
@@ -1522,6 +1563,8 @@ export class LocalPmsProvider implements PmsProvider {
         anchor.id,
         amount,
         `order-cancellation-refund:${command.idempotencyKey}`,
+        undefined,
+        { guestDecision: !command.staffActorId },
       );
       if (!refunded.result.ok)
         await this.recordAutomaticRefundFailure(tx, context, anchor.id, refunded.result.error, {
@@ -2000,6 +2043,13 @@ export class LocalPmsProvider implements PmsProvider {
         payload: { bookingId, from, status },
       });
     }
+    // Staff hear about a booking once it is confirmed, not about an attempt that may never be paid.
+    if (status === BookingStatus.CONFIRMED)
+      await this.notificationsService.recordBookingConfirmedInTransaction(tx, {
+        tenantId: context.tenantId,
+        propertyId: context.propertyId,
+        bookingId,
+      });
     return status;
   }
 

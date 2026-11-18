@@ -40,6 +40,12 @@ export const EMAIL_TEMPLATES = {
     subject: 'Booking {booking_reference} cancelled',
     body: 'Hello {guest_name}, your reservation {booking_reference} at {hotel_name} has been cancelled. The stay details below identify the reservation that was cancelled.\n\nAny refund is confirmed in a separate payment message. If this cancellation was unexpected, contact our team with your booking reference.\n\n{hotel_contact}',
   },
+  cancellation_request_received: {
+    label: 'Cancellation request received',
+    placeholders: [...COMMON],
+    subject: 'We received your cancellation request — {booking_reference}',
+    body: 'Hello {guest_name}, we received your request to cancel reservation {booking_reference} at {hotel_name}. Your reservation stays active until the hotel confirms the cancellation.\n\nThe hotel reviews each request and will confirm the result by email. If you did not make this request, reply to this email right away.\n\n{hotel_contact}',
+  },
   refund_processed: {
     label: 'Refund processed',
     placeholders: [...COMMON, 'refund_amount'],
@@ -73,7 +79,7 @@ export const EMAIL_TEMPLATES = {
   booking_confirmed_pay_at_hotel: {
     label: 'Booking confirmation - pay at hotel',
     placeholders: [...COMMON, 'payment_note'],
-    subject: 'Your stay at {hotel_name} is confirmed - {booking_reference}',
+    subject: '{hotel_name} booking confirmed — {booking_reference}',
     body: 'Hello {guest_name}, your reservation at {hotel_name} is confirmed. {payment_note}\n\n{stay_range}\n\n{hotel_policies}\n\nQuestions? {hotel_contact}',
   },
   payment_pending: {

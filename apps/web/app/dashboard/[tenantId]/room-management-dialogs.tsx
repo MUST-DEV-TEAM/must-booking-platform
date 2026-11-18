@@ -16,6 +16,7 @@ import {
   DialogTitle,
 } from '../../../components/ui/dialog';
 import { FormField } from '../../../components/ui/form-field';
+import { Checkbox } from '../../../components/ui/checkbox';
 import { Input, Textarea } from '../../../components/ui/input';
 import { Switch } from '../../../components/ui/switch';
 import {
@@ -71,8 +72,12 @@ export function RoomTypeEditorDialog({
   onOpenChange: (open: boolean) => void;
   onSave: (form: RoomTypeForm) => void;
 }) {
-  const [form, setForm] = useState<RoomTypeForm>(() => roomTypeForm(roomType));
   const coreReadOnly = managedInClock && roomType !== null;
+  const [form, setForm] = useState<RoomTypeForm>(() => ({
+    ...roomTypeForm(roomType),
+    ...(coreReadOnly ? { capacityConfirmed: !!roomType?.capacityConfirmedAt } : {}),
+  }));
+  const capacitySuggestion = coreReadOnly ? suggestedCapacity(roomType) : null;
   const [libraryOpen, setLibraryOpen] = useState(false);
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -92,7 +97,7 @@ export function RoomTypeEditorDialog({
         <form onSubmit={submit} className="flex flex-col gap-4">
           {coreReadOnly ? (
             <p className="text-sm text-muted-foreground">
-              Managed in Clock. Name and maximum occupancy are read-only; local presentation fields
+              Managed in Clock. The name is read-only; maximum occupancy and the presentation fields
               can be edited here.
             </p>
           ) : null}
@@ -133,17 +138,65 @@ export function RoomTypeEditorDialog({
               onChange={(event) => setForm({ ...form, rules: event.target.value })}
             />
           </FormField>
-          <FormField label="Maximum occupancy" htmlFor="room-type-max-occupancy" required>
+          <FormField
+            label="Maximum occupancy"
+            htmlFor="room-type-max-occupancy"
+            required
+            hint={
+              coreReadOnly
+                ? 'Clock does not hold how many guests a room type takes, so MUST keeps it here. Adults and children together.'
+                : undefined
+            }
+          >
             <Input
               id="room-type-max-occupancy"
               required
               min="1"
               type="number"
-              disabled={!canManageAccommodations || coreReadOnly}
+              disabled={!canManageAccommodations}
               value={form.maxOccupancy}
               onChange={(event) => setForm({ ...form, maxOccupancy: event.target.value })}
             />
           </FormField>
+          {coreReadOnly ? (
+            <div className="flex flex-col gap-2 rounded-md border border-border p-3 text-sm">
+              {capacitySuggestion ? (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-muted-foreground">
+                    Suggested: {capacitySuggestion.value} guests ({capacitySuggestion.source})
+                  </span>
+                  {String(capacitySuggestion.value) !== form.maxOccupancy ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={!canManageAccommodations}
+                      onClick={() =>
+                        setForm({ ...form, maxOccupancy: String(capacitySuggestion.value) })
+                      }
+                    >
+                      Use {capacitySuggestion.value}
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
+              <label className="flex items-center gap-2 font-medium">
+                <Checkbox
+                  checked={form.capacityConfirmed === true}
+                  disabled={!canManageAccommodations}
+                  onCheckedChange={(value) =>
+                    setForm({ ...form, capacityConfirmed: value === true })
+                  }
+                />
+                I have checked this number
+              </label>
+              <p className="text-muted-foreground">
+                {form.capacityConfirmed
+                  ? 'Confirmed. The Clock rates sync will not change it.'
+                  : 'Not confirmed yet. Until you confirm it, the Clock rates sync may update it.'}
+              </p>
+            </div>
+          ) : null}
           <FormField label="Category" htmlFor="room-type-category">
             <Select
               value={form.categoryId || 'none'}
@@ -493,6 +546,16 @@ export function AmenitiesDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+/** The higher of Clock's rate limit and the most guests booked in a year, so a confirmed number refuses no one it used to accept. */
+function suggestedCapacity(roomType: RoomType | null): { value: number; source: string } | null {
+  const fromRates = roomType?.clockRateCapacity ?? null;
+  const mostBooked = roomType?.mostBookedGuests ?? null;
+  if (fromRates === null && mostBooked === null) return null;
+  if (mostBooked !== null && (fromRates === null || mostBooked > fromRates))
+    return { value: mostBooked, source: 'most guests booked in the last 12 months' };
+  return { value: fromRates!, source: 'the highest guest limit on its Clock rates' };
 }
 
 function roomTypeForm(roomType: RoomType | null): RoomTypeForm {

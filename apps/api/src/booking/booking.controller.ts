@@ -1,3 +1,4 @@
+import { throwIfBookingRefused } from './refused-booking';
 import { countryCode } from '@must/domain-contracts';
 import { normalizePromoCode } from './promo-code.service';
 import {
@@ -181,7 +182,7 @@ export class BookingController {
         },
       };
     }
-    return result;
+    return throwIfBookingRefused(result);
   }
 
   @Post('orders')
@@ -193,12 +194,14 @@ export class BookingController {
     @Headers('idempotency-key') idempotencyKey: string | undefined,
     @Req() request: GuestBookingRequest,
   ) {
-    return this.noConflict(
-      await this.multiRoomBookings.create(request.tenantContext, {
-        ...this.multiRoomCreateInput(body),
-        idempotencyKey: this.idempotencyKey(idempotencyKey),
-        quoteSessionId: request.guestSessionId,
-      }),
+    return throwIfBookingRefused(
+      this.noConflict(
+        await this.multiRoomBookings.create(request.tenantContext, {
+          ...this.multiRoomCreateInput(body),
+          idempotencyKey: this.idempotencyKey(idempotencyKey),
+          quoteSessionId: request.guestSessionId,
+        }),
+      ),
     );
   }
 
@@ -300,6 +303,7 @@ export class BookingController {
         typeof value.clockRateId === 'string' && value.clockRateId ? value.clockRateId : undefined,
       promoCode: normalizePromoCode(value.promoCode) ?? undefined,
       returnUrl: typeof value.returnUrl === 'string' ? value.returnUrl : undefined,
+      embeddedCheckout: value.embeddedCheckout === true ? true : undefined,
     };
   }
 
@@ -332,6 +336,11 @@ export class BookingController {
           roomId: typeof room.roomId === 'string' ? room.roomId : undefined,
           ratePlanId: typeof room.ratePlanId === 'string' ? room.ratePlanId : '',
           total: this.money(room.total) ?? { amount: '', currency: '' },
+          adults: typeof room.adults === 'number' ? room.adults : undefined,
+          children: typeof room.children === 'number' ? room.children : undefined,
+          childrenAges: Array.isArray(room.childrenAges)
+            ? (room.childrenAges as number[])
+            : undefined,
           guestCount: typeof room.guestCount === 'number' ? room.guestCount : undefined,
           quoteToken: typeof room.quoteToken === 'string' ? room.quoteToken : '',
           guest:

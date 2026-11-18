@@ -49,7 +49,6 @@ describe('front-desk overview fields', () => {
     process.env.REDIS_URL = 'redis://localhost:6379';
     process.env.WEB_APP_URL = 'http://localhost:3001';
     process.env.STRIPE_SECRET_KEY = 'sk_test_overview_e2e';
-    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_overview_e2e';
     const { AppModule } = await import('../src/app.module');
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(MAIL_PROVIDER)

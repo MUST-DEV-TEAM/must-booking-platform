@@ -54,6 +54,7 @@ const clock = {
 };
 const email = { sendRefundConfirmationEmailSafely: vi.fn(async () => {}) };
 const cancellationEmail = { sendAfterCancellation: vi.fn(async () => {}) };
+const guestEmails = { sendCancellationRequestReceived: vi.fn(async () => {}) };
 let service: BookingRequestsService, refunds: PaymentRefundService, audit: AuditLogService;
 const tables = [
   'users',
@@ -183,7 +184,8 @@ beforeAll(async () => {
   refunds = new PaymentRefundService(
     db,
     audit,
-    mock({}),
+    // No payment provider can tell a fee here, so no fee is kept back (the rule is on by default).
+    mock({ forProvider: () => null }),
     mock(email),
     notifications,
     mock(clock),
@@ -216,6 +218,7 @@ beforeAll(async () => {
     notifications,
     manual,
     audit,
+    guestEmails as never,
   );
 });
 afterAll(async () => {
@@ -299,6 +302,77 @@ describe('B1 risky cancellation paths', () => {
           tx.$executeRaw`UPDATE booking_requests SET decision_note='changed' WHERE id=${q}::uuid`,
       ),
     ).rejects.toThrow('decision changed');
+  });
+  it('approves a request after the booking version moved with no real change, and cancels it', async () => {
+    const id = await fixture(),
+      q = await request(id, 'custom');
+    // Clock's echo webhooks used to raise the version within seconds without changing the booking.
+    await admin.$executeRaw`UPDATE bookings SET version = version + 4 WHERE id=${id}::uuid`;
+    await approve(q);
+    const booking = await admin.$queryRaw<
+      { status: string }[]
+    >`SELECT status::text FROM bookings WHERE id=${id}::uuid`;
+    expect(booking[0]?.status).toBe('CANCELLED');
+    const refunds = await admin.$queryRaw<
+      { count: bigint }[]
+    >`SELECT count(*) AS count FROM payments WHERE booking_id=${id}::uuid AND kind='REFUND'`;
+    expect(Number(refunds[0]?.count)).toBe(1);
+  });
+  it('still refuses to approve when the dates, total or payments changed since the request', async () => {
+    for (const change of [
+      (id: string) =>
+        admin.$executeRaw`UPDATE bookings SET total_amount = 150 WHERE id=${id}::uuid`,
+      (id: string) =>
+        admin.$executeRaw`UPDATE bookings SET starts_on='2030-07-11', ends_on='2030-07-13' WHERE id=${id}::uuid`,
+      (id: string) =>
+        admin.$executeRaw`INSERT INTO payments(tenant_id,property_id,booking_id,kind,provider,external_payment_id,status,amount,currency) VALUES(${tenantId}::uuid,${propertyId}::uuid,${id}::uuid,'REFUND','manual',${randomUUID()},'REFUNDED',10,'EUR')`,
+    ]) {
+      const id = await fixture(),
+        q = await request(id, 'custom');
+      await change(id);
+      await expect(approve(q)).rejects.toThrow('changed since this request');
+      const booking = await admin.$queryRaw<
+        { status: string }[]
+      >`SELECT status::text FROM bookings WHERE id=${id}::uuid`;
+      expect(booking[0]?.status).toBe('CONFIRMED');
+    }
+  });
+  it('the provider itself re-checks the saved dates and total of an approved request under the booking lock', async () => {
+    const provider = (service as unknown as { provider: LocalPmsProvider }).provider;
+    const command = (
+      id: string,
+      approvedRequest: { startsOn?: string; endsOn?: string; total?: string },
+    ) => ({
+      bookingId: id,
+      // A stale version on purpose: an approved request does not compare the version.
+      expectedVersion: 999,
+      idempotencyKey: randomUUID(),
+      staffActorId: reviewer,
+      reason: 'Approved request',
+      skipAutomaticRefund: true,
+      approvedRequest,
+    });
+    const changed = await fixture();
+    expect(
+      await provider.cancelBooking(context, command(changed, { total: '999.00' })),
+    ).toMatchObject({
+      ok: false,
+      error: { code: 'VERSION_CONFLICT' },
+    });
+    const unchanged = await fixture();
+    expect(
+      await provider.cancelBooking(
+        context,
+        command(unchanged, { startsOn: '2030-07-10', endsOn: '2030-07-12', total: '100.00' }),
+      ),
+    ).toMatchObject({ ok: true });
+    const rows = await admin.$queryRaw<
+      { id: string; status: string }[]
+    >`SELECT id::text, status::text FROM bookings WHERE id IN (${changed}::uuid, ${unchanged}::uuid)`;
+    expect(Object.fromEntries(rows.map((row) => [row.id, row.status]))).toEqual({
+      [changed]: 'CONFIRMED',
+      [unchanged]: 'CANCELLED',
+    });
   });
   it('requires finance permission for custom amounts and forbids self-approval', async () => {
     const id = await fixture(),
@@ -669,6 +743,13 @@ it('freezes new MUST policy terms, preserves original terms after settings chang
     true,
   );
   expect(two.requestId).toBe(one.requestId);
+  // The guest is told once that the request arrived, not again when the same pending request is repeated.
+  expect(guestEmails.sendCancellationRequestReceived).toHaveBeenCalledTimes(1);
+  expect(guestEmails.sendCancellationRequestReceived).toHaveBeenCalledWith(
+    { tenantId, propertyId },
+    id,
+    one.requestId,
+  );
   const listed = await service.list({ ...context, userId: reviewer });
   expect(
     listed.items.some((q) => q.id === one.requestId && q.requesterName === 'Guest (email link)'),

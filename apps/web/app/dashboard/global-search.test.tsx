@@ -70,7 +70,7 @@ describe('search pages', () => {
   const all = () => true;
   it('finds pages and settings by name or by the words people use', () => {
     expect(matchPages('pay', all, all)[0]!.label).toBe('Payments');
-    expect(matchPages('check-in time', all, all).map((p) => p.label)).toContain('Booking rules');
+    expect(matchPages('check-in time', all, all).map((p) => p.label)).toContain('Policies');
     expect(matchPages('smtp', all, all).map((p) => p.label)).toContain('Emails');
     expect(matchPages('password', all, all)[0]!.label).toBe('My account');
     expect(matchPages('p', all, all)).toEqual([]);
@@ -136,7 +136,7 @@ describe('what each kind of person sees', () => {
 
   it('shows hotel settings to an owner or admin but money pages only with the permission', () => {
     const admin = (capability: string) => capability !== 'none';
-    expect(titles('check-in time', admin)).toContain('Booking rules');
+    expect(titles('check-in time', admin)).toContain('Policies');
     expect(titles('hotels', admin)).toContain('Hotels');
     const finance = (capability: string) => capability === 'payments.view';
     expect(titles('payments', finance)).toContain('Payments');
@@ -230,11 +230,11 @@ describe('pages each role can reach (using the real access rules)', () => {
     expect(settingsManager).toContain('Emails');
     for (const label of [
       'Settings',
-      'General settings',
+      'Profile',
       'Booking rules',
-      'Payment settings',
-      'Branding',
-      'Billing account',
+      'Payment methods',
+      'Contact and brand',
+      'Plan and usage',
       'Hotels',
     ])
       expect(settingsManager).not.toContain(label);
@@ -320,8 +320,8 @@ describe('global search popup', () => {
     expect(options()).toEqual([
       { title: 'Payments', href: '/dashboard/t?propertyId=p&section=payments' },
       {
-        title: 'Payment settings',
-        href: '/dashboard/t?propertyId=p&section=settings&settingsArea=payments',
+        title: 'Payment methods',
+        href: '/dashboard/t?propertyId=p&section=settings&settingsArea=payment-methods',
       },
       {
         title: 'SRCH-1001 · Zelda',

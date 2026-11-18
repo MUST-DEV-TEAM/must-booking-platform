@@ -2,7 +2,7 @@ import type { PreparedTransportMessage } from './smtp-transport';
 import { MailDeliveryError } from './mail-delivery-error';
 
 export type PreparedMailReceipt = {
-  provider: 'resend' | 'smtp';
+  provider: 'resend' | 'smtp' | 'brevo';
   providerMessageId: string;
   usedFallback?: boolean;
 };

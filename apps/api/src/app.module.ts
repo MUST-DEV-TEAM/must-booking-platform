@@ -69,6 +69,7 @@ import { RolesGuard } from './tenancy/roles.guard';
 import { PlatformAccessGuard } from './platform/console/platform-access.guard';
 import { PlatformAuditService } from './platform/console/platform-audit.service';
 import { PlatformAuditController } from './platform/console/platform-audit.controller';
+import { PlatformSystemController } from './platform/console/platform-system.controller';
 import { PlatformHotelsController } from './platform/console/platform-hotels.controller';
 import { PlatformHotelsService } from './platform/console/platform-hotels.service';
 import { PlatformLifecycleService } from './platform/console/platform-lifecycle.service';
@@ -238,9 +239,12 @@ import { PokPayWebhookController } from './payments/pokpay-webhook.controller';
 import { StripeWebhookController } from './payments/stripe-webhook.controller';
 import { StripeWebhookService } from './payments/stripe-webhook.service';
 import { PaymentExpiryService } from './payments/payment-expiry.service';
+import { StripeCheckoutCloserService } from './payments/stripe-checkout-closer.service';
 import { PokPayReconciliationService } from './payments/pokpay-reconciliation.service';
 import { PaymentRefundRecoveryService } from './payments/payment-refund-recovery.service';
 import { ClockRefundMirrorCheckService } from './integrations/clock/clock-refund-mirror-check.service';
+import { ClockStaleStayCheckService } from './integrations/clock/clock-stale-stay-check.service';
+import { LatePaymentFlowService } from './payments/late-payment-flow.service';
 import { PaymentRefundController } from './payments/payment-refund.controller';
 import { PaymentRefundService } from './payments/payment-refund.service';
 import { HotelCancellationRefundService } from './payments/hotel-cancellation-refund.service';
@@ -268,6 +272,8 @@ import { ClockCatalogSyncController } from './integrations/clock/clock-catalog-s
 import { ClockPermissionsController } from './integrations/clock/clock-permissions.controller';
 import { ClockPermissionsService } from './integrations/clock/clock-permissions.service';
 import { ClockPermissionsMonitorService } from './integrations/clock/clock-permissions-monitor.service';
+import { ClockDeadLetterMonitorService } from './integrations/clock/clock-dead-letter-monitor.service';
+import { ClockLiveUpdatesService } from './integrations/clock/clock-live-updates.service';
 import { DisplayPriceStore } from './integrations/clock/display-price-store';
 import { ClockAvailabilityService } from './integrations/clock/clock-availability.service';
 import { ClockPrePaymentAvailability } from './integrations/clock/clock-pre-payment-availability';
@@ -282,7 +288,11 @@ import { ClockSamplePricesService } from './integrations/clock/clock-sample-pric
 import { ClockSamplePricesController } from './integrations/clock/clock-sample-prices.controller';
 import { ClockWebsiteRatesController } from './integrations/clock/clock-website-rates.controller';
 import { ClockBookingService } from './integrations/clock/clock-booking.service';
-import { BookingReviewController, BookingReviewService } from './booking/booking-review.service';
+import {
+  BookingReviewController,
+  BookingReviewService,
+  ClockOpenBillsExportController,
+} from './booking/booking-review.service';
 import { ClockBookingConsistencyService } from './integrations/clock/clock-booking-consistency.service';
 import { ClockBookingHydrationService } from './integrations/clock/clock-booking-hydration.service';
 import { ClockFolioHydrationService } from './integrations/clock/clock-folio-hydration.service';
@@ -294,6 +304,8 @@ import { ClockWebhookService } from './integrations/clock/clock-webhook.service'
 import { ClockWebhookHealthService } from './integrations/clock/clock-webhook-health.service';
 import { ClockWebhookController } from './integrations/clock/clock-webhook.controller';
 
+const healthPaths = new Set(['/health', '/health/ready']);
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -302,6 +314,10 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     }),
     LoggerModule.forRoot({
       pinoHttp: {
+        // Health checks run every few seconds; they are not worth a log line.
+        autoLogging: {
+          ignore: (request) => healthPaths.has(requestLogPath(request.url) ?? ''),
+        },
         customAttributeKeys: {
           req: 'request',
           res: 'response',
@@ -362,6 +378,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     InventoryBlocksController,
     InventoryOverviewController,
     BookingReviewController,
+    ClockOpenBillsExportController,
     SystemHealthController,
     GlobalSearchController,
     InventoryStockController,
@@ -413,6 +430,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     PlatformAuthController,
     PlatformTeamController,
     PlatformAuditController,
+    PlatformSystemController,
     PlatformHotelsController,
     PlatformSupportController,
     HotelSupportController,
@@ -536,9 +554,12 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     PokPayPaymentService,
     StripeWebhookService,
     PaymentExpiryService,
+    StripeCheckoutCloserService,
     PokPayReconciliationService,
     PaymentRefundRecoveryService,
     ClockRefundMirrorCheckService,
+    ClockStaleStayCheckService,
+    LatePaymentFlowService,
     PaymentRefundService,
     HotelCancellationRefundService,
     PaymentLedgerService,
@@ -560,6 +581,8 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     ClockCatalogSyncService,
     ClockPermissionsService,
     ClockPermissionsMonitorService,
+    ClockDeadLetterMonitorService,
+    ClockLiveUpdatesService,
     ClockAvailabilityService,
     DisplayPriceStore,
     ClockPrePaymentAvailability,

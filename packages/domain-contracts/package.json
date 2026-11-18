@@ -17,6 +17,7 @@
     "build": "tsc --project tsconfig.build.json"
   },
   "dependencies": {
-    "@must/shared-types": "workspace:*"
+    "@must/shared-types": "workspace:*",
+    "libphonenumber-js": "^1.13.16"
   }
 }

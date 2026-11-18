@@ -202,6 +202,25 @@ describe('Reports R2 real scoped projections, cache and export audit', () => {
     expect(result.body.meta.timezone).toBe('Europe/Tirane');
     expect(result.body.comparison).toBeNull();
   });
+  it('shows test payments on their own line and leaves them out of the real money totals', async () => {
+    const before = await get({ report: 'overview' }).expect(200);
+    const eur = (body: { summary: { financial: Array<Record<string, unknown>> } }) =>
+      body.summary.financial.find((row) => row.currency === 'EUR')!;
+    expect(eur(before.body).testNetCollected).toBeNull();
+    await admin.$executeRaw`INSERT INTO payments(tenant_id,property_id,booking_id,kind,provider,external_payment_id,status,amount,currency,created_at,is_test) VALUES(${tenant}::uuid,${property}::uuid,${b1}::uuid,'CHARGE','manual','r2-test-charge','PAID',50,'EUR','2026-03-29T12:00:00Z',true)`;
+    try {
+      // A different grouping skips the short snapshot cache; period totals do not change with it.
+      const after = await get({ report: 'overview', group: 'week' }).expect(200);
+      expect(eur(after.body)).toMatchObject({
+        collected: eur(before.body).collected,
+        netCollected: eur(before.body).netCollected,
+        cohortNetCollected: eur(before.body).cohortNetCollected,
+        testNetCollected: '50.00',
+      });
+    } finally {
+      await admin.$executeRaw`DELETE FROM payments WHERE tenant_id=${tenant}::uuid AND external_payment_id='r2-test-charge'`;
+    }
+  });
   it('counts created dates through Tirane DST and groups without changing period totals', async () => {
     const daily = await get().expect(200);
     expect(daily.body.series.find((r: { date: string }) => r.date === '2026-03-29').bookings).toBe(

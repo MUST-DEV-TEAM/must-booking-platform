@@ -16,6 +16,8 @@ export type CancellationEvidence = {
   alreadyRefunded: string;
   penalty: string;
   eligible: string;
+  /** The payment fee a guest-requested cancellation keeps back from `eligible` (null when none applies). */
+  providerFee?: string | null;
   method: string;
   legacyPolicy: boolean;
   policySource?: 'MUST' | 'CLOCK_PMS';

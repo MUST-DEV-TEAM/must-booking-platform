@@ -45,7 +45,17 @@ export class ClockCircuitBreakerService {
     this.breakers.set(key, { state: 'CLOSED', consecutiveFailures: 0, openedAt: null });
   }
 
-  recordFailure(key: string): void {
+  /**
+   * A failed call. Pass the HTTP status when there was an answer: a refusal (401 or 403: expired
+   * trial, revoked user, missing right) proves Clock is reachable, so it closes the breaker instead of
+   * counting as an outage; the hotel hears about it through the permissions monitor, not through
+   * repeated outage alerts.
+   */
+  recordFailure(key: string, httpStatus?: number): void {
+    if (httpStatus === 401 || httpStatus === 403) {
+      this.recordSuccess(key);
+      return;
+    }
     const breaker = this.record(key);
     if (breaker.state === 'HALF_OPEN') {
       // The trial call failed — re-open immediately, reset the cooldown clock.
@@ -54,7 +64,8 @@ export class ClockCircuitBreakerService {
         consecutiveFailures: breaker.consecutiveFailures + 1,
         openedAt: Date.now(),
       });
-      this.alertOpened(breaker.consecutiveFailures + 1);
+      // No second alert: the opening was already reported, and a trial call every cooldown would
+      // otherwise repeat it for as long as the outage lasts (899 times in one night, 2026-11-16).
       return;
     }
     const consecutiveFailures = breaker.consecutiveFailures + 1;

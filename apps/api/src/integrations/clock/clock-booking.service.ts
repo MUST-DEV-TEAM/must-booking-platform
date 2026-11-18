@@ -129,6 +129,12 @@ type DepositFolioResult =
   | { status: 'ready'; folio: ClockFolioResource }
   | { status: 'already_completed'; folio: ClockFolioResource; creditItem: ClockCreditItemResource };
 
+// Where a website payment goes in Clock. The booking's own (main) folio is preferred: a payment there needs
+// no "Convert to Advance" by the hotel (Clock's reply, 2026-11-17; sandbox test the same day). The deposit
+// folio is the fallback for a Clock login that may not post there (a 403), and is what a hotel
+// that needs the advance invoice keeps choosing (the property setting clock_payment_folio).
+type PaymentFolioResult = DepositFolioResult & { placement: 'main' | 'deposit' };
+
 interface ClockCreditItemResource {
   id: number;
   reference?: string;
@@ -144,6 +150,9 @@ export function isClockCreditItemResource(value: unknown): value is ClockCreditI
 }
 
 // Up to three more tries after a rate limit, waiting about 0.4s, 0.8s and 1.6s.
+/** Starts the Clock payment text of a test payment, so hotel staff can tell it from real money (ADR-0041). */
+export const TEST_PAYMENT_NOTE = 'TEST PAYMENT, not real money (provider test account).';
+
 const RATE_LIMIT_RETRIES = 3;
 const RATE_LIMIT_BACKOFF_MS = 400;
 
@@ -924,8 +933,9 @@ export class ClockBookingService {
         'This booking has no real Clock reservation to post a deposit against.',
       );
 
+    const preferMainFolio = await this.postsToMainFolio(tx, context);
     const folio = await this.withRetry(() =>
-      this.depositFolio(connection.value, externalBookingId, reference),
+      this.paymentFolio(connection.value, externalBookingId, reference, preferMainFolio),
     );
     if (!folio.ok) {
       await this.manualReview.recordInTransaction(tx, {
@@ -934,7 +944,7 @@ export class ClockBookingService {
         category: 'PAYMENT_BOOKING_MISMATCH',
         referenceType: 'booking',
         referenceId: bookingId,
-        message: `Booking is confirmed at Clock but no deposit folio could be opened: ${folio.error.message}`,
+        message: `Booking is confirmed at Clock but no folio could take the payment: ${folio.error.message}`,
         context: { externalBookingId, errorCode: folio.error.code },
       });
       // ManualReviewService's own alert only reaches anyone if SENTRY_DSN is
@@ -971,6 +981,7 @@ export class ClockBookingService {
         details: {
           externalBookingId: row.externalBookingId,
           folioId: folio.value.folio.id,
+          placement: folio.value.placement,
           creditItemId: folio.value.creditItem.id,
           amount,
           paymentSubType,
@@ -982,17 +993,49 @@ export class ClockBookingService {
       return { ok: true, value: undefined };
     }
 
-    const creditItem = await this.withRetry(() =>
+    const testNote = (await this.isTestPayment(tx, context, bookingId, reference))
+      ? `${TEST_PAYMENT_NOTE} Website booking payment via ${paymentSubType}`
+      : undefined;
+    let placement = folio.value.placement;
+    let target = folio.value.folio;
+    let creditItem = await this.withRetry(() =>
       this.postCreditItem(
         connection.value,
-        folio.value.folio.id,
+        target.id,
         amount,
         paymentSubType,
         reference,
         'payment',
         paymentType,
+        testNote,
       ),
     );
+    // A Clock login without the right to post on the main folio (a 403) falls back to the deposit folio the
+    // hotel has always used, so a hotel whose login was never widened keeps taking payments.
+    if (!creditItem.ok && placement === 'main' && creditItem.error.category === 'authorization') {
+      this.logger.warn(
+        `Clock refused a payment on the main folio (${creditItem.error.message}); posting it to a deposit folio instead.`,
+      );
+      const deposit = await this.withRetry(() =>
+        this.depositFolio(connection.value, externalBookingId, reference),
+      );
+      if (deposit.ok && deposit.value.status === 'ready') {
+        placement = 'deposit';
+        target = deposit.value.folio;
+        creditItem = await this.withRetry(() =>
+          this.postCreditItem(
+            connection.value,
+            target.id,
+            amount,
+            paymentSubType,
+            reference,
+            'payment',
+            paymentType,
+            testNote,
+          ),
+        );
+      }
+    }
     if (!creditItem.ok) {
       await this.manualReview.recordInTransaction(tx, {
         tenantId: context.tenantId,
@@ -1003,7 +1046,7 @@ export class ClockBookingService {
         message: `Booking is confirmed at Clock but the deposit could not be posted: ${creditItem.error.message}`,
         context: {
           externalBookingId: row.externalBookingId,
-          folioId: folio.value.folio.id,
+          folioId: target.id,
           errorCode: creditItem.error.code,
         },
       });
@@ -1038,7 +1081,8 @@ export class ClockBookingService {
       targetId: bookingId,
       details: {
         externalBookingId: row.externalBookingId,
-        folioId: folio.value.folio.id,
+        folioId: target.id,
+        placement,
         creditItemId: creditItem.value.id,
         amount,
         paymentSubType,
@@ -1127,6 +1171,17 @@ export class ClockBookingService {
       );
     }
 
+    const refundSubType =
+      originalDeposit.value.creditItem.payment_sub_type ||
+      this.paymentSubTypeForBooking(row.paymentMethod);
+    const refundTestNote = (await this.isTestPayment(
+      tx,
+      context,
+      bookingId,
+      refundReference.replace(/^must-refund:/, ''),
+    ))
+      ? `${TEST_PAYMENT_NOTE} Website booking refund via ${refundSubType}`
+      : undefined;
     const refundCreditItem = existingRefund.value
       ? { ok: true as const, value: existingRefund.value }
       : await this.withRetry(() =>
@@ -1134,10 +1189,11 @@ export class ClockBookingService {
             connection.value,
             originalDeposit.value.folio.id,
             { amount: `-${amount.amount}`, currency: amount.currency },
-            originalDeposit.value.creditItem.payment_sub_type ||
-              this.paymentSubTypeForBooking(row.paymentMethod),
+            refundSubType,
             refundReference,
             'refund',
+            'on-line',
+            refundTestNote,
           ),
         );
     if (!refundCreditItem.ok) {
@@ -1156,16 +1212,23 @@ export class ClockBookingService {
       );
     }
 
-    await this.recordClockRefundReview(tx, context, bookingId, {
-      externalBookingId: row.externalBookingId,
-      folioId: originalDeposit.value.folio.id,
-      creditItemId: refundCreditItem.value.id,
-      amount,
-      refundReference,
-      message:
-        'Clock refund payment was posted. In Clock, issue the Deposit Adjustment to create the required correction document.',
-      idempotentReplay: !!existingRefund.value,
-    });
+    // Milestone 40 task 7: the Deposit Adjustment is only needed when the deposit folio is closed (a
+    // converted deposit is closed too). An open folio takes the negative payment and just nets out,
+    // so staff get no to-do. The folio state is the one read before the post above.
+    if (originalDeposit.value.folio.closed_at) {
+      await this.recordClockRefundReview(tx, context, bookingId, {
+        externalBookingId: row.externalBookingId,
+        folioId: originalDeposit.value.folio.id,
+        creditItemId: refundCreditItem.value.id,
+        amount,
+        refundReference,
+        message:
+          originalDeposit.value.folio.deposit === true
+            ? 'Clock refund payment was posted. In Clock, issue the Deposit Adjustment to create the required correction document.'
+            : "Clock refund payment was posted on the booking's folio, which is already closed. In Clock, check the invoice and issue any correction it needs.",
+        idempotentReplay: !!existingRefund.value,
+      });
+    }
     await this.audit.recordInTransaction(tx, {
       tenantId: context.tenantId,
       propertyId: context.propertyId,
@@ -1242,6 +1305,76 @@ export class ClockBookingService {
       result = await attempt();
     }
     return result;
+  }
+
+  /** The hotel's choice (Settings > Payments): website payments on the booking's own folio, or on a deposit folio. */
+  private async postsToMainFolio(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+  ): Promise<boolean> {
+    const rows = await tx.$queryRaw<Array<{ folio: string }>>`
+      SELECT clock_payment_folio AS folio FROM properties
+      WHERE tenant_id = ${context.tenantId}::uuid AND id = ${context.propertyId}::uuid`;
+    return rows[0]?.folio === 'MAIN';
+  }
+
+  /** Every folio of a Clock booking, read once. */
+  private async bookingFolios(
+    credentials: ClockConnectionCredentials,
+    externalBookingId: string,
+  ): Promise<ClockOutcome<ClockFolioResource[]>> {
+    const listed = await this.fetch<number[]>(credentials, {
+      method: 'GET',
+      path: `/bookings/${externalBookingId}/folios/`,
+      api: 'pms_api',
+    });
+    if (!listed.ok) return listed;
+    const folios: ClockFolioResource[] = [];
+    for (const folioId of listed.value) {
+      const viewed = await this.fetch<unknown>(credentials, {
+        method: 'GET',
+        path: `/folios/${folioId}`,
+        api: 'base_api',
+      });
+      if (!viewed.ok) return viewed;
+      if (isClockFolioResource(viewed.value)) folios.push(viewed.value);
+    }
+    return { ok: true, value: folios };
+  }
+
+  /**
+   * The folio a website payment is posted to. A payment already carrying this `reference` on ANY folio
+   * (a replayed webhook, or one posted earlier to the deposit folio) is found first, so it is never posted
+   * twice. Otherwise the booking's open main folio, and only when it has none, the deposit folio.
+   */
+  private async paymentFolio(
+    credentials: ClockConnectionCredentials,
+    externalBookingId: string,
+    reference: string,
+    preferMainFolio: boolean,
+  ): Promise<ClockOutcome<PaymentFolioResult>> {
+    const folios = await this.bookingFolios(credentials, externalBookingId);
+    if (!folios.ok) return folios;
+    for (const folio of folios.value) {
+      const existing = await this.creditItemByReference(credentials, folio.id, reference);
+      if (existing.ok && existing.value)
+        return {
+          ok: true,
+          value: {
+            status: 'already_completed',
+            folio,
+            creditItem: existing.value,
+            placement: folio.deposit === true ? 'deposit' : 'main',
+          },
+        };
+    }
+    const main = preferMainFolio
+      ? folios.value.find((folio) => folio.deposit !== true && !folio.closed_at)
+      : undefined;
+    if (main) return { ok: true, value: { status: 'ready', folio: main, placement: 'main' } };
+    const deposit = await this.depositFolio(credentials, externalBookingId, reference);
+    if (!deposit.ok) return deposit;
+    return { ok: true, value: { ...deposit.value, placement: 'deposit' } };
   }
 
   /** Reuses an existing open `deposit=true` folio on this booking if one
@@ -1331,7 +1464,9 @@ export class ClockBookingService {
         api: 'base_api',
       });
       if (!viewed.ok) return viewed;
-      if (!isClockFolioResource(viewed.value) || viewed.value.deposit !== true) continue;
+      // The payment may sit on the main folio (the usual place now) or on a deposit folio (older bookings, or
+      // a login that could not post on the main folio), so every folio of the booking is searched.
+      if (!isClockFolioResource(viewed.value)) continue;
 
       const originalPayment = await this.creditItemByReference(
         credentials,
@@ -1345,7 +1480,7 @@ export class ClockBookingService {
     return this.failureError({
       category: 'not_found',
       code: 'clock_original_deposit_missing',
-      message: "Clock has no deposit folio containing MUST's original payment reference.",
+      message: "Clock has no folio containing MUST's original payment reference.",
       retryable: false,
     });
   }
@@ -1470,6 +1605,30 @@ export class ClockBookingService {
   /** Posts the credit item, or reconciles against an existing one by our own
    * `reference` if the POST itself failed ambiguously (timeout/network/5xx) —
    * the credit_item endpoint has no idempotency key of its own. */
+  /**
+   * Whether the money behind a Clock post is a test payment: the ledger row with this reference if there
+   * is one, otherwise the booking's (or its order's) online charges.
+   */
+  private async isTestPayment(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    bookingId: string,
+    reference: string,
+  ): Promise<boolean> {
+    const rows = await tx.$queryRaw<Array<{ isTest: boolean }>>`
+      SELECT COALESCE(
+        (SELECT p.is_test FROM payments p
+          WHERE p.tenant_id = ${context.tenantId}::uuid AND p.external_payment_id = ${reference} LIMIT 1),
+        (SELECT bool_or(p.is_test) FROM bookings me
+          JOIN bookings b ON b.tenant_id = me.tenant_id AND b.property_id = me.property_id
+            AND (b.id = me.id OR (me.order_reference IS NOT NULL AND b.order_reference = me.order_reference))
+          JOIN payments p ON p.tenant_id = b.tenant_id AND p.property_id = b.property_id AND p.booking_id = b.id
+          WHERE me.tenant_id = ${context.tenantId}::uuid AND me.property_id = ${context.propertyId}::uuid
+            AND me.id = ${bookingId}::uuid AND p.kind = 'CHARGE' AND p.provider IN ('pokpay', 'stripe')),
+        false) AS "isTest"`;
+    return rows[0]?.isTest === true;
+  }
+
   private async postCreditItem(
     credentials: ClockConnectionCredentials,
     folioId: number,
@@ -2257,6 +2416,11 @@ export class ClockBookingService {
           AND booking_id = ${holder.id}::uuid
       `;
       await tx.$executeRaw`
+        UPDATE booking_flows SET booking_id = ${keepBookingId}::uuid
+        WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+          AND booking_id = ${holder.id}::uuid
+      `;
+      await tx.$executeRaw`
         DELETE FROM bookings
         WHERE id = ${holder.id}::uuid AND tenant_id = ${context.tenantId}::uuid
           AND property_id = ${context.propertyId}::uuid
@@ -2518,6 +2682,12 @@ export class ClockBookingService {
         payload: { bookingId, from, status },
       });
     }
+    if (status === BookingStatus.CONFIRMED)
+      await this.notifications.recordBookingConfirmedInTransaction(tx, {
+        tenantId: context.tenantId,
+        propertyId: context.propertyId,
+        bookingId,
+      });
     return status;
   }
 
@@ -2765,7 +2935,7 @@ export class ClockBookingService {
         timeoutMs: 15_000,
       });
       if (response.status < 200 || response.status >= 300) {
-        this.circuitBreaker.recordFailure(breakerKey);
+        this.circuitBreaker.recordFailure(breakerKey, response.status);
         // Clock's documented optimistic-concurrency conflict is a plain
         // HTTP 500 with this exact message, not a 409 — must be special-
         // cased or it would otherwise be misclassified as a permanent error.

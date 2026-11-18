@@ -64,6 +64,8 @@ export type ReportPayment = {
   currency: string;
   method: string | null;
   provider: string;
+  /** Taken through a provider test account (ADR-0041): reported on its own line, not as real money. */
+  isTest?: boolean;
   createdAt: string;
 };
 export type ReportEvent = {
@@ -159,7 +161,7 @@ export async function reportFacts(
     ORDER BY b.created_at,b.id`);
   const payments = ids.length
     ? await tx.$queryRaw<ReportPayment[]>`
-    SELECT id,reason_code AS "reasonCode",booking_id AS "bookingId",kind::text,status,amount::text,currency,method,provider,created_at::text AS "createdAt"
+    SELECT id,reason_code AS "reasonCode",booking_id AS "bookingId",kind::text,status,amount::text,currency,method,provider,is_test AS "isTest",created_at::text AS "createdAt"
     FROM payments WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND booking_id=ANY(${ids}::uuid[])
     ORDER BY created_at,id LIMIT ${REPORT_LIMITS.payments + 1}`
     : [];

@@ -20,13 +20,20 @@ const MONTHS = [
  * days later than a fast one, so looking once right after a click failed there ("The requested date field
  * did not open its calendar") while it passed on a fast machine.
  */
-async function waitFor<T>(find: () => T | null | undefined, message: string): Promise<T> {
-  const deadline = Date.now() + 3000;
+async function waitFor<T>(
+  find: () => T | null | undefined,
+  message: string,
+  timeoutMs = 3000,
+  /** Runs inside `act` on every round that found nothing, before the short sleep. */
+  retry?: () => void,
+): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
   for (;;) {
     const found = find();
     if (found) return found;
     if (Date.now() >= deadline) throw new Error(message);
     await act(async () => {
+      retry?.();
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
   }
@@ -39,11 +46,25 @@ export async function pickDate(trigger: HTMLElement | null, iso: string) {
   await act(async () => trigger.click());
   // Radix can retain a closed calendar while its exit animation finishes. Follow this
   // trigger's controlled popover instead of accidentally navigating that older calendar.
-  const calendar = await waitFor(() => {
-    const contentId = trigger.getAttribute('aria-controls');
-    const element = contentId ? document.getElementById(contentId) : null;
-    return element && element.getAttribute('data-state') === 'open' ? element : null;
-  }, 'The requested date field did not open its calendar.');
+  // A click that lands while the page is still settling (for example while the previous calendar is
+  // closing) can be dropped, so if the trigger still says "closed" after a moment, click it again.
+  // Never click while it says "open": that would toggle a calendar that is merely slow to render.
+  let lastClick = Date.now();
+  const calendar = await waitFor(
+    () => {
+      const contentId = trigger.getAttribute('aria-controls');
+      const element = contentId ? document.getElementById(contentId) : null;
+      return element && element.getAttribute('data-state') === 'open' ? element : null;
+    },
+    'The requested date field did not open its calendar.',
+    8000,
+    () => {
+      if (trigger.getAttribute('aria-expanded') !== 'true' && Date.now() - lastClick > 500) {
+        lastClick = Date.now();
+        trigger.click();
+      }
+    },
+  );
   const shown = () => {
     const title = calendar.querySelector('h4')?.textContent ?? '';
     const [name, y] = title.split(' ');

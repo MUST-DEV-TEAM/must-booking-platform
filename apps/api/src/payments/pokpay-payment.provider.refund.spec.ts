@@ -128,6 +128,38 @@ describe('PokPayPaymentProvider.refund currency handling', () => {
 
     expect(result).toMatchObject({ ok: false, error: { code: 'POKPAY_REFUND_AMOUNT_MISMATCH' } });
   });
+
+  it('reports failure when the refundable amount does not fall at all', async () => {
+    const { provider } = providerWith([
+      order({ refundableAmount: 22750 }),
+      order({ refundableAmount: 22750 }),
+    ]);
+
+    const result = await provider.refund(context, {
+      idempotencyKey: 'k',
+      paymentId: 'order-1',
+      amount: { amount: '100.00', currency: 'EUR' },
+      alreadyRefunded: { amount: '0.00', currency: 'EUR' },
+    });
+
+    expect(result).toMatchObject({ ok: false, error: { code: 'POKPAY_REFUND_AMOUNT_MISMATCH' } });
+  });
+
+  it('saves a verified partial refund as REFUNDED even though isRefunded is false', async () => {
+    const { provider } = providerWith([
+      order({ refundableAmount: 22750 }),
+      order({ refundableAmount: 13650, isRefunded: false }),
+    ]);
+
+    const result = await provider.refund(context, {
+      idempotencyKey: 'k',
+      paymentId: 'order-1',
+      amount: { amount: '100.00', currency: 'EUR' },
+      alreadyRefunded: { amount: '0.00', currency: 'EUR' },
+    });
+
+    expect(result).toMatchObject({ ok: true, value: { status: 'REFUNDED' } });
+  });
 });
 
 describe('PokPayPaymentProvider.refund payment ids', () => {

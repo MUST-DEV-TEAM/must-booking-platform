@@ -244,3 +244,13 @@ it.each(['EUR', 'ALL'])(
     await act(async () => view.root.unmount());
   },
 );
+
+it('offers the open Clock bills as a CSV download', async () => {
+  const { container, root } = await mount();
+  const link = [...container.querySelectorAll('a')].find((anchor) =>
+    anchor.textContent?.includes('Open Clock bills (CSV)'),
+  );
+  expect(link?.getAttribute('href')).toBe('/api/tenants/t/properties/p/clock-open-bills/export');
+  expect(link?.getAttribute('download')).toBe('clock-open-bills.csv');
+  await act(async () => root.unmount());
+});

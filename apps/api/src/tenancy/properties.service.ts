@@ -1,5 +1,6 @@
 import {
   hotelColumns,
+  propertyColumns,
   hotelFields,
   hotelInput,
   hotelUpdates,
@@ -15,11 +16,15 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
+import { checkProfileField, normaliseProfileValue } from '@must/domain-contracts';
 import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
 import { AuditLogService } from './audit-log.service';
 import { PropertyRoleTemplatesService } from './property-role-templates.service';
+import { settingsReadiness, type SettingsReadiness } from './settings-readiness';
 
 export type ClockCancelRefundPolicy = 'NEVER' | 'FREE_WINDOW' | 'ALWAYS';
+export type ClockPaymentFolio = 'DEPOSIT' | 'MAIN';
+const CLOCK_PAYMENT_FOLIOS: ClockPaymentFolio[] = ['DEPOSIT', 'MAIN'];
 const CLOCK_CANCEL_REFUND_POLICIES: ClockCancelRefundPolicy[] = ['NEVER', 'FREE_WINDOW', 'ALWAYS'];
 type BookingMode = 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
 type Property = HotelSettings & {
@@ -29,7 +34,11 @@ type Property = HotelSettings & {
   timezone: string;
   onlinePaymentHoldMinutes: number;
   autoRefundOnFreeCancellation: boolean;
+  /** A refund the guest asked for keeps back the payment provider's fee (the hotel's terms say so). */
+  deductPaymentFeeOnGuestRefund: boolean;
   clockCancelRefundPolicy: ClockCancelRefundPolicy;
+  /** Where a website payment is posted in Clock: a deposit folio (converted to an advance invoice by the hotel) or the booking's own folio. */
+  clockPaymentFolio: ClockPaymentFolio;
   brandColour: string | null;
   emailFooterText: string | null;
   termsUrl: string | null;
@@ -52,6 +61,7 @@ type PropertyListItem = Property & {
   staffCount: number;
   pmsSource: 'MUST' | 'CLOCK_PMS';
   connectedProviders: string[];
+  readiness: SettingsReadiness;
 };
 type PropertyDeleteBlocker = { resource: string; count: number };
 @Injectable()
@@ -61,11 +71,29 @@ export class PropertiesService {
     @Inject(AuditLogService) private readonly audit: AuditLogService,
     @Inject(PropertyRoleTemplatesService) private readonly templates: PropertyRoleTemplatesService,
   ) {}
-  list(tenantId: string, userId: string): Promise<PropertyListItem[]> {
+  /** The hotels this user may see, each with its "ready to take bookings" status worked out here. */
+  async list(tenantId: string, userId: string): Promise<PropertyListItem[]> {
+    const rows = await this.listRows(tenantId, userId);
+    return rows.map((row) => ({ ...row, readiness: settingsReadiness(row) }));
+  }
+  /** One hotel's saved settings and its "ready to take bookings" status; refused if not visible. */
+  async settingsSummary(
+    tenantId: string,
+    userId: string,
+    propertyId: string,
+  ): Promise<SettingsReadiness & { hotel: PropertyListItem }> {
+    const hotel = (await this.list(tenantId, userId)).find((item) => item.id === propertyId);
+    if (!hotel) throw new NotFoundException('Property not found.');
+    return { ...hotel.readiness, hotel };
+  }
+  private listRows(
+    tenantId: string,
+    userId: string,
+  ): Promise<Omit<PropertyListItem, 'readiness'>[]> {
     return this.database.withTenantTransaction(
       { tenantId },
       (tx) =>
-        tx.$queryRaw<PropertyListItem[]>`SELECT id, name, address, timezone,
+        tx.$queryRaw<Omit<PropertyListItem, 'readiness'>[]>`SELECT id, name, address, timezone,
           (SELECT count(*)::int FROM tenant_memberships members
            WHERE members.tenant_id=p.tenant_id AND (members.role IN ('OWNER','ADMIN') OR EXISTS (
              SELECT 1 FROM property_staff_assignments assignments
@@ -83,7 +111,7 @@ export class PropertiesService {
             WHERE pic.tenant_id=p.tenant_id AND pic.property_id=p.id AND pic.enabled AND ic.status='CONNECTED'
             ORDER BY ic.provider::text) AS "connectedProviders",
           EXISTS(SELECT 1 FROM rate_rules rr WHERE rr.tenant_id=p.tenant_id AND rr.property_id=p.id UNION ALL SELECT 1 FROM pricing_daily_prices dp WHERE dp.tenant_id=p.tenant_id AND dp.property_id=p.id UNION ALL SELECT 1 FROM room_price_overrides ro WHERE ro.tenant_id=p.tenant_id AND ro.property_id=p.id UNION ALL SELECT 1 FROM property_exchange_rates fx WHERE fx.tenant_id=p.tenant_id AND fx.property_id=p.id) AS "defaultCurrencyLocked",
-          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",clock_cancel_refund_policy AS "clockCancelRefundPolicy",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
+          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",deduct_payment_fee_on_guest_refund AS "deductPaymentFeeOnGuestRefund",clock_cancel_refund_policy AS "clockCancelRefundPolicy",clock_payment_folio AS "clockPaymentFolio",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
@@ -146,14 +174,7 @@ export class PropertiesService {
       }-${id.slice(0, 8)}`;
       const rows = await tx.$queryRaw<
         Property[]
-      >`INSERT INTO properties (id, tenant_id, name, slug, address, timezone, logo_url, phone, support_email) VALUES (${id}::uuid, ${tenantId}::uuid, ${input.name}, ${slug}, ${input.address}, ${input.timezone}, ${input.logoUrl}, ${input.phone}, ${input.supportEmail}) RETURNING id, name, address, timezone,
-        online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",clock_cancel_refund_policy AS "clockCancelRefundPolicy",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
-        booking_mode AS "bookingMode",
-        min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
-        check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
-        rules,
-        advance_booking_days AS "advanceBookingDays", public_website_origin AS "publicWebsiteOrigin",
-        json_build_object('stripe', stripe_enabled, 'pokpay', pokpay_enabled, 'payAtHotel', pay_at_hotel_enabled) AS "paymentGateways"`;
+      >`INSERT INTO properties (id, tenant_id, name, slug, address, timezone, logo_url, phone, support_email) VALUES (${id}::uuid, ${tenantId}::uuid, ${input.name}, ${slug}, ${input.address}, ${input.timezone}, ${input.logoUrl}, ${input.phone}, ${input.supportEmail}) RETURNING id, name, address, timezone, ${propertyColumns}`;
       await this.templates.ensureBuiltInTemplatesInTransaction(tx, tenantId, id);
       await this.audit.recordInTransaction(tx, {
         tenantId,
@@ -176,16 +197,7 @@ export class PropertiesService {
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       await tx.$queryRaw`SELECT id FROM properties WHERE tenant_id=${tenantId}::uuid AND id=${propertyId}::uuid FOR UPDATE`;
       const existing = await tx.$queryRaw<Array<Property>>`
-        SELECT id, name, address, timezone,
-          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",clock_cancel_refund_policy AS "clockCancelRefundPolicy",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
-          booking_mode AS "bookingMode",
-          min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
-          check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
-          rules,
-          advance_booking_days AS "advanceBookingDays",
-          free_cancellation_days_before_arrival AS "freeCancellationDaysBeforeArrival",
-          public_website_origin AS "publicWebsiteOrigin",
-          json_build_object('stripe', stripe_enabled, 'pokpay', pokpay_enabled, 'payAtHotel', pay_at_hotel_enabled) AS "paymentGateways"
+        SELECT id, name, address, timezone, ${propertyColumns}
         FROM properties WHERE id = ${propertyId}::uuid
       `;
       if (!existing[0]) throw new BadRequestException('Property not found.');
@@ -198,7 +210,7 @@ export class PropertiesService {
           throw new BadRequestException('Choose a confirmed image from this hotel photo library.');
       }
 
-      checkHotelSettings({ ...existing[0], ...input });
+      checkHotelSettings({ ...existing[0], ...input }, Object.keys(input));
       if (
         input.defaultCurrency !== undefined &&
         input.defaultCurrency !== existing[0].defaultCurrency
@@ -226,7 +238,9 @@ export class PropertiesService {
         SET ${Object.keys(hotelInput(body as Record<string, unknown>)).length ? Prisma.sql`${hotelUpdates(input)},` : Prisma.empty} stripe_enabled=COALESCE(${input.paymentGateways?.stripe},stripe_enabled),pokpay_enabled=COALESCE(${input.paymentGateways?.pokpay},pokpay_enabled),pay_at_hotel_enabled=COALESCE(${input.paymentGateways?.payAtHotel},pay_at_hotel_enabled),
           online_payment_hold_minutes=COALESCE(${input.onlinePaymentHoldMinutes},online_payment_hold_minutes),
           auto_refund_on_free_cancellation=COALESCE(${input.autoRefundOnFreeCancellation},auto_refund_on_free_cancellation),
+          deduct_payment_fee_on_guest_refund=COALESCE(${input.deductPaymentFeeOnGuestRefund},deduct_payment_fee_on_guest_refund),
           clock_cancel_refund_policy=COALESCE(${input.clockCancelRefundPolicy},clock_cancel_refund_policy),
+          clock_payment_folio=COALESCE(${input.clockPaymentFolio},clock_payment_folio),
           brand_colour=CASE WHEN ${input.brandColour !== undefined} THEN ${input.brandColour} ELSE brand_colour END,
           email_footer_text=CASE WHEN ${input.emailFooterText !== undefined} THEN ${input.emailFooterText} ELSE email_footer_text END,
           terms_url=CASE WHEN ${input.termsUrl !== undefined} THEN ${input.termsUrl} ELSE terms_url END,
@@ -245,16 +259,7 @@ export class PropertiesService {
           advance_booking_days = CASE WHEN ${input.advanceBookingDays !== undefined} THEN ${input.advanceBookingDays} ELSE advance_booking_days END,
           free_cancellation_days_before_arrival = CASE WHEN ${input.freeCancellationDaysBeforeArrival !== undefined} THEN ${input.freeCancellationDaysBeforeArrival} ELSE free_cancellation_days_before_arrival END
         WHERE id = ${propertyId}::uuid
-        RETURNING id, name, address, timezone,
-          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",clock_cancel_refund_policy AS "clockCancelRefundPolicy",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
-          booking_mode AS "bookingMode",
-          min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
-          check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
-          rules,
-          advance_booking_days AS "advanceBookingDays",
-          free_cancellation_days_before_arrival AS "freeCancellationDaysBeforeArrival",
-          public_website_origin AS "publicWebsiteOrigin",
-          json_build_object('stripe', stripe_enabled, 'pokpay', pokpay_enabled, 'payAtHotel', pay_at_hotel_enabled) AS "paymentGateways"
+        RETURNING id, name, address, timezone, ${propertyColumns}
       `;
       await this.audit.recordInTransaction(tx, {
         tenantId,
@@ -326,16 +331,7 @@ export class PropertiesService {
         UPDATE properties
         SET public_website_origin = ${origin}
         WHERE id = ${propertyId}::uuid
-        RETURNING id, name, address, timezone,
-          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",clock_cancel_refund_policy AS "clockCancelRefundPolicy",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
-          booking_mode AS "bookingMode",
-          min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
-          check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
-          rules,
-          advance_booking_days AS "advanceBookingDays",
-          free_cancellation_days_before_arrival AS "freeCancellationDaysBeforeArrival",
-          public_website_origin AS "publicWebsiteOrigin",
-          json_build_object('stripe', stripe_enabled, 'pokpay', pokpay_enabled, 'payAtHotel', pay_at_hotel_enabled) AS "paymentGateways"
+        RETURNING id, name, address, timezone, ${propertyColumns}
       `;
       if (!rows[0]) throw new BadRequestException('Property not found.');
       await this.audit.recordInTransaction(tx, {
@@ -362,16 +358,7 @@ export class PropertiesService {
         SET stripe_enabled = ${gateways.stripe}, pokpay_enabled = ${gateways.pokpay},
           pay_at_hotel_enabled = ${gateways.payAtHotel}
         WHERE id = ${propertyId}::uuid
-        RETURNING id, name, address, timezone,
-          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",clock_cancel_refund_policy AS "clockCancelRefundPolicy",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
-          booking_mode AS "bookingMode",
-          min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
-          check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
-          rules,
-          advance_booking_days AS "advanceBookingDays",
-          free_cancellation_days_before_arrival AS "freeCancellationDaysBeforeArrival",
-          public_website_origin AS "publicWebsiteOrigin",
-          json_build_object('stripe', stripe_enabled, 'pokpay', pokpay_enabled, 'payAtHotel', pay_at_hotel_enabled) AS "paymentGateways"
+        RETURNING id, name, address, timezone, ${propertyColumns}
       `;
       if (!rows[0]) throw new BadRequestException('Property not found.');
       await this.audit.recordInTransaction(tx, {
@@ -515,7 +502,9 @@ export class PropertiesService {
     paymentGateways?: Property['paymentGateways'];
     onlinePaymentHoldMinutes?: number;
     autoRefundOnFreeCancellation?: boolean;
+    deductPaymentFeeOnGuestRefund?: boolean;
     clockCancelRefundPolicy?: ClockCancelRefundPolicy;
+    clockPaymentFolio?: ClockPaymentFolio;
     brandColour?: string | null;
     emailFooterText?: string | null;
     termsUrl?: string | null;
@@ -543,7 +532,9 @@ export class PropertiesService {
         'paymentGateways',
         'onlinePaymentHoldMinutes',
         'autoRefundOnFreeCancellation',
+        'deductPaymentFeeOnGuestRefund',
         'clockCancelRefundPolicy',
+        'clockPaymentFolio',
         'brandColour',
         'emailFooterText',
         'termsUrl',
@@ -563,6 +554,13 @@ export class PropertiesService {
     )
       throw new BadRequestException('Choose a payment hold between 10 and 1440 minutes.');
     if (
+      has('deductPaymentFeeOnGuestRefund') &&
+      typeof value.deductPaymentFeeOnGuestRefund !== 'boolean'
+    )
+      throw new BadRequestException(
+        'Choose whether a refund the guest asked for keeps back the payment fee.',
+      );
+    if (
       has('autoRefundOnFreeCancellation') &&
       typeof value.autoRefundOnFreeCancellation !== 'boolean'
     )
@@ -577,6 +575,13 @@ export class PropertiesService {
     )
       throw new BadRequestException(
         'Choose whether a cancellation made in Clock is never, only inside the free window, or always refunded.',
+      );
+    if (
+      has('clockPaymentFolio') &&
+      !CLOCK_PAYMENT_FOLIOS.includes(value.clockPaymentFolio as ClockPaymentFolio)
+    )
+      throw new BadRequestException(
+        'Choose whether website payments are posted to a deposit folio or to the main folio.',
       );
     const brandColour = this.optionalBrandText(value, 'brandColour', 7, true);
     if (brandColour && !/^#[0-9a-fA-F]{6}$/.test(brandColour))
@@ -677,8 +682,14 @@ export class PropertiesService {
       autoRefundOnFreeCancellation: has('autoRefundOnFreeCancellation')
         ? (value.autoRefundOnFreeCancellation as boolean)
         : undefined,
+      deductPaymentFeeOnGuestRefund: has('deductPaymentFeeOnGuestRefund')
+        ? (value.deductPaymentFeeOnGuestRefund as boolean)
+        : undefined,
       clockCancelRefundPolicy: has('clockCancelRefundPolicy')
         ? (value.clockCancelRefundPolicy as ClockCancelRefundPolicy)
+        : undefined,
+      clockPaymentFolio: has('clockPaymentFolio')
+        ? (value.clockPaymentFolio as ClockPaymentFolio)
         : undefined,
       brandColour,
       emailFooterText,
@@ -744,6 +755,12 @@ export class PropertiesService {
     if (text === null || text === '') return null;
     if (typeof text !== 'string' || !text.trim() || text.trim().length > maxLength)
       throw new BadRequestException(`Invalid ${key}.`);
+    if (key === 'phone') {
+      const phone = normaliseProfileValue('phone', text.trim());
+      const message = checkProfileField('phone', phone, { year: new Date().getFullYear() });
+      if (message) throw new BadRequestException(message);
+      return phone as string;
+    }
     return text.trim();
   }
 

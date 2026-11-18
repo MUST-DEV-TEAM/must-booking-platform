@@ -57,7 +57,6 @@ describe('tenant dashboard end-to-end flow', () => {
     process.env.REDIS_URL = 'redis://localhost:6379';
     process.env.WEB_APP_URL = 'http://localhost:3001';
     process.env.STRIPE_SECRET_KEY = 'sk_test_tenant_dashboard_e2e';
-    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_tenant_dashboard_e2e';
     const { AppModule } = await import('../src/app.module');
     const moduleBuilder = Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(MAIL_PROVIDER)

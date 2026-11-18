@@ -205,6 +205,14 @@ export function CancellationDialog({
             ) : (
               <>
                 Policy refund: <ScopedHotelMoney amount={e.eligible} currency={e.currency} />.
+                {e.providerFee ? (
+                  <>
+                    {' '}
+                    If the guest asked to cancel, the card payment fee of{' '}
+                    <ScopedHotelMoney amount={e.providerFee} currency={e.currency} /> is kept back
+                    from this refund.
+                  </>
+                ) : null}{' '}
                 Changes beyond the policy require review.
               </>
             )

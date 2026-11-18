@@ -33,6 +33,7 @@ const local: DirectoryHotel = {
   staffCount: 3,
   pmsSource: 'MUST',
   connectedProviders: [],
+  readiness: { ready: true, steps: [] },
 };
 const clock: DirectoryHotel = {
   ...local,
@@ -43,6 +44,18 @@ const clock: DirectoryHotel = {
   connectedProviders: ['CLOCK_PMS', 'POKPAY'],
   paymentGateways: { stripe: false, pokpay: true, payAtHotel: false },
   wordpressConnectedAt: null,
+  readiness: {
+    ready: false,
+    steps: [
+      {
+        key: 'website',
+        tab: 'integrations',
+        label: 'Website connection',
+        status: 'todo',
+        note: '',
+      },
+    ],
+  },
 };
 let root: Root;
 afterEach(async () => {
@@ -136,7 +149,7 @@ it('renders selectable sortable hotels, counted tabs, readiness, density and a q
   expect(
     dialog.querySelector('a[href="/dashboard/t?propertyId=clock&section=overview"]'),
   ).not.toBeNull();
-  expect(dialog.querySelector('a[href*="settingsArea=managed-pages"]')).not.toBeNull();
+  expect(dialog.querySelector('a[href*="settingsArea=integrations"]')).not.toBeNull();
 });
 it('filters by counted views, search and connection and clears no-results', async () => {
   await mount(directory());
@@ -162,17 +175,10 @@ it('filters by counted views, search and connection and clears no-results', asyn
   expect(document.querySelector('tbody')?.textContent).toContain('Beach Hotel');
   expect(document.querySelector('tbody')?.textContent).not.toContain('Ada Hotel');
 });
-it('treats missing required times, payments, website or invalid rules as setup, and branding as optional', () => {
+it('shows the readiness the server worked out', () => {
   expect(hotelReadiness(local).active).toBe(true);
   expect(hotelReadiness(clock).active).toBe(false);
-  expect(hotelReadiness({ ...local, checkInTime: null }).active).toBe(false);
-  expect(
-    hotelReadiness({
-      ...local,
-      paymentGateways: { stripe: false, pokpay: true, payAtHotel: false },
-    }).active,
-  ).toBe(false);
-  expect(hotelReadiness({ ...local, minStayNights: 5, maxStayNights: 2 }).active).toBe(false);
+  expect(hotelReadiness(clock).steps[0]?.key).toBe('website');
 });
 it('shows an empty state and shared loading/error states with retry', async () => {
   const retry = vi.fn();

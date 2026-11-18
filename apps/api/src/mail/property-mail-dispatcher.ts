@@ -19,6 +19,7 @@ import {
 import { currentMailAttempt } from './mail-attempt-context';
 import { MailDeliveryError } from './mail-delivery-error';
 import { PreparedMailError, type PreparedMailReceipt } from './prepared-mail-transport';
+import { BrevoPreparedTransport } from './brevo-prepared.transport';
 import { ResendPreparedTransport } from './resend-prepared.transport';
 import { SmtpNetworkPolicyError } from './smtp-network-policy';
 import { SmtpTransport, SmtpTransportError, type PreparedTransportMessage } from './smtp-transport';
@@ -34,8 +35,8 @@ export type RenderedTransportInput = {
 };
 type Profile = {
   version: number;
-  mode: 'DEFAULT' | 'RESEND' | 'SMTP';
-  activeMode: 'DEFAULT' | 'RESEND' | 'SMTP';
+  mode: 'DEFAULT' | 'RESEND' | 'SMTP' | 'BREVO';
+  activeMode: 'DEFAULT' | 'RESEND' | 'SMTP' | 'BREVO';
   fromName: string | null;
   fromAddress: string | null;
   domain: string | null;
@@ -83,7 +84,7 @@ function readPlan(contents: string): Plan {
     if (
       !plan.message ||
       !Array.isArray(plan.message.to) ||
-      !['default', 'resend', 'smtp'].includes(plan.credentials?.provider) ||
+      !['default', 'resend', 'smtp', 'brevo'].includes(plan.credentials?.provider) ||
       typeof plan.message.subject !== 'string' ||
       typeof plan.message.html !== 'string' ||
       typeof plan.message.text !== 'string' ||
@@ -200,7 +201,7 @@ export class PropertyMailDispatcher {
       (testing === undefined && profile.mode !== profile.activeMode) ||
       !profile.fromAddress ||
       !profile.encryptedCredentials ||
-      (profile.mode === 'SMTP' &&
+      ((profile.mode === 'SMTP' || profile.mode === 'BREVO') &&
         (!profile.fromVerifiedAt || profile.connectionStatus !== 'verified')) ||
       (profile.mode === 'RESEND' &&
         (profile.domainStatus !== 'verified' ||
@@ -212,7 +213,7 @@ export class PropertyMailDispatcher {
       emailSendingCredentialBinding(profile),
       profile.encryptedCredentials,
     );
-    if ((profile.mode === 'SMTP') !== (credentials.provider === 'smtp'))
+    if (credentials.provider !== profile.mode.toLowerCase())
       throw new PreparedMailError('rejected', false);
     const displayName = profile.fromName ?? input.fromName ?? null;
     const message: PreparedTransportMessage = {
@@ -325,6 +326,11 @@ export class PropertyMailDispatcher {
         )
           throw new PreparedMailError('unknown', false);
         result = { provider: 'smtp', providerMessageId: receipt.providerMessageId };
+      } else if (plan.credentials.provider === 'brevo') {
+        result = await new BrevoPreparedTransport(plan.credentials.apiKey).send(
+          plan.message,
+          plan.key,
+        );
       } else {
         const apiKey =
           plan.credentials.provider === 'default'

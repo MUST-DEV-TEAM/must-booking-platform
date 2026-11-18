@@ -7,6 +7,8 @@ import { BookingConfirmationNotificationService } from '../mail/booking-confirma
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
 import { VenueDepositPaymentsService } from './venue-deposit-payments.service';
 import { PaymentProviderRegistry } from './payment-provider-registry';
+import { ManualReviewService } from '../integrations/manual-review.service';
+import { LatePaymentFlowService } from './late-payment-flow.service';
 
 type SessionCandidate = { bookingId: string | null; tenantId: string; propertyId: string };
 type PendingCandidate = SessionCandidate & { externalPaymentId: string };
@@ -27,9 +29,13 @@ export class PokPayPaymentService {
     @Inject(BookingConfirmationNotificationService)
     private readonly confirmations: BookingConfirmationNotificationService,
     @Inject(PaymentCollectionService) private readonly collections: PaymentCollectionService,
+    @Inject(ManualReviewService) private readonly manualReview: ManualReviewService,
     @Optional()
     @Inject(VenueDepositPaymentsService)
     private readonly venueDeposits?: VenueDepositPaymentsService,
+    @Optional()
+    @Inject(LatePaymentFlowService)
+    private readonly latePayments?: LatePaymentFlowService,
   ) {}
 
   async processAuthoritativeOrder(orderId: string): Promise<Result<{ duplicate: boolean }>> {
@@ -53,6 +59,7 @@ export class PokPayPaymentService {
     const collection = await this.collections.process(context, candidate.bookingId, orderId);
     if (collection) return collection;
     let emailBookingId: string | null = null;
+    let lateFlowId: string | null = null;
     const result = await this.database.withTenantTransaction<Result<{ duplicate: boolean }>>(
       context,
       async (tx) => {
@@ -119,10 +126,43 @@ export class PokPayPaymentService {
             }
             return { ok: true, value: { duplicate: true } };
           }
-          return this.failure(
-            'INVALID_BOOKING_STATE',
-            `Booking cannot accept payment from ${booking.status}.`,
-          );
+          // The money is at PokPay but the booking no longer awaits payment (hold
+          // expired, unpaid hold cancelled, or a second order on a confirmed booking).
+          // Record the payment so it is never lost. The refund (or a person) follows in a
+          // saved flow, never inside this transaction. No note on the row: the database allows a
+          // note only on refunds (payments_note_refund_only); the flow and its history say it was late.
+          const late = await tx.$queryRaw<Array<{ id: string }>>`
+          INSERT INTO payments (tenant_id, property_id, booking_id, kind, provider, external_payment_id, status, amount, currency)
+          VALUES (${context.tenantId}::uuid, ${context.propertyId}::uuid, ${booking.id}::uuid,
+            'CHARGE'::"PaymentKind", 'pokpay', ${orderId}, 'PAID', ${payment.amount.amount}::numeric, ${payment.amount.currency})
+          ON CONFLICT (tenant_id, external_payment_id) DO NOTHING RETURNING id
+        `;
+          // ADR-0043: a saved flow refunds it automatically (or hands it to a person), started in the same
+          // transaction as the payment row so neither can exist without the other.
+          if (late[0] && this.latePayments)
+            lateFlowId = await this.latePayments.start(tx, context, {
+              bookingId: booking.id,
+              orderId,
+              amount: payment.amount.amount,
+              currency: payment.amount.currency,
+              bookingStatusAtPayment: booking.status,
+            });
+          else if (late[0])
+            await this.manualReview.recordInTransaction(tx, {
+              ...context,
+              category: 'PAYMENT_BOOKING_MISMATCH',
+              referenceType: 'booking',
+              referenceId: booking.id,
+              message:
+                'A PokPay payment arrived after this booking stopped awaiting payment. The money is recorded; the booking was not confirmed. Refund the payment or rebook the guest.',
+              context: {
+                orderId,
+                bookingStatus: booking.status,
+                amount: payment.amount.amount,
+                currency: payment.amount.currency,
+              },
+            });
+          return { ok: true, value: { duplicate: !late[0] } };
         }
         const inserted = await tx.$queryRaw<Array<{ id: string }>>`
         INSERT INTO payments (tenant_id, property_id, booking_id, kind, provider, external_payment_id, status, amount, currency)
@@ -144,6 +184,9 @@ export class PokPayPaymentService {
     );
     if (emailBookingId)
       await this.confirmations.sendAfterConfirmation(context, emailBookingId, orderId);
+    // Run the flow straight away; if it stops part-way the worker picks it up. The webhook still answers 200.
+    if (lateFlowId && this.latePayments)
+      await this.latePayments.run(context, lateFlowId).catch(() => undefined);
     return result;
   }
 

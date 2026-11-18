@@ -53,6 +53,21 @@ const byText = (text: string, within: ParentNode = document.body) =>
   Array.from(
     within.querySelectorAll<HTMLElement>('button, [role="radio"], [role="menuitem"]'),
   ).find((element) => element.textContent?.trim() === text);
+// Opens the refund reason picker and picks an option. A click that lands before the dialog is ready opens
+// nothing, so the picker is opened again until the options show (it is clicked only while it is closed).
+const chooseReason = async (option: string) => {
+  const trigger = () => document.querySelector<HTMLElement>('[aria-label="Refund reason"]');
+  for (let attempt = 0; attempt < 150 && !byText(option); attempt += 1) {
+    const element = trigger();
+    if (element && element.getAttribute('aria-expanded') !== 'true')
+      await act(async () => element.click());
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 20));
+    });
+  }
+  await until(() => byText(option), `the reason option "${option}"`);
+  await act(async () => byText(option)!.click());
+};
 const setValue = async (input: HTMLInputElement | HTMLTextAreaElement, value: string) =>
   act(async () => {
     Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')!.set!.call(input, value);
@@ -201,10 +216,7 @@ describe('Payments', () => {
       'Approved by guest services',
     );
     expect(byText('Record refund', dialog()!)?.hasAttribute('disabled')).toBe(true);
-    await act(async () =>
-      document.querySelector<HTMLElement>('[aria-label="Refund reason"]')!.click(),
-    );
-    await act(async () => byText('guest request')!.click());
+    await chooseReason('guest request');
     await act(async () => {
       byText('Record refund', dialog()!)!.click();
     });
@@ -219,6 +231,51 @@ describe('Payments', () => {
       reasonCode: 'guest_request',
     });
     expect(dialog()).toBeNull();
+    await unmount();
+  });
+
+  it('offers to keep the payment fee only on a Stripe payment, and sends the choice with the refund', async () => {
+    const stripe = {
+      ...booking,
+      id: 'stripe-fee',
+      paymentMethod: 'STRIPE_CHECKOUT',
+      paidAmount: '100.00',
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify(
+              url.endsWith('/capabilities/mine')
+                ? ['payments.refund']
+                : url.endsWith('/bookings')
+                  ? [stripe]
+                  : { ok: true, value: {} },
+            ),
+          ),
+        ),
+      ),
+    );
+    const { unmount } = await renderPayments([stripe]);
+    await openRefund(rows()[0]!);
+    expect(dialog()!.textContent).toContain('Keep the payment fee');
+    const keepFee = Array.from(dialog()!.querySelectorAll('label'))
+      .find((label) => label.textContent?.includes('Keep the payment fee'))!
+      .querySelector<HTMLElement>('[role="checkbox"]')!;
+    await act(async () => keepFee.click());
+    await chooseReason('guest request');
+    await act(async () => {
+      byText('Record refund', dialog()!)!.click();
+    });
+    await act(settle);
+    const call = (fetch as ReturnType<typeof vi.fn>).mock.calls.find(([url]) =>
+      String(url).endsWith('/payments/refunds'),
+    );
+    expect(JSON.parse(call?.[1].body)).toMatchObject({
+      bookingId: 'stripe-fee',
+      keepProviderFee: true,
+    });
     await unmount();
   });
 
@@ -266,11 +323,7 @@ describe('Payments', () => {
     );
     await openRefund(rows()[0]!);
     await until(() => document.querySelector('[aria-label="Refund reason"]'), 'the refund reason');
-    await act(async () =>
-      document.querySelector<HTMLElement>('[aria-label="Refund reason"]')!.click(),
-    );
-    await until(() => byText('guest request'), 'the reason options');
-    await act(async () => byText('guest request')!.click());
+    await chooseReason('guest request');
     await act(async () => {
       byText('Record refund', dialog()!)!.click();
     });
@@ -318,11 +371,7 @@ describe('Payments', () => {
     );
     expect(byText('Record refund', dialog()!)?.hasAttribute('disabled')).toBe(true);
     await until(() => document.querySelector('[aria-label="Refund reason"]'), 'the refund reason');
-    await act(async () =>
-      document.querySelector<HTMLElement>('[aria-label="Refund reason"]')!.click(),
-    );
-    await until(() => byText('guest request'), 'the reason options');
-    await act(async () => byText('guest request')!.click());
+    await chooseReason('guest request');
     await act(async () => {
       byText('Record refund', dialog()!)!.click();
     });

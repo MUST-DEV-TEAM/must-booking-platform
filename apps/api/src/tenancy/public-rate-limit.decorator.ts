@@ -64,3 +64,12 @@ export const CLOCK_WEBHOOK_RATE_LIMIT: PublicRateLimitOptions = {
   windowSeconds: 60,
   scopeParam: 'webhookPublicId',
 };
+
+// Stripe retries failed deliveries and sends one event per payment step; every call is still
+// signature verified against the hotel's own webhook secret before anything is read.
+export const STRIPE_WEBHOOK_RATE_LIMIT: PublicRateLimitOptions = {
+  name: 'stripe-webhook',
+  maximum: 600,
+  windowSeconds: 60,
+  scopeParam: 'webhookPublicId',
+};

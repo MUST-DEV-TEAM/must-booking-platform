@@ -110,6 +110,19 @@ export class IntegrationConnectionsController {
     );
   }
 
+  @Post('integration-connections/:connectionId/live-updates')
+  @TenantScoped()
+  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresCapability('settings.manage')
+  @RequiresVerifiedEmail()
+  enableLiveUpdates(@Param('connectionId') connectionId: string, @Req() request: TenantRequest) {
+    return this.connections.enableLiveUpdates(
+      request.tenantContext.tenantId,
+      request.tenantContext.userId,
+      connectionId,
+    );
+  }
+
   @Get('properties/:propertyId/integration-connections')
   @TenantScoped({ propertyParam: 'propertyId' })
   @Roles(Role.TenantOwner, Role.TenantAdmin)

@@ -8,9 +8,9 @@ import { PreparedMailError, type PreparedMailReceipt } from './prepared-mail-tra
 
 export type TransportScope = { tenantId: string; propertyId: string; messageId: string };
 export type TransportStage = 'PRIMARY' | 'FALLBACK';
-export type FrozenTransport = { provider: 'resend' | 'smtp'; contents: string };
+export type FrozenTransport = { provider: 'resend' | 'smtp' | 'brevo'; contents: string };
 type AttemptRow = {
-  provider: 'resend' | 'smtp';
+  provider: 'resend' | 'smtp' | 'brevo';
   state: 'READY' | 'SENDING' | 'ACCEPTED' | 'REJECTED' | 'UNKNOWN';
   encrypted: string | null;
   attempt: number;
@@ -145,7 +145,9 @@ export class EmailTransportJournal {
     transaction?: TenantTransaction,
   ): Promise<FrozenTransport> {
     const query = async (tx: TenantTransaction): Promise<FrozenTransport> => {
-      const rows = await tx.$queryRaw<{ provider: 'smtp' | 'resend'; encrypted: string }[]>`
+      const rows = await tx.$queryRaw<
+        { provider: 'smtp' | 'resend' | 'brevo'; encrypted: string }[]
+      >`
         SELECT provider,encrypted_payload AS encrypted FROM email_transport_attempts
         WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND message_id=${scope.messageId}::uuid AND stage=${stage} AND encrypted_payload IS NOT NULL AND expires_at>clock_timestamp()
       `;

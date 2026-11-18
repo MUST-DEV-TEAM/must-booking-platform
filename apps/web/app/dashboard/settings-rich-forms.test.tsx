@@ -5,7 +5,6 @@ import { it, expect, vi } from 'vitest';
 import { GeneralSettings, BookingRulesSettings, CheckInOutSettings } from './settings-forms';
 import { UnsavedChangesBoundary } from '../../components/ui/unsaved-changes';
 import type { Property } from './settings-areas';
-import { areaHealth } from './settings-areas';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const property: Property = {
   id: 'p',
@@ -60,11 +59,7 @@ it('groups General, validates business/about fields, locks a priced currency and
       />,
     );
   try {
-    expect(m.host.textContent).toContain('Business');
-    expect(m.host.querySelector<HTMLInputElement>('#hotel-supportEmail')?.placeholder).toBe(
-      'reservations@example.com',
-    );
-    expect(m.host.querySelector<HTMLInputElement>('#hotel-phone')?.placeholder).toBe('+355 ...');
+    expect(m.host.textContent).toContain('Currency and languages');
     expect(m.host.textContent).toContain('About the hotel');
     expect(button('Save changes')).toBeUndefined();
     expect(
@@ -73,19 +68,21 @@ it('groups General, validates business/about fields, locks a priced currency and
       )!.disabled,
     ).toBe(true);
     await value('hotel-legalName', 'Hotel Ltd');
-    await value('hotel-website', 'http://hotel.test');
-    await value('hotel-reservationsEmail', 'bad');
-    expect(button('Save changes').disabled).toBe(true);
-    expect(m.host.textContent).toContain('full https website');
-    await value('hotel-website', 'https://hotel.test');
-    await value('hotel-reservationsEmail', 'book@hotel.test');
     await value('hotel-description', 'A quiet hotel.');
+    expect(m.host.textContent).toContain('at least 50 characters');
+    expect(button('Save changes').disabled).toBe(true);
+    const description = 'A quiet beach hotel with a garden, a pool and a short walk to the sea.';
+    await value('hotel-description', description);
+    await value('hotel-taxNumber', '12345');
+    expect(m.host.textContent).not.toContain('NUIS is a letter');
+    await value('hotel-taxNumber', 'l12345678a');
+    await value('hotel-summary', 'Quiet beach hotel.');
     await act(async () => button('Save changes').click());
     expect(save).toHaveBeenCalledWith({
       legalName: 'Hotel Ltd',
-      website: 'https://hotel.test',
-      reservationsEmail: 'book@hotel.test',
-      description: 'A quiet hotel.',
+      description,
+      taxNumber: 'L12345678A',
+      summary: 'Quiet beach hotel.',
     });
     const before = new Event('beforeunload', { cancelable: true });
     window.dispatchEvent(before);
@@ -145,9 +142,6 @@ it('groups arrival and policies, validates paired hours and saves notes without 
       earlyCheckInNote: 'Ask reception.',
       idRequiredAtArrival: true,
     });
-    expect(areaHealth({ ...property, quietHoursFrom: '22:00' }, null)['check-in-out'].status).toBe(
-      'attention',
-    );
   } finally {
     await m.close();
   }
@@ -172,3 +166,12 @@ it.each([GeneralSettings, BookingRulesSettings, CheckInOutSettings])(
     }
   },
 );
+it('lists every language by name with the common ones first', async () => {
+  const { languageOptions } = await import('./hotel-settings-fields');
+  const list = languageOptions();
+  expect(list.length).toBeGreaterThan(150);
+  expect(list[0]).toMatchObject({ value: 'sq', group: 'Common' });
+  expect(list[0]!.label).toBe('Albanian · Shqip');
+  expect(list.find((item) => item.value === 'ja')?.group).toBe('All languages');
+  expect(new Set(list.map((item) => item.value)).size).toBe(list.length);
+});

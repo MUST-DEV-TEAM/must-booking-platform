@@ -12,6 +12,7 @@ import { CapabilitiesService } from '../tenancy/capabilities.service';
 import { NotificationsService } from '../tenancy/notifications.service';
 import { AuditLogService } from '../tenancy/audit-log.service';
 import { LocalPmsProvider } from './local-pms.provider';
+import { BookingUpdateNotificationService } from '../mail/booking-update-notification.service';
 import { PaymentRefundService } from '../payments/payment-refund.service';
 import { ManualReviewService } from '../integrations/manual-review.service';
 import { NOTIFICATION_UUID } from '../tenancy/notification-registry';
@@ -38,6 +39,13 @@ export type CancellationEvidence = {
   alreadyRefunded: string;
   penalty: string;
   eligible: string;
+  /** The payment fee a guest-requested cancellation keeps back from `eligible` (null when none applies). */
+  providerFee?: string | null;
+  /** Arrival, departure and booking total: compared when a request is approved. Requests saved before these
+   * existed do not have them and are compared on the rest. */
+  startsOn?: string;
+  endsOn?: string;
+  total?: string;
   method: string;
   legacyPolicy: boolean;
   policySource?: 'MUST' | 'CLOCK_PMS';
@@ -86,6 +94,85 @@ export function refundPreview(paid: string, refunded: string, total: string, isF
     eligible: money(remaining > penalty ? remaining - penalty : 0n),
   };
 }
+/** Money only staff can give back (paid in person: cash, POS, bank transfer), by hand. */
+type ReturnByHand = { returnByHand?: { amount: string; currency: string } };
+/** What a cancellation's refund really did. `ok` is true only for a refund that is complete and leaves nothing
+ * to return by hand. */
+export type CancellationRefundOutcome = (
+  | { ok: true; status: 'refunded' }
+  | { ok: false; status: 'pending'; message: string }
+  | { ok: false; status: 'not_made'; message: string; errorCode: string }
+  | { ok: false; status: 'return_by_hand'; message: string }
+) &
+  ReturnByHand;
+
+/** Turns the answer of the refund into the outcome staff are told. A pending refund (the provider has not
+ * confirmed it) is not "done", a refund that was not made is never reported as success, and an in-person part
+ * (D5) is named with its amount. `refund` is null when there was nothing to send to the gateway. */
+export function cancellationRefundOutcome(
+  refund:
+    | { ok: true; value: { status: string; amount?: { amount: string; currency: string } } }
+    | { ok: false; error: { code: string; message: string } }
+    | null,
+  returnByHand: { amount: string; currency: string } | null = null,
+): CancellationRefundOutcome {
+  const byHand: ReturnByHand = returnByHand ? { returnByHand } : {};
+  const handNote = returnByHand
+    ? ` Return ${returnByHand.amount} ${returnByHand.currency} to the guest by hand: it was paid in person.`
+    : '';
+  if (refund && !refund.ok)
+    return {
+      ok: false,
+      status: 'not_made',
+      message: refund.error.message + handNote,
+      errorCode: refund.error.code,
+      ...byHand,
+    };
+  if (refund && !['REFUNDED', 'succeeded'].includes(refund.value.status))
+    return {
+      ok: false,
+      status: 'pending',
+      message: `The refund was sent, but the payment provider has not confirmed it yet.${handNote}`,
+      ...byHand,
+    };
+  if (!returnByHand) return { ok: true, status: 'refunded' };
+  const online = refund?.value.amount;
+  return {
+    ok: false,
+    status: 'return_by_hand',
+    message: online
+      ? `The online part (${online.amount} ${online.currency}) was refunded.${handNote}`
+      : `Nothing is left to refund online.${handNote}`,
+    ...byHand,
+  };
+}
+/**
+ * Whether the booking changed in a way that matters since a cancellation request was made: its state, its dates,
+ * its total, or its payments. A rising version number alone does not count (Clock's echo webhooks used to raise it
+ * within seconds, which made every request impossible to approve). The refund preview and `isFree` depend on the
+ * time of reading, so they are not compared.
+ */
+export function bookingChangedSinceRequest(
+  current: CancellationEvidence,
+  frozen: CancellationEvidence,
+): boolean {
+  if (
+    current.status !== frozen.status ||
+    current.currency !== frozen.currency ||
+    current.paid !== frozen.paid ||
+    current.alreadyRefunded !== frozen.alreadyRefunded
+  )
+    return true;
+  // Saved dates and total, when the request has them. An older request has no saved dates, so the cutoff
+  // (which follows the arrival date) stands in for them, as long as the policy is still the same kind.
+  if (frozen.startsOn === undefined) {
+    if (current.policySource === frozen.policySource && current.cutoffAt !== frozen.cutoffAt)
+      return true;
+  }
+  return (['startsOn', 'endsOn', 'total'] as const).some(
+    (key) => frozen[key] !== undefined && current[key] !== frozen[key],
+  );
+}
 export function needsApproval(
   caps: string[],
   evidence: Pick<CancellationEvidence, 'isFree' | 'policySource'> &
@@ -115,6 +202,8 @@ export class BookingRequestsService {
     @Inject(NotificationsService) private readonly notifications: NotificationsService,
     @Inject(ManualReviewService) private readonly manualReview: ManualReviewService,
     @Inject(AuditLogService) private readonly audit: AuditLogService,
+    @Inject(BookingUpdateNotificationService)
+    private readonly guestEmails: BookingUpdateNotificationService,
   ) {}
   private uuid(id: string) {
     if (!NOTIFICATION_UUID.test(id)) throw new BadRequestException('Invalid id.');
@@ -123,6 +212,16 @@ export class BookingRequestsService {
     const caps = await this.caps.effective(c);
     if (!caps.includes(key)) throw new ForbiddenException(`Requires ${key}.`);
     return caps;
+  }
+  /** What a refund the guest decided on keeps back as the payment fee (null when none applies). */
+  async guestRefundFee(
+    scope: Pick<RequestContext, 'tenantId' | 'propertyId'>,
+    bookingId: string,
+    amount: { amount: string; currency: string },
+  ): Promise<{ amount: string; currency: string } | null> {
+    return this.db.withTenantTransaction(scope, (tx) =>
+      this.refunds.keptProviderFee(tx, scope, bookingId, amount),
+    );
   }
   async preview(c: RequestContext, bookingId: string): Promise<CancellationEvidence> {
     this.uuid(bookingId);
@@ -155,7 +254,7 @@ export class BookingRequestsService {
             AND pc.enabled AND pc.kind='PMS' AND c.provider='CLOCK_PMS'
         ) THEN 'CLOCK_PMS' ELSE 'MUST' END AS "policySource",
         b.order_reference AS "orderReference", rp.name AS "ratePlan", COALESCE(b.cancellation_terms->>'timezone',p.timezone) AS timezone, rp.currency,
-        b.total_amount::text AS total,
+        b.total_amount::text AS total, b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn",
         COALESCE((SELECT concat(provider,' / ',COALESCE(method,'')) FROM payments WHERE tenant_id=b.tenant_id AND property_id=b.property_id AND booking_id=b.id AND kind='CHARGE' AND status IN ('PAID','LATE_AFTER_EXPIRY','succeeded') ORDER BY created_at DESC,id DESC LIMIT 1),b.payment_method::text) AS method,
         CASE WHEN b.cancellation_terms->>'arrivalDate'=b.starts_on::text THEN b.cancellation_terms->>'cutoffAt' ELSE ((b.starts_on::timestamp AT TIME ZONE p.timezone) - make_interval(hours =>
           COALESCE(cp.free_cancellation_days_before_arrival*24,rp.free_cancellation_until_hours)))::text END AS "cutoffAt",
@@ -176,6 +275,7 @@ export class BookingRequestsService {
     const isFree = !clockTerms && withinFreeWindow(row.cutoffAt, evaluatedAt);
     const evidence = {
       ...base,
+      total,
       isFree,
       cutoffAt: !clockTerms && row.cutoffAt ? new Date(row.cutoffAt).toISOString() : null,
       ...refundPreview(row.paid, row.alreadyRefunded, total, isFree),
@@ -189,9 +289,17 @@ export class BookingRequestsService {
         [share, eligible, orderRemaining].reduce((a, b) => (a < b ? a : b)),
       );
     }
+    const kept =
+      minor(evidence.eligible) > 0n
+        ? await this.refunds.keptProviderFee(tx, c, bookingId, {
+            amount: evidence.eligible,
+            currency: evidence.currency,
+          })
+        : null;
+    const withFee = { ...evidence, providerFee: kept?.amount ?? null };
     return {
-      ...evidence,
-      previewHash: createHash('sha256').update(JSON.stringify(evidence)).digest('hex'),
+      ...withFee,
+      previewHash: createHash('sha256').update(JSON.stringify(withFee)).digest('hex'),
     };
   }
   /** A booking-owned charge is an explicit split. Do not infer allocations for
@@ -296,7 +404,13 @@ export class BookingRequestsService {
             ? '0.00'
             : input.refund === 'custom'
               ? money(minor(input.customAmount!))
-              : evidence.eligible;
+              : input.reasonCategory === 'guest_request' && evidence.providerFee
+                ? money(
+                    minor(evidence.eligible) > minor(evidence.providerFee)
+                      ? minor(evidence.eligible) - minor(evidence.providerFee)
+                      : 0n,
+                  )
+                : evidence.eligible;
         if (minor(refundAmount) > minor(evidence.paid) - minor(evidence.alreadyRefunded))
           throw new BadRequestException('Refund exceeds the remaining payment.');
         const snapshot: Snapshot = { evidence, input, refundAmount };
@@ -357,7 +471,16 @@ export class BookingRequestsService {
       clockTermsConfirmed: input.clockTermsConfirmed === true,
     };
   }
-  private async execute(c: RequestContext, snapshot: Snapshot, key: string, actorId: string) {
+  /** `approved`: a reviewer approved a saved request. The booking was checked against the request just before, so
+   * its version may have moved (a harmless change); the provider re-checks the saved dates and total under the
+   * booking's row lock and applies the cancellation to the current version. */
+  private async execute(
+    c: RequestContext,
+    snapshot: Snapshot,
+    key: string,
+    actorId: string,
+    approved = false,
+  ) {
     const { evidence: e, input, refundAmount } = snapshot;
     const result = await this.provider.cancelBooking(c, {
       bookingId: e.bookingId,
@@ -367,6 +490,9 @@ export class BookingRequestsService {
       reason: input.details!,
       skipAutomaticRefund: true,
       ...(e.orderReference ? { singleBooking: true } : {}),
+      ...(approved
+        ? { approvedRequest: { startsOn: e.startsOn, endsOn: e.endsOn, total: e.total } }
+        : {}),
       notifyGuest: input.notifyGuest,
     });
     if (!result.ok) {
@@ -382,17 +508,40 @@ export class BookingRequestsService {
       return result;
     }
     if (minor(refundAmount) === 0n) return result;
-    const refund = await this.refunds.manualRefund(c, {
+    const split = await this.refunds.cancellationRefund(c, {
       bookingId: e.bookingId,
       idempotencyKey: `${key}:refund`,
       amount: { amount: refundAmount, currency: e.currency },
       actorUserId: actorId,
       note: `Cancellation: ${input.details}`.slice(0, 500),
     });
-    return {
-      ...result,
-      refundOutcome: refund.ok ? { ok: true } : { ok: false, message: refund.error.message },
-    };
+    const refundOutcome = cancellationRefundOutcome(split.refund, split.returnByHand);
+    // The cancellation stands either way. A refund that was not made, or an in-person part to return by hand,
+    // is one review item each, which alerts staff; a pending refund already raised its own item where it was
+    // submitted.
+    if (refundOutcome.status === 'not_made')
+      await this.manualReview.record({
+        ...c,
+        category: 'PAYMENT_BOOKING_MISMATCH',
+        referenceType: 'booking',
+        referenceId: e.bookingId,
+        message: `The booking was cancelled, but the refund of ${refundAmount} ${e.currency} was not made: ${refundOutcome.message} Refund it by hand. The guest was not told a refund is coming.`,
+        context: {
+          kind: 'CANCELLATION_REFUND_NOT_MADE',
+          cancellationRequest: key,
+          errorCode: refundOutcome.errorCode,
+        },
+      });
+    if (split.returnByHand)
+      await this.manualReview.record({
+        ...c,
+        category: 'PAYMENT_BOOKING_MISMATCH',
+        referenceType: 'booking',
+        referenceId: e.bookingId,
+        message: `The booking was cancelled. ${split.returnByHand.amount} ${split.returnByHand.currency} was paid in person and must be returned to the guest by hand.`,
+        context: { kind: 'CANCELLATION_RETURN_BY_HAND', cancellationRequest: key },
+      });
+    return { ...result, refundOutcome };
   }
   async guestRequest(
     scope: { tenantId: string; propertyId: string },
@@ -401,7 +550,7 @@ export class BookingRequestsService {
     details: string,
     requestRefund: boolean,
   ) {
-    return this.db.withTenantTransaction(scope, async (tx) => {
+    const made = await this.db.withTenantTransaction(scope, async (tx) => {
       const owner = await tx.$queryRaw<
         Array<{ status: string }>
       >`SELECT status::text FROM bookings WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${bookingId}::uuid AND guest_session_id=${guestSessionId}::uuid FOR UPDATE`;
@@ -413,10 +562,19 @@ export class BookingRequestsService {
       const existing = await tx.$queryRaw<
         Array<{ id: string }>
       >`SELECT id FROM booking_requests WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND booking_id=${bookingId}::uuid AND type='cancellation' AND status='Pending'`;
-      if (existing[0]) return { requested: true, requestId: existing[0].id };
+      if (existing[0]) return { requested: true, requestId: existing[0].id, isNew: false };
       const evidence = await this.evidence(tx, scope, bookingId);
+      // The guest asks to cancel, so (when the hotel says so) the payment fee comes off what they ask back.
+      const wanted = minor(evidence.paid) - minor(evidence.alreadyRefunded);
+      const keptFee =
+        requestRefund && wanted > 0n
+          ? await this.refunds.keptProviderFee(tx, scope, bookingId, {
+              amount: money(wanted),
+              currency: evidence.currency,
+            })
+          : null;
       const refundAmount = requestRefund
-        ? money(minor(evidence.paid) - minor(evidence.alreadyRefunded))
+        ? money(keptFee && wanted > minor(keptFee.amount) ? wanted - minor(keptFee.amount) : wanted)
         : '0.00';
       const input = {
         expectedVersion: evidence.version,
@@ -446,8 +604,12 @@ export class BookingRequestsService {
         targetId: bookingId,
         details: { requestId: rows[0].id, requestRefund },
       });
-      return { requested: true, requestId: rows[0].id };
+      return { requested: true, requestId: rows[0].id, isNew: true };
     });
+    // After the request is saved: tell the guest it arrived (once per request; never fails the request).
+    if (made.isNew)
+      await this.guestEmails.sendCancellationRequestReceived(scope, bookingId, made.requestId);
+    return { requested: true, requestId: made.requestId };
   }
   async list(c: RequestContext) {
     await this.require(c, 'requests.review');
@@ -541,12 +703,7 @@ export class BookingRequestsService {
         if (body.decision === 'Approved' && !execution.executionActorId) {
           const current = await this.evidence(tx, c, q.bookingId);
           const frozen = q.payload.evidence;
-          if (
-            current.version !== frozen.version ||
-            current.paid !== frozen.paid ||
-            current.alreadyRefunded !== frozen.alreadyRefunded ||
-            current.currency !== frozen.currency
-          )
+          if (bookingChangedSinceRequest(current, frozen))
             throw new ConflictException(
               'The booking or payments changed since this request. Reject it and create a fresh request.',
             );
@@ -567,6 +724,7 @@ export class BookingRequestsService {
             q.payload,
             `b1-request:${q.id}`,
             q.requesterId ?? c.userId,
+            true,
           );
           if (!outcome.ok) {
             await this.notifications.recordInTransaction(tx, {

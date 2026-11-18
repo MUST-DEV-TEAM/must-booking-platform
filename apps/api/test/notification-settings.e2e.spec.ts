@@ -112,6 +112,7 @@ describe('notification settings (who receives which email)', () => {
     expect(settings.body.topics.map((entry: TopicBody) => entry.topic)).toEqual([
       'new_booking',
       'booking_cancelled',
+      'cancellation_request_received',
       'refund_processed',
       'booking_changed',
       'payment_received',

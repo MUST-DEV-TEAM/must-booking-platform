@@ -131,6 +131,18 @@ export class GuestBookingManageController {
       !('lastError' in position && position.lastError) &&
       position.status !== 'FAILED' &&
       (!position.data || Date.now() - Date.parse(position.data.fetchedAt) > 60000);
+    // What the guest would get back; when the hotel keeps the payment fee back from a refund the guest
+    // asks for, that fee is shown separately and is not part of the refund.
+    const gross =
+      automaticAllowed && row.terms?.autoRefund
+        ? Prisma.Decimal.max(0, new Prisma.Decimal(row.paid).minus(row.refunded))
+        : null;
+    const fee =
+      gross && gross.gt(0)
+        ? await this.requests
+            .guestRefundFee(scope, id, { amount: gross.toFixed(2), currency: row.currency })
+            .catch(() => null)
+        : null;
     return {
       checkingMoney,
       reference: row.reference,
@@ -144,10 +156,8 @@ export class GuestBookingManageController {
       timezone: row.terms?.timezone ?? null,
       automaticAllowed,
       policyKnown: !!row.terms && row.terms.arrivalDate === row.startsOn,
-      refundAmount:
-        automaticAllowed && row.terms?.autoRefund
-          ? Prisma.Decimal.max(0, new Prisma.Decimal(row.paid).minus(row.refunded)).toFixed(2)
-          : null,
+      refundAmount: gross ? Prisma.Decimal.max(0, gross.minus(fee?.amount ?? 0)).toFixed(2) : null,
+      providerFee: fee?.amount ?? null,
     };
   }
   @Post()

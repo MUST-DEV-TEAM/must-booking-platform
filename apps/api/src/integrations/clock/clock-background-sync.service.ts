@@ -1,3 +1,4 @@
+import { errorText } from './clock-failure-reason';
 import { withClockBackgroundWork } from './clock-request-context';
 import { financialRetryDelaySeconds, shouldAlertFinancialBlocked } from './clock-sync-backoff';
 import { ManualReviewService } from '../manual-review.service';
@@ -68,27 +69,9 @@ type Job = {
 const monthOf = (date: Date) => date.toISOString().slice(0, 7);
 const enabled = () => process.env.CLOCK_BACKGROUND_SYNC_ENABLED === 'true';
 export const ENSURE_INTERVAL_MS = 60_000;
+export const TICK_SHUTDOWN_WAIT_MS = 20_000;
 /** Durable local projections only. Provider commands and financial effects are never executed here. */
-/**
- * What may be logged about a failure: the kind of error, its code and the rule that refused a row. Never the
- * message itself, because a database message can quote the failing row, which holds guest details.
- */
-export const errorText = (error: unknown) => {
-  if (!(error instanceof Error)) return 'unknown error';
-  const code = (error as { code?: unknown }).code;
-  const dbCode = (error as { meta?: { code?: unknown } }).meta?.code;
-  const constraint = /constraint "([A-Za-z0-9_]{1,80})"/.exec(error.message)?.[1];
-  return [
-    error.name,
-    typeof code === 'string' ? `code ${code}` : null,
-    typeof dbCode === 'string' ? `database code ${dbCode}` : null,
-    constraint ? `rule ${constraint}` : null,
-    // A financial refusal carries fixed text that never quotes Clock or guest data, so the cause can be logged.
-    error instanceof ClockFinancialDataError ? error.message : null,
-  ]
-    .filter(Boolean)
-    .join(', ');
-};
+export { errorText };
 /** The database refused the row by one of its rules (check constraint 23514), so retrying cannot help. */
 const isUnsavableBooking = (error: unknown) =>
   error instanceof Error && /violates check constraint|\b23514\b/.test(error.message);
@@ -97,6 +80,8 @@ const isUnsavableBooking = (error: unknown) =>
 export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy {
   private timer?: ReturnType<typeof setInterval>;
   private busy = false;
+  private stopping = false;
+  private running?: Promise<void>;
   private readonly logger = new Logger(ClockBackgroundSyncService.name);
   constructor(
     @Inject(TenantDatabaseService) private readonly db: TenantDatabaseService,
@@ -116,8 +101,22 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
     this.timer = setInterval(() => void this.tick(), 1000);
     this.timer.unref();
   }
-  onModuleDestroy() {
+  async onModuleDestroy() {
+    this.stopping = true;
     if (this.timer) clearInterval(this.timer);
+    this.timer = undefined;
+    const running = this.running;
+    if (!running) return;
+    // Wait for the tick in progress, but never longer than the container's stop grace period allows.
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const limit = new Promise<void>((resolve) => {
+      timeout = setTimeout(resolve, TICK_SHUTDOWN_WAIT_MS);
+    });
+    try {
+      await Promise.race([running.catch(() => undefined), limit]);
+    } finally {
+      clearTimeout(timeout);
+    }
     this.timer = undefined;
   }
   private allowed(propertyId: string) {
@@ -268,8 +267,13 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
     );
     return { queued: true };
   }
-  async tick() {
-    if (this.busy || !enabled()) return;
+  tick(): Promise<void> {
+    if (this.busy || this.stopping || !enabled()) return Promise.resolve();
+    const running = this.runTick();
+    this.running = running;
+    return running;
+  }
+  private async runTick() {
     this.busy = true;
     let worked = false;
     try {
@@ -306,16 +310,21 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
       this.busy = false;
     }
     // Work was done: look for the next step now instead of waiting for the next one-second beat.
-    if (worked && this.timer) setImmediate(() => void this.tick());
+    if (worked && this.timer && !this.stopping) setImmediate(() => void this.tick());
   }
   /**
-   * Records a failed job run. A bill whose currencies disagree is a data problem retrying cannot fix, so it
-   * backs off (1 min, 5 min, 30 min, then every 6 hours) instead of logging every minute forever, and raises
-   * one review note for the booking after three failures in a row. Every other failure keeps the 1 minute retry.
+   * Records a failed job run. A bill Clock sends in a shape we cannot use (currencies that disagree, or an
+   * amount that is missing) is a data problem retrying cannot fix, so it backs off (1 min, 5 min, 30 min, then
+   * every 6 hours) instead of retrying forever; a currency difference also raises one review note for the
+   * booking after three failures in a row. Every other failure keeps the 1 minute retry.
    * A successful check, a staff "run check" or a Clock change event brings the bill back sooner.
    */
   private async recordFailure(scope: Scope, job: Job, error: unknown): Promise<void> {
-    const dataProblem = error instanceof ClockFinancialCurrencyError;
+    // Any bill Clock sends in a shape we cannot use (currencies that disagree, an amount that is missing) is a
+    // data problem: retrying every minute or every half hour cannot fix it, so it backs off like the currency
+    // case. Only the currency case raises the review note, as before (gap G-30).
+    const dataProblem = error instanceof ClockFinancialDataError;
+    const currencyProblem = error instanceof ClockFinancialCurrencyError;
     const retry = dataProblem
       ? true
       : error instanceof ClockBookingReadError
@@ -343,7 +352,7 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
         await tx.$executeRaw`UPDATE clock_sync_jobs SET status=${retry ? 'RETRY' : 'FAILED'},consecutive_failures=${failures},next_run_at=now()+make_interval(secs=>${delaySeconds}),last_error=${lastError},lease_token=NULL,lease_until=NULL,updated_at=now() WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${job.id}::uuid AND lease_token=${job.leaseToken}::uuid`;
       if (
         updated === 1 &&
-        dataProblem &&
+        currencyProblem &&
         job.resource.startsWith('financial:') &&
         shouldAlertFinancialBlocked(failures)
       )
@@ -358,10 +367,7 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
     bookingId: string,
     detail: string,
   ): Promise<void> {
-    const open = await tx.$queryRaw<
-      Array<{ id: string }>
-    >`SELECT id FROM manual_review_items WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND reference_type='booking' AND reference_id=${bookingId} AND status='OPEN' AND context->>'kind'='FINANCIAL_SYNC_BLOCKED' LIMIT 1`;
-    if (open.length) return;
+    // The review service raises it once: a repeat only counts on the open item.
     await this.manualReview.recordInTransaction(tx, {
       tenantId: scope.tenantId,
       propertyId: scope.propertyId,
@@ -397,20 +403,30 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
    * How long to leave a reservation's bill alone. Bills of guests arriving or staying are checked often;
    * far-off and finished stays rarely, so a large hotel does not spend Clock's request allowance on them.
    */
-  /** Clock has no room-type capacity, so the shown "up to N guests" follows what its website rates allow. */
+  /**
+   * Clock has no room-type capacity, so the shown "up to N guests" follows what its website rates allow. The rates'
+   * limit is always kept in clock_rate_capacity (shown to the hotel as a suggestion); max_occupancy follows it only
+   * until the hotel confirms its own number (task 40-4b), so a confirmed capacity is never overwritten.
+   */
   private async refreshDisplayedOccupancy(
     scope: Scope,
     ratesByRoomType: Map<string, Parameters<typeof occupancyFromRates>[0]>,
   ): Promise<void> {
-    const derived = [...ratesByRoomType]
-      .map(([id, rates]) => ({ id, occupancy: occupancyFromRates(rates) }))
-      .filter((item): item is { id: string; occupancy: number } => item.occupancy !== null);
+    const derived = [...ratesByRoomType].map(([id, rates]) => ({
+      id,
+      occupancy: occupancyFromRates(rates),
+    }));
     if (!derived.length) return;
     await this.db.withTenantTransaction(scope, async (tx) => {
-      for (const item of derived)
-        await tx.$executeRaw`UPDATE room_types SET max_occupancy=${item.occupancy}, updated_at=now()
+      for (const item of derived) {
+        await tx.$executeRaw`UPDATE room_types SET clock_rate_capacity=${item.occupancy}, updated_at=now()
           WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid
-            AND id=${item.id}::uuid AND max_occupancy<>${item.occupancy}`;
+            AND id=${item.id}::uuid AND clock_rate_capacity IS DISTINCT FROM ${item.occupancy}::int`;
+        if (item.occupancy !== null)
+          await tx.$executeRaw`UPDATE room_types SET max_occupancy=${item.occupancy}, updated_at=now()
+            WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid
+              AND id=${item.id}::uuid AND capacity_confirmed_at IS NULL AND max_occupancy<>${item.occupancy}`;
+      }
     });
   }
 

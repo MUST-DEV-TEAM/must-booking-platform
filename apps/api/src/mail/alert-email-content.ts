@@ -13,6 +13,8 @@ export type AlertEvent = {
     | 'booking_attention'
     | 'clock_review'
     | 'clock_event_failed'
+    | 'clock_access_lost'
+    | 'clock_dead_letter'
     | 'refund'
     | 'new_hotel'
     | 'email_failed';
@@ -59,6 +61,8 @@ export function ownerAlertLine(event: AlertEvent): string {
     case 'clock_review':
     case 'clock_event_failed':
       return clockLine(event);
+    case 'clock_access_lost':
+      return `Clock is no longer accepting this hotel's connection (${event.detail ?? 'access refused'}). Nothing is lost: bookings already made are safe, but syncing and live prices pause until Clock restores access. Please contact Clock support.`;
     case 'refund':
       return `Refund of ${event.detail} for booking ${event.reference}`;
     default:
@@ -79,6 +83,8 @@ export function platformAlertLine(event: AlertEvent): string {
       return `New hotel signed up: ${event.tenantName ?? event.itemId}`;
     case 'email_failed':
       return `${hotelLabel(event)}: email "${event.reference}" ${event.detail}`;
+    case 'clock_dead_letter':
+      return `Clock dead-letter queue: ${event.detail}`;
     default:
       return `${hotelLabel(event)}: ${ownerAlertLine(event)}`;
   }

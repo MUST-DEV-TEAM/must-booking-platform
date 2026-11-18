@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { ClockBackgroundSyncService } from './clock-background-sync.service';
-import { ClockFinancialCurrencyError } from './clock-financial.service';
+import { ClockFinancialCurrencyError, ClockFinancialDataError } from './clock-financial.service';
 
 const scope = { tenantId: 'tenant-1', propertyId: 'property-1', connectionId: 'connection-1' };
 const bookingId = '11111111-1111-4111-8111-111111111111';
@@ -9,16 +9,12 @@ const bookingId = '11111111-1111-4111-8111-111111111111';
 type Call = { sql: string; values: unknown[] };
 
 /** A service whose database is a recorder: every tagged-template query is captured, nothing is real. */
-function setup(options: { updated?: number; openNote?: boolean } = {}) {
+function setup(options: { updated?: number } = {}) {
   const calls: Call[] = [];
   const tx = {
     $executeRaw: vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
       calls.push({ sql: strings.join('?'), values });
       return options.updated ?? 1;
-    }),
-    $queryRaw: vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
-      calls.push({ sql: strings.join('?'), values });
-      return options.openNote ? [{ id: 'note-1' }] : [];
     }),
   };
   const manualReview = { recordInTransaction: vi.fn() };
@@ -74,12 +70,6 @@ describe('recordFailure for a bill with inconsistent currencies', () => {
     expect(raised).toEqual([0, 0, 1, 0, 0]);
   });
 
-  it('does not duplicate the note while one is still open for the booking', async () => {
-    const { service, job, manualReview } = setup({ openNote: true });
-    await service.recordFailure(scope, job(2), new ClockFinancialCurrencyError());
-    expect(manualReview.recordInTransaction).not.toHaveBeenCalled();
-  });
-
   it('writes the note about the right booking, in plain words, with a kind that lets it close itself', async () => {
     const { service, job, manualReview } = setup();
     await service.recordFailure(scope, job(2), new ClockFinancialCurrencyError());
@@ -100,6 +90,33 @@ describe('recordFailure for a bill with inconsistent currencies', () => {
     const { service, job, manualReview } = setup({ updated: 0 });
     await service.recordFailure(scope, job(2), new ClockFinancialCurrencyError());
     expect(manualReview.recordInTransaction).not.toHaveBeenCalled();
+  });
+});
+
+describe('recordFailure for a bill whose amount Clock does not send (gap G-30)', () => {
+  it('backs off like the currency case, keeps it retrying, and raises no note', async () => {
+    const seen: Array<{ status: unknown; failures: unknown; delay: unknown; notes: number }> = [];
+    for (const before of [0, 1, 2, 3]) {
+      const { service, job, failureWrite, manualReview } = setup();
+      await service.recordFailure(
+        scope,
+        job(before),
+        new ClockFinancialDataError('Clock financial amount is missing.'),
+      );
+      const values = failureWrite().values;
+      seen.push({
+        status: values[0],
+        failures: values[1],
+        delay: values[2],
+        notes: manualReview.recordInTransaction.mock.calls.length,
+      });
+    }
+    expect(seen).toEqual([
+      { status: 'RETRY', failures: 1, delay: 60, notes: 0 },
+      { status: 'RETRY', failures: 2, delay: 300, notes: 0 },
+      { status: 'RETRY', failures: 3, delay: 1800, notes: 0 },
+      { status: 'RETRY', failures: 4, delay: 21_600, notes: 0 },
+    ]);
   });
 });
 

@@ -20,13 +20,22 @@ export type SettingField = {
     | 'choice'
     | 'multi'
     | 'country'
-    | 'currency';
+    | 'currency'
+    | 'year'
+    | 'decimal'
+    | 'region';
   hint?: string;
   placeholder?: string;
-  options?: readonly { value: string; label: string }[];
+  options?: readonly { value: string; label: string; group?: string }[];
   max?: number;
   defaultValue?: SettingValue;
   when?: { key: string; value: string };
+  /** For a region field: the choices per country code; other countries type the region. */
+  optionsByCountry?: Record<string, readonly string[]>;
+  /** Show only while another field has any value. */
+  whenSet?: string;
+  /** Show a "used / max" counter under the field. */
+  counter?: boolean;
 };
 export type SettingGroup = {
   title: string;
@@ -56,7 +65,11 @@ export function SettingsFields({
         <FormSection key={group.title} title={group.title} description={group.description}>
           <div className={group.compact ? 'grid gap-4 sm:grid-cols-2' : 'flex flex-col gap-4'}>
             {group.fields
-              .filter((f) => !f.when || values[f.when.key] === f.when.value)
+              .filter(
+                (f) =>
+                  (!f.when || values[f.when.key] === f.when.value) &&
+                  (!f.whenSet || Boolean(values[f.whenSet])),
+              )
               .map((f) => {
                 const id = 'hotel-' + f.key,
                   v = values[f.key] ?? '',
@@ -66,7 +79,10 @@ export function SettingsFields({
                     key={f.key}
                     layout={f.kind === 'boolean' ? 'toggle' : 'stack'}
                     className={
-                      f.kind === 'boolean' || !['time', 'number', 'choice'].includes(f.kind ?? '')
+                      f.kind === 'boolean' ||
+                      !['time', 'number', 'choice', 'year', 'decimal', 'region'].includes(
+                        f.kind ?? '',
+                      )
                         ? 'sm:col-span-2'
                         : undefined
                     }
@@ -75,7 +91,9 @@ export function SettingsFields({
                     hint={
                       f.kind === 'currency' && currencyLocked
                         ? 'Prices already exist. Their currencies stay on the rate plans.'
-                        : f.hint
+                        : f.counter && f.max
+                          ? `${f.hint ? f.hint + ' ' : ''}${String(v).length}/${f.max}`
+                          : f.hint
                     }
                     error={errors[f.key]}
                   >
@@ -110,6 +128,35 @@ export function SettingsFields({
                           ...(Intl as unknown as { supportedValuesOf: (k: string) => string[] })
                             .supportedValuesOf('currency')
                             .map((c) => ({ value: c, label: c })),
+                        ]}
+                        onChange={(value) => onChange(f.key, value)}
+                      />
+                    ) : f.kind === 'year' ? (
+                      <Combobox
+                        label={f.label}
+                        value={String(v)}
+                        disabled={locked}
+                        placeholder="Type a year…"
+                        options={[
+                          { value: '', label: 'Not set' },
+                          ...Array.from({ length: new Date().getFullYear() - 1799 }, (_, i) =>
+                            String(new Date().getFullYear() - i),
+                          ).map((year) => ({ value: year, label: year })),
+                        ]}
+                        onChange={(value) => onChange(f.key, value)}
+                      />
+                    ) : f.kind === 'region' &&
+                      f.optionsByCountry?.[String(values.country ?? '')] ? (
+                      <Combobox
+                        label={f.label}
+                        value={String(v)}
+                        disabled={locked}
+                        options={[
+                          { value: '', label: 'Not set' },
+                          ...f.optionsByCountry[String(values.country)]!.map((name) => ({
+                            value: name,
+                            label: name,
+                          })),
                         ]}
                         onChange={(value) => onChange(f.key, value)}
                       />
@@ -149,10 +196,18 @@ export function SettingsFields({
                       <Input
                         id={id}
                         className={
-                          f.kind === 'time' || f.kind === 'number' ? 'sm:max-w-64' : undefined
+                          f.kind === 'time' || f.kind === 'number' || f.kind === 'decimal'
+                            ? 'sm:max-w-64'
+                            : undefined
                         }
                         type={f.kind === 'time' ? 'time' : 'text'}
-                        inputMode={f.kind === 'number' ? 'numeric' : undefined}
+                        inputMode={
+                          f.kind === 'number'
+                            ? 'numeric'
+                            : f.kind === 'decimal'
+                              ? 'decimal'
+                              : undefined
+                        }
                         placeholder={f.placeholder}
                         value={String(v)}
                         disabled={locked}

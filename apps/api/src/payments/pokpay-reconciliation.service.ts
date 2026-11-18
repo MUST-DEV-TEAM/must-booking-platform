@@ -19,7 +19,9 @@ const NIGHTLY = '15 3 * * *';
 const LOOK_BACK_DAYS = 45;
 const MAXIMUM_ORDERS = 500;
 const PAUSE_BETWEEN_ORDERS_MS = 150;
-const SOURCE = 'pokpay_reconciliation';
+/** The `source` on this check's review notes; the late-payment flow closes them when it refunds the order. */
+export const POKPAY_RECONCILIATION_SOURCE = 'pokpay_reconciliation';
+const SOURCE = POKPAY_RECONCILIATION_SOURCE;
 
 type Candidate = RecordedOrder & { tenantId: string; propertyId: string; bookingId: string };
 

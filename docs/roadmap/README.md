@@ -4,6 +4,8 @@ Status reconciled against repository evidence on **2026-09-19**. This page owns 
 
 ## Current work
 
+**Plans awaiting owner approval (2026-11-17):** [Stripe hardening](stripe-hardening-plan.md) (13 findings, tasks T1-T12, decision D1 Connect vs pasted keys) and [Settings redesign](settings-redesign-plan.md) (15 problems, new structure, tasks R1-R11, decisions O1-O3).
+
 **Open follow-ups (2026-11-09):** the list of things not done yet, with owners of the detail, is in [open-follow-ups.md](open-follow-ups.md).
 
 **Overall order agreed 2026-11-09.** (1) ~~Close out [27](milestones/27-clock-rates-cancellation-permissions.md) and [28](milestones/28-release-and-cutover.md)~~ **reconciled 2026-11-09** against the code and the live system; the small rows still open are listed in each file and in the [open follow-ups](open-follow-ups.md). (2) [33 - Restaurants and venues](milestones/33-venues-restaurants.md), starting with the owner Q&A. (3) [32 - Empire website in Astro](milestones/32-empire-astro-website.md), built in its own repository, while [25 - Native PMS](milestones/25-native-pms.md) waits until the Clock PMS hotel work is finished (owner, 2026-11-09). Then 26, 30, 15 and 14. [34](milestones/34-beach-management.md) and [35](milestones/35-spa-pool-services.md) are recorded as future plans only.
@@ -67,6 +69,8 @@ The **one-time documentation initialization** was explicitly authorized outside 
 | [41 - Frontend hardening](milestones/41-frontend-hardening.md) | Planned 2026-11-14 from the frontend review; 13 tasks; owner decisions recorded; Astro launch tasks first; nothing built |
 
 ## How work proceeds
+
+Milestones 38 to 41 are executed slice by slice from the [hardening execution queue](hardening-queue.md): one agent, one branch and one pull request per slice.
 
 Updated 2026-10-08: this roadmap is a backlog and history record, not a gate on what may be worked on. The owner sets priorities in the project conversation; Claude plans and implements with one PR per change and green CI. See the [working agreement](../maintenance.md).
 
