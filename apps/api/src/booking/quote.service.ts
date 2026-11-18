@@ -22,7 +22,7 @@ import {
   type PromoSummary,
 } from './promo-code.service';
 import { evaluateBookingRules, sameDayBookingViolation, rangeViolation } from './booking-rules';
-import { isClockManagedProperty } from './clock-managed-property';
+import { enforcedRoomCapacity, isClockManagedProperty } from './clock-managed-property';
 export { propertyClock, isSameDayBookingClosed } from './booking-rules';
 
 export type QuoteInput = {
@@ -570,9 +570,15 @@ export class QuoteService {
   ): Promise<void> {
     await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       const catalog = await tx.$queryRaw<
-        Array<{ id: string; maxOccupancy: number; status: string }>
+        Array<{
+          id: string;
+          maxOccupancy: number;
+          capacityConfirmedAt: Date | null;
+          status: string;
+        }>
       >`
-        SELECT id, max_occupancy AS "maxOccupancy", status::text AS status FROM room_types
+        SELECT id, max_occupancy AS "maxOccupancy", capacity_confirmed_at AS "capacityConfirmedAt",
+          status::text AS status FROM room_types
         WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
           AND id = ${input.roomTypeId}::uuid
       `;
@@ -602,7 +608,7 @@ export class QuoteService {
       this.validateBookingRules(input, {
         restrictions,
         ...properties[0],
-        maxOccupancy: clockManaged ? undefined : catalog[0].maxOccupancy,
+        maxOccupancy: enforcedRoomCapacity(clockManaged, catalog[0]),
         roomTypeStatus: catalog[0].status,
         roomActive: room?.isActive,
       });

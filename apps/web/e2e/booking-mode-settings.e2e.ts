@@ -43,7 +43,7 @@ test('changing booking mode in Settings changes real booking enforcement', async
       `/dashboard/${tenant.tenantId}?propertyId=${tenant.propertyId}&section=settings`,
     );
     await expect(
-      page.locator('#app-main-content').getByRole('heading', { name: 'Settings' }),
+      page.locator('#app-main-content').getByRole('heading', { name: 'Settings', exact: true }),
     ).toBeVisible();
     await page
       .getByRole('navigation', { name: 'Settings menu' })

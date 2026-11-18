@@ -1,3 +1,4 @@
+import { enforcedRoomCapacity } from './clock-managed-property';
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import type { Money } from '@must/domain-contracts';
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
@@ -64,22 +65,27 @@ export class StaffAvailabilityService {
       scope,
       (tx) =>
         tx.$queryRaw<
-          Array<{ id: string; max: number; rooms: string[] }>
-        >`SELECT t.id,t.max_occupancy AS max,ARRAY(SELECT r.id::text FROM rooms r WHERE r.tenant_id=t.tenant_id AND r.property_id=t.property_id AND r.room_type_id=t.id AND r.is_active=true) AS rooms FROM room_types t WHERE t.tenant_id=${scope.tenantId}::uuid AND t.property_id=${scope.propertyId}::uuid AND t.status='PUBLISHED' AND t.id=ANY(${items.map((i) => i.roomTypeId)}::uuid[])`,
+          Array<{ id: string; max: number; confirmed: Date | null; rooms: string[] }>
+        >`SELECT t.id,t.max_occupancy AS max,t.capacity_confirmed_at AS confirmed,ARRAY(SELECT r.id::text FROM rooms r WHERE r.tenant_id=t.tenant_id AND r.property_id=t.property_id AND r.room_type_id=t.id AND r.is_active=true) AS rooms FROM room_types t WHERE t.tenant_id=${scope.tenantId}::uuid AND t.property_id=${scope.propertyId}::uuid AND t.status='PUBLISHED' AND t.id=ANY(${items.map((i) => i.roomTypeId)}::uuid[])`,
     );
     const connection = await this.connections.activePmsConnectionCredentials(
       scope.tenantId,
       scope.propertyId,
     );
-    // Clock has no room-type capacity; its rates enforce guest limits when priced.
+    // Clock has no room-type capacity: it is enforced once the hotel confirmed it, and Clock's rates enforce theirs.
     const clockManaged = connection?.provider === 'CLOCK_PMS';
     const eligible = items.filter((i) =>
-      types.some(
-        (t) =>
+      types.some((t) => {
+        const capacity = enforcedRoomCapacity(clockManaged, {
+          maxOccupancy: t.max,
+          capacityConfirmedAt: t.confirmed,
+        });
+        return (
           t.id === i.roomTypeId &&
-          (clockManaged || t.max >= input.adults + input.children) &&
-          (!i.roomId || t.rooms.includes(i.roomId)),
-      ),
+          (capacity === undefined || capacity >= input.adults + input.children) &&
+          (!i.roomId || t.rooms.includes(i.roomId))
+        );
+      }),
     );
     const offers: Record<string, Offer> = Object.fromEntries(
       items.map((i) => [
