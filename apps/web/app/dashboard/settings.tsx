@@ -1,9 +1,11 @@
 'use client';
 
-import { Card, Heading, Stack, Text } from '@must/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { type ReactNode, useState } from 'react';
 import { BrandingSettings, PaymentSettings, WebsiteSettings } from './settings-connection-forms';
+import { Button } from '../../components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
+import { ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
 import { UnsavedChangesBoundary } from '../../components/ui/unsaved-changes';
 import { DisplayCurrenciesSettings } from './display-currencies-settings';
 import { IntegrationSettings } from './integration-settings';
@@ -192,31 +194,24 @@ export function DashboardSettings({
     }
   }
 
-  if (settingsQuery.isPending)
-    return (
-      <section aria-label="Loading settings">
-        <Text>Loading settings…</Text>
-      </section>
-    );
   if (settingsQuery.isError)
     return (
-      <Card>
-        <Text>{settingsQuery.error.message}</Text>
-        <button className="must-button" type="button" onClick={() => void settingsQuery.refetch()}>
-          Retry
-        </button>
-      </Card>
+      <ErrorPanel
+        title="Settings are unavailable"
+        description={settingsQuery.error.message}
+        onRetry={() => void settingsQuery.refetch()}
+      />
     );
-  if (!property)
+  if (settingsQuery.isPending || !property)
     return (
       <section aria-label="Loading settings">
-        <Text>Loading settings…</Text>
+        <ListSkeleton rows={4} />
       </section>
     );
 
   return (
     <UnsavedChangesBoundary>
-      <Stack gap="lg">
+      <div className="flex flex-col gap-6">
         {settingsArea ? (
           <div className="flex flex-col gap-1">
             <a
@@ -326,20 +321,20 @@ export function DashboardSettings({
 
         <SettingsAreaPanel activeArea={settingsArea} area="billing">
           <Card>
-            <Stack gap="md">
-              <Heading level={2}>Billing account</Heading>
-              <Text tone="secondary">Current plan: {planName ?? 'Loading…'}</Text>
-              <button
-                className="must-button must-button--secondary"
-                disabled
-                title="Platform billing is not available yet"
-              >
+            <CardHeader>
+              <CardTitle>Billing account</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col items-start gap-3">
+              <p className="m-0 text-sm text-muted-foreground">
+                Current plan: {planName ?? 'Loading…'}
+              </p>
+              <Button variant="outline" disabled title="Platform billing is not available yet">
                 Platform billing is not available yet
-              </button>
-            </Stack>
+              </Button>
+            </CardContent>
           </Card>
         </SettingsAreaPanel>
-      </Stack>
+      </div>
     </UnsavedChangesBoundary>
   );
 }

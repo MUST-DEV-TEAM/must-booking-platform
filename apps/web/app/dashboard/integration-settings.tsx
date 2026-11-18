@@ -17,7 +17,7 @@ import { Input } from '../../components/ui/input';
 import { FormField } from '../../components/ui/form-field';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '../../components/ui/dialog';
 import { ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
-import { credentialFieldsByProvider } from './[tenantId]/integrations-management';
+import { credentialFieldsByProvider } from './integration-credential-fields';
 import { Tabs, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { ClockSyncStatus } from './clock-sync';
 import { RestaurantIntegrationCard } from './venues/restaurant-integration-card';

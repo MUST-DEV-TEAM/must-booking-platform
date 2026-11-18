@@ -210,7 +210,7 @@ describe('DashboardSettings', () => {
     expect(container.textContent).toContain('Unable to load property settings.');
     expect(
       Array.from(container.querySelectorAll('button')).some(
-        (button) => button.textContent === 'Retry',
+        (button) => button.textContent === 'Try again',
       ),
     ).toBe(true);
     await act(async () => root.unmount());
