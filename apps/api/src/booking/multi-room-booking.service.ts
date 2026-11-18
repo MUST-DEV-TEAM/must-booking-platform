@@ -20,7 +20,7 @@ import { ClockBookingService } from '../integrations/clock/clock-booking.service
 import { BookingConfirmationNotificationService } from '../mail/booking-confirmation-notification.service';
 import { PaymentProviderRegistry } from '../payments/payment-provider-registry';
 import { QuoteService } from './quote.service';
-import { resolveBookingOccupancy } from './booking-occupancy';
+import { resolveBookingOccupancy, validBookingOccupancy } from './booking-occupancy';
 import { PrePaymentAvailabilityRegistry } from './pre-payment-availability';
 
 type RoomGuestName = Pick<CreateBookingCommand['guest'], 'firstName' | 'lastName'>;
@@ -38,6 +38,10 @@ export type MultiRoomBookingCommand = {
     roomId?: string;
     ratePlanId: string;
     total: Money;
+    /** Who stays in this room. Bound into the room's quote and stored on its booking (task 40-4a). */
+    adults?: number;
+    children?: number;
+    childrenAges?: number[];
     guestCount?: number;
     quoteToken: string;
     guest?: RoomGuestName;
@@ -59,6 +63,15 @@ type GuestRow = { id: string };
 type OperationRow = { requestHash: string; result: Result<MultiRoomOrder> | null };
 
 class MultiRoomAvailabilityError extends Error {}
+
+/** One room's guests, read the same way as a single-room booking: adults and children, or the older guestCount. */
+function roomOccupancy(room: MultiRoomBookingCommand['rooms'][number]) {
+  return resolveBookingOccupancy({
+    adults: room.adults,
+    children: room.children,
+    guestCount: room.guestCount,
+  });
+}
 
 class PrePaymentAvailabilityError extends Error {
   constructor(readonly result: Result<never>) {
@@ -103,12 +116,11 @@ export class MultiRoomBookingService {
             await enforcePropertyBookingLimits(tx, context, {
               startsOn: command.startsOn,
               endsOn: command.endsOn,
-              adults: command.rooms.reduce(
-                (count, room) =>
-                  count + resolveBookingOccupancy({ guestCount: room.guestCount }).adults,
+              adults: command.rooms.reduce((count, room) => count + roomOccupancy(room).adults, 0),
+              children: command.rooms.reduce(
+                (count, room) => count + roomOccupancy(room).children,
                 0,
               ),
-              children: 0,
               roomCount: command.rooms.length,
             });
 
@@ -132,6 +144,10 @@ export class MultiRoomBookingService {
                 ratePlanId: room.ratePlanId,
                 startsOn: command.startsOn,
                 endsOn: command.endsOn,
+                adults: room.adults,
+                children: room.children,
+                childrenAges: room.childrenAges,
+                guestCount: room.guestCount,
                 total: room.total,
               });
               if (quoteError) return this.failure(quoteError.code, quoteError.message);
@@ -169,7 +185,7 @@ export class MultiRoomBookingService {
               const externalReference = `${orderReference}-room${index + 1}`;
               const nightlyRates = this.quotes.nightlyRates(room.quoteToken)!;
               const roomGuest = room.guest ?? command.guest;
-              const occupancy = resolveBookingOccupancy({ guestCount: room.guestCount });
+              const occupancy = roomOccupancy(room);
               const inserted = await tx.$queryRaw<Array<{ id: string }>>`
                 INSERT INTO bookings (
                   tenant_id, property_id, room_type_id, room_id, guest_id, guest_session_id,
@@ -229,7 +245,7 @@ export class MultiRoomBookingService {
                 startsOn: command.startsOn,
                 endsOn: command.endsOn,
                 rooms: command.rooms.map((room) => {
-                  const occupancy = resolveBookingOccupancy({ guestCount: room.guestCount });
+                  const occupancy = roomOccupancy(room);
                   return {
                     roomTypeId: room.roomTypeId,
                     roomId: room.roomId,
@@ -340,7 +356,8 @@ export class MultiRoomBookingService {
         !room.quoteToken ||
         !this.validMoney(room.total) ||
         (room.guestCount !== undefined &&
-          (!Number.isInteger(room.guestCount) || room.guestCount < 1))
+          (!Number.isInteger(room.guestCount) || room.guestCount < 1)) ||
+        !validBookingOccupancy(room)
       )
         return this.failure(
           'MULTI_ROOM_REQUEST_INVALID',
