@@ -276,15 +276,16 @@ describe('staff invitations', () => {
     // The plan has three staff seats and earlier tests fill them: free the new user's seat first.
     await freeSeat(newEmail);
     const invitedEmail = `invited-${randomUUID()}@example.test`;
+    const intruderEmail = `intruder-${randomUUID()}@example.test`;
     const token = await createInvite(invitedEmail);
 
     const wrong = await request(app.getHttpServer())
       .post('/auth/staff-invitations/activate')
-      .send({ token, email: `intruder-${randomUUID()}@example.test`, password })
+      .send({ token, email: intruderEmail, password })
       .expect(400);
     expect(wrong.body.message).toBe('Use the email address this invitation was sent to.');
     const intruders = await migrationPrisma.$queryRaw<Array<{ count: number }>>`
-      SELECT count(*)::int AS count FROM "users" WHERE "email" LIKE 'intruder-%@example.test'
+      SELECT count(*)::int AS count FROM "users" WHERE "email" = ${intruderEmail}
     `;
     expect(intruders[0]!.count).toBe(0);
 
