@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-import { DashboardSettings, SettingsHub } from './settings';
+import { DashboardSettings, SettingsOverview } from './settings';
 import { resolveSettingsTab, type SettingsTab } from './settings-registry';
 import { DashboardQueryProvider } from './query-provider';
 
@@ -49,6 +49,7 @@ describe('DashboardSettings', () => {
             note,
           });
           return Response.json({
+            hotel: property,
             ready: false,
             steps: [
               step(
@@ -100,11 +101,16 @@ describe('DashboardSettings', () => {
         createElement(
           DashboardQueryProvider,
           undefined,
-          createElement(SettingsHub, { tenantId: 't', propertyId: 'p' }),
+          createElement(SettingsOverview, {
+            tenantId: 't',
+            propertyId: 'p',
+            property,
+            canWrite: true,
+          }),
         ),
       );
     });
-    for (let i = 0; i < 60 && !container.textContent?.includes('Ready to take bookings'); i += 1)
+    for (let i = 0; i < 60 && !container.textContent?.includes('Set up your hotel'); i += 1)
       await act(async () => {
         await new Promise((resolve) => window.setTimeout(resolve, 30));
       });
@@ -125,7 +131,24 @@ describe('DashboardSettings', () => {
       ).not.toBeNull();
     expect(container.querySelector('a[href*="settingsArea=general"]')).toBeNull();
     // Real status, not decoration: the demo hotel has no website yet.
-    expect(text).toContain('Ready to take bookings');
+    expect(text).toContain('Set up your hotel');
+    expect(text).toContain('Settings at a glance');
+    expect(text).toContain('Grand Hotel');
+    const finder = container.querySelector<HTMLInputElement>('input[aria-label="Find a setting"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+        finder,
+        'nuis',
+      );
+      finder.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(container.textContent).toContain('Legal name and tax number');
+    const hide = [...container.querySelectorAll('button')].find(
+      (b) => b.textContent === 'Hide for now',
+    )!;
+    await act(async () => hide.click());
+    expect(container.textContent).toContain('Setup: 4 of 5');
+    expect(container.textContent).not.toContain('Set up your hotel');
     expect(text).toContain('The hotel website is not connected yet.');
     // Old area names from saved links land on their new tab; unknown and unbuilt ones on the overview.
     expect(resolveSettingsTab('general')).toBe('profile');

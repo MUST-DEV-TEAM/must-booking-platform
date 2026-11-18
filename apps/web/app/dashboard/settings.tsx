@@ -15,7 +15,7 @@ import { type Property } from './settings-areas';
 import { type SettingsTab } from './settings-registry';
 
 export { isSettingsArea, settingsAreas, type SettingsArea } from './settings-areas';
-export { SettingsHub } from './settings-hub';
+export { SettingsOverview } from './settings-overview';
 export { SettingsFrame } from './settings-frame';
 
 type Connection = {

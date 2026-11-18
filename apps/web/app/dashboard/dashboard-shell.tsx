@@ -57,7 +57,7 @@ import { MyAccount } from './my-account';
 import { ReservationDetail } from './reservation-detail';
 import { ReservationsPage } from './reservations-page';
 import { EmailSettings, isEmailTab, type EmailTab } from './email-settings';
-import { DashboardSettings, SettingsFrame, SettingsHub } from './settings';
+import { DashboardSettings, SettingsFrame, SettingsOverview } from './settings';
 import { resolveSettingsTab, settingsTabHref, type SettingsTab } from './settings-registry';
 import { DashboardNotifications, NotificationsInbox } from './notifications';
 import { EmailsWorkspace } from './emails';
@@ -838,7 +838,12 @@ export function DashboardShell({
             }}
           >
             {settingsArea === 'overview' ? (
-              <SettingsHub tenantId={tenantId} propertyId={selectedProperty.id} />
+              <SettingsOverview
+                key={selectedProperty.id}
+                tenantId={tenantId}
+                propertyId={selectedProperty.id}
+                canWrite={user?.emailVerified === true && canChange('settings.manage')}
+              />
             ) : settingsArea === 'emails' ? (
               <EmailSettings
                 key={selectedProperty.id}
