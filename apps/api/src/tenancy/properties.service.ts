@@ -75,15 +75,15 @@ export class PropertiesService {
     const rows = await this.listRows(tenantId, userId);
     return rows.map((row) => ({ ...row, readiness: settingsReadiness(row) }));
   }
-  /** One hotel's "ready to take bookings" status; refused for a hotel this user may not see. */
+  /** One hotel's saved settings and its "ready to take bookings" status; refused if not visible. */
   async settingsSummary(
     tenantId: string,
     userId: string,
     propertyId: string,
-  ): Promise<SettingsReadiness> {
+  ): Promise<SettingsReadiness & { hotel: PropertyListItem }> {
     const hotel = (await this.list(tenantId, userId)).find((item) => item.id === propertyId);
     if (!hotel) throw new NotFoundException('Property not found.');
-    return hotel.readiness;
+    return { ...hotel.readiness, hotel };
   }
   private listRows(
     tenantId: string,
