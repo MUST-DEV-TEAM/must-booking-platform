@@ -302,7 +302,11 @@ describe('platform console: sign-in, sessions and team', () => {
         admin.write('patch', `/team/${target.id}/role`, { roleKey: 'finance', version }),
         admin.write('patch', `/team/${target.id}/role`, { roleKey: 'operations', version }),
       ]);
-      expect([one.status, two.status].sort()).toEqual([200, 409]);
+      // Show both responses if this ever fails, so a rare failure explains itself (gap G-38).
+      expect(
+        [one.status, two.status].sort(),
+        `role-change responses: ${JSON.stringify([one.body, two.body])}`,
+      ).toEqual([200, 409]);
     });
 
     it('never lets the last active Super admin be demoted or suspended, nor a role be over-granted', async () => {

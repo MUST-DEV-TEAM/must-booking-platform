@@ -879,7 +879,19 @@ describe('Clock webhook durable recovery (real Postgres RLS + real Redis/BullMQ)
     // lineage's 9) must succeed now that the reset cleared the stale
     // high-water mark — without it, `claimEventSql`'s generation guard
     // would reject generation 1 against the stale recorded 9 forever.
-    await waitFor(async () => (await eventStatus(tenantA, eventId)) === 'HYDRATED');
+    try {
+      await waitFor(async () => (await eventStatus(tenantA, eventId)) === 'HYDRATED');
+    } catch (error) {
+      // Rare timeout (gap G-27): say where the event got stuck so the next failure explains itself.
+      const stuck = await admin.$queryRaw<Array<Record<string, unknown>>>`
+        SELECT status, attempts, processing_attempt, last_error FROM provider_events
+        WHERE id = ${rowId}::uuid
+      `;
+      throw new Error(
+        `Event ${eventId} never reached HYDRATED: ${JSON.stringify(stuck)}; queued responses left: ${queuedResponses.length}`,
+        { cause: error },
+      );
+    }
     const bookings = await admin.$queryRaw<Array<{ externalReference: string }>>`
       SELECT external_reference AS "externalReference" FROM bookings
       WHERE tenant_id = ${tenantA.tenantId}::uuid AND external_booking_id = '38144200'
