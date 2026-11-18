@@ -259,6 +259,59 @@ describe('staff invitations', () => {
       .expect(400);
   });
 
+  it('binds a new account to the invited address, and a typo does not use up the invitation (task 39-10b)', async () => {
+    const invitedEmail = `invited-${randomUUID()}@example.test`;
+    const token = await createInvite(invitedEmail);
+
+    const wrong = await request(app.getHttpServer())
+      .post('/auth/staff-invitations/activate')
+      .send({ token, email: `intruder-${randomUUID()}@example.test`, password })
+      .expect(400);
+    expect(wrong.body.message).toBe('Use the email address this invitation was sent to.');
+    const intruders = await migrationPrisma.$queryRaw<Array<{ count: number }>>`
+      SELECT count(*)::int AS count FROM "users" WHERE "email" LIKE 'intruder-%@example.test'
+    `;
+    expect(intruders[0]!.count).toBe(0);
+
+    // The same invitation still works with the invited address, in any letter case.
+    await request(app.getHttpServer())
+      .post('/auth/staff-invitations/activate')
+      .send({ token, email: invitedEmail.toUpperCase(), password })
+      .expect(204);
+    // Free the staff seat again for the tests that follow.
+    await migrationPrisma.$executeRaw`
+      DELETE FROM "property_staff_capability_overrides" WHERE "tenant_id" = ${tenantId}::uuid
+        AND "user_id" = (SELECT "id" FROM "users" WHERE "email" = ${invitedEmail})
+    `;
+    await migrationPrisma.$executeRaw`
+      DELETE FROM "property_staff_assignments" WHERE "tenant_id" = ${tenantId}::uuid
+        AND "user_id" = (SELECT "id" FROM "users" WHERE "email" = ${invitedEmail})
+    `;
+    await migrationPrisma.$executeRaw`
+      DELETE FROM "tenant_memberships" WHERE "tenant_id" = ${tenantId}::uuid
+        AND "user_id" = (SELECT "id" FROM "users" WHERE "email" = ${invitedEmail})
+    `;
+  });
+
+  it('refuses an invitation accepted by a signed-in user with another address (task 39-10b)', async () => {
+    const token = await createInvite(`someone-else-${randomUUID()}@example.test`);
+    const assignmentsOf = async () =>
+      (
+        await migrationPrisma.$queryRaw<Array<{ count: number }>>`
+          SELECT count(*)::int AS count FROM "property_staff_assignments"
+          WHERE "tenant_id" = ${tenantId}::uuid AND "user_id" = ${existingUserId}::uuid
+        `
+      )[0]!.count;
+    const before = await assignmentsOf();
+
+    await request(app.getHttpServer())
+      .post('/auth/staff-invitations/accept')
+      .set('Cookie', existingUserCookie)
+      .send({ token })
+      .expect(400);
+    expect(await assignmentsOf()).toBe(before);
+  });
+
   it('does not translate unrelated database errors into an email-conflict error', async () => {
     const databaseFailure = { code: 'P2010', meta: { code: '23503' } };
     const transaction = {
@@ -278,15 +331,24 @@ describe('staff invitations', () => {
       {} as never,
       {} as never,
     );
-    (service as unknown as { consumeInvite: () => Promise<unknown> }).consumeInvite = async () => ({
+    const stubInvite = async () => ({
       tenantId,
       email: failedActivationEmail,
       assignments: [],
+    });
+    Object.assign(service as unknown as Record<string, unknown>, {
+      readInvite: stubInvite,
+      consumeInvite: stubInvite,
     });
 
     await expect(service.activate('unused-token', failedActivationEmail, password)).rejects.toBe(
       databaseFailure,
     );
+    const existingInvite = async () => ({ tenantId, email: existingEmail, assignments: [] });
+    Object.assign(service as unknown as Record<string, unknown>, {
+      readInvite: existingInvite,
+      consumeInvite: existingInvite,
+    });
     await expect(
       service.activate('unused-token', existingEmail, password),
     ).rejects.not.toBeInstanceOf(BadRequestException);
@@ -346,45 +408,5 @@ describe('staff invitations', () => {
           AND "user_id" IN (${adminId}::uuid, ${ownerId}::uuid)
       `;
     }
-  });
-
-  it('binds a new account to the invited address, and a typo does not use up the invitation (task 39-10b)', async () => {
-    const invitedEmail = `invited-${randomUUID()}@example.test`;
-    const token = await createInvite(invitedEmail);
-
-    const wrong = await request(app.getHttpServer())
-      .post('/auth/staff-invitations/activate')
-      .send({ token, email: `intruder-${randomUUID()}@example.test`, password })
-      .expect(400);
-    expect(wrong.body.message).toBe('Use the email address this invitation was sent to.');
-    const intruders = await migrationPrisma.$queryRaw<Array<{ count: number }>>`
-      SELECT count(*)::int AS count FROM "users" WHERE "email" LIKE 'intruder-%@example.test'
-    `;
-    expect(intruders[0]!.count).toBe(0);
-
-    // The same invitation still works with the invited address, in any letter case.
-    await request(app.getHttpServer())
-      .post('/auth/staff-invitations/activate')
-      .send({ token, email: invitedEmail.toUpperCase(), password })
-      .expect(204);
-  });
-
-  it('refuses an invitation accepted by a signed-in user with another address (task 39-10b)', async () => {
-    const token = await createInvite(`someone-else-${randomUUID()}@example.test`);
-    const assignmentsOf = async () =>
-      (
-        await migrationPrisma.$queryRaw<Array<{ count: number }>>`
-          SELECT count(*)::int AS count FROM "property_staff_assignments"
-          WHERE "tenant_id" = ${tenantId}::uuid AND "user_id" = ${existingUserId}::uuid
-        `
-      )[0]!.count;
-    const before = await assignmentsOf();
-
-    await request(app.getHttpServer())
-      .post('/auth/staff-invitations/accept')
-      .set('Cookie', existingUserCookie)
-      .send({ token })
-      .expect(400);
-    expect(await assignmentsOf()).toBe(before);
   });
 });
