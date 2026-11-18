@@ -1,7 +1,16 @@
 import { describe, it, expect, vi } from 'vitest';
 import { GuestBookingManageController } from './guest-booking-manage.controller';
 import { CancellationLinkService } from './cancellation-link.service';
+import { ConflictException } from '@nestjs/common';
 const scope = { tenantId: 'tenant', propertyId: 'property' };
+const financialSnapshot = (overrides: Record<string, unknown> = {}) => ({
+  fetchedAt: new Date().toISOString(),
+  bookingVersion: 2,
+  balance: { amount: '100.10', currency: 'EUR' },
+  paid: { amount: '100.10', currency: 'EUR' },
+  refunded: { amount: '0.11', currency: 'EUR' },
+  ...overrides,
+});
 function fixture(overrides: Record<string, unknown> = {}) {
   const row = {
     id: 'booking',
@@ -28,7 +37,7 @@ function fixture(overrides: Record<string, unknown> = {}) {
   };
   const db = {
     withTenantTransaction: vi.fn(async (_scope, fn) =>
-      fn({ $queryRaw: vi.fn().mockResolvedValue([row]) }),
+      fn({ $queryRaw: vi.fn().mockResolvedValue([{ ...row }]) }),
     ),
   };
   const links = new CancellationLinkService(),
@@ -178,5 +187,114 @@ describe('signed guest booking management', () => {
     );
     expect(f.requests.guestRequest).toHaveBeenCalledOnce();
     expect(f.provider.cancelBooking).not.toHaveBeenCalled();
+  });
+  it('refreshes an older booking payment check before offering automatic cancellation', async () => {
+    const f = fixture({ external: '123' });
+    f.financial.read.mockResolvedValue({ status: 'SYNCED', data: null });
+    f.financial.refresh
+      .mockResolvedValueOnce(financialSnapshot({ bookingVersion: 1 }))
+      .mockResolvedValueOnce(financialSnapshot());
+    const result = await f.controller.preview({ tenantContext: scope }, 'booking', f.token);
+    expect(result).toMatchObject({ automaticAllowed: true, refundAmount: '99.99' });
+    expect(f.financial.refresh).toHaveBeenCalledTimes(2);
+    expect(f.provider.cancelBooking).not.toHaveBeenCalled();
+    expect(f.requests.guestRequest).not.toHaveBeenCalled();
+  });
+  it('reloads the preview booking when it changes during the financial check', async () => {
+    const f = fixture({ external: '123' });
+    f.financial.read.mockResolvedValue({ status: 'SYNCED', data: null });
+    f.financial.refresh.mockImplementation(async () => {
+      f.row.version = 3;
+      return financialSnapshot({ bookingVersion: 3 });
+    });
+    const result = await f.controller.preview({ tenantContext: scope }, 'booking', f.token);
+    expect(result).toMatchObject({ version: 3, automaticAllowed: true, refundAmount: '99.99' });
+    expect(f.db.withTenantTransaction).toHaveBeenCalledTimes(2);
+    expect(f.requests.guestRequest).not.toHaveBeenCalled();
+  });
+  it('keeps polling a recent snapshot for an older version instead of offering review', async () => {
+    const f = fixture({ external: '123' });
+    f.financial.read.mockResolvedValue({
+      status: 'SYNCED',
+      data: financialSnapshot({ bookingVersion: 1 }),
+    });
+    f.financial.refresh.mockResolvedValue(financialSnapshot({ bookingVersion: 1 }));
+    const result = await f.controller.preview({ tenantContext: scope }, 'booking', f.token);
+    expect(result).toMatchObject({ automaticAllowed: false, checkingMoney: true });
+    expect(f.financial.refresh).toHaveBeenCalledTimes(4);
+    expect(f.requests.guestRequest).not.toHaveBeenCalled();
+  });
+  it('refreshes an expired financial snapshot before allowing cancellation', async () => {
+    const f = fixture({ external: '123' });
+    f.financial.read.mockResolvedValue({ status: 'SYNCED', data: null });
+    f.financial.refresh
+      .mockResolvedValueOnce(financialSnapshot({ fetchedAt: new Date(Date.now() - 61000).toISOString() }))
+      .mockResolvedValueOnce(financialSnapshot());
+    const result = await f.controller.preview({ tenantContext: scope }, 'booking', f.token);
+    expect(result).toMatchObject({ automaticAllowed: true, refundAmount: '99.99' });
+    expect(f.financial.refresh).toHaveBeenCalledTimes(2);
+  });
+  it('rechecks the saved terms when reloading a changed preview', async () => {
+    const f = fixture({ external: '123' });
+    f.financial.read.mockResolvedValue({ status: 'SYNCED', data: null });
+    f.financial.refresh.mockImplementation(async () => {
+      f.row.version = 3;
+      f.row.startsOn = '2030-07-11';
+      return financialSnapshot({ bookingVersion: 3 });
+    });
+    const result = await f.controller.preview({ tenantContext: scope }, 'booking', f.token);
+    expect(result).toMatchObject({ version: 3, automaticAllowed: false, policyKnown: false });
+    expect(f.provider.cancelBooking).not.toHaveBeenCalled();
+  });
+  it('retries a concurrent financial read conflict before cancelling exactly once', async () => {
+    const f = fixture({ external: '123' });
+    f.financial.read.mockResolvedValue({ status: 'SYNCED', data: null });
+    f.financial.refresh
+      .mockRejectedValueOnce(new ConflictException('Booking changed during the financial check.'))
+      .mockResolvedValueOnce(financialSnapshot());
+    const result = await f.controller.confirm(
+      { tenantContext: scope },
+      'booking',
+      { token: f.token, action: 'cancel', version: 2, details: 'Travel changed' },
+      'same-key',
+    );
+    expect(result).toMatchObject({ cancelled: true });
+    expect(f.provider.cancelBooking).toHaveBeenCalledOnce();
+    expect(f.requests.guestRequest).not.toHaveBeenCalled();
+  });
+  it('requires renewed confirmation when booking versions still differ after refreshing', async () => {
+    const f = fixture({ external: '123' });
+    f.financial.read.mockResolvedValue({ status: 'SYNCED', data: null });
+    f.financial.refresh.mockResolvedValue(financialSnapshot({ bookingVersion: 3 }));
+    await expect(
+      f.controller.confirm(
+        { tenantContext: scope },
+        'booking',
+        { token: f.token, action: 'cancel', version: 2, details: 'Travel changed' },
+        'same-key',
+      ),
+    ).rejects.toThrow('Reload its details');
+    expect(f.financial.refresh).toHaveBeenCalledTimes(2);
+    expect(f.provider.cancelBooking).not.toHaveBeenCalled();
+    expect(f.requests.guestRequest).not.toHaveBeenCalled();
+  });
+  it.each([
+    { paid: { amount: '90.00', currency: 'EUR' } },
+    { refunded: { amount: '5.00', currency: 'EUR' } },
+    { balance: { amount: '100.10', currency: 'ALL' } },
+    { balance: { amount: '-1.00', currency: 'EUR' } },
+  ])('still requires staff review for a genuine financial mismatch (%o)', async (overrides) => {
+    const f = fixture({ external: '123' });
+    f.financial.read.mockResolvedValue({ status: 'SYNCED', data: null });
+    f.financial.refresh.mockResolvedValue(financialSnapshot(overrides));
+    await f.controller.confirm(
+      { tenantContext: scope },
+      'booking',
+      { token: f.token, action: 'cancel', version: 2, details: 'Travel changed' },
+      'same-key',
+    );
+    expect(f.provider.cancelBooking).not.toHaveBeenCalled();
+    expect(f.requests.guestRequest).toHaveBeenCalledOnce();
+    expect(f.financial.refresh).toHaveBeenCalledOnce();
   });
 });
