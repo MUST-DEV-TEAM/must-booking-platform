@@ -2,6 +2,10 @@ import { Prisma } from '@prisma/client';
 import { BadRequestException } from '@nestjs/common';
 import {
   COUNTRY_CODES,
+  LANGUAGE_CODES,
+  NUMBER_FORMATS,
+  TIME_FORMATS,
+  WEEK_STARTS,
   checkProfileCombination,
   checkProfileField,
   normaliseProfileValue,
@@ -9,6 +13,9 @@ import {
 } from '@must/domain-contracts';
 export type HotelSettings = {
   dateFormat?: string;
+  timeFormat?: string;
+  weekStart?: string;
+  numberFormat?: string;
   legalName?: string | null;
   taxNumber?: string | null;
   country?: string | null;
@@ -56,6 +63,9 @@ export type HotelSettings = {
 };
 export const hotelFields = [
   { key: 'dateFormat', column: 'date_format', kind: 'text', max: 20 },
+  { key: 'timeFormat', column: 'time_format', kind: 'format', max: 3 },
+  { key: 'weekStart', column: 'week_start', kind: 'format', max: 6 },
+  { key: 'numberFormat', column: 'number_format', kind: 'format', max: 10 },
   { key: 'legalName', column: 'legal_name', kind: 'profile', max: 200 },
   { key: 'taxNumber', column: 'tax_number', kind: 'profile', max: 100 },
   { key: 'country', column: 'country', kind: 'country', max: 2 },
@@ -108,7 +118,6 @@ export const hotelColumns = Prisma.raw(
 export const propertyColumns = Prisma.raw(
   `online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",deduct_payment_fee_on_guest_refund AS "deductPaymentFeeOnGuestRefund",clock_cancel_refund_policy AS "clockCancelRefundPolicy",clock_payment_folio AS "clockPaymentFolio",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns.sql},logo_url AS "logoUrl", phone, support_email AS "supportEmail", booking_mode AS "bookingMode", min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights", check_in_time AS "checkInTime", check_out_time AS "checkOutTime", rules, advance_booking_days AS "advanceBookingDays", free_cancellation_days_before_arrival AS "freeCancellationDaysBeforeArrival", public_website_origin AS "publicWebsiteOrigin", json_build_object('stripe', stripe_enabled, 'pokpay', pokpay_enabled, 'payAtHotel', pay_at_hotel_enabled) AS "paymentGateways"`,
 );
-export const LANGUAGE_CODES = ['en', 'sq', 'it', 'de', 'fr', 'es', 'el', 'tr'];
 export function hotelInput(raw: Record<string, unknown>): HotelSettings {
   const out: Record<string, unknown> = {};
   for (const f of hotelFields) {
@@ -132,6 +141,7 @@ export function hotelInput(raw: Record<string, unknown>): HotelSettings {
     } else if (f.kind === 'languages') {
       if (!Array.isArray(v) || v.some((x) => typeof x !== 'string' || !LANGUAGE_CODES.includes(x)))
         bad('Choose languages from the list.');
+      if ((v as unknown[]).length === 0) bad('Choose at least one language.');
       v = [...new Set(v as string[])].sort();
     } else if (v === null || v === '') {
       v = null;
@@ -181,10 +191,19 @@ export function hotelInput(raw: Record<string, unknown>): HotelSettings {
             ? ['not_offered', 'on_request', 'free_until']
             : f.kind === 'policy'
               ? ['allowed', 'on_request', 'not_allowed']
-              : null;
+              : f.kind === 'format'
+                ? ((f.key === 'timeFormat'
+                    ? TIME_FORMATS
+                    : f.key === 'weekStart'
+                      ? WEEK_STARTS
+                      : NUMBER_FORMATS) as readonly string[])
+                : null;
       if (choices && v && !choices.includes(v as string)) bad('Choose a policy from the list.');
     }
-    if (v === null && (f.kind === 'no_show' || f.kind === 'arrival' || f.kind === 'boolean'))
+    if (
+      v === null &&
+      (f.kind === 'no_show' || f.kind === 'arrival' || f.kind === 'boolean' || f.kind === 'format')
+    )
       bad('Choose a policy from the list.');
     if (f.key === 'dateFormat' && !['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD'].includes(String(v)))
       bad('Choose a supported hotel date format.');

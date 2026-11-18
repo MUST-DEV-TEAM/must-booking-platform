@@ -7,6 +7,9 @@ export type ClockPaymentFolio = 'DEPOSIT' | 'MAIN';
 
 export type Property = {
   dateFormat?: string;
+  timeFormat?: string;
+  weekStart?: string;
+  numberFormat?: string;
   legalName?: string | null;
   taxNumber?: string | null;
   country?: string | null;
