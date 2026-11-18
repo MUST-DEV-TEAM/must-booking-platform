@@ -357,12 +357,12 @@ describe('DashboardSettings', () => {
     );
 
     await value(container.querySelector('#branding-supportEmail')!, 'stay@example.test');
-    await value(container.querySelector('#branding-phone')!, '+355 69 123 4567');
+    await value(container.querySelector('#branding-phone')!, '691234567');
     await saveChanges(container);
     const brandingRequest = fetch.mock.calls.filter(([, init]) => init?.method === 'PATCH')[1];
     expect(JSON.parse(brandingRequest[1]!.body as string)).toEqual({
       supportEmail: 'stay@example.test',
-      phone: '+355 69 123 4567',
+      phone: '+355691234567',
     });
 
     await value(container.querySelector('#rules-min')!, '3');
@@ -466,15 +466,15 @@ describe('DashboardSettings', () => {
     const { container, root } = await mount('contact-brand');
     expect(container.querySelector('[aria-label="Unsaved changes"]')).toBeNull();
     await value(container.querySelector('#branding-supportEmail')!, 'bad-email');
-    await value(container.querySelector('#branding-phone')!, 'abc');
+    await value(container.querySelector('#branding-phone')!, '12');
     expect(container.textContent).toContain('Enter an email address');
-    expect(container.textContent).toContain('Enter a phone number');
+    expect(container.textContent).toContain('Enter a full phone number');
     expect(
       Array.from(container.querySelectorAll('button')).find(
         (b) => b.textContent === 'Save changes',
       )!.disabled,
     ).toBe(true);
-    expect(container.textContent).toContain('bad-email | abc');
+    expect(container.textContent).toContain('bad-email | +355 12');
     const before = new Event('beforeunload', { cancelable: true });
     window.dispatchEvent(before);
     expect(before.defaultPrevented).toBe(true);
@@ -484,6 +484,44 @@ describe('DashboardSettings', () => {
         .click(),
     );
     expect(container.querySelector('[aria-label="Unsaved changes"]')).toBeNull();
+    await act(async () => root.unmount());
+  });
+
+  it('asks for the WhatsApp number and reception hours only when they differ', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async (url: string) =>
+          new Response(
+            JSON.stringify(
+              url.endsWith('/properties')
+                ? [property]
+                : url.endsWith('/plan-usage')
+                  ? { plan: { name: 'Free' } }
+                  : [],
+            ),
+          ),
+      ),
+    );
+    const { container, root } = await mount('contact-brand');
+    expect(container.querySelector('#branding-whatsappNumber')).toBeNull();
+    const save = () =>
+      Array.from(container.querySelectorAll('button')).find(
+        (b) => b.textContent === 'Save changes',
+      );
+    await act(async () =>
+      (container.querySelector('#branding-whatsappSameAsPhone') as HTMLButtonElement).click(),
+    );
+    expect(container.querySelector('#branding-whatsappNumber')).not.toBeNull();
+    expect(container.textContent).toContain('Enter the WhatsApp number');
+    expect(save()!.disabled).toBe(true);
+    await value(container.querySelector('#branding-whatsappNumber')!, '691234567');
+    expect(save()!.disabled).toBe(false);
+    await act(async () =>
+      (container.querySelector('#branding-receptionOpen24h') as HTMLButtonElement).click(),
+    );
+    expect(container.textContent).toContain('Enter the opening time');
+    expect(save()!.disabled).toBe(true);
     await act(async () => root.unmount());
   });
 

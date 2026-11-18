@@ -12,6 +12,14 @@ import {
 import { Input } from '../../components/ui/input';
 import { ColourField } from '../../components/ui/colour-field';
 import { Switch } from '../../components/ui/switch';
+import { TimeField } from '../../components/ui/time-field';
+import { PhoneInput, parsePhone, phoneToString } from '../../components/ui/phone-input';
+import {
+  checkProfileCombination,
+  checkProfileField,
+  normaliseProfileValue,
+  type ProfileFieldKey,
+} from '@must/domain-contracts';
 import {
   Select,
   SelectContent,
@@ -51,6 +59,44 @@ const webUrl = (s: string, originOnly = false) => {
     return false;
   }
 };
+type BrandingDraft = {
+  logoUrl: string;
+  brandColour: string;
+  emailFooterText: string;
+  termsUrl: string;
+  supportEmail: string;
+  reservationsEmail: string;
+  phone: string;
+  whatsappSameAsPhone: boolean;
+  whatsappNumber: string;
+  afterHoursPhone: string;
+  receptionOpen24h: boolean;
+  receptionFrom: string;
+  receptionTo: string;
+  website: string;
+};
+const phoneKeys = ['phone', 'whatsappNumber', 'afterHoursPhone'] as const;
+const textKeys = [
+  'logoUrl',
+  'supportEmail',
+  'reservationsEmail',
+  'phone',
+  'whatsappNumber',
+  'afterHoursPhone',
+  'receptionFrom',
+  'receptionTo',
+  'website',
+  'brandColour',
+  'emailFooterText',
+  'termsUrl',
+] as const;
+const shared = (key: ProfileFieldKey, text: string) =>
+  text.trim()
+    ? checkProfileField(key, normaliseProfileValue(key, text.trim()), {
+        year: new Date().getFullYear(),
+      })
+    : null;
+
 export function BrandingSettings({
   property,
   saving,
@@ -63,29 +109,36 @@ export function BrandingSettings({
   canManagePhotos?: boolean;
   onSave: (update: Partial<Property>) => void;
 }) {
-  const initial = {
+  const initial: BrandingDraft = {
     logoUrl: property.logoUrl ?? '',
     brandColour: property.brandColour ?? '',
     emailFooterText: property.emailFooterText ?? '',
     termsUrl: property.termsUrl ?? '',
     supportEmail: property.supportEmail ?? '',
+    reservationsEmail: property.reservationsEmail ?? '',
     phone: property.phone ?? '',
+    whatsappSameAsPhone: property.whatsappSameAsPhone ?? true,
+    whatsappNumber: property.whatsappNumber ?? '',
+    afterHoursPhone: property.afterHoursPhone ?? '',
+    receptionOpen24h: property.receptionOpen24h ?? true,
+    receptionFrom: property.receptionFrom ?? '',
+    receptionTo: property.receptionTo ?? '',
+    website: property.website ?? '',
   };
   const [draft, setDraft] = useState(initial);
-  useEffect(
-    () => setDraft(initial),
-    [
-      property.logoUrl,
-      property.supportEmail,
-      property.phone,
-      property.brandColour,
-      property.emailFooterText,
-      property.termsUrl,
-    ],
-  );
-  const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
+  const savedText = JSON.stringify(initial);
+  useEffect(() => setDraft(JSON.parse(savedText) as BrandingDraft), [savedText]);
+  const dirty = JSON.stringify(draft) !== savedText;
   useUnsavedChanges(canWrite && dirty);
-  const errors = {
+  const changed = (key: keyof BrandingDraft) => draft[key] !== initial[key];
+  const combination = checkProfileCombination({
+    whatsappSameAsPhone: draft.whatsappSameAsPhone,
+    whatsappNumber: draft.whatsappNumber.trim() || null,
+    receptionOpen24h: draft.receptionOpen24h,
+    receptionFrom: draft.receptionFrom || null,
+    receptionTo: draft.receptionTo || null,
+  });
+  const errors: Record<string, string | null> = {
     brandColour:
       !draft.brandColour || /^#[0-9a-f]{6}$/i.test(draft.brandColour)
         ? null
@@ -96,27 +149,47 @@ export function BrandingSettings({
       !draft.termsUrl || (webUrl(draft.termsUrl) && draft.termsUrl.startsWith('https://'))
         ? null
         : 'Enter a full https terms link.',
-    supportEmail: validEmail(draft.supportEmail.trim())
+    supportEmail:
+      !draft.supportEmail.trim() && initial.supportEmail
+        ? 'Enter the guest contact email.'
+        : shared('supportEmail', draft.supportEmail),
+    reservationsEmail: shared('reservationsEmail', draft.reservationsEmail),
+    phone: shared('phone', draft.phone),
+    whatsappNumber: draft.whatsappSameAsPhone
       ? null
-      : 'Enter an email address such as hello@hotel.com.',
-    phone: validPhone(draft.phone.trim())
+      : (shared('whatsappNumber', draft.whatsappNumber) ?? combination.whatsappNumber ?? null),
+    afterHoursPhone: shared('afterHoursPhone', draft.afterHoursPhone),
+    receptionFrom: draft.receptionOpen24h
       ? null
-      : 'Enter a phone number with 6 to 15 digits, optionally starting with +.',
+      : (shared('receptionFrom', draft.receptionFrom) ?? combination.receptionFrom ?? null),
+    receptionTo: draft.receptionOpen24h
+      ? null
+      : (shared('receptionTo', draft.receptionTo) ?? combination.receptionTo ?? null),
+    website: shared('website', draft.website),
   };
   const labels = {
-    supportEmail: 'Support email',
-    phone: 'Hotel phone',
+    supportEmail: 'Guest contact email',
+    reservationsEmail: 'Reservations email',
+    phone: 'Phone',
+    whatsappNumber: 'WhatsApp number',
+    afterHoursPhone: 'After-hours phone',
+    website: 'Website address',
     brandColour: 'Brand colour',
     emailFooterText: 'Email footer text',
     termsUrl: 'Terms and conditions link',
   } as const;
+  const shown = (key: keyof typeof errors) =>
+    changed(key as keyof BrandingDraft) ||
+    (dirty && ['whatsappNumber', 'receptionFrom', 'receptionTo'].includes(key))
+      ? errors[key]
+      : null;
   const field = (key: keyof typeof labels, hint?: string) => (
     <FormField
       key={key}
       htmlFor={`branding-${key}`}
       label={labels[key]}
       hint={hint}
-      error={dirty ? errors[key] : null}
+      error={shown(key)}
     >
       {key === 'brandColour' ? (
         <ColourField
@@ -126,11 +199,19 @@ export function BrandingSettings({
           invalid={!!errors.brandColour}
           onChange={(brandColour) => setDraft({ ...draft, brandColour })}
         />
+      ) : (phoneKeys as readonly string[]).includes(key) ? (
+        <PhoneInput
+          id={`branding-${key}`}
+          disabled={!canWrite}
+          invalid={!!shown(key)}
+          value={parsePhone(draft[key as (typeof phoneKeys)[number]])}
+          onChange={(value) => setDraft({ ...draft, [key]: phoneToString(value) })}
+        />
       ) : (
         <Input
           id={`branding-${key}`}
           disabled={!canWrite}
-          value={draft[key]}
+          value={draft[key as 'supportEmail']}
           onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
         />
       )}
@@ -158,11 +239,69 @@ export function BrandingSettings({
             {field('brandColour', 'Used for buttons and headings in emails, for example #224858.')}
           </FormSection>
           <FormSection
-            title="Contact details"
-            description="Guests see these in booking emails. Leave a field empty to leave it out."
+            title="Guest contact"
+            description="Guests see these in booking emails and on the booking page. Leave a field empty to leave it out."
           >
-            {field('supportEmail')}
-            {field('phone')}
+            {field('supportEmail', 'Also the default reply-to address of guest emails.')}
+            {field(
+              'reservationsEmail',
+              'Where new, changed and cancelled booking notices go by default.',
+            )}
+            {field('phone', 'Choose the country, then type the number.')}
+            <FormField label="WhatsApp" layout="toggle" htmlFor="branding-whatsappSameAsPhone">
+              <Switch
+                id="branding-whatsappSameAsPhone"
+                aria-label="WhatsApp is the same as the phone"
+                disabled={!canWrite}
+                checked={draft.whatsappSameAsPhone}
+                onCheckedChange={(whatsappSameAsPhone) =>
+                  setDraft({ ...draft, whatsappSameAsPhone })
+                }
+              />
+            </FormField>
+            <p className="m-0 -mt-2 text-xs text-muted-foreground">
+              {draft.whatsappSameAsPhone
+                ? 'Guests message the hotel on the phone number above.'
+                : 'Guests message the hotel on the number below.'}
+            </p>
+            {draft.whatsappSameAsPhone ? null : field('whatsappNumber')}
+            {field('afterHoursPhone', 'Used in pre-arrival and check-in day emails.')}
+            <FormField
+              label="Open 24 hours"
+              layout="toggle"
+              htmlFor="branding-receptionOpen24h"
+              hint="Reception hours shown on the booking page and in the pre-arrival email."
+            >
+              <Switch
+                id="branding-receptionOpen24h"
+                disabled={!canWrite}
+                checked={draft.receptionOpen24h}
+                onCheckedChange={(receptionOpen24h) => setDraft({ ...draft, receptionOpen24h })}
+              />
+            </FormField>
+            {draft.receptionOpen24h ? null : (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <FormField label="Reception opens" error={shown('receptionFrom')}>
+                  <TimeField
+                    label="Reception opens"
+                    value={draft.receptionFrom}
+                    onChange={(receptionFrom) => setDraft({ ...draft, receptionFrom })}
+                  />
+                </FormField>
+                <FormField
+                  label="Reception closes"
+                  hint="May be after midnight."
+                  error={shown('receptionTo')}
+                >
+                  <TimeField
+                    label="Reception closes"
+                    value={draft.receptionTo}
+                    onChange={(receptionTo) => setDraft({ ...draft, receptionTo })}
+                  />
+                </FormField>
+              </div>
+            )}
+            {field('website', 'A full https address. Does not change the website connection.')}
             {field('termsUrl', `${draft.termsUrl.length} characters`)}
           </FormSection>
           <FormSection
@@ -191,17 +330,14 @@ export function BrandingSettings({
           canSave={!Object.values(errors).some(Boolean)}
           onDiscard={() => setDraft(initial)}
           onSave={() => {
-            const update: Partial<Property> = {};
-            for (const key of [
-              'logoUrl',
-              'supportEmail',
-              'phone',
-              'brandColour',
-              'emailFooterText',
-              'termsUrl',
-            ] as const)
-              if (draft[key] !== initial[key]) update[key] = draft[key].trim() || null;
-            onSave(update);
+            const update: Record<string, unknown> = {};
+            for (const key of textKeys)
+              if (draft[key] !== initial[key])
+                update[key] =
+                  normaliseProfileValue(key as ProfileFieldKey, draft[key].trim()) ?? null;
+            for (const key of ['whatsappSameAsPhone', 'receptionOpen24h'] as const)
+              if (draft[key] !== initial[key]) update[key] = draft[key];
+            onSave(update as Partial<Property>);
           }}
         />
       ) : null}

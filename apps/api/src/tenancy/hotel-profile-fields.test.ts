@@ -140,4 +140,54 @@ describe('hotel profile fields', () => {
     expect(() => hotelInput({ timeFormat: '13h' })).toThrow('from the list');
     expect(() => hotelInput({ weekStart: null })).toThrow();
   });
+
+  it('stores phones in international form and refuses numbers that are not real', () => {
+    expect(hotelInput({ afterHoursPhone: '+355 69 212 3456' })).toEqual({
+      afterHoursPhone: '+355692123456',
+    });
+    expect(hotelInput({ whatsappNumber: null })).toEqual({ whatsappNumber: null });
+    for (const bad of ['0692123456', '+355 12', '+999 123456789', 'call me'])
+      expect(() => hotelInput({ afterHoursPhone: bad })).toThrow('country code');
+  });
+
+  it('checks the contact emails and the website', () => {
+    expect(
+      hotelInput({ reservationsEmail: ' Book@Hotel.com ', website: 'https://hotel.com' }),
+    ).toEqual({
+      reservationsEmail: 'Book@Hotel.com',
+      website: 'https://hotel.com',
+    });
+    expect(() => hotelInput({ reservationsEmail: 'nope' })).toThrow('email address');
+    expect(() => hotelInput({ website: 'http://hotel.com' })).toThrow('https');
+    expect(() => hotelInput({ website: 'https://localhost' })).toThrow('https');
+    expect(() => hotelInput({ website: 'https://' + 'a'.repeat(500) + '.com' })).toThrow();
+  });
+
+  it('checks WhatsApp and reception hours as a whole', () => {
+    expect(() =>
+      checkHotelSettings({ whatsappSameAsPhone: false, whatsappNumber: null }, [
+        'whatsappSameAsPhone',
+      ]),
+    ).toThrow('WhatsApp');
+    expect(() =>
+      checkHotelSettings({ whatsappSameAsPhone: false, whatsappNumber: '+355692123456' }, [
+        'whatsappSameAsPhone',
+      ]),
+    ).not.toThrow();
+    expect(() =>
+      checkHotelSettings({ receptionOpen24h: false, receptionFrom: null }, ['receptionOpen24h']),
+    ).toThrow('opening time');
+    expect(() =>
+      checkHotelSettings(
+        { receptionOpen24h: false, receptionFrom: '08:00', receptionTo: '08:00' },
+        ['receptionTo'],
+      ),
+    ).toThrow('differ');
+    expect(() =>
+      checkHotelSettings(
+        { receptionOpen24h: false, receptionFrom: '18:00', receptionTo: '02:00' },
+        ['receptionTo'],
+      ),
+    ).not.toThrow();
+  });
 });

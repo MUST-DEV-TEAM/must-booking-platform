@@ -59,11 +59,7 @@ it('groups General, validates business/about fields, locks a priced currency and
       />,
     );
   try {
-    expect(m.host.textContent).toContain('Business');
-    expect(m.host.querySelector<HTMLInputElement>('#hotel-supportEmail')?.placeholder).toBe(
-      'reservations@example.com',
-    );
-    expect(m.host.querySelector<HTMLInputElement>('#hotel-phone')?.placeholder).toBe('+355 ...');
+    expect(m.host.textContent).toContain('Currency and languages');
     expect(m.host.textContent).toContain('About the hotel');
     expect(button('Save changes')).toBeUndefined();
     expect(
@@ -72,12 +68,6 @@ it('groups General, validates business/about fields, locks a priced currency and
       )!.disabled,
     ).toBe(true);
     await value('hotel-legalName', 'Hotel Ltd');
-    await value('hotel-website', 'http://hotel.test');
-    await value('hotel-reservationsEmail', 'bad');
-    expect(button('Save changes').disabled).toBe(true);
-    expect(m.host.textContent).toContain('full https website');
-    await value('hotel-website', 'https://hotel.test');
-    await value('hotel-reservationsEmail', 'book@hotel.test');
     await value('hotel-description', 'A quiet hotel.');
     expect(m.host.textContent).toContain('at least 50 characters');
     expect(button('Save changes').disabled).toBe(true);
@@ -90,8 +80,6 @@ it('groups General, validates business/about fields, locks a priced currency and
     await act(async () => button('Save changes').click());
     expect(save).toHaveBeenCalledWith({
       legalName: 'Hotel Ltd',
-      website: 'https://hotel.test',
-      reservationsEmail: 'book@hotel.test',
       description,
       taxNumber: 'L12345678A',
       summary: 'Quiet beach hotel.',

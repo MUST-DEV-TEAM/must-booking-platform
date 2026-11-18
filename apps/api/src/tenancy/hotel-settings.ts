@@ -42,6 +42,14 @@ export type HotelSettings = {
   directions?: string | null;
   nearestAirportCode?: string | null;
   nearestAirportKm?: number | null;
+  phone?: string | null;
+  supportEmail?: string | null;
+  whatsappSameAsPhone?: boolean;
+  whatsappNumber?: string | null;
+  afterHoursPhone?: string | null;
+  receptionOpen24h?: boolean;
+  receptionFrom?: string | null;
+  receptionTo?: string | null;
   allowSameDayBooking?: boolean;
   sameDayCutoffTime?: string | null;
   maxGuestsPerBooking?: number | null;
@@ -71,8 +79,14 @@ export const hotelFields = [
   { key: 'country', column: 'country', kind: 'country', max: 2 },
   { key: 'defaultCurrency', column: 'default_currency', kind: 'currency', max: 3 },
   { key: 'languages', column: 'languages', kind: 'languages', max: 0 },
-  { key: 'website', column: 'website', kind: 'url', max: 2048 },
-  { key: 'reservationsEmail', column: 'reservations_email', kind: 'email', max: 254 },
+  { key: 'website', column: 'website', kind: 'profile', max: 500 },
+  { key: 'reservationsEmail', column: 'reservations_email', kind: 'profile', max: 254 },
+  { key: 'whatsappSameAsPhone', column: 'whatsapp_same_as_phone', kind: 'profile', max: 0 },
+  { key: 'whatsappNumber', column: 'whatsapp_number', kind: 'profile', max: 20 },
+  { key: 'afterHoursPhone', column: 'after_hours_phone', kind: 'profile', max: 20 },
+  { key: 'receptionOpen24h', column: 'reception_open_24h', kind: 'profile', max: 0 },
+  { key: 'receptionFrom', column: 'reception_from', kind: 'profile', max: 5 },
+  { key: 'receptionTo', column: 'reception_to', kind: 'profile', max: 5 },
   { key: 'description', column: 'description', kind: 'profile', max: 1000 },
   { key: 'starRating', column: 'star_rating', kind: 'stars', max: 0 },
   { key: 'chainName', column: 'chain_name', kind: 'profile', max: 120 },
@@ -134,7 +148,13 @@ export function hotelInput(raw: Record<string, unknown>): HotelSettings {
         year: new Date().getFullYear(),
       });
       if (message) bad(message);
-      if (v === null && (key === 'starRatingOfficial' || key === 'vatRegistered'))
+      if (
+        v === null &&
+        (key === 'starRatingOfficial' ||
+          key === 'vatRegistered' ||
+          key === 'whatsappSameAsPhone' ||
+          key === 'receptionOpen24h')
+      )
         bad('Choose yes or no.');
     } else if (f.kind === 'boolean') {
       if (typeof v !== 'boolean') bad('Choose yes or no.');
@@ -174,16 +194,6 @@ export function hotelInput(raw: Record<string, unknown>): HotelSettings {
         bad('Choose a currency from the list.');
       if (v && f.kind === 'time' && !/^([01]\d|2[0-3]):[0-5]\d$/.test(v as string))
         bad('Use a local time such as 15:00.');
-      if (v && f.kind === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v as string))
-        bad('Enter a valid reservations email address.');
-      if (v && f.kind === 'url') {
-        try {
-          const u = new URL(v as string);
-          if (u.protocol !== 'https:' || u.username || u.password) throw new Error();
-        } catch {
-          bad('Enter a full https website address.');
-        }
-      }
       const choices =
         f.kind === 'no_show'
           ? ['charge_first_night', 'charge_nothing', 'flag_for_review']
@@ -228,6 +238,11 @@ export function checkHotelSettings(value: HotelSettings, changed: readonly strin
       'starRatingOfficial',
       'latitude',
       'longitude',
+      'whatsappSameAsPhone',
+      'whatsappNumber',
+      'receptionOpen24h',
+      'receptionFrom',
+      'receptionTo',
     ].some((key) => changed.includes(key))
   ) {
     const problem = Object.values(checkProfileCombination(value))[0];
