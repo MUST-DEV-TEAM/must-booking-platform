@@ -84,9 +84,9 @@ Each pair is two releases. The second changes live rows or Redis contents and wa
 | 39-6c | Count per hotel what the clean-up would close, and why **Merged 2026-11-16, #502; the owner approved the numbers.** | M39 task 6, step 2 | `chore/m39-review-queue-count` | 39-6b | Routine |
 | 39-6d | Resolve those rows (Must Hotel first), then the partial unique index **Merged 2026-11-16, #503; rows resolved live (Must Hotel 6, Empire 773, Luxury 0; Empire 23 and Luxury 32 stay open); the unique index is live.** | M39 task 6, step 3 | `fix/m39-review-queue-cleanup` | 39-6c reviewed by the owner | Fable |
 | 39-7b | Count failed events by type and age, and whether the booking already matches Clock **Counted 2026-11-18, see [hardening-counts-2026-11-18.md](../audit/hardening-counts-2026-11-18.md).** | M39 task 7, step 2 | `chore/m39-failed-events-count` | 39-7a | Routine |
-| 39-7c | Give old, consistent failures a final state | M39 task 7, step 3 | `fix/m39-failed-events-final-state` | 39-7b reviewed by the owner | Fable |
+| 39-7c | Give old, consistent failures a final state **Done 2026-11-18 for Empire (838 events set to IGNORED, rows kept, 0 failed left); Luxury had none. Must Hotel's 26 stuck bookings are not consistent; a retry does not help, see G-33, G-35, G-36.** | M39 task 7, step 3 | `fix/m39-failed-events-final-state` | 39-7b reviewed by the owner | Fable |
 | 39-8b | Log dead-letter jobs by name and month **Counted 2026-11-18, see [hardening-counts-2026-11-18.md](../audit/hardening-counts-2026-11-18.md).** | M39 task 8, step 2 | `chore/m39-dead-letter-count` | 39-8a | Routine |
-| 39-8c | Remove dead-letter jobs older than 30 days, trim old failed lists | M39 task 8, step 3 | `ops/m39-dead-letter-cleanup` | 39-8b reviewed by the owner | Fable |
+| 39-8c | Remove dead-letter jobs older than 30 days, trim old failed lists **Done 2026-11-18: dead-letter 928 to 3, failed webhooks 883 to 1, failed reconciliation 24 to 2 (BullMQ clean, 30 days).** | M39 task 8, step 3 | `ops/m39-dead-letter-cleanup` | 39-8b reviewed by the owner | Fable |
 
 ### Group E. Design first, sliced after approval
 
