@@ -21,13 +21,17 @@ export type SettingField = {
     | 'multi'
     | 'country'
     | 'currency'
-    | 'year';
+    | 'year'
+    | 'decimal'
+    | 'region';
   hint?: string;
   placeholder?: string;
   options?: readonly { value: string; label: string }[];
   max?: number;
   defaultValue?: SettingValue;
   when?: { key: string; value: string };
+  /** For a region field: the choices per country code; other countries type the region. */
+  optionsByCountry?: Record<string, readonly string[]>;
   /** Show only while another field has any value. */
   whenSet?: string;
   /** Show a "used / max" counter under the field. */
@@ -76,7 +80,9 @@ export function SettingsFields({
                     layout={f.kind === 'boolean' ? 'toggle' : 'stack'}
                     className={
                       f.kind === 'boolean' ||
-                      !['time', 'number', 'choice', 'year'].includes(f.kind ?? '')
+                      !['time', 'number', 'choice', 'year', 'decimal', 'region'].includes(
+                        f.kind ?? '',
+                      )
                         ? 'sm:col-span-2'
                         : undefined
                     }
@@ -139,6 +145,21 @@ export function SettingsFields({
                         ]}
                         onChange={(value) => onChange(f.key, value)}
                       />
+                    ) : f.kind === 'region' &&
+                      f.optionsByCountry?.[String(values.country ?? '')] ? (
+                      <Combobox
+                        label={f.label}
+                        value={String(v)}
+                        disabled={locked}
+                        options={[
+                          { value: '', label: 'Not set' },
+                          ...f.optionsByCountry[String(values.country)]!.map((name) => ({
+                            value: name,
+                            label: name,
+                          })),
+                        ]}
+                        onChange={(value) => onChange(f.key, value)}
+                      />
                     ) : f.kind === 'choice' ? (
                       <Select
                         value={String(v) || '__none__'}
@@ -175,10 +196,18 @@ export function SettingsFields({
                       <Input
                         id={id}
                         className={
-                          f.kind === 'time' || f.kind === 'number' ? 'sm:max-w-64' : undefined
+                          f.kind === 'time' || f.kind === 'number' || f.kind === 'decimal'
+                            ? 'sm:max-w-64'
+                            : undefined
                         }
                         type={f.kind === 'time' ? 'time' : 'text'}
-                        inputMode={f.kind === 'number' ? 'numeric' : undefined}
+                        inputMode={
+                          f.kind === 'number'
+                            ? 'numeric'
+                            : f.kind === 'decimal'
+                              ? 'decimal'
+                              : undefined
+                        }
                         placeholder={f.placeholder}
                         value={String(v)}
                         disabled={locked}

@@ -25,6 +25,15 @@ export type Property = {
   summary?: string | null;
   tourismLicence?: string | null;
   vatRegistered?: boolean;
+  addressLine2?: string | null;
+  city?: string | null;
+  region?: string | null;
+  postalCode?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  directions?: string | null;
+  nearestAirportCode?: string | null;
+  nearestAirportKm?: number | null;
   allowSameDayBooking?: boolean;
   sameDayCutoffTime?: string | null;
   maxGuestsPerBooking?: number | null;
