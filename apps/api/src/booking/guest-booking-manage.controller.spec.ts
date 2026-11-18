@@ -228,7 +228,9 @@ describe('signed guest booking management', () => {
     const f = fixture({ external: '123' });
     f.financial.read.mockResolvedValue({ status: 'SYNCED', data: null });
     f.financial.refresh
-      .mockResolvedValueOnce(financialSnapshot({ fetchedAt: new Date(Date.now() - 61000).toISOString() }))
+      .mockResolvedValueOnce(
+        financialSnapshot({ fetchedAt: new Date(Date.now() - 61000).toISOString() }),
+      )
       .mockResolvedValueOnce(financialSnapshot());
     const result = await f.controller.preview({ tenantContext: scope }, 'booking', f.token);
     expect(result).toMatchObject({ automaticAllowed: true, refundAmount: '99.99' });

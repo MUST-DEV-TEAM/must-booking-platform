@@ -96,10 +96,11 @@ export class GuestBookingManageController {
         data = await this.financial.refresh(scope, row.id);
         if (
           data &&
-          (data.bookingVersion !== row.version ||
-            Date.now() - Date.parse(data.fetchedAt) > 60000)
+          (data.bookingVersion !== row.version || Date.now() - Date.parse(data.fetchedAt) > 60000)
         )
-          throw new ConflictException('Your booking changed. Reload its details before confirming.');
+          throw new ConflictException(
+            'Your booking changed. Reload its details before confirming.',
+          );
         break;
       } catch (error) {
         if (!(error instanceof ConflictException) || attempt === 1) throw error;
@@ -235,7 +236,9 @@ export class GuestBookingManageController {
         automaticAllowed = await this.moneyAllows(scope, row);
       } catch (error) {
         if (error instanceof ConflictException)
-          throw new ConflictException('Your booking changed. Reload its details before confirming.');
+          throw new ConflictException(
+            'Your booking changed. Reload its details before confirming.',
+          );
         /* An uncertain financial position requires staff review. */
       }
     }
