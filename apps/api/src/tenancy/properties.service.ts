@@ -209,7 +209,7 @@ export class PropertiesService {
           throw new BadRequestException('Choose a confirmed image from this hotel photo library.');
       }
 
-      checkHotelSettings({ ...existing[0], ...input });
+      checkHotelSettings({ ...existing[0], ...input }, Object.keys(input));
       if (
         input.defaultCurrency !== undefined &&
         input.defaultCurrency !== existing[0].defaultCurrency

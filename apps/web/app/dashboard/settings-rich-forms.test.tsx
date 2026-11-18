@@ -79,12 +79,22 @@ it('groups General, validates business/about fields, locks a priced currency and
     await value('hotel-website', 'https://hotel.test');
     await value('hotel-reservationsEmail', 'book@hotel.test');
     await value('hotel-description', 'A quiet hotel.');
+    expect(m.host.textContent).toContain('at least 50 characters');
+    expect(button('Save changes').disabled).toBe(true);
+    const description = 'A quiet beach hotel with a garden, a pool and a short walk to the sea.';
+    await value('hotel-description', description);
+    await value('hotel-taxNumber', '12345');
+    expect(m.host.textContent).not.toContain('NUIS is a letter');
+    await value('hotel-taxNumber', 'l12345678a');
+    await value('hotel-summary', 'Quiet beach hotel.');
     await act(async () => button('Save changes').click());
     expect(save).toHaveBeenCalledWith({
       legalName: 'Hotel Ltd',
       website: 'https://hotel.test',
       reservationsEmail: 'book@hotel.test',
-      description: 'A quiet hotel.',
+      description,
+      taxNumber: 'L12345678A',
+      summary: 'Quiet beach hotel.',
     });
     const before = new Event('beforeunload', { cancelable: true });
     window.dispatchEvent(before);
