@@ -1,5 +1,6 @@
 import {
   hotelColumns,
+  propertyColumns,
   hotelFields,
   hotelInput,
   hotelUpdates,
@@ -172,14 +173,7 @@ export class PropertiesService {
       }-${id.slice(0, 8)}`;
       const rows = await tx.$queryRaw<
         Property[]
-      >`INSERT INTO properties (id, tenant_id, name, slug, address, timezone, logo_url, phone, support_email) VALUES (${id}::uuid, ${tenantId}::uuid, ${input.name}, ${slug}, ${input.address}, ${input.timezone}, ${input.logoUrl}, ${input.phone}, ${input.supportEmail}) RETURNING id, name, address, timezone,
-        online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",deduct_payment_fee_on_guest_refund AS "deductPaymentFeeOnGuestRefund",clock_cancel_refund_policy AS "clockCancelRefundPolicy",clock_payment_folio AS "clockPaymentFolio",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
-        booking_mode AS "bookingMode",
-        min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
-        check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
-        rules,
-        advance_booking_days AS "advanceBookingDays", public_website_origin AS "publicWebsiteOrigin",
-        json_build_object('stripe', stripe_enabled, 'pokpay', pokpay_enabled, 'payAtHotel', pay_at_hotel_enabled) AS "paymentGateways"`;
+      >`INSERT INTO properties (id, tenant_id, name, slug, address, timezone, logo_url, phone, support_email) VALUES (${id}::uuid, ${tenantId}::uuid, ${input.name}, ${slug}, ${input.address}, ${input.timezone}, ${input.logoUrl}, ${input.phone}, ${input.supportEmail}) RETURNING id, name, address, timezone, ${propertyColumns}`;
       await this.templates.ensureBuiltInTemplatesInTransaction(tx, tenantId, id);
       await this.audit.recordInTransaction(tx, {
         tenantId,
@@ -202,16 +196,7 @@ export class PropertiesService {
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       await tx.$queryRaw`SELECT id FROM properties WHERE tenant_id=${tenantId}::uuid AND id=${propertyId}::uuid FOR UPDATE`;
       const existing = await tx.$queryRaw<Array<Property>>`
-        SELECT id, name, address, timezone,
-          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",deduct_payment_fee_on_guest_refund AS "deductPaymentFeeOnGuestRefund",clock_cancel_refund_policy AS "clockCancelRefundPolicy",clock_payment_folio AS "clockPaymentFolio",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
-          booking_mode AS "bookingMode",
-          min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
-          check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
-          rules,
-          advance_booking_days AS "advanceBookingDays",
-          free_cancellation_days_before_arrival AS "freeCancellationDaysBeforeArrival",
-          public_website_origin AS "publicWebsiteOrigin",
-          json_build_object('stripe', stripe_enabled, 'pokpay', pokpay_enabled, 'payAtHotel', pay_at_hotel_enabled) AS "paymentGateways"
+        SELECT id, name, address, timezone, ${propertyColumns}
         FROM properties WHERE id = ${propertyId}::uuid
       `;
       if (!existing[0]) throw new BadRequestException('Property not found.');
@@ -273,16 +258,7 @@ export class PropertiesService {
           advance_booking_days = CASE WHEN ${input.advanceBookingDays !== undefined} THEN ${input.advanceBookingDays} ELSE advance_booking_days END,
           free_cancellation_days_before_arrival = CASE WHEN ${input.freeCancellationDaysBeforeArrival !== undefined} THEN ${input.freeCancellationDaysBeforeArrival} ELSE free_cancellation_days_before_arrival END
         WHERE id = ${propertyId}::uuid
-        RETURNING id, name, address, timezone,
-          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",deduct_payment_fee_on_guest_refund AS "deductPaymentFeeOnGuestRefund",clock_cancel_refund_policy AS "clockCancelRefundPolicy",clock_payment_folio AS "clockPaymentFolio",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
-          booking_mode AS "bookingMode",
-          min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
-          check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
-          rules,
-          advance_booking_days AS "advanceBookingDays",
-          free_cancellation_days_before_arrival AS "freeCancellationDaysBeforeArrival",
-          public_website_origin AS "publicWebsiteOrigin",
-          json_build_object('stripe', stripe_enabled, 'pokpay', pokpay_enabled, 'payAtHotel', pay_at_hotel_enabled) AS "paymentGateways"
+        RETURNING id, name, address, timezone, ${propertyColumns}
       `;
       await this.audit.recordInTransaction(tx, {
         tenantId,
@@ -354,16 +330,7 @@ export class PropertiesService {
         UPDATE properties
         SET public_website_origin = ${origin}
         WHERE id = ${propertyId}::uuid
-        RETURNING id, name, address, timezone,
-          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",deduct_payment_fee_on_guest_refund AS "deductPaymentFeeOnGuestRefund",clock_cancel_refund_policy AS "clockCancelRefundPolicy",clock_payment_folio AS "clockPaymentFolio",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
-          booking_mode AS "bookingMode",
-          min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
-          check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
-          rules,
-          advance_booking_days AS "advanceBookingDays",
-          free_cancellation_days_before_arrival AS "freeCancellationDaysBeforeArrival",
-          public_website_origin AS "publicWebsiteOrigin",
-          json_build_object('stripe', stripe_enabled, 'pokpay', pokpay_enabled, 'payAtHotel', pay_at_hotel_enabled) AS "paymentGateways"
+        RETURNING id, name, address, timezone, ${propertyColumns}
       `;
       if (!rows[0]) throw new BadRequestException('Property not found.');
       await this.audit.recordInTransaction(tx, {
@@ -390,16 +357,7 @@ export class PropertiesService {
         SET stripe_enabled = ${gateways.stripe}, pokpay_enabled = ${gateways.pokpay},
           pay_at_hotel_enabled = ${gateways.payAtHotel}
         WHERE id = ${propertyId}::uuid
-        RETURNING id, name, address, timezone,
-          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",deduct_payment_fee_on_guest_refund AS "deductPaymentFeeOnGuestRefund",clock_cancel_refund_policy AS "clockCancelRefundPolicy",clock_payment_folio AS "clockPaymentFolio",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
-          booking_mode AS "bookingMode",
-          min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
-          check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
-          rules,
-          advance_booking_days AS "advanceBookingDays",
-          free_cancellation_days_before_arrival AS "freeCancellationDaysBeforeArrival",
-          public_website_origin AS "publicWebsiteOrigin",
-          json_build_object('stripe', stripe_enabled, 'pokpay', pokpay_enabled, 'payAtHotel', pay_at_hotel_enabled) AS "paymentGateways"
+        RETURNING id, name, address, timezone, ${propertyColumns}
       `;
       if (!rows[0]) throw new BadRequestException('Property not found.');
       await this.audit.recordInTransaction(tx, {

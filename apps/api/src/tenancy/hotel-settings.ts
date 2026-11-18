@@ -64,6 +64,10 @@ export const hotelFields = [
 export const hotelColumns = Prisma.raw(
   hotelFields.map((f) => `${f.column} AS "${f.key}"`).join(','),
 );
+/** The one column list every property read and write returns (settings redesign P13). */
+export const propertyColumns = Prisma.raw(
+  `online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",deduct_payment_fee_on_guest_refund AS "deductPaymentFeeOnGuestRefund",clock_cancel_refund_policy AS "clockCancelRefundPolicy",clock_payment_folio AS "clockPaymentFolio",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns.sql},logo_url AS "logoUrl", phone, support_email AS "supportEmail", booking_mode AS "bookingMode", min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights", check_in_time AS "checkInTime", check_out_time AS "checkOutTime", rules, advance_booking_days AS "advanceBookingDays", free_cancellation_days_before_arrival AS "freeCancellationDaysBeforeArrival", public_website_origin AS "publicWebsiteOrigin", json_build_object('stripe', stripe_enabled, 'pokpay', pokpay_enabled, 'payAtHotel', pay_at_hotel_enabled) AS "paymentGateways"`,
+);
 export const LANGUAGE_CODES = ['en', 'sq', 'it', 'de', 'fr', 'es', 'el', 'tr'];
 export function hotelInput(raw: Record<string, unknown>): HotelSettings {
   const out: Record<string, unknown> = {};
