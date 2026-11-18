@@ -257,12 +257,12 @@ it('round-trips the grouped settings, refuses invalid policies/currency changes 
   });
   const values = {
     legalName: 'Hotel Ltd',
-    taxNumber: 'NUIS: free text',
+    taxNumber: 'L12345678A',
     country: 'AL',
     languages: ['sq', 'en'],
     website: 'https://hotel.test',
     reservationsEmail: 'book@hotel.test',
-    description: 'Plain hotel text',
+    description: 'Plain hotel text that is long enough to be a real description.',
     starRating: 4,
     earlyCheckInPolicy: 'free_until',
     earlyCheckInUntil: '10:00',
