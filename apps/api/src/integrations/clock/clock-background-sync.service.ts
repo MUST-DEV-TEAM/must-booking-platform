@@ -403,20 +403,30 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
    * How long to leave a reservation's bill alone. Bills of guests arriving or staying are checked often;
    * far-off and finished stays rarely, so a large hotel does not spend Clock's request allowance on them.
    */
-  /** Clock has no room-type capacity, so the shown "up to N guests" follows what its website rates allow. */
+  /**
+   * Clock has no room-type capacity, so the shown "up to N guests" follows what its website rates allow. The rates'
+   * limit is always kept in clock_rate_capacity (shown to the hotel as a suggestion); max_occupancy follows it only
+   * until the hotel confirms its own number (task 40-4b), so a confirmed capacity is never overwritten.
+   */
   private async refreshDisplayedOccupancy(
     scope: Scope,
     ratesByRoomType: Map<string, Parameters<typeof occupancyFromRates>[0]>,
   ): Promise<void> {
-    const derived = [...ratesByRoomType]
-      .map(([id, rates]) => ({ id, occupancy: occupancyFromRates(rates) }))
-      .filter((item): item is { id: string; occupancy: number } => item.occupancy !== null);
+    const derived = [...ratesByRoomType].map(([id, rates]) => ({
+      id,
+      occupancy: occupancyFromRates(rates),
+    }));
     if (!derived.length) return;
     await this.db.withTenantTransaction(scope, async (tx) => {
-      for (const item of derived)
-        await tx.$executeRaw`UPDATE room_types SET max_occupancy=${item.occupancy}, updated_at=now()
+      for (const item of derived) {
+        await tx.$executeRaw`UPDATE room_types SET clock_rate_capacity=${item.occupancy}, updated_at=now()
           WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid
-            AND id=${item.id}::uuid AND max_occupancy<>${item.occupancy}`;
+            AND id=${item.id}::uuid AND clock_rate_capacity IS DISTINCT FROM ${item.occupancy}::int`;
+        if (item.occupancy !== null)
+          await tx.$executeRaw`UPDATE room_types SET max_occupancy=${item.occupancy}, updated_at=now()
+            WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid
+              AND id=${item.id}::uuid AND capacity_confirmed_at IS NULL AND max_occupancy<>${item.occupancy}`;
+      }
     });
   }
 

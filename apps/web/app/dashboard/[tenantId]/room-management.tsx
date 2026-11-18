@@ -331,6 +331,9 @@ export function RoomManagement({
           maxOccupancy: Number(form.maxOccupancy),
           status: form.status,
           categoryId: form.categoryId || null,
+          ...(form.capacityConfirmed !== undefined
+            ? { capacityConfirmed: form.capacityConfirmed }
+            : {}),
         }),
       });
       if (!response.ok) throw new Error(await errorMessage(response, 'Unable to save room type.'));

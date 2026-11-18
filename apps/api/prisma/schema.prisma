@@ -510,30 +510,34 @@ enum RoomTypeStatus {
 }
 
 model RoomType {
-  id                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId          String             @map("tenant_id") @db.Uuid
-  propertyId        String             @map("property_id") @db.Uuid
-  name              String             @db.VarChar(200)
-  description       String?
-  amenitiesIntro    String?            @map("amenities_intro")
-  rules             String?            @db.Text
+  id                  String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId            String             @map("tenant_id") @db.Uuid
+  propertyId          String             @map("property_id") @db.Uuid
+  name                String             @db.VarChar(200)
+  description         String?
+  amenitiesIntro      String?            @map("amenities_intro")
+  rules               String?            @db.Text
   /// Compatibility projection of the canonical room_type_images collection.
-  mainImageUrl      String?            @map("main_image_url") @db.VarChar(2000)
+  mainImageUrl        String?            @map("main_image_url") @db.VarChar(2000)
   /// Compatibility projection of the canonical room_type_images collection.
-  galleryImageUrls  String[]           @default([]) @map("gallery_image_urls") @db.VarChar(2000)
-  maxOccupancy      Int                @map("max_occupancy")
-  status            RoomTypeStatus     @default(PUBLISHED)
-  categoryId        String?            @map("category_id") @db.Uuid
-  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  property          Property           @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
-  category          RoomCategory?      @relation(fields: [tenantId, propertyId, categoryId], references: [tenantId, propertyId, id], onDelete: Restrict)
-  rooms             Room[]
-  rateRules         RateRule[]
-  amenities         RoomTypeAmenity[]
-  inventoryUnits    InventoryUnit[]
-  bookings          Booking[]
-  clockRateRankings ClockRateRanking[]
+  galleryImageUrls    String[]           @default([]) @map("gallery_image_urls") @db.VarChar(2000)
+  maxOccupancy        Int                @map("max_occupancy")
+  /// When the hotel confirmed maxOccupancy (task 40-4b). Null: not confirmed.
+  capacityConfirmedAt DateTime?          @map("capacity_confirmed_at") @db.Timestamptz(6)
+  /// Largest guest limit on this room type's Clock rates, kept by the rates job.
+  clockRateCapacity   Int?               @map("clock_rate_capacity")
+  status              RoomTypeStatus     @default(PUBLISHED)
+  categoryId          String?            @map("category_id") @db.Uuid
+  createdAt           DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  property            Property           @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
+  category            RoomCategory?      @relation(fields: [tenantId, propertyId, categoryId], references: [tenantId, propertyId, id], onDelete: Restrict)
+  rooms               Room[]
+  rateRules           RateRule[]
+  amenities           RoomTypeAmenity[]
+  inventoryUnits      InventoryUnit[]
+  bookings            Booking[]
+  clockRateRankings   ClockRateRanking[]
 
   @@unique([tenantId, propertyId, id])
   @@unique([tenantId, propertyId, name])
@@ -1018,21 +1022,21 @@ model Payment {
 }
 
 model PaymentProviderSession {
-  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId          String   @map("tenant_id") @db.Uuid
-  propertyId        String   @map("property_id") @db.Uuid
-  bookingId         String?  @map("booking_id") @db.Uuid
-  venueId           String? @map("venue_id") @db.Uuid
-  venueReservationId String? @map("venue_reservation_id") @db.Uuid
-  provider          String   @db.VarChar(50)
-  externalPaymentId String   @map("external_payment_id") @db.VarChar(320)
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId           String   @map("tenant_id") @db.Uuid
+  propertyId         String   @map("property_id") @db.Uuid
+  bookingId          String?  @map("booking_id") @db.Uuid
+  venueId            String?  @map("venue_id") @db.Uuid
+  venueReservationId String?  @map("venue_reservation_id") @db.Uuid
+  provider           String   @db.VarChar(50)
+  externalPaymentId  String   @map("external_payment_id") @db.VarChar(320)
   /// The payment connection (provider account) that created this order; checks and refunds use it even
   /// after the hotel switches accounts. Absent for older sessions the migration could not attribute.
   /// Foreign key (tenant_id, connection_id) with ON DELETE SET NULL (connection_id), defined in SQL.
-  connectionId      String?  @map("connection_id") @db.Uuid
-  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  property          Property @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
-  booking           Booking? @relation(fields: [tenantId, propertyId, bookingId], references: [tenantId, propertyId, id], onDelete: Restrict)
+  connectionId       String?  @map("connection_id") @db.Uuid
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  property           Property @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
+  booking            Booking? @relation(fields: [tenantId, propertyId, bookingId], references: [tenantId, propertyId, id], onDelete: Restrict)
 
   @@unique([tenantId, provider, externalPaymentId])
   @@index([tenantId, propertyId, bookingId, provider])
@@ -1973,27 +1977,27 @@ model ClockGuestProfile {
 }
 
 model ClockSyncJob {
-  id            String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId      String                @map("tenant_id") @db.Uuid
-  propertyId    String                @map("property_id") @db.Uuid
-  connectionId  String                @map("connection_id") @db.Uuid
-  resource      String                @db.VarChar(80)
-  status        String                @default("READY") @db.VarChar(16)
-  progress      Json                  @default("{}")
-  snapshot      Json?
-  lastSuccessAt DateTime?             @map("last_success_at") @db.Timestamptz(6)
-  nextRunAt     DateTime              @default(now()) @map("next_run_at") @db.Timestamptz(6)
-  leaseToken    String?               @map("lease_token") @db.Uuid
-  leaseUntil    DateTime?             @map("lease_until") @db.Timestamptz(6)
-  lastError     String?               @map("last_error") @db.VarChar(300)
-  processed     Int                   @default(0)
+  id                  String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId            String                @map("tenant_id") @db.Uuid
+  propertyId          String                @map("property_id") @db.Uuid
+  connectionId        String                @map("connection_id") @db.Uuid
+  resource            String                @db.VarChar(80)
+  status              String                @default("READY") @db.VarChar(16)
+  progress            Json                  @default("{}")
+  snapshot            Json?
+  lastSuccessAt       DateTime?             @map("last_success_at") @db.Timestamptz(6)
+  nextRunAt           DateTime              @default(now()) @map("next_run_at") @db.Timestamptz(6)
+  leaseToken          String?               @map("lease_token") @db.Uuid
+  leaseUntil          DateTime?             @map("lease_until") @db.Timestamptz(6)
+  lastError           String?               @map("last_error") @db.VarChar(300)
+  processed           Int                   @default(0)
   // Consecutive failures of a kind retrying cannot fix (bill currency mismatch). Drives the retry backoff.
-  consecutiveFailures Int             @default(0) @map("consecutive_failures")
-  createdAt     DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime              @default(now()) @map("updated_at") @db.Timestamptz(6)
-  property      Property              @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction, map: "clock_sync_jobs_property_fk")
-  connection    IntegrationConnection @relation(fields: [tenantId, connectionId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction, map: "clock_sync_jobs_connection_fk")
-  requestedAt   DateTime?             @map("requested_at") @db.Timestamptz(6)
+  consecutiveFailures Int                   @default(0) @map("consecutive_failures")
+  createdAt           DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime              @default(now()) @map("updated_at") @db.Timestamptz(6)
+  property            Property              @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction, map: "clock_sync_jobs_property_fk")
+  connection          IntegrationConnection @relation(fields: [tenantId, connectionId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction, map: "clock_sync_jobs_connection_fk")
+  requestedAt         DateTime?             @map("requested_at") @db.Timestamptz(6)
 
   @@unique([tenantId, propertyId, connectionId, resource], map: "clock_sync_jobs_scope")
   @@index([tenantId, propertyId, connectionId, nextRunAt], map: "clock_sync_jobs_claim_idx")
@@ -2058,22 +2062,22 @@ model ExchangeRate {
 
 /// The hotel's own promo codes (a Clock bonus code is not stored here; Clock owns those).
 model GuestReview {
-  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId       String    @map("tenant_id") @db.Uuid
-  propertyId     String    @map("property_id") @db.Uuid
-  bookingId      String    @map("booking_id") @db.Uuid
-  tokenHash      String    @map("token_hash")
-  invitedAt      DateTime  @default(now()) @map("invited_at") @db.Timestamptz(6)
-  expiresAt      DateTime  @map("expires_at") @db.Timestamptz(6)
-  submittedAt    DateTime? @map("submitted_at") @db.Timestamptz(6)
-  overall        Int?      @db.SmallInt
-  cleanliness    Int?      @db.SmallInt
-  staff          Int?      @db.SmallInt
-  location       Int?      @db.SmallInt
-  comfort        Int?      @db.SmallInt
-  food           Int?      @db.SmallInt
-  valueForMoney  Int?      @map("value_for_money") @db.SmallInt
-  comment        String?
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  propertyId    String    @map("property_id") @db.Uuid
+  bookingId     String    @map("booking_id") @db.Uuid
+  tokenHash     String    @map("token_hash")
+  invitedAt     DateTime  @default(now()) @map("invited_at") @db.Timestamptz(6)
+  expiresAt     DateTime  @map("expires_at") @db.Timestamptz(6)
+  submittedAt   DateTime? @map("submitted_at") @db.Timestamptz(6)
+  overall       Int?      @db.SmallInt
+  cleanliness   Int?      @db.SmallInt
+  staff         Int?      @db.SmallInt
+  location      Int?      @db.SmallInt
+  comfort       Int?      @db.SmallInt
+  food          Int?      @db.SmallInt
+  valueForMoney Int?      @map("value_for_money") @db.SmallInt
+  comment       String?
 
   @@unique([tenantId, bookingId])
   @@unique([tenantId, tokenHash])
@@ -2107,37 +2111,37 @@ model PromoCode {
 
 // Restaurant venues, stage 1. A venue belongs to a tenant and may link to a hotel property.
 model Venue {
-  id               String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId         String                 @map("tenant_id") @db.Uuid
-  propertyId       String?                @map("property_id") @db.Uuid
-  name             String                 @db.VarChar(200)
-  slug             String                 @db.VarChar(100)
-  timezone         String?                @db.VarChar(100)
-  currency         String?                @db.Char(3)
-  address          String?                @db.VarChar(500)
-  phone            String?                @db.VarChar(100)
-  contactEmail     String?                @map("contact_email") @db.VarChar(320)
-  active           Boolean                @default(true)
-  description      String?                @db.VarChar(1000)
-  setupCompletedAt DateTime?              @map("setup_completed_at") @db.Timestamptz(6)
-  advanceBookingDays            Int       @default(60) @map("advance_booking_days")
-  maxOnlinePartySize            Int       @default(8) @map("max_online_party_size")
-  holdMinutes                   Int       @default(10) @map("hold_minutes")
-  lastBookingMinutesBeforeClose Int       @default(60) @map("last_booking_minutes_before_close")
-  diningMinutes                 Int       @default(90) @map("dining_minutes")
-  depositRulesVersion Int @default(0) @map("deposit_rules_version")
-  depositMode                   String    @default("none") @map("deposit_mode") @db.VarChar(10)
-  depositValue                  Decimal   @default(0) @map("deposit_value") @db.Decimal(12, 2)
-  depositMinParty               Int       @default(1) @map("deposit_min_party")
-  freeCancelHours               Int       @default(24) @map("free_cancel_hours")
-  createdAt        DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  organization     Organization           @relation(fields: [tenantId], references: [id], onDelete: Restrict, map: "venues_tenant_id_fkey")
-  property         Property?              @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict, map: "venues_property_fkey")
-  areas            VenueArea[]
-  staffAssignments VenueStaffAssignment[]
-  services         VenueService[]
-  reservations     VenueReservation[]
+  id                            String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId                      String                 @map("tenant_id") @db.Uuid
+  propertyId                    String?                @map("property_id") @db.Uuid
+  name                          String                 @db.VarChar(200)
+  slug                          String                 @db.VarChar(100)
+  timezone                      String?                @db.VarChar(100)
+  currency                      String?                @db.Char(3)
+  address                       String?                @db.VarChar(500)
+  phone                         String?                @db.VarChar(100)
+  contactEmail                  String?                @map("contact_email") @db.VarChar(320)
+  active                        Boolean                @default(true)
+  description                   String?                @db.VarChar(1000)
+  setupCompletedAt              DateTime?              @map("setup_completed_at") @db.Timestamptz(6)
+  advanceBookingDays            Int                    @default(60) @map("advance_booking_days")
+  maxOnlinePartySize            Int                    @default(8) @map("max_online_party_size")
+  holdMinutes                   Int                    @default(10) @map("hold_minutes")
+  lastBookingMinutesBeforeClose Int                    @default(60) @map("last_booking_minutes_before_close")
+  diningMinutes                 Int                    @default(90) @map("dining_minutes")
+  depositRulesVersion           Int                    @default(0) @map("deposit_rules_version")
+  depositMode                   String                 @default("none") @map("deposit_mode") @db.VarChar(10)
+  depositValue                  Decimal                @default(0) @map("deposit_value") @db.Decimal(12, 2)
+  depositMinParty               Int                    @default(1) @map("deposit_min_party")
+  freeCancelHours               Int                    @default(24) @map("free_cancel_hours")
+  createdAt                     DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                     DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  organization                  Organization           @relation(fields: [tenantId], references: [id], onDelete: Restrict, map: "venues_tenant_id_fkey")
+  property                      Property?              @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict, map: "venues_property_fkey")
+  areas                         VenueArea[]
+  staffAssignments              VenueStaffAssignment[]
+  services                      VenueService[]
+  reservations                  VenueReservation[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, slug])
@@ -2164,34 +2168,34 @@ model VenueService {
 }
 
 model VenueReservation {
-  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId        String    @map("tenant_id") @db.Uuid
-  venueId         String    @map("venue_id") @db.Uuid
-  requestKey String? @map("request_key") @db.Uuid
-  requestHash String? @map("request_hash")
-  depositTerms Json? @map("deposit_terms")
-  paymentHoldExpiresAt DateTime? @map("payment_hold_expires_at") @db.Timestamptz(6)
-  reference       String    @db.VarChar(12)
-  status          String    @default("confirmed") @db.VarChar(16)
-  startsAt        DateTime  @map("starts_at") @db.Timestamptz(6)
-  endsAt          DateTime  @map("ends_at") @db.Timestamptz(6)
-  partySize       Int       @map("party_size")
-  guestName       String    @map("guest_name") @db.VarChar(200)
-  guestPhone      String?   @map("guest_phone") @db.VarChar(50)
-  guestEmail      String?   @map("guest_email") @db.VarChar(320)
-  guestId         String?   @map("guest_id") @db.Uuid
-  notes           String?   @db.VarChar(1000)
-  source          String    @default("other") @db.VarChar(20)
-  createdByUserId String?   @map("created_by_user_id") @db.Uuid
-  seatedAt        DateTime? @map("seated_at") @db.Timestamptz(6)
-  completedAt     DateTime? @map("completed_at") @db.Timestamptz(6)
-  cancelledAt     DateTime? @map("cancelled_at") @db.Timestamptz(6)
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  venue           Venue     @relation(fields: [tenantId, venueId], references: [tenantId, id], onDelete: Restrict, map: "venue_reservations_venue_fkey")
-  guest           Guest?    @relation(fields: [tenantId, guestId], references: [tenantId, id], onDelete: Restrict, map: "venue_reservations_guest_fkey")
-  tables          VenueReservationTable[]
-  events          VenueReservationEvent[]
+  id                   String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId             String                  @map("tenant_id") @db.Uuid
+  venueId              String                  @map("venue_id") @db.Uuid
+  requestKey           String?                 @map("request_key") @db.Uuid
+  requestHash          String?                 @map("request_hash")
+  depositTerms         Json?                   @map("deposit_terms")
+  paymentHoldExpiresAt DateTime?               @map("payment_hold_expires_at") @db.Timestamptz(6)
+  reference            String                  @db.VarChar(12)
+  status               String                  @default("confirmed") @db.VarChar(16)
+  startsAt             DateTime                @map("starts_at") @db.Timestamptz(6)
+  endsAt               DateTime                @map("ends_at") @db.Timestamptz(6)
+  partySize            Int                     @map("party_size")
+  guestName            String                  @map("guest_name") @db.VarChar(200)
+  guestPhone           String?                 @map("guest_phone") @db.VarChar(50)
+  guestEmail           String?                 @map("guest_email") @db.VarChar(320)
+  guestId              String?                 @map("guest_id") @db.Uuid
+  notes                String?                 @db.VarChar(1000)
+  source               String                  @default("other") @db.VarChar(20)
+  createdByUserId      String?                 @map("created_by_user_id") @db.Uuid
+  seatedAt             DateTime?               @map("seated_at") @db.Timestamptz(6)
+  completedAt          DateTime?               @map("completed_at") @db.Timestamptz(6)
+  cancelledAt          DateTime?               @map("cancelled_at") @db.Timestamptz(6)
+  createdAt            DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime                @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  venue                Venue                   @relation(fields: [tenantId, venueId], references: [tenantId, id], onDelete: Restrict, map: "venue_reservations_venue_fkey")
+  guest                Guest?                  @relation(fields: [tenantId, guestId], references: [tenantId, id], onDelete: Restrict, map: "venue_reservations_guest_fkey")
+  tables               VenueReservationTable[]
+  events               VenueReservationEvent[]
 
   @@unique([tenantId, venueId, id], map: "venue_reservations_tenant_venue_id_key")
   @@unique([tenantId, reference], map: "venue_reservations_tenant_reference_key")
@@ -2248,28 +2252,28 @@ model VenueArea {
 }
 
 model VenueTable {
-  id              String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId        String                  @map("tenant_id") @db.Uuid
-  venueId         String                  @map("venue_id") @db.Uuid
-  areaId          String                  @map("area_id") @db.Uuid
-  label           String                  @db.VarChar(30)
-  minSeats        Int                     @map("min_seats")
-  maxSeats        Int                     @map("max_seats")
-  mapX            Int                     @default(0) @map("map_x")
-  mapY            Int                     @default(0) @map("map_y")
-  mapWidth        Int                     @default(80) @map("map_width")
-  mapHeight       Int                     @default(80) @map("map_height")
-  shape           String                  @default("square") @db.VarChar(10)
-  notes           String? @db.VarChar(1000)
-  features        String[] @default([])
-  onlineBookable  Boolean @default(true) @map("online_bookable")
-  priority        Int @default(0)
-  active          Boolean                 @default(true)
-  createdAt       DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime                @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  area            VenueArea               @relation(fields: [tenantId, venueId, areaId], references: [tenantId, venueId, id], onDelete: Restrict, map: "venue_tables_area_fkey")
-  combinationsAsA VenueTableCombination[] @relation("CombinationA")
-  combinationsAsB VenueTableCombination[] @relation("CombinationB")
+  id                String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String                  @map("tenant_id") @db.Uuid
+  venueId           String                  @map("venue_id") @db.Uuid
+  areaId            String                  @map("area_id") @db.Uuid
+  label             String                  @db.VarChar(30)
+  minSeats          Int                     @map("min_seats")
+  maxSeats          Int                     @map("max_seats")
+  mapX              Int                     @default(0) @map("map_x")
+  mapY              Int                     @default(0) @map("map_y")
+  mapWidth          Int                     @default(80) @map("map_width")
+  mapHeight         Int                     @default(80) @map("map_height")
+  shape             String                  @default("square") @db.VarChar(10)
+  notes             String?                 @db.VarChar(1000)
+  features          String[]                @default([])
+  onlineBookable    Boolean                 @default(true) @map("online_bookable")
+  priority          Int                     @default(0)
+  active            Boolean                 @default(true)
+  createdAt         DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime                @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  area              VenueArea               @relation(fields: [tenantId, venueId, areaId], references: [tenantId, venueId, id], onDelete: Restrict, map: "venue_tables_area_fkey")
+  combinationsAsA   VenueTableCombination[] @relation("CombinationA")
+  combinationsAsB   VenueTableCombination[] @relation("CombinationB")
   reservationTables VenueReservationTable[]
 
   @@unique([tenantId, venueId, id], map: "venue_tables_tenant_venue_id_key")
@@ -2310,50 +2314,55 @@ model VenueStaffAssignment {
 
 // Restaurant financial structures use scoped SQL and database-enforced foreign keys/RLS.
 model VenueDepositRule {
- id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
- tenantId String @map("tenant_id") @db.Uuid
- venueId String @map("venue_id") @db.Uuid
- serviceId String? @map("service_id") @db.Uuid
- areaId String? @map("area_id") @db.Uuid
- mode String
- amount Decimal @default(0) @db.Decimal(12,2)
- minParty Int @default(1) @map("min_party")
- freeCancelHours Int @default(24) @map("free_cancel_hours")
- @@map("venue_deposit_rules")
+  id              String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String  @map("tenant_id") @db.Uuid
+  venueId         String  @map("venue_id") @db.Uuid
+  serviceId       String? @map("service_id") @db.Uuid
+  areaId          String? @map("area_id") @db.Uuid
+  mode            String
+  amount          Decimal @default(0) @db.Decimal(12, 2)
+  minParty        Int     @default(1) @map("min_party")
+  freeCancelHours Int     @default(24) @map("free_cancel_hours")
+
+  @@map("venue_deposit_rules")
 }
+
 model VenueDepositOperation {
- lastPolledAt DateTime? @map("last_polled_at") @db.Timestamptz(6)
- id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
- tenantId String @map("tenant_id") @db.Uuid
- venueId String @map("venue_id") @db.Uuid
- propertyId String @map("property_id") @db.Uuid
- reservationId String @map("reservation_id") @db.Uuid
- kind String
- state String @default("PREPARING")
- amount Decimal @db.Decimal(12,2)
- currency String @db.Char(3)
- externalPaymentId String? @map("external_payment_id")
- checkoutUrl String? @map("checkout_url")
- createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
- @@unique([tenantId,venueId,reservationId,kind])
- @@index([state,createdAt],map:"venue_deposit_operations_pending_idx")
- @@map("venue_deposit_operations")
+  lastPolledAt      DateTime? @map("last_polled_at") @db.Timestamptz(6)
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String    @map("tenant_id") @db.Uuid
+  venueId           String    @map("venue_id") @db.Uuid
+  propertyId        String    @map("property_id") @db.Uuid
+  reservationId     String    @map("reservation_id") @db.Uuid
+  kind              String
+  state             String    @default("PREPARING")
+  amount            Decimal   @db.Decimal(12, 2)
+  currency          String    @db.Char(3)
+  externalPaymentId String?   @map("external_payment_id")
+  checkoutUrl       String?   @map("checkout_url")
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, venueId, reservationId, kind])
+  @@index([state, createdAt], map: "venue_deposit_operations_pending_idx")
+  @@map("venue_deposit_operations")
 }
+
 model VenueDepositReceipt {
- id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
- tenantId String @map("tenant_id") @db.Uuid
- venueId String @map("venue_id") @db.Uuid
- propertyId String @map("property_id") @db.Uuid
- reservationId String @map("reservation_id") @db.Uuid
- kind String
- provider String @default("pokpay")
- externalPaymentId String @map("external_payment_id")
- amount Decimal @db.Decimal(12,2)
- currency String @db.Char(3)
- requiresRefund Boolean @default(false) @map("requires_refund")
- createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
- @@unique([tenantId,provider,externalPaymentId,kind])
- @@map("venue_deposit_receipts")
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String   @map("tenant_id") @db.Uuid
+  venueId           String   @map("venue_id") @db.Uuid
+  propertyId        String   @map("property_id") @db.Uuid
+  reservationId     String   @map("reservation_id") @db.Uuid
+  kind              String
+  provider          String   @default("pokpay")
+  externalPaymentId String   @map("external_payment_id")
+  amount            Decimal  @db.Decimal(12, 2)
+  currency          String   @db.Char(3)
+  requiresRefund    Boolean  @default(false) @map("requires_refund")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, provider, externalPaymentId, kind])
+  @@map("venue_deposit_receipts")
 }
 
 /// ADR-0043: one saved, resumable flow per run (first use: a late PokPay payment is refunded automatically).
