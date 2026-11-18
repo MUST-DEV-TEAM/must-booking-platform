@@ -319,6 +319,25 @@ export class ClockBookingHydrationService {
           // Nothing for a person to do in two cases: a cancelled or zero-value reservation MUST never
           // held (no booking to protect, no amount to check), and a reservation that is cancelled on both
           // sides already (743 open items at Empire were of this kind, 2026-11-16). Anything live is raised.
+          // Clock sends no total at all for a cancelled booking. A booking MUST holds as live and that the hotel
+          // cancelled in Clock is cancelled here too: only its status changes, never its amount, currency, dates
+          // or rate plan (gap G-36). Without this the cancellation was never applied and no error was shown.
+          if (existing && mappedStatus === 'CANCELLED' && existing.status !== 'CANCELLED') {
+            await tx.$executeRaw`
+              UPDATE bookings SET status = 'CANCELLED'::"BookingStatus", pms_stay_status = ${detail.status.slice(0, 40)},
+                pms_source_updated_at = COALESCE(${sourceUpdatedAt}::timestamptz, pms_source_updated_at),
+                version = version + 1,
+                updated_at = CASE WHEN ${options.notify === false} THEN COALESCE(${options.notify === false ? providerTimestamp(detail.updated_at) : null}::timestamptz, updated_at) ELSE CURRENT_TIMESTAMP END
+              WHERE id = ${existing.id}::uuid AND tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+                AND status <> 'CANCELLED'`;
+            await tx.$executeRaw`UPDATE manual_review_items SET status='RESOLVED',resolved_at=now(),updated_at=now(),context=COALESCE(context,'{}'::jsonb)||'{"resolution":"The booking was cancelled in Clock and the cancellation was applied."}'::jsonb WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND category='UNKNOWN_RESULT' AND reference_type='clock_booking' AND reference_id=${String(detail.id)} AND status='OPEN'`;
+            if (ownership) await this.finalizeOwnedEvent(tx, tenantId, ownership, 'HYDRATED');
+            return {
+              outcome: 'updated',
+              bookingId: existing.id,
+              cancelledInPms: true,
+            };
+          }
           const cents = detail.total_booking_value?.cents;
           const neverHeld = !existing && (mappedStatus === 'CANCELLED' || !cents);
           const cancelledOnBothSides =
