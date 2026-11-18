@@ -22,7 +22,7 @@ import {
   ruleNights,
   type BookingRulePolicy,
 } from './booking-rules';
-import { isClockManagedProperty } from './clock-managed-property';
+import { enforcedRoomCapacity, isClockManagedProperty } from './clock-managed-property';
 import { BookingUpdateNotificationService } from '../mail/booking-update-notification.service';
 import { NOTIFICATION_UUID } from '../tenancy/notification-registry';
 type Context = { tenantId: string; propertyId: string; userId: string };
@@ -47,6 +47,7 @@ type Row = Dates & {
   refunded: string;
   roomTypeStatus: string;
   maxOccupancy: number;
+  capacityConfirmedAt: Date | null;
   roomActive: boolean | null;
 };
 const money = (n: bigint): string =>
@@ -251,7 +252,7 @@ export class BookingAmendService {
     await tx.$queryRaw`SELECT id FROM bookings WHERE tenant_id=${c.tenantId}::uuid AND property_id=${c.propertyId}::uuid AND id=${id}::uuid FOR UPDATE`;
     const rows = await tx.$queryRaw<
       Row[]
-    >`SELECT b.id,b.version,b.order_reference AS "orderReference",b.status::text,b.pms_stay_status AS "pmsStayStatus",b.room_type_id AS "roomTypeId",b.room_id AS "roomId",b.rate_plan_id AS "ratePlanId",b.starts_on::text AS "startsOn",b.ends_on::text AS "endsOn",b.total_amount::text AS total,b.external_booking_id AS "externalBookingId",b.adults,b.children,rp.currency,rt.status::text AS "roomTypeStatus",rt.max_occupancy AS "maxOccupancy",r.is_active AS "roomActive",
+    >`SELECT b.id,b.version,b.order_reference AS "orderReference",b.status::text,b.pms_stay_status AS "pmsStayStatus",b.room_type_id AS "roomTypeId",b.room_id AS "roomId",b.rate_plan_id AS "ratePlanId",b.starts_on::text AS "startsOn",b.ends_on::text AS "endsOn",b.total_amount::text AS total,b.external_booking_id AS "externalBookingId",b.adults,b.children,rp.currency,rt.status::text AS "roomTypeStatus",rt.max_occupancy AS "maxOccupancy",rt.capacity_confirmed_at AS "capacityConfirmedAt",r.is_active AS "roomActive",
   COALESCE((SELECT sum(amount) FROM payments WHERE tenant_id=b.tenant_id AND property_id=b.property_id AND booking_id=b.id AND kind='CHARGE' AND status IN ('PAID','LATE_AFTER_EXPIRY','succeeded')),0)::text AS paid,
   COALESCE((SELECT sum(amount) FROM payments WHERE tenant_id=b.tenant_id AND property_id=b.property_id AND booking_id=b.id AND kind='REFUND' AND status='REFUNDED'),0)::text AS refunded
   FROM bookings b JOIN rate_plans rp ON rp.tenant_id=b.tenant_id AND rp.property_id=b.property_id AND rp.id=b.rate_plan_id
@@ -297,9 +298,10 @@ export class BookingAmendService {
       restrictions,
       adults: row.adults,
       children: row.children,
-      maxOccupancy: (await isClockManagedProperty(tx, c.tenantId, c.propertyId))
-        ? undefined
-        : row.maxOccupancy,
+      maxOccupancy: enforcedRoomCapacity(
+        await isClockManagedProperty(tx, c.tenantId, c.propertyId),
+        row,
+      ),
       roomTypeStatus: row.roomTypeStatus,
       roomActive: row.roomId ? row.roomActive === true : undefined,
     });

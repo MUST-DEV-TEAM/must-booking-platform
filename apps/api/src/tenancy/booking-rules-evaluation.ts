@@ -10,7 +10,7 @@ import {
   type BookingRulePolicy,
   type RuleConflict,
 } from '../booking/booking-rules';
-import { isClockManagedProperty } from '../booking/clock-managed-property';
+import { enforcedRoomCapacity, isClockManagedProperty } from '../booking/clock-managed-property';
 import type { TenantDatabaseService } from './tenant-database.service';
 
 type AvailabilityCheck = (input: {
@@ -68,15 +68,22 @@ export async function evaluatePropertyBookingRules(
     }
     let roomType: { status: string; maxOccupancy?: number } | undefined;
     if (roomTypeId) {
-      const types = await tx.$queryRaw<Array<{ status: string; maxOccupancy: number }>>`
-        SELECT status::text AS status, max_occupancy AS "maxOccupancy" FROM room_types
+      const types = await tx.$queryRaw<
+        Array<{ status: string; maxOccupancy: number; capacityConfirmedAt: Date | null }>
+      >`
+        SELECT status::text AS status, max_occupancy AS "maxOccupancy",
+          capacity_confirmed_at AS "capacityConfirmedAt" FROM room_types
         WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND id = ${roomTypeId}::uuid
       `;
       if (!types[0]) throw new NotFoundException('Room type was not found.');
-      // Clock has no room-type capacity; its rates enforce guest limits when priced.
-      roomType = (await isClockManagedProperty(tx, tenantId, propertyId))
-        ? { ...types[0], maxOccupancy: undefined }
-        : types[0];
+      // Clock has no room-type capacity; it is enforced once the hotel confirmed it, and Clock's rates enforce theirs.
+      roomType = {
+        status: types[0].status,
+        maxOccupancy: enforcedRoomCapacity(
+          await isClockManagedProperty(tx, tenantId, propertyId),
+          types[0],
+        ),
+      };
     }
     let reservations: RuleConflict[] = [];
     let blocks: RuleConflict[] = [];

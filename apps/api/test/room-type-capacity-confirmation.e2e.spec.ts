@@ -5,6 +5,7 @@ import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { QuoteService } from '../src/booking/quote.service';
 import { ClockBackgroundSyncService } from '../src/integrations/clock/clock-background-sync.service';
 import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
 import { cleanupTenant } from './helpers/cleanup-tenant';
@@ -26,6 +27,9 @@ describe('room type capacity confirmation', () => {
   let tenantId: string;
   let propertyId: string;
   let userId: string;
+  let cookie: string;
+  let familySuiteId: string;
+  let doubleRoomId: string;
   let verificationToken = '';
   const email = `capacity-${randomUUID()}@example.test`;
   const mail: MailProvider = {
@@ -81,7 +85,7 @@ describe('room type capacity confirmation', () => {
     tenantId = signup.body.organization.id;
     propertyId = signup.body.property.id;
     userId = signup.body.user.id;
-    const cookie = signup.headers['set-cookie'][0];
+    cookie = signup.headers['set-cookie'][0];
     const propertyUrl = `/tenants/${tenantId}/properties/${propertyId}`;
     await request(app!.getHttpServer())
       .post('/auth/email-verification/confirm')
@@ -96,6 +100,8 @@ describe('room type capacity confirmation', () => {
         .expect(201);
     const confirmed = (await create('Family Suite')).body as { id: string };
     const unconfirmed = (await create('Double Room')).body as { id: string };
+    familySuiteId = confirmed.id;
+    doubleRoomId = unconfirmed.id;
 
     const save = (id: string, body: Record<string, unknown>) =>
       request(app!.getHttpServer())
@@ -178,5 +184,49 @@ describe('room type capacity confirmation', () => {
       new Map([[confirmed.id, [{ maxAdults: 5, maxChildren: 1 }]]]),
     );
     expect((await read())[1]).toMatchObject({ maxOccupancy: 6, confirmed: false });
+  });
+
+  it('enforces a Clock hotel room type capacity only once it is confirmed (task 40-4c)', async () => {
+    const connection = randomUUID();
+    await admin.$executeRaw`INSERT INTO integration_connections(id,tenant_id,kind,provider,name,encrypted_credentials) VALUES(${connection}::uuid,${tenantId}::uuid,'PMS','CLOCK_PMS','Fixture only','not-a-credential')`;
+    await admin.$executeRaw`INSERT INTO property_integration_connections(tenant_id,property_id,connection_id,kind,enabled) VALUES(${tenantId}::uuid,${propertyId}::uuid,${connection}::uuid,'PMS',true)`;
+    const propertyUrl = `/tenants/${tenantId}/properties/${propertyId}`;
+    const publish = (id: string, name: string, maxOccupancy: number, confirm?: boolean) =>
+      request(app!.getHttpServer())
+        .patch(`${propertyUrl}/room-types/${id}`)
+        .set('Cookie', cookie)
+        .send({
+          name,
+          maxOccupancy,
+          status: 'PUBLISHED',
+          ...(confirm === undefined ? {} : { capacityConfirmed: confirm }),
+        })
+        .expect(200);
+    await publish(familySuiteId, 'Family Suite', 2, true);
+    await publish(doubleRoomId, 'Double Room', 2);
+
+    const day = (offset: number) =>
+      new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+    const quotes = app!.get(QuoteService);
+    const stay = (roomTypeId: string, adults: number, children = 0) =>
+      quotes.enforceBookingRules(tenantId, propertyId, {
+        roomTypeId,
+        ratePlanId: randomUUID(),
+        startsOn: day(30),
+        endsOn: day(32),
+        adults,
+        children,
+        ...(children ? { childrenAges: Array.from({ length: children }, () => 8) } : {}),
+      });
+
+    // Confirmed at 2: two guests pass; a third, adult or child, is refused before any price is asked.
+    await expect(stay(familySuiteId, 2)).resolves.toBeUndefined();
+    await expect(stay(familySuiteId, 3)).rejects.toThrow(/at most 2 guests/);
+    await expect(stay(familySuiteId, 2, 1)).rejects.toThrow(/at most 2 guests/);
+    // Not confirmed: the saved number refuses no one, as before (Clock's rate limits still apply when priced).
+    await expect(stay(doubleRoomId, 9)).resolves.toBeUndefined();
+    // Unconfirming lifts the check again.
+    await publish(familySuiteId, 'Family Suite', 2, false);
+    await expect(stay(familySuiteId, 3)).resolves.toBeUndefined();
   });
 });
