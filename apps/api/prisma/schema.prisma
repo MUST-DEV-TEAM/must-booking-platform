@@ -233,6 +233,8 @@ model Property {
   receptionOpen24h                  Boolean                         @default(true) @map("reception_open_24h")
   receptionFrom                     String?                         @map("reception_from") @db.VarChar(5)
   receptionTo                       String?                         @map("reception_to") @db.VarChar(5)
+  onlineProfiles                    Json                            @default("{}") @map("online_profiles")
+  accentColour                      String?                         @map("accent_colour") @db.VarChar(7)
   maxGuestsPerBooking               Int?                            @map("max_guests_per_booking")
   maxRoomsPerBooking                Int?                            @map("max_rooms_per_booking")
   noShowRule                        String                          @default("flag_for_review") @map("no_show_rule") @db.VarChar(30)

@@ -15,6 +15,10 @@ import { Switch } from '../../components/ui/switch';
 import { TimeField } from '../../components/ui/time-field';
 import { PhoneInput, parsePhone, phoneToString } from '../../components/ui/phone-input';
 import {
+  ONLINE_PROFILE_SITES,
+  checkOnlineProfile,
+  contrastWithWhite,
+  darkerForWhiteText,
   checkProfileCombination,
   checkProfileField,
   normaliseProfileValue,
@@ -74,6 +78,8 @@ type BrandingDraft = {
   receptionFrom: string;
   receptionTo: string;
   website: string;
+  accentColour: string;
+  profiles: Record<string, string>;
 };
 const phoneKeys = ['phone', 'whatsappNumber', 'afterHoursPhone'] as const;
 const textKeys = [
@@ -87,6 +93,7 @@ const textKeys = [
   'receptionTo',
   'website',
   'brandColour',
+  'accentColour',
   'emailFooterText',
   'termsUrl',
 ] as const;
@@ -124,13 +131,18 @@ export function BrandingSettings({
     receptionFrom: property.receptionFrom ?? '',
     receptionTo: property.receptionTo ?? '',
     website: property.website ?? '',
+    accentColour: property.accentColour ?? '',
+    profiles: Object.fromEntries(
+      ONLINE_PROFILE_SITES.map((site) => [site.key, property.onlineProfiles?.[site.key] ?? '']),
+    ),
   };
   const [draft, setDraft] = useState(initial);
   const savedText = JSON.stringify(initial);
   useEffect(() => setDraft(JSON.parse(savedText) as BrandingDraft), [savedText]);
   const dirty = JSON.stringify(draft) !== savedText;
   useUnsavedChanges(canWrite && dirty);
-  const changed = (key: keyof BrandingDraft) => draft[key] !== initial[key];
+  const changed = (key: keyof BrandingDraft) =>
+    JSON.stringify(draft[key]) !== JSON.stringify(initial[key]);
   const combination = checkProfileCombination({
     whatsappSameAsPhone: draft.whatsappSameAsPhone,
     whatsappNumber: draft.whatsappNumber.trim() || null,
@@ -166,6 +178,13 @@ export function BrandingSettings({
       ? null
       : (shared('receptionTo', draft.receptionTo) ?? combination.receptionTo ?? null),
     website: shared('website', draft.website),
+    accentColour: shared('accentColour', draft.accentColour),
+    ...Object.fromEntries(
+      ONLINE_PROFILE_SITES.map((site) => [
+        `profile-${site.key}`,
+        checkOnlineProfile(site.key, (draft.profiles[site.key] ?? '').trim()),
+      ]),
+    ),
   };
   const labels = {
     supportEmail: 'Guest contact email',
@@ -175,6 +194,7 @@ export function BrandingSettings({
     afterHoursPhone: 'After-hours phone',
     website: 'Website address',
     brandColour: 'Brand colour',
+    accentColour: 'Accent colour',
     emailFooterText: 'Email footer text',
     termsUrl: 'Terms and conditions link',
   } as const;
@@ -191,13 +211,13 @@ export function BrandingSettings({
       hint={hint}
       error={shown(key)}
     >
-      {key === 'brandColour' ? (
+      {key === 'brandColour' || key === 'accentColour' ? (
         <ColourField
-          id="branding-brandColour"
-          value={draft.brandColour}
+          id={`branding-${key}`}
+          value={draft[key]}
           disabled={!canWrite}
-          invalid={!!errors.brandColour}
-          onChange={(brandColour) => setDraft({ ...draft, brandColour })}
+          invalid={!!errors[key]}
+          onChange={(colour) => setDraft({ ...draft, [key]: colour })}
         />
       ) : (phoneKeys as readonly string[]).includes(key) ? (
         <PhoneInput
@@ -237,6 +257,20 @@ export function BrandingSettings({
               canManage={canWrite && canManagePhotos}
             />
             {field('brandColour', 'Used for buttons and headings in emails, for example #224858.')}
+            {field('accentColour', 'Optional second colour for links and highlights.')}
+            {(
+              [
+                ['brandColour', 'Brand colour'],
+                ['accentColour', 'Accent colour'],
+              ] as const
+            ).map(([key, name]) =>
+              /^#[0-9a-f]{6}$/i.test(draft[key]) && contrastWithWhite(draft[key]) < 4.5 ? (
+                <p key={key} className="m-0 text-xs text-warning">
+                  White text is hard to read on the {name.toLowerCase()}. Try{' '}
+                  {darkerForWhiteText(draft[key])}.
+                </p>
+              ) : null,
+            )}
           </FormSection>
           <FormSection
             title="Guest contact"
@@ -305,6 +339,38 @@ export function BrandingSettings({
             {field('termsUrl', `${draft.termsUrl.length} characters`)}
           </FormSection>
           <FormSection
+            title="Online profiles"
+            description="The hotel's pages on other sites. Full https addresses on that site only. Leave empty to leave one out."
+          >
+            {ONLINE_PROFILE_SITES.map((site) => (
+              <FormField
+                key={site.key}
+                label={site.label}
+                htmlFor={`branding-profile-${site.key}`}
+                error={
+                  JSON.stringify(draft.profiles[site.key]) !==
+                  JSON.stringify(initial.profiles[site.key])
+                    ? errors[`profile-${site.key}`]
+                    : null
+                }
+              >
+                <Input
+                  id={`branding-profile-${site.key}`}
+                  disabled={!canWrite}
+                  inputMode="url"
+                  placeholder="https://"
+                  value={draft.profiles[site.key] ?? ''}
+                  onChange={(e) =>
+                    setDraft({
+                      ...draft,
+                      profiles: { ...draft.profiles, [site.key]: e.target.value },
+                    })
+                  }
+                />
+              </FormField>
+            ))}
+          </FormSection>
+          <FormSection
             title="Email footer"
             description="A short line at the bottom of every email, such as the hotel address."
           >
@@ -335,6 +401,12 @@ export function BrandingSettings({
               if (draft[key] !== initial[key])
                 update[key] =
                   normaliseProfileValue(key as ProfileFieldKey, draft[key].trim()) ?? null;
+            if (changed('profiles'))
+              update.onlineProfiles = Object.fromEntries(
+                Object.entries(draft.profiles)
+                  .map(([site, url]) => [site, url.trim()])
+                  .filter(([, url]) => url),
+              );
             for (const key of ['whatsappSameAsPhone', 'receptionOpen24h'] as const)
               if (draft[key] !== initial[key]) update[key] = draft[key];
             onSave(update as Partial<Property>);

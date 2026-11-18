@@ -48,7 +48,8 @@ export type ProfileFieldKey =
   | 'receptionTo'
   | 'website'
   | 'reservationsEmail'
-  | 'supportEmail';
+  | 'supportEmail'
+  | 'accentColour';
 
 export const PROFILE_FIELD_KEYS: readonly ProfileFieldKey[] = [
   'chainName',
@@ -81,6 +82,7 @@ export const PROFILE_FIELD_KEYS: readonly ProfileFieldKey[] = [
   'website',
   'reservationsEmail',
   'supportEmail',
+  'accentColour',
 ];
 
 /** ISO 639-1 language codes a hotel can say it speaks (G-59). */
@@ -345,6 +347,7 @@ export function normaliseProfileValue(key: ProfileFieldKey, raw: unknown): unkno
   if (isPhoneKey(key) && value) value = toE164(value);
   if (key === 'website' || key === 'reservationsEmail' || key === 'supportEmail')
     value = value.replace(/\s+/g, '');
+  if (key === 'accentColour') value = value.toLowerCase();
   if (key === 'latitude' || key === 'longitude' || key === 'nearestAirportKm')
     return value === '' ? null : Number(value.replace(',', '.'));
   return value === '' ? null : value;
@@ -406,6 +409,8 @@ export function checkProfileField(
   }
   if (key === 'receptionFrom' || key === 'receptionTo')
     return /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? null : 'Use a time such as 08:00.';
+  if (key === 'accentColour')
+    return /^#[0-9a-f]{6}$/.test(value) ? null : 'Enter a colour such as #224858.';
   if (key === 'supportEmail' || key === 'reservationsEmail')
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
       ? null
@@ -480,4 +485,94 @@ export function checkProfileCombination(values: {
       out.receptionTo = 'Closing time must differ from opening time, or choose "Open 24 hours".';
   }
   return out;
+}
+
+/** The hotel's pages on other sites. Each address must be https and belong to that site. */
+export const ONLINE_PROFILE_SITES = [
+  {
+    key: 'google',
+    label: 'Google Business Profile',
+    domains: ['google.com', 'google.al', 'g.page', 'goo.gl'],
+  },
+  {
+    key: 'tripadvisor',
+    label: 'Tripadvisor',
+    domains: [
+      'tripadvisor.com',
+      'tripadvisor.co.uk',
+      'tripadvisor.it',
+      'tripadvisor.de',
+      'tripadvisor.fr',
+      'tripadvisor.es',
+    ],
+  },
+  { key: 'booking_com', label: 'Booking.com', domains: ['booking.com'] },
+  { key: 'facebook', label: 'Facebook', domains: ['facebook.com', 'fb.com', 'fb.me'] },
+  { key: 'instagram', label: 'Instagram', domains: ['instagram.com'] },
+  { key: 'tiktok', label: 'TikTok', domains: ['tiktok.com'] },
+  { key: 'youtube', label: 'YouTube', domains: ['youtube.com', 'youtu.be'] },
+] as const;
+export type OnlineProfileKey = (typeof ONLINE_PROFILE_SITES)[number]['key'];
+export type OnlineProfiles = Partial<Record<OnlineProfileKey, string>>;
+
+/** The message for one profile address, or null when it is fine (empty is fine). */
+export function checkOnlineProfile(key: OnlineProfileKey, value: string): string | null {
+  const site = ONLINE_PROFILE_SITES.find((item) => item.key === key);
+  if (!site) return 'Unknown site.';
+  if (!value) return null;
+  if (value.length > 500) return 'Keep the address to 500 characters or fewer.';
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase().replace(/^www\./, '');
+    if (url.protocol !== 'https:' || url.username || url.password) throw new Error();
+    if (!site.domains.some((domain) => host === domain || host.endsWith('.' + domain)))
+      return `This is not a ${site.label} address. Use a link on ${site.domains[0]}.`;
+  } catch {
+    return 'Enter a full https address.';
+  }
+  return null;
+}
+
+/** Cleans a whole set of profiles from a form; returns the messages by site instead of throwing. */
+export function normaliseOnlineProfiles(raw: unknown): {
+  value: OnlineProfiles;
+  errors: Partial<Record<OnlineProfileKey, string>>;
+} {
+  const value: OnlineProfiles = {};
+  const errors: Partial<Record<OnlineProfileKey, string>> = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw))
+    return { value, errors: { google: 'Send the profiles as an object.' } };
+  for (const [key, entry] of Object.entries(raw)) {
+    const site = ONLINE_PROFILE_SITES.find((item) => item.key === key);
+    if (!site) {
+      errors.google = `Unknown site: ${key}.`;
+      continue;
+    }
+    if (entry === null || entry === undefined || entry === '') continue;
+    const text = typeof entry === 'string' ? entry.trim() : '';
+    const message = text ? checkOnlineProfile(site.key, text) : 'Enter a full https address.';
+    if (message) errors[site.key] = message;
+    else value[site.key] = text;
+  }
+  return { value, errors };
+}
+
+/** How readable white text is on a colour (WCAG contrast ratio), and a darker colour that passes. */
+export function contrastWithWhite(hex: string): number {
+  const channel = (index: number) => {
+    const v = parseInt(hex.slice(1 + index * 2, 3 + index * 2), 16) / 255;
+    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  };
+  const luminance = 0.2126 * channel(0) + 0.7152 * channel(1) + 0.0722 * channel(2);
+  return 1.05 / (luminance + 0.05);
+}
+export function darkerForWhiteText(hex: string): string {
+  let colour = hex;
+  for (let i = 0; i < 40 && contrastWithWhite(colour) < 4.5; i += 1) {
+    const parts = [0, 1, 2].map((index) =>
+      Math.max(0, Math.floor(parseInt(colour.slice(1 + index * 2, 3 + index * 2), 16) * 0.92)),
+    );
+    colour = '#' + parts.map((part) => part.toString(16).padStart(2, '0')).join('');
+  }
+  return colour;
 }

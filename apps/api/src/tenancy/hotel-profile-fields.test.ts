@@ -190,4 +190,33 @@ describe('hotel profile fields', () => {
       ),
     ).not.toThrow();
   });
+
+  it('keeps online profiles on their own site and normalises the accent colour', () => {
+    expect(
+      hotelInput({
+        onlineProfiles: {
+          facebook: ' https://www.facebook.com/demo.beach ',
+          instagram: '',
+          youtube: 'https://youtu.be/abc',
+        },
+        accentColour: '#AA5500',
+      }),
+    ).toEqual({
+      onlineProfiles: {
+        facebook: 'https://www.facebook.com/demo.beach',
+        youtube: 'https://youtu.be/abc',
+      },
+      accentColour: '#aa5500',
+    });
+    expect(() =>
+      hotelInput({ onlineProfiles: { facebook: 'https://evil.com/facebook.com' } }),
+    ).toThrow('not a Facebook address');
+    expect(() => hotelInput({ onlineProfiles: { facebook: 'http://facebook.com/x' } })).toThrow(
+      'https',
+    );
+    expect(() => hotelInput({ onlineProfiles: { myspace: 'https://myspace.com' } })).toThrow(
+      'Unknown',
+    );
+    expect(() => hotelInput({ accentColour: 'red' })).toThrow('colour');
+  });
 });
