@@ -1,3 +1,4 @@
+import { isClockManagedProperty } from '../booking/clock-managed-property';
 import { pricingContext, pricingFacts } from './pricing.repository';
 import { pricingHealth } from './pricing-health';
 import {
@@ -29,6 +30,12 @@ type RoomType = {
   mainImageUrl: string | null;
   galleryImageUrls: string[];
   maxOccupancy: number;
+  /** When the hotel confirmed maxOccupancy (task 40-4b); null while it is not confirmed. */
+  capacityConfirmedAt?: Date | null;
+  /** Largest guest limit on this room type's Clock rates; a suggestion, null without one. */
+  clockRateCapacity?: number | null;
+  /** Most guests in one booking of this room type in the last 12 months; a suggestion. */
+  mostBookedGuests?: number | null;
   roomCount: number;
   status: 'DRAFT' | 'PUBLISHED' | 'HIDDEN';
   categoryId: string | null;
@@ -95,6 +102,12 @@ export class RoomTypesService {
       const roomTypes = await tx.$queryRaw<RoomTypeListRow[]>`
         SELECT rt.id, rt.name, rt.description, rt.amenities_intro AS "amenitiesIntro", rt.rules,
           rt.max_occupancy AS "maxOccupancy", rt.status::text AS status,
+          rt.capacity_confirmed_at AS "capacityConfirmedAt", rt.clock_rate_capacity AS "clockRateCapacity",
+          (SELECT max(b.adults + b.children)::int FROM bookings b
+            WHERE b.tenant_id = rt.tenant_id AND b.property_id = rt.property_id AND b.room_type_id = rt.id
+              AND b.starts_on >= current_date - interval '12 months'
+              AND b.status NOT IN ('DRAFT', 'QUOTED', 'INVENTORY_REVALIDATING', 'AVAILABILITY_FAILED',
+                'PAYMENT_FAILED', 'PMS_REJECTED', 'EXPIRED')) AS "mostBookedGuests",
           rt.category_id AS "categoryId", category.name AS "categoryName", count(r.id)::int AS "roomCount",
           (NULLIF(BTRIM(rt.name), '') IS NOT NULL AND NULLIF(BTRIM(rt.description), '') IS NOT NULL) AS "hasBasicInfo",
           (rt.max_occupancy > 0) AS "hasOccupancy",
@@ -154,6 +167,8 @@ export class RoomTypesService {
         roomTypeImages.push(image);
         imagesByRoomType.set(image.roomTypeId, roomTypeImages);
       }
+      // Clock holds no room-type capacity, so a Clock hotel's capacity counts as set only once the hotel confirmed it.
+      const clockManaged = await isClockManagedProperty(tx, tenantId, propertyId);
       const pricing = await pricingContext(tx, tenantId, propertyId);
       const priceReadiness = pricing.readOnly
         ? null
@@ -166,6 +181,7 @@ export class RoomTypesService {
       return roomTypes.map((roomType) => {
         const readiness = this.readiness({
           ...roomType,
+          hasOccupancy: roomType.hasOccupancy && (!clockManaged || !!roomType.capacityConfirmedAt),
           hasRateRule: priceReadiness ? priceReadiness[roomType.id] === true : roomType.hasRateRule,
         });
         const houseRules = resolveEffectiveHouseRules(null, roomType.rules);
@@ -268,12 +284,19 @@ export class RoomTypesService {
             amenities_intro = ${input.amenitiesIntro},
             rules = CASE WHEN ${input.hasRules} THEN ${input.rules} ELSE rules END,
             max_occupancy = ${input.maxOccupancy},
+            capacity_confirmed_at = CASE
+              WHEN ${input.capacityConfirmed === true} THEN COALESCE(
+                CASE WHEN max_occupancy = ${input.maxOccupancy} THEN capacity_confirmed_at END,
+                CURRENT_TIMESTAMP)
+              WHEN ${input.capacityConfirmed === false} THEN NULL
+              ELSE capacity_confirmed_at END,
             category_id = CASE WHEN ${input.categoryId !== undefined} THEN ${input.categoryId ?? null}::uuid ELSE category_id END,
             status = COALESCE(${input.status ?? null}::"RoomTypeStatus", status),
             updated_at = CURRENT_TIMESTAMP
           WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND id = ${roomTypeId}::uuid
           RETURNING id, name, description, amenities_intro AS "amenitiesIntro", rules, main_image_url AS "mainImageUrl",
             gallery_image_urls AS "galleryImageUrls", max_occupancy AS "maxOccupancy", status::text AS status,
+            capacity_confirmed_at AS "capacityConfirmedAt", clock_rate_capacity AS "clockRateCapacity",
             category_id AS "categoryId", NULL::text AS "categoryName"
         `;
         if (!rows[0]) throw new NotFoundException('Room type not found.');
@@ -284,6 +307,14 @@ export class RoomTypesService {
           action: 'room_type.updated',
           targetType: 'room_type',
           targetId: roomTypeId,
+          ...(input.capacityConfirmed !== undefined
+            ? {
+                details: {
+                  maxOccupancy: input.maxOccupancy,
+                  capacityConfirmed: input.capacityConfirmed,
+                },
+              }
+            : {}),
         });
         if (input.status && input.status !== currentRows[0].status) {
           await this.audit.recordInTransaction(tx, {
@@ -993,6 +1024,7 @@ export class RoomTypesService {
     maxOccupancy: number;
     categoryId?: string | null;
     status?: 'DRAFT' | 'PUBLISHED' | 'HIDDEN';
+    capacityConfirmed?: boolean;
   } {
     const v = (body ?? {}) as Record<string, unknown>;
     if (
@@ -1030,6 +1062,8 @@ export class RoomTypesService {
     if (name.length > 200) throw new BadRequestException('name must be at most 200 characters.');
     if (!Number.isInteger(maxOccupancy) || maxOccupancy <= 0)
       throw new BadRequestException('maxOccupancy must be a positive integer.');
+    if (v.capacityConfirmed !== undefined && typeof v.capacityConfirmed !== 'boolean')
+      throw new BadRequestException('capacityConfirmed must be true or false.');
     return {
       name,
       description,
@@ -1039,6 +1073,9 @@ export class RoomTypesService {
       maxOccupancy,
       ...(categoryId !== undefined ? { categoryId } : {}),
       ...(status ? { status } : {}),
+      ...(typeof v.capacityConfirmed === 'boolean'
+        ? { capacityConfirmed: v.capacityConfirmed }
+        : {}),
     };
   }
 

@@ -32,6 +32,10 @@ export type RoomType = {
   mainImageUrl: string | null;
   galleryImageUrls: string[];
   maxOccupancy: number;
+  /** Task 40-4b: when the hotel confirmed maxOccupancy, and the two suggestions shown beside it. */
+  capacityConfirmedAt?: string | null;
+  clockRateCapacity?: number | null;
+  mostBookedGuests?: number | null;
   status: 'DRAFT' | 'PUBLISHED' | 'HIDDEN';
   categoryId?: string | null;
   categoryName?: string | null;
@@ -94,6 +98,8 @@ export type RoomTypeForm = {
   maxOccupancy: string;
   status: 'DRAFT' | 'PUBLISHED' | 'HIDDEN';
   categoryId: string;
+  /** Sent only for a Clock hotel's room type, where the hotel confirms the capacity Clock does not hold. */
+  capacityConfirmed?: boolean;
 };
 export type RoomForm = {
   name: string;
