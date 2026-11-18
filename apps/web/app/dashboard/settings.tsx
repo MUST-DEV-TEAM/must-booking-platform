@@ -1,19 +1,22 @@
 'use client';
 
-import { Card, Heading, Stack, Text } from '@must/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { type ReactNode, useState } from 'react';
 import { BrandingSettings, PaymentSettings, WebsiteSettings } from './settings-connection-forms';
+import { Button } from '../../components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
+import { ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
 import { UnsavedChangesBoundary } from '../../components/ui/unsaved-changes';
 import { DisplayCurrenciesSettings } from './display-currencies-settings';
 import { IntegrationSettings } from './integration-settings';
 import { toast } from 'sonner';
 import { CheckInOutSettings, BookingRulesSettings, GeneralSettings } from './settings-forms';
-import { settingsAreaHref } from './settings-hub';
-import { settingsAreas, type Property, type SettingsArea } from './settings-areas';
+import { type Property } from './settings-areas';
+import { type SettingsTab } from './settings-registry';
 
 export { isSettingsArea, settingsAreas, type SettingsArea } from './settings-areas';
 export { SettingsHub } from './settings-hub';
+export { SettingsFrame } from './settings-frame';
 
 type Connection = {
   id: string;
@@ -29,13 +32,14 @@ function dashboardSectionHref(tenantId: string, propertyId: string, section: str
   return `/dashboard/${tenantId}?propertyId=${encodeURIComponent(propertyId)}&section=${section}`;
 }
 
+/** Shows its form on its tab; with no tab (tests, embedding) every form is shown. */
 function SettingsAreaPanel({
   area,
   activeArea,
   children,
 }: {
-  area: SettingsArea;
-  activeArea?: SettingsArea;
+  area: SettingsTab;
+  activeArea?: SettingsTab;
   children: ReactNode;
 }) {
   return !activeArea || activeArea === area ? children : null;
@@ -51,7 +55,7 @@ export function DashboardSettings({
 }: {
   tenantId: string;
   propertyId: string;
-  settingsArea?: SettingsArea;
+  settingsArea?: SettingsTab;
   canWrite?: boolean;
   canManagePhotos?: boolean;
   onPropertySaved?: (property: Property) => void;
@@ -192,49 +196,25 @@ export function DashboardSettings({
     }
   }
 
-  if (settingsQuery.isPending)
-    return (
-      <section aria-label="Loading settings">
-        <Text>Loading settings…</Text>
-      </section>
-    );
   if (settingsQuery.isError)
     return (
-      <Card>
-        <Text>{settingsQuery.error.message}</Text>
-        <button className="must-button" type="button" onClick={() => void settingsQuery.refetch()}>
-          Retry
-        </button>
-      </Card>
+      <ErrorPanel
+        title="Settings are unavailable"
+        description={settingsQuery.error.message}
+        onRetry={() => void settingsQuery.refetch()}
+      />
     );
-  if (!property)
+  if (settingsQuery.isPending || !property)
     return (
       <section aria-label="Loading settings">
-        <Text>Loading settings…</Text>
+        <ListSkeleton rows={4} />
       </section>
     );
 
   return (
     <UnsavedChangesBoundary>
-      <Stack gap="lg">
-        {settingsArea ? (
-          <div className="flex flex-col gap-1">
-            <a
-              className="w-fit text-sm font-semibold text-muted-foreground no-underline hover:underline"
-              href={settingsAreaHref(tenantId, propertyId)}
-            >
-              ← Back to Settings overview
-            </a>
-            <h1 className="m-0 text-2xl font-extrabold tracking-tight">
-              {settingsAreas.find((area) => area.key === settingsArea)?.label ?? 'Settings'}
-            </h1>
-            <p className="m-0 text-muted-foreground">
-              {settingsAreas.find((area) => area.key === settingsArea)?.description}
-            </p>
-          </div>
-        ) : null}
-
-        <SettingsAreaPanel activeArea={settingsArea} area="general">
+      <div className="flex flex-col gap-6">
+        <SettingsAreaPanel activeArea={settingsArea} area="profile">
           <GeneralSettings
             canWrite={canWrite}
             property={property}
@@ -256,7 +236,7 @@ export function DashboardSettings({
             onSave={(update) => void save(update)}
           />
         </SettingsAreaPanel>
-        <SettingsAreaPanel activeArea={settingsArea} area="check-in-out">
+        <SettingsAreaPanel activeArea={settingsArea} area="policies">
           <CheckInOutSettings
             canWrite={canWrite}
             property={property}
@@ -264,7 +244,7 @@ export function DashboardSettings({
             onSave={(update) => void save(update)}
           />
         </SettingsAreaPanel>
-        <SettingsAreaPanel activeArea={settingsArea} area="branding">
+        <SettingsAreaPanel activeArea={settingsArea} area="contact-brand">
           <BrandingSettings
             property={property}
             tenantId={tenantId}
@@ -277,7 +257,7 @@ export function DashboardSettings({
         <SettingsAreaPanel activeArea={settingsArea} area="integrations">
           <IntegrationSettings tenantId={tenantId} propertyId={propertyId} canWrite={canWrite} />
         </SettingsAreaPanel>
-        <SettingsAreaPanel activeArea={settingsArea} area="payments">
+        <SettingsAreaPanel activeArea={settingsArea} area="payment-methods">
           <PaymentSettings
             property={property}
             canWrite={canWrite}
@@ -310,7 +290,7 @@ export function DashboardSettings({
             operationsHref={dashboardSectionHref(tenantId, propertyId, 'payments')}
           />
         </SettingsAreaPanel>
-        <SettingsAreaPanel activeArea={settingsArea} area="managed-pages">
+        <SettingsAreaPanel activeArea={settingsArea} area="integrations">
           <WebsiteSettings
             property={property}
             canWrite={canWrite}
@@ -324,22 +304,22 @@ export function DashboardSettings({
           />
         </SettingsAreaPanel>
 
-        <SettingsAreaPanel activeArea={settingsArea} area="billing">
+        <SettingsAreaPanel activeArea={settingsArea} area="plan-usage">
           <Card>
-            <Stack gap="md">
-              <Heading level={2}>Billing account</Heading>
-              <Text tone="secondary">Current plan: {planName ?? 'Loading…'}</Text>
-              <button
-                className="must-button must-button--secondary"
-                disabled
-                title="Platform billing is not available yet"
-              >
+            <CardHeader>
+              <CardTitle>Billing account</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col items-start gap-3">
+              <p className="m-0 text-sm text-muted-foreground">
+                Current plan: {planName ?? 'Loading…'}
+              </p>
+              <Button variant="outline" disabled title="Platform billing is not available yet">
                 Platform billing is not available yet
-              </button>
-            </Stack>
+              </Button>
+            </CardContent>
           </Card>
         </SettingsAreaPanel>
-      </Stack>
+      </div>
     </UnsavedChangesBoundary>
   );
 }

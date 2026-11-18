@@ -4,7 +4,8 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-import { DashboardSettings, SettingsHub, isSettingsArea, type SettingsArea } from './settings';
+import { DashboardSettings, SettingsHub } from './settings';
+import { resolveSettingsTab, type SettingsTab } from './settings-registry';
 import { DashboardQueryProvider } from './query-provider';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -33,7 +34,7 @@ let property = {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('DashboardSettings', () => {
-  it('renders a hub with the real status of every implemented settings area', async () => {
+  it('renders the readiness check with links to the new tabs', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
@@ -62,54 +63,39 @@ describe('DashboardSettings', () => {
         await new Promise((resolve) => window.setTimeout(resolve, 30));
       });
     const text = container.textContent ?? '';
-    for (const area of [
-      'General',
+    for (const step of [
+      'Hotel identity',
       'Booking rules',
-      'Check-in & check-out',
-      'Payments',
-      'Branding',
-      'Emails',
+      'Check-in and check-out times',
+      'Payment method',
       'Website connection',
-      'Billing account',
     ])
-      expect(text).toContain(area);
-    for (const area of [
-      'Staff & Access',
-      'Notifications & Emails',
-      'Provider',
-      'Diagnostics & Maintenance',
-      'Dangerous Reset',
-    ])
-      expect(text).not.toContain(area);
-    for (const area of [
-      'general',
-      'booking-rules',
-      'check-in-out',
-      'payments',
-      'branding',
-      'managed-pages',
-      'billing',
-    ])
+      expect(text).toContain(step);
+    for (const tab of ['profile', 'booking-rules', 'policies', 'payment-methods', 'integrations'])
       expect(
         container.querySelector(
-          `a[href="/dashboard/t?propertyId=p&section=settings&settingsArea=${area}"]`,
+          `a[href="/dashboard/t?propertyId=p&section=settings&settingsArea=${tab}"]`,
         ),
       ).not.toBeNull();
-    expect(container.querySelector('a[href*="settingsArea=booking-mode"]')).toBeNull();
-    // Real status, not decoration: the demo hotel has no support email and no website yet.
+    expect(container.querySelector('a[href*="settingsArea=general"]')).toBeNull();
+    // Real status, not decoration: the demo hotel has no website yet.
     expect(text).toContain('Ready to take bookings');
-    expect(text).toContain('Guests have no support email in booking emails.');
     expect(text).toContain('The hotel website is not connected yet.');
-    expect(text).toContain('Plan: Free.');
-    expect(isSettingsArea('general')).toBe(true);
-    expect(isSettingsArea('check-in-out')).toBe(true);
-    expect(isSettingsArea('booking-mode')).toBe(false);
-    expect(isSettingsArea('dangerous-reset')).toBe(false);
+    // Old area names from saved links land on their new tab; unknown and unbuilt ones on the overview.
+    expect(resolveSettingsTab('general')).toBe('profile');
+    expect(resolveSettingsTab('check-in-out')).toBe('policies');
+    expect(resolveSettingsTab('payments')).toBe('payment-methods');
+    expect(resolveSettingsTab('managed-pages')).toBe('integrations');
+    expect(resolveSettingsTab('billing')).toBe('plan-usage');
+    expect(resolveSettingsTab('email')).toBe('emails');
+    expect(resolveSettingsTab('booking-mode')).toBe('overview');
+    expect(resolveSettingsTab('taxes-fees')).toBe('overview');
+    expect(resolveSettingsTab(null)).toBe('overview');
     await act(async () => root.unmount());
     container.remove();
   });
 
-  it('shows only the selected area with a link back to the Settings hub', async () => {
+  it('shows only the forms of the selected tab', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
@@ -122,12 +108,8 @@ describe('DashboardSettings', () => {
         return new Response(JSON.stringify([]));
       }),
     );
-    const { container, root } = await mount('general');
+    const { container, root } = await mount('profile');
 
-    expect(container.textContent).toContain('Back to Settings overview');
-    expect(
-      container.querySelector('a[href="/dashboard/t?propertyId=p&section=settings"]'),
-    ).not.toBeNull();
     expect(container.textContent).toContain('Hotel identity');
     expect(container.textContent).not.toContain('Email branding');
     expect(container.textContent).not.toContain('Payment methods');
@@ -168,8 +150,8 @@ describe('DashboardSettings', () => {
   });
 
   it.each([
-    ['payments', 'Payment methods', 'Email branding'],
-    ['branding', 'Logo and colour', 'Payment methods'],
+    ['payment-methods', 'Payment methods', 'Email branding'],
+    ['contact-brand', 'Logo and colour', 'Payment methods'],
   ] as const)(
     'renders the %s Settings sub-view',
     async (settingsArea, visiblePanel, hiddenPanel) => {
@@ -189,8 +171,7 @@ describe('DashboardSettings', () => {
 
       expect(container.textContent).toContain(visiblePanel);
       expect(container.textContent).not.toContain(hiddenPanel);
-      expect(container.textContent).toContain('Back to Settings overview');
-      if (settingsArea === 'payments') {
+      if (settingsArea === 'payment-methods') {
         expect(container.textContent).toContain('Open payment operations');
         expect(
           container.querySelector('a[href="/dashboard/t?propertyId=p&section=payments"]'),
@@ -210,7 +191,7 @@ describe('DashboardSettings', () => {
     expect(container.textContent).toContain('Unable to load property settings.');
     expect(
       Array.from(container.querySelectorAll('button')).some(
-        (button) => button.textContent === 'Retry',
+        (button) => button.textContent === 'Try again',
       ),
     ).toBe(true);
     await act(async () => root.unmount());
@@ -229,14 +210,13 @@ describe('DashboardSettings', () => {
         return new Response(JSON.stringify([]));
       }),
     );
-    const { container, root } = await mount('managed-pages');
+    const { container, root } = await mount('integrations');
 
     expect(container.textContent).toContain('Website connection');
     expect(container.textContent).toContain('Public website origin');
     expect(container.textContent).toContain('Generate connection code');
     expect(container.textContent).not.toContain('Hotel identity');
     expect(container.textContent).not.toContain('Payment methods');
-    expect(container.textContent).toContain('Back to Settings overview');
 
     await act(async () => root.unmount());
   });
@@ -254,14 +234,13 @@ describe('DashboardSettings', () => {
         return new Response(JSON.stringify([]));
       }),
     );
-    const { container, root } = await mount('billing');
+    const { container, root } = await mount('plan-usage');
 
     expect(container.textContent).toContain('Billing account');
     expect(container.textContent).toContain('Current plan: Free');
     expect(container.textContent).toContain('Platform billing is not available yet');
     expect(container.textContent).not.toContain('Milestone 13');
     expect(container.textContent).not.toContain('Payment methods');
-    expect(container.textContent).toContain('Back to Settings overview');
 
     await act(async () => root.unmount());
   });
@@ -371,7 +350,7 @@ describe('DashboardSettings', () => {
     await act(async () => root.unmount());
   });
 
-  it.each(['payments', 'branding', 'managed-pages'] as const)(
+  it.each(['payment-methods', 'contact-brand', 'integrations'] as const)(
     'shows %s values without save or pairing actions for a read-only viewer',
     async (area) => {
       vi.stubGlobal(
@@ -415,7 +394,7 @@ describe('DashboardSettings', () => {
           ),
       ),
     );
-    const { container, root } = await mount('branding');
+    const { container, root } = await mount('contact-brand');
     expect(container.querySelector('[aria-label="Unsaved changes"]')).toBeNull();
     await value(container.querySelector('#branding-supportEmail')!, 'bad-email');
     await value(container.querySelector('#branding-phone')!, 'abc');
@@ -454,7 +433,7 @@ describe('DashboardSettings', () => {
         ),
     );
     vi.stubGlobal('fetch', fetch);
-    const { container, root } = await mount('payments');
+    const { container, root } = await mount('payment-methods');
     await act(async () =>
       (container.querySelector('#payment-payAtHotel') as HTMLButtonElement).click(),
     );
@@ -498,7 +477,7 @@ describe('DashboardSettings', () => {
     });
     property = { ...property, wordpressConnectedAt: '2026-10-01T12:00:00Z' };
     vi.stubGlobal('fetch', fetch);
-    const { container, root } = await mount('managed-pages');
+    const { container, root } = await mount('integrations');
     expect(container.textContent).toContain('managed in Clock');
     await value(container.querySelector('#website-origin')!, 'https://hotel.test/path');
     expect(container.textContent).toContain('without a path');
@@ -550,7 +529,7 @@ describe('DashboardSettings', () => {
           createElement(DashboardSettings, {
             tenantId: 't',
             propertyId: 'p',
-            settingsArea: 'branding',
+            settingsArea: 'contact-brand',
             canWrite: true,
           }),
         ),
@@ -606,7 +585,7 @@ describe('DashboardSettings', () => {
   });
 });
 
-async function mount(settingsArea?: SettingsArea, canWrite = true) {
+async function mount(settingsArea?: SettingsTab, canWrite = true) {
   const container = document.createElement('div');
   const root = createRoot(container);
   await act(async () => {

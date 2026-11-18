@@ -388,14 +388,15 @@ describe('Dashboard section tabs', () => {
     await act(async () => root.unmount());
   });
 
+  // Old area names come from saved links; each lands on its new tab in the settings menu.
   it.each([
-    ['general', 'Hotel identity', 'Booking rules'],
-    ['booking-rules', 'Booking rules', 'Hotel identity'],
-    ['managed-pages', 'Generate connection code', 'Hotel identity'],
-    ['billing', 'Billing account', 'Hotel identity'],
+    ['general', 'Profile', 'Hotel identity', 'Stay limits'],
+    ['booking-rules', 'Booking rules', 'Inventory mode', 'Hotel identity'],
+    ['managed-pages', 'Integrations', 'Generate connection code', 'Hotel identity'],
+    ['billing', 'Plan and usage', 'Billing account', 'Hotel identity'],
   ] as const)(
-    'restores the %s Settings sub-view from the direct URL and supports back navigation',
-    async (settingsArea, visiblePanel, hiddenPanel) => {
+    'restores the %s Settings link on its tab with the settings menu',
+    async (settingsArea, activeTab, visiblePanel, hiddenPanel) => {
       window.history.pushState(
         {},
         '',
@@ -487,22 +488,19 @@ describe('Dashboard section tabs', () => {
           await Promise.resolve();
         });
       }
-      expect(container.textContent).toContain(visiblePanel);
-
-      expect(container.textContent).toContain('Back to Settings overview');
+      const menu = container.querySelector('nav[aria-label="Settings menu"]');
+      expect(menu).not.toBeNull();
+      expect(menu!.querySelector('a[aria-current="page"]')?.textContent).toBe(activeTab);
       expect(
-        container.querySelector('a[href="/dashboard/t?propertyId=p&section=settings"]'),
+        menu!.querySelector('a[href="/dashboard/t?propertyId=p&section=settings"]'),
       ).not.toBeNull();
-      expect(container.textContent).not.toContain(hiddenPanel);
-      expect(container.textContent).not.toContain('Email branding');
-      expect(container.textContent).not.toContain('Payment methods');
-      if (settingsArea === 'booking-rules')
-        expect(container.textContent).toContain('Inventory mode');
-      if (settingsArea === 'managed-pages')
-        expect(container.textContent).toContain('Generate connection code');
+      const content = (container.textContent ?? '').replace(menu!.textContent ?? '', '');
+      expect(content).toContain(visiblePanel);
+      expect(content).not.toContain(hiddenPanel);
+      expect(content).not.toContain('Email branding');
       if (settingsArea === 'billing') {
-        expect(container.textContent).toContain('Platform billing is not available yet');
-        expect(container.textContent).not.toContain('Milestone 13');
+        expect(content).toContain('Platform billing is not available yet');
+        expect(content).not.toContain('Milestone 13');
       }
 
       await act(async () => root.unmount());

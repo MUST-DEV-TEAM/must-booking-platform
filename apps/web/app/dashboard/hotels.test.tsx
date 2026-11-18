@@ -136,7 +136,7 @@ it('renders selectable sortable hotels, counted tabs, readiness, density and a q
   expect(
     dialog.querySelector('a[href="/dashboard/t?propertyId=clock&section=overview"]'),
   ).not.toBeNull();
-  expect(dialog.querySelector('a[href*="settingsArea=managed-pages"]')).not.toBeNull();
+  expect(dialog.querySelector('a[href*="settingsArea=integrations"]')).not.toBeNull();
 });
 it('filters by counted views, search and connection and clears no-results', async () => {
   await mount(directory());

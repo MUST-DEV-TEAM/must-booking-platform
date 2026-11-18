@@ -2,38 +2,26 @@
 
 import { useQuery } from '@tanstack/react-query';
 
-import { Badge } from '../../components/ui/badge';
-import { Button } from '../../components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '../../components/ui/card';
 import { ChecklistPanel, type ChecklistItem } from '../../components/ui/checklist-panel';
-import { PageHero } from '../../components/ui/page-hero';
 import { ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
 import {
   areaHealth,
   bookingReadinessAreas,
-  settingsAreas,
   type Property,
   type SettingsArea,
 } from './settings-areas';
+import { resolveSettingsTab, settingsTabHref, type SettingsTab } from './settings-registry';
 
-export function settingsAreaHref(tenantId: string, propertyId: string, area?: SettingsArea) {
-  const base = `/dashboard/${tenantId}?propertyId=${encodeURIComponent(propertyId)}&section=settings`;
-  return area ? `${base}&settingsArea=${area}` : base;
+/** A link to a Settings tab; old area names (`general`, `payments`…) land on their new tab. */
+export function settingsAreaHref(
+  tenantId: string,
+  propertyId: string,
+  area?: SettingsArea | SettingsTab,
+) {
+  return settingsTabHref(tenantId, propertyId, resolveSettingsTab(area));
 }
 
-const healthBadge = {
-  done: { variant: 'success', label: 'Ready' },
-  attention: { variant: 'warning', label: 'Needs attention' },
-  todo: { variant: 'secondary', label: 'Not set' },
-} as const;
-
-/** The Settings overview: a readiness check and one card per area with its real status. */
+/** The Settings overview: the readiness check (the full overview comes with step S1). */
 export function SettingsHub({ tenantId, propertyId }: { tenantId: string; propertyId: string }) {
   const query = useQuery({
     queryKey: ['dashboard', 'settings-hub', tenantId, propertyId],
@@ -74,30 +62,14 @@ export function SettingsHub({ tenantId, propertyId }: { tenantId: string; proper
     },
   });
 
-  const header = (
-    <PageHero
-      eyebrow="Property settings"
-      title="Settings"
-      description="Everything that controls how this hotel takes bookings."
-    />
-  );
-  if (query.isPending)
-    return (
-      <div className="space-y-4">
-        {header}
-        <ListSkeleton rows={4} />
-      </div>
-    );
+  if (query.isPending) return <ListSkeleton rows={4} />;
   if (query.isError)
     return (
-      <div className="space-y-4">
-        {header}
-        <ErrorPanel
-          title="Settings are unavailable"
-          description={query.error.message}
-          onRetry={() => void query.refetch()}
-        />
-      </div>
+      <ErrorPanel
+        title="Settings are unavailable"
+        description={query.error.message}
+        onRetry={() => void query.refetch()}
+      />
     );
 
   const health = areaHealth(
@@ -116,41 +88,10 @@ export function SettingsHub({ tenantId, propertyId }: { tenantId: string; proper
   const items: ChecklistItem[] = bookingReadinessAreas.map(({ key, label }) => step(key, label));
 
   return (
-    <div className="space-y-4">
-      {header}
-      <ChecklistPanel
-        title="Ready to take bookings"
-        description="A quick check of the settings guests depend on."
-        items={items}
-      />
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {settingsAreas.map((area) => {
-          const status = health[area.key];
-          const badge = status.status === 'none' ? null : healthBadge[status.status];
-          return (
-            <Card key={area.key}>
-              <CardHeader>
-                <CardTitle className="flex items-center justify-between gap-2 text-lg">
-                  {area.label}
-                  {badge ? <Badge variant={badge.variant}>{badge.label}</Badge> : null}
-                </CardTitle>
-                <CardDescription>{area.description}</CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-3">
-                {status.note ? (
-                  <p className="m-0 text-sm text-muted-foreground">{status.note}</p>
-                ) : null}
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs text-muted-foreground">{area.scope}</span>
-                  <Button asChild variant="outline" size="sm">
-                    <a href={link(area.key)}>Open {area.label}</a>
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
-    </div>
+    <ChecklistPanel
+      title="Ready to take bookings"
+      description="A quick check of the settings guests depend on."
+      items={items}
+    />
   );
 }
