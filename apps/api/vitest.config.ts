@@ -12,5 +12,10 @@ export default defineConfig({
     fileParallelism: false,
     hookTimeout: 45_000,
     globalSetup: ['./test/global-setup.ts'],
+    // Clock test stubs and fixtures use made-up hosts; production allows only Clock's own (task 39-10a).
+    env: {
+      CLOCK_EXTRA_API_HOSTS:
+        'h,clock.example.test,example.test,sandbox.example.test,127.0.0.1,localhost',
+    },
   },
 });

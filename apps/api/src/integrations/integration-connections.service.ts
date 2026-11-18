@@ -1,3 +1,4 @@
+import { CLOCK_HOST_NOT_ALLOWED_MESSAGE, isAllowedClockHost } from './clock/clock-credentials';
 import {
   BadRequestException,
   ConflictException,
@@ -788,6 +789,9 @@ export class IntegrationConnectionsService implements OnApplicationBootstrap {
       Object.values(credentials).some((entry) => typeof entry !== 'string')
     )
       throw new BadRequestException('credentials must be an object of string values.');
+    const host = (credentials as Record<string, string>).host;
+    if (provider === 'CLOCK_PMS' && host !== undefined && !isAllowedClockHost(host))
+      throw new BadRequestException(CLOCK_HOST_NOT_ALLOWED_MESSAGE);
     return {
       kind: kind as ConnectionKind,
       provider: provider as ConnectionProvider,
