@@ -1,3 +1,5 @@
+import { parsePhoneNumberFromString } from 'libphonenumber-js';
+
 /**
  * The rules for the hotel Profile fields, written once. The Settings form shows these messages as
  * the owner types and the API refuses the same values, so the two can never disagree
@@ -36,7 +38,17 @@ export type ProfileFieldKey =
   | 'longitude'
   | 'directions'
   | 'nearestAirportCode'
-  | 'nearestAirportKm';
+  | 'nearestAirportKm'
+  | 'phone'
+  | 'whatsappNumber'
+  | 'afterHoursPhone'
+  | 'whatsappSameAsPhone'
+  | 'receptionOpen24h'
+  | 'receptionFrom'
+  | 'receptionTo'
+  | 'website'
+  | 'reservationsEmail'
+  | 'supportEmail';
 
 export const PROFILE_FIELD_KEYS: readonly ProfileFieldKey[] = [
   'chainName',
@@ -59,6 +71,16 @@ export const PROFILE_FIELD_KEYS: readonly ProfileFieldKey[] = [
   'directions',
   'nearestAirportCode',
   'nearestAirportKm',
+  'phone',
+  'whatsappNumber',
+  'afterHoursPhone',
+  'whatsappSameAsPhone',
+  'receptionOpen24h',
+  'receptionFrom',
+  'receptionTo',
+  'website',
+  'reservationsEmail',
+  'supportEmail',
 ];
 
 /** ISO 639-1 language codes a hotel can say it speaks (G-59). */
@@ -282,7 +304,19 @@ const TEXT_MAX: Partial<Record<ProfileFieldKey, number>> = {
   region: 100,
   postalCode: 20,
   directions: 300,
+  website: 500,
+  reservationsEmail: 254,
+  supportEmail: 254,
 };
+
+const PHONE_KEYS: readonly ProfileFieldKey[] = ['phone', 'whatsappNumber', 'afterHoursPhone'];
+const isPhoneKey = (key: ProfileFieldKey) => PHONE_KEYS.includes(key);
+
+/** A phone as it is stored: international form with no spaces (E.164), or the text unchanged when it is not a valid number. */
+export function toE164(text: string): string {
+  const parsed = parsePhoneNumberFromString(text);
+  return parsed?.isValid() ? parsed.number : text;
+}
 
 /** Albania's 12 counties (qarqe), the choices for Region when the country is Albania. */
 export const ALBANIA_REGIONS = [
@@ -308,6 +342,9 @@ export function normaliseProfileValue(key: ProfileFieldKey, raw: unknown): unkno
   let value = raw.trim();
   if (key === 'taxNumber') value = value.replace(/\s+/g, '').toUpperCase();
   if (key === 'nearestAirportCode') value = value.toUpperCase();
+  if (isPhoneKey(key) && value) value = toE164(value);
+  if (key === 'website' || key === 'reservationsEmail' || key === 'supportEmail')
+    value = value.replace(/\s+/g, '');
   if (key === 'latitude' || key === 'longitude' || key === 'nearestAirportKm')
     return value === '' ? null : Number(value.replace(',', '.'));
   return value === '' ? null : value;
@@ -320,7 +357,12 @@ export function checkProfileField(
   context: { country?: string | null; year: number },
 ): string | null {
   if (value === null || value === undefined) return null;
-  if (key === 'starRatingOfficial' || key === 'vatRegistered')
+  if (
+    key === 'starRatingOfficial' ||
+    key === 'vatRegistered' ||
+    key === 'whatsappSameAsPhone' ||
+    key === 'receptionOpen24h'
+  )
     return typeof value === 'boolean' ? null : 'Choose yes or no.';
   if (key === 'yearOpened' || key === 'yearRenovated')
     return Number.isInteger(value) &&
@@ -356,6 +398,28 @@ export function checkProfileField(
       : 'Choose a property type from the list.';
   if (key === 'description' && value.length < DESCRIPTION_MIN)
     return `Write at least ${DESCRIPTION_MIN} characters, or leave it empty.`;
+  if (isPhoneKey(key)) {
+    const parsed = parsePhoneNumberFromString(value);
+    return value.startsWith('+') && parsed?.isValid() && parsed.number === value
+      ? null
+      : 'Enter a full phone number with the country code, such as +355 69 123 4567.';
+  }
+  if (key === 'receptionFrom' || key === 'receptionTo')
+    return /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? null : 'Use a time such as 08:00.';
+  if (key === 'supportEmail' || key === 'reservationsEmail')
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+      ? null
+      : 'Enter an email address such as hello@hotel.com.';
+  if (key === 'website') {
+    try {
+      const url = new URL(value);
+      if (url.protocol !== 'https:' || url.username || url.password || !url.hostname.includes('.'))
+        throw new Error();
+    } catch {
+      return 'Enter a full https website address, such as https://hotel.com.';
+    }
+    return null;
+  }
   if (key === 'nearestAirportCode')
     return /^[A-Z]{3}$/.test(value) ? null : 'Use the 3-letter airport code, such as TIA.';
   if (key === 'region' && context.country === 'AL')
@@ -390,6 +454,11 @@ export function checkProfileCombination(values: {
   starRatingOfficial?: boolean;
   latitude?: number | null;
   longitude?: number | null;
+  whatsappSameAsPhone?: boolean;
+  whatsappNumber?: string | null;
+  receptionOpen24h?: boolean;
+  receptionFrom?: string | null;
+  receptionTo?: string | null;
 }): Partial<Record<ProfileFieldKey, string>> {
   const out: Partial<Record<ProfileFieldKey, string>> = {};
   if (
@@ -402,5 +471,13 @@ export function checkProfileCombination(values: {
     out.starRatingOfficial = 'Set a star rating first, or switch this off.';
   if ((values.latitude == null) !== (values.longitude == null))
     out.longitude = 'Enter both latitude and longitude, or leave both empty.';
+  if (values.whatsappSameAsPhone === false && !values.whatsappNumber)
+    out.whatsappNumber = 'Enter the WhatsApp number, or choose "Same as phone".';
+  if (values.receptionOpen24h === false) {
+    if (!values.receptionFrom) out.receptionFrom = 'Enter the opening time.';
+    else if (!values.receptionTo) out.receptionTo = 'Enter the closing time.';
+    else if (values.receptionFrom === values.receptionTo)
+      out.receptionTo = 'Closing time must differ from opening time, or choose "Open 24 hours".';
+  }
   return out;
 }

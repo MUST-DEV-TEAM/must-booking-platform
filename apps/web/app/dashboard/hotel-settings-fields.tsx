@@ -67,24 +67,9 @@ export const hotelSettingGroups: Record<
 > = {
   general: [
     {
-      title: 'Business',
-      description:
-        'Hotel business details. The default currency is a preference; it never converts existing prices.',
+      title: 'Currency and languages',
+      description: 'The default currency is a preference; it never converts existing prices.',
       fields: [
-        {
-          key: 'supportEmail',
-          label: 'Guest contact email',
-          placeholder: 'reservations@example.com',
-          hint: 'Shown as an Email link in guest messages.',
-          max: 254,
-        },
-        {
-          key: 'phone',
-          label: 'Guest contact phone',
-          placeholder: '+355 ...',
-          hint: 'Include the country code. Shown as a clickable phone number.',
-          max: 100,
-        },
         { key: 'defaultCurrency', label: 'Default currency', kind: 'currency' },
         {
           key: 'languages',
@@ -93,18 +78,6 @@ export const hotelSettingGroups: Record<
           defaultValue: [],
           hint: 'Languages the hotel offers. This does not translate booking pages or emails.',
           options: languageOptions(),
-        },
-        {
-          key: 'website',
-          label: 'Hotel website',
-          hint: 'Use a full https address. This does not change the WordPress connection.',
-          max: 2048,
-        },
-        {
-          key: 'reservationsEmail',
-          label: 'Reservations email',
-          hint: 'Stored separately from the support email used by existing booking emails.',
-          max: 254,
         },
       ],
     },
@@ -450,19 +423,6 @@ export function useHotelSettings(
     );
   if (changed('languages') && Array.isArray(values.languages) && values.languages.length === 0)
     errors.languages = 'Choose at least one language.';
-  if (values.website) {
-    try {
-      const u = new URL(String(values.website));
-      if (u.protocol !== 'https:' || u.username || u.password) throw new Error();
-    } catch {
-      errors.website = 'Enter a full https website address.';
-    }
-  }
-  if (
-    values.reservationsEmail &&
-    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(values.reservationsEmail))
-  )
-    errors.reservationsEmail = 'Enter a valid reservations email address.';
   if (values.country && !(COUNTRY_CODES as readonly string[]).includes(String(values.country)))
     errors.country = 'Choose a country from the list.';
   for (const prefix of ['earlyCheckIn', 'lateCheckOut'])
@@ -470,8 +430,6 @@ export function useHotelSettings(
       errors[prefix + 'Until'] = 'Enter the free-until time.';
   if (Boolean(values.quietHoursFrom) !== Boolean(values.quietHoursTo))
     errors.quietHoursTo = 'Enter both quiet-hours times, or leave both empty.';
-  if (values.supportEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(values.supportEmail)))
-    errors.supportEmail = 'Enter a valid contact email.';
   const update: Partial<Property> = {};
   for (const f of fields)
     if (JSON.stringify(values[f.key]) !== JSON.stringify(saved[f.key])) {

@@ -37,6 +37,12 @@ export type Property = {
   directions?: string | null;
   nearestAirportCode?: string | null;
   nearestAirportKm?: number | null;
+  whatsappSameAsPhone?: boolean;
+  whatsappNumber?: string | null;
+  afterHoursPhone?: string | null;
+  receptionOpen24h?: boolean;
+  receptionFrom?: string | null;
+  receptionTo?: string | null;
   allowSameDayBooking?: boolean;
   sameDayCutoffTime?: string | null;
   maxGuestsPerBooking?: number | null;

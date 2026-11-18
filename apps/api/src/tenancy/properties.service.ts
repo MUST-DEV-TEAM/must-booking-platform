@@ -16,6 +16,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
+import { checkProfileField, normaliseProfileValue } from '@must/domain-contracts';
 import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
 import { AuditLogService } from './audit-log.service';
 import { PropertyRoleTemplatesService } from './property-role-templates.service';
@@ -754,6 +755,12 @@ export class PropertiesService {
     if (text === null || text === '') return null;
     if (typeof text !== 'string' || !text.trim() || text.trim().length > maxLength)
       throw new BadRequestException(`Invalid ${key}.`);
+    if (key === 'phone') {
+      const phone = normaliseProfileValue('phone', text.trim());
+      const message = checkProfileField('phone', phone, { year: new Date().getFullYear() });
+      if (message) throw new BadRequestException(message);
+      return phone as string;
+    }
     return text.trim();
   }
 
