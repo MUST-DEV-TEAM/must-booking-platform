@@ -45,7 +45,10 @@ test('changing booking mode in Settings changes real booking enforcement', async
     await expect(
       page.locator('#app-main-content').getByRole('heading', { name: 'Settings' }),
     ).toBeVisible();
-    await page.getByRole('link', { name: 'Open Booking rules' }).click();
+    await page
+      .getByRole('navigation', { name: 'Settings menu' })
+      .getByRole('link', { name: 'Booking rules' })
+      .click();
     // The booking mode is now the "Inventory mode" on the Booking rules screen, saved from the
     // sticky save bar after a confirmation.
     await page.getByRole('combobox', { name: 'Inventory mode' }).click();
