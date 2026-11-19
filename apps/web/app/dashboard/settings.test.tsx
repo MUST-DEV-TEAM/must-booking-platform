@@ -188,6 +188,13 @@ describe('DashboardSettings', () => {
       (b) => b.textContent === 'Hide for now',
     )!;
     await act(async () => hide.click());
+    // The hidden state comes back from the (mocked) server; a busy machine can take a while, so wait for it.
+    for (
+      let i = 0;
+      i < 250 && !/Setup: 4 of 6 done · Show/.test(container.textContent ?? '');
+      i += 1
+    )
+      await act(async () => void (await new Promise((resolve) => window.setTimeout(resolve, 20))));
     // Saved for this person on the server, not in one browser.
     expect(
       vi
