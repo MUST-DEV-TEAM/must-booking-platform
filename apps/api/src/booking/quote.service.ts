@@ -1,4 +1,5 @@
 import { localPricing } from '../tenancy/pricing.repository';
+import { pendingCheckoutRooms } from './checkout-holds';
 import { applicableRestrictions } from '../tenancy/inventory-restrictions.repository';
 import type { BookingRulePolicy, BookingRestriction } from './booking-rules';
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
@@ -140,6 +141,8 @@ function reasonFromRule(code: string | undefined): StayUnavailableReason {
     case 'BOOKING_CONFLICT':
     case 'AVAILABILITY_BLOCK_CONFLICT':
       return 'sold_out';
+    case 'CHECKOUT_HOLD_ACTIVE':
+      return 'temporarily_held';
     default:
       return 'unavailable';
   }
@@ -306,6 +309,7 @@ export class QuoteService {
     if (connection?.provider === 'CLOCK_PMS') {
       const quote = await this.clockAvailability.getQuoteWithNightlyRates(tenantId, propertyId, {
         roomTypeId: normalizedInput.roomTypeId,
+        ...(normalizedInput.roomId ? { roomId: normalizedInput.roomId } : {}),
         startsOn: normalizedInput.startsOn,
         endsOn: normalizedInput.endsOn,
         adultCount: normalizedInput.adults,
@@ -316,6 +320,8 @@ export class QuoteService {
         // A Clock promo code reveals the rate that needs it; the guest then simply picks that rate.
         code: normalizePromoCode(input.promoCode) ?? undefined,
       });
+      if (!quote.ok && quote.error.code === 'CHECKOUT_HOLD_ACTIVE')
+        throw new BadRequestException({ code: quote.error.code, message: quote.error.message });
       if (!quote.ok) throw new BadRequestException(quote.error.message);
       return quote.value;
     }
@@ -486,6 +492,15 @@ export class QuoteService {
       const search = queries.length
         ? await this.clockAvailability.getStaySearch(tenantId, propertyId, queries)
         : { results: {}, details: {} };
+      const heldRooms = items.some((item) => item.roomId)
+        ? await pendingCheckoutRooms(
+            this.database,
+            tenantId,
+            propertyId,
+            normalized.startsOn,
+            normalized.endsOn,
+          )
+        : new Set<string>();
       return items.map((item) => {
         const quote = search.results[item.roomTypeId];
         const detail = search.details[item.roomTypeId];
@@ -496,6 +511,8 @@ export class QuoteService {
           available: allowed(item) && Boolean(quote?.ok),
         };
         if (refused) return { ...base, reason: refused };
+        if (item.roomId && heldRooms.has(item.roomId))
+          return { ...base, available: false, reason: 'temporarily_held' as const };
         if (!quote?.ok)
           return detail && !detail.available ? { ...base, reason: detail.reason } : base;
         return {
