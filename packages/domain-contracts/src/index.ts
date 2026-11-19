@@ -171,6 +171,8 @@ export type MailBrand = {
   longitude?: number | null;
   /** How to find the hotel, in the hotel's own words (shown in the stay-confirmed email). */
   directions?: string | null;
+  /** The hotel's pages on other sites (Instagram, Tripadvisor...), linked in the email footer. */
+  onlineProfiles?: Record<string, string> | null;
   /** The hotel's date format (DD/MM/YYYY, MM/DD/YYYY or YYYY-MM-DD): decides the day order in email dates. */
   dateFormat?: string | null;
 };

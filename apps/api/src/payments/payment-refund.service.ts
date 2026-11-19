@@ -111,6 +111,7 @@ type RefundEmailRow = {
   longitude: number | null;
   directions: string | null;
   dateFormat: string | null;
+  onlineProfiles: Record<string, string> | null;
   termsUrl: string | null;
   logoUrl: string | null;
   supportEmail: string | null;
@@ -1397,6 +1398,7 @@ export class PaymentRefundService {
         longitude: row.longitude,
         directions: row.directions,
         dateFormat: row.dateFormat,
+        onlineProfiles: row.onlineProfiles,
       },
       guest: { name: [row.firstName, row.lastName].filter(Boolean).join(' ').trim() || row.email },
       stay: { startsOn: row.startsOn, endsOn: row.endsOn },

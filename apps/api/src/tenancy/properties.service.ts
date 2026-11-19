@@ -74,6 +74,22 @@ type PropertyListItem = Property & {
   readiness: SettingsReadiness;
 };
 type PropertyDeleteBlocker = { resource: string; count: number };
+/**
+ * The accounting email and main contact are for MUST and the hotel's accountant. Only the account's owners and
+ * admins receive them; front desk and other staff who can open the hotel get them blanked.
+ */
+function withoutInternalContacts<T extends object>(row: T, manager: boolean): T {
+  if (manager) return row;
+  return {
+    ...row,
+    accountingEmail: null,
+    mainContactName: null,
+    mainContactRole: null,
+    mainContactPhone: null,
+    mainContactEmail: null,
+  };
+}
+
 @Injectable()
 export class PropertiesService {
   constructor(
@@ -84,7 +100,11 @@ export class PropertiesService {
   /** The hotels this user may see, each with its "ready to take bookings" status worked out here. */
   async list(tenantId: string, userId: string): Promise<PropertyListItem[]> {
     const rows = await this.listRows(tenantId, userId);
-    return rows.map((row) => ({ ...row, readiness: settingsReadiness(row) }));
+    const manager = await this.isOwnerOrAdmin(tenantId, userId);
+    return rows.map((row) => {
+      const visible = withoutInternalContacts(row, manager);
+      return { ...visible, readiness: settingsReadiness(visible) };
+    });
   }
   /** One hotel's saved settings and its "ready to take bookings" status; refused if not visible. */
   async settingsSummary(
@@ -98,8 +118,10 @@ export class PropertiesService {
       hidden: SettingsOverviewHidden;
     }
   > {
-    const listed = (await this.listRows(tenantId, userId)).find((item) => item.id === propertyId);
-    if (!listed) throw new NotFoundException('Property not found.');
+    const manager = await this.isOwnerOrAdmin(tenantId, userId);
+    const found = (await this.listRows(tenantId, userId)).find((item) => item.id === propertyId);
+    if (!found) throw new NotFoundException('Property not found.');
+    const listed = withoutInternalContacts(found, manager);
     const { emailProviderActive, attention, hidden } = await settingsOverviewExtras(
       this.database,
       { tenantId, propertyId },
@@ -109,7 +131,6 @@ export class PropertiesService {
     const readiness = settingsReadiness({ ...listed, emailProviderActive });
     // Live problems (refunds, payments, email failures) are for the people who run Settings: the account's
     // owners and admins, as on the dashboard. Hotel staff and restaurant staff who can open this hotel get none.
-    const manager = await this.isOwnerOrAdmin(tenantId, userId);
     return {
       ...readiness,
       attention: manager ? attention : [],

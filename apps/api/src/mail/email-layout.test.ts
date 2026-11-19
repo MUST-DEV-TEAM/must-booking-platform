@@ -99,3 +99,22 @@ it('writes email dates day first unless the hotel chose month first', () => {
   expect(emailDateOrder({})).toBe('gb');
   expect(emailDateOrder(undefined)).toBe('gb');
 });
+
+it('prints the contact line and the hotel pages on other sites in the footer, only safe links', () => {
+  const html = render(
+    {},
+    {
+      supportEmail: 'hello@hotel.al',
+      phone: '+355 69 123 4567',
+      onlineProfiles: {
+        instagram: 'https://www.instagram.com/hotel',
+        tripadvisor: 'javascript:alert(1)',
+      },
+    },
+  );
+  expect(html).toContain('hello@hotel.al · +355 69 123 4567');
+  expect(html).toContain('Follow us:');
+  expect(html).toContain('https://www.instagram.com/hotel');
+  expect(html).not.toContain('javascript:');
+  expect(render({}, { onlineProfiles: {} })).not.toContain('Follow us:');
+});

@@ -64,6 +64,7 @@ type PropertyRow = {
   longitude?: number | null;
   directions?: string | null;
   dateFormat?: string | null;
+  onlineProfiles?: Record<string, string> | null;
   checkInTime: string | null;
 };
 type StayRow = {

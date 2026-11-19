@@ -34,6 +34,7 @@ type BookingEmailRow = {
   longitude: number | null;
   directions: string | null;
   dateFormat: string | null;
+  onlineProfiles: Record<string, string> | null;
   termsUrl: string | null;
   logoUrl: string | null;
   supportEmail: string | null;
@@ -135,6 +136,7 @@ export class BookingConfirmationNotificationService {
       longitude: row.longitude,
       directions: row.directions,
       dateFormat: row.dateFormat,
+      onlineProfiles: row.onlineProfiles,
       termsUrl: row.termsUrl,
       logoUrl: row.logoUrl,
       supportEmail: row.supportEmail,
