@@ -338,7 +338,7 @@ export function BrandingSettings({
     [property.address, property.city].filter(Boolean).join(', '),
     [draft.supportEmail.trim(), draft.phone.trim()].filter(Boolean).join(' · '),
     property.legalName
-      ? `${property.legalName}${property.taxNumber ? ` · NUIS ${property.taxNumber}` : ''}`
+      ? `${property.legalName}${property.taxNumber ? ` · NUIS ${property.taxNumber}` : ''} (payment and refund emails)`
       : '',
     profileNames.length ? `Follow us: ${profileNames.join(', ')}` : '',
   ].filter(Boolean);
