@@ -21,6 +21,12 @@ import { TenantDatabaseService, type TenantTransaction } from './tenant-database
 import { AuditLogService } from './audit-log.service';
 import { PropertyRoleTemplatesService } from './property-role-templates.service';
 import { settingsReadiness, type SettingsReadiness } from './settings-readiness';
+import {
+  saveSettingsOverviewHidden,
+  settingsOverviewExtras,
+  type SettingsAttentionItem,
+  type SettingsOverviewHidden,
+} from './settings-attention';
 
 export type ClockCancelRefundPolicy = 'NEVER' | 'FREE_WINDOW' | 'ALWAYS';
 export type ClockPaymentFolio = 'DEPOSIT' | 'MAIN';
@@ -61,6 +67,8 @@ type PropertyListItem = Property & {
   staffCount: number;
   pmsSource: 'MUST' | 'CLOCK_PMS';
   connectedProviders: string[];
+  /** Active rooms, counted from Accommodations (or the PMS import); never typed. */
+  roomCount: number;
   readiness: SettingsReadiness;
 };
 type PropertyDeleteBlocker = { resource: string; count: number };
@@ -81,10 +89,52 @@ export class PropertiesService {
     tenantId: string,
     userId: string,
     propertyId: string,
-  ): Promise<SettingsReadiness & { hotel: PropertyListItem }> {
-    const hotel = (await this.list(tenantId, userId)).find((item) => item.id === propertyId);
-    if (!hotel) throw new NotFoundException('Property not found.');
-    return { ...hotel.readiness, hotel };
+  ): Promise<
+    SettingsReadiness & {
+      hotel: PropertyListItem;
+      attention: SettingsAttentionItem[];
+      hidden: SettingsOverviewHidden;
+    }
+  > {
+    const listed = (await this.listRows(tenantId, userId)).find((item) => item.id === propertyId);
+    if (!listed) throw new NotFoundException('Property not found.');
+    const { emailProviderActive, attention, hidden } = await settingsOverviewExtras(
+      this.database,
+      { tenantId, propertyId },
+      userId,
+    );
+    // The email step needs this hotel's sending profile, which only a single-hotel read may see.
+    const readiness = settingsReadiness({ ...listed, emailProviderActive });
+    // Live problems (refunds, payments, email failures) are for the people who run Settings: the account's
+    // owners and admins, as on the dashboard. Hotel staff and restaurant staff who can open this hotel get none.
+    const manager = await this.isOwnerOrAdmin(tenantId, userId);
+    return {
+      ...readiness,
+      attention: manager ? attention : [],
+      hidden,
+      hotel: { ...listed, readiness },
+    };
+  }
+  private async isOwnerOrAdmin(tenantId: string, userId: string): Promise<boolean> {
+    const rows = await this.database.withTenantTransaction(
+      { tenantId },
+      (tx) =>
+        tx.$queryRaw<Array<{ manager: boolean }>>`
+        SELECT EXISTS(SELECT 1 FROM tenant_memberships WHERE tenant_id=${tenantId}::uuid
+          AND user_id=${userId}::uuid AND role IN ('OWNER','ADMIN')) AS manager`,
+    );
+    return rows[0]?.manager === true;
+  }
+  /** "Hide for now" on the setup guide, or "Got it" on the ready notice, for this person and hotel. */
+  async setSettingsOverviewHidden(
+    tenantId: string,
+    userId: string,
+    propertyId: string,
+    input: unknown,
+  ): Promise<SettingsOverviewHidden> {
+    if ((await this.listRows(tenantId, userId)).every((item) => item.id !== propertyId))
+      throw new NotFoundException('Property not found.');
+    return saveSettingsOverviewHidden(this.database, { tenantId, propertyId }, userId, input);
   }
   private listRows(
     tenantId: string,
@@ -120,6 +170,7 @@ export class PropertiesService {
           free_cancellation_days_before_arrival AS "freeCancellationDaysBeforeArrival",
           public_website_origin AS "publicWebsiteOrigin",
           wordpress_connected_at AS "wordpressConnectedAt",
+          (SELECT count(*)::int FROM rooms r WHERE r.tenant_id=p.tenant_id AND r.property_id=p.id AND r.is_active) AS "roomCount",
           json_build_object('stripe', stripe_enabled, 'pokpay', pokpay_enabled, 'payAtHotel', pay_at_hotel_enabled) AS "paymentGateways"
           FROM properties p
           WHERE p.tenant_id=${tenantId}::uuid AND EXISTS (

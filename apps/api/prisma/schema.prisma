@@ -2436,3 +2436,15 @@ model BookingFlowEvent {
   @@index([flowId, createdAt], map: "booking_flow_events_flow_idx")
   @@map("booking_flow_events")
 }
+
+/// Settings Overview: what one person hid for one hotel (setup guide, the one-time "ready" notice).
+model SettingsOverviewDismissal {
+  tenantId   String   @map("tenant_id") @db.Uuid
+  propertyId String   @map("property_id") @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  kind       String
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@id([tenantId, propertyId, userId, kind])
+  @@map("settings_overview_dismissals")
+}
