@@ -67,6 +67,8 @@ type PropertyListItem = Property & {
   staffCount: number;
   pmsSource: 'MUST' | 'CLOCK_PMS';
   connectedProviders: string[];
+  /** Active rooms, counted from Accommodations (or the PMS import); never typed. */
+  roomCount: number;
   readiness: SettingsReadiness;
 };
 type PropertyDeleteBlocker = { resource: string; count: number };
@@ -168,6 +170,7 @@ export class PropertiesService {
           free_cancellation_days_before_arrival AS "freeCancellationDaysBeforeArrival",
           public_website_origin AS "publicWebsiteOrigin",
           wordpress_connected_at AS "wordpressConnectedAt",
+          (SELECT count(*)::int FROM rooms r WHERE r.tenant_id=p.tenant_id AND r.property_id=p.id AND r.is_active) AS "roomCount",
           json_build_object('stripe', stripe_enabled, 'pokpay', pokpay_enabled, 'payAtHotel', pay_at_hotel_enabled) AS "paymentGateways"
           FROM properties p
           WHERE p.tenant_id=${tenantId}::uuid AND EXISTS (
