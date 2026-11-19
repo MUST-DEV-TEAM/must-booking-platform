@@ -50,6 +50,11 @@ export type ProfileFieldKey =
   | 'reservationsEmail'
   | 'supportEmail'
   | 'accentColour'
+  | 'accountingEmail'
+  | 'mainContactName'
+  | 'mainContactRole'
+  | 'mainContactPhone'
+  | 'mainContactEmail'
   | 'registeredSameAsHotel'
   | 'registeredStreet'
   | 'registeredCity'
@@ -87,6 +92,11 @@ export const PROFILE_FIELD_KEYS: readonly ProfileFieldKey[] = [
   'reservationsEmail',
   'supportEmail',
   'accentColour',
+  'accountingEmail',
+  'mainContactName',
+  'mainContactRole',
+  'mainContactPhone',
+  'mainContactEmail',
   'registeredSameAsHotel',
   'registeredStreet',
   'registeredCity',
@@ -281,6 +291,95 @@ export const LANGUAGE_CODES: readonly string[] = [
   'zu',
 ];
 
+/**
+ * The languages a hotel can pick from the list: those the Unicode CLDR project rates "modern" (fully
+ * supported), as ISO 639-1 codes with the English name and the language's own name, written here so every
+ * browser shows the same. The older, rarely spoken codes stay valid on the server so a hotel that saved one
+ * keeps it; they are just not offered any more.
+ */
+export const HOTEL_LANGUAGES: ReadonlyArray<{ code: string; name: string; native: string }> = [
+  { code: 'af', name: 'Afrikaans', native: 'Afrikaans' },
+  { code: 'am', name: 'Amharic', native: 'አማርኛ' },
+  { code: 'ar', name: 'Arabic', native: 'العربية' },
+  { code: 'as', name: 'Assamese', native: 'অসমীয়া' },
+  { code: 'az', name: 'Azerbaijani', native: 'Azərbaycanca' },
+  { code: 'be', name: 'Belarusian', native: 'Беларуская' },
+  { code: 'bg', name: 'Bulgarian', native: 'Български' },
+  { code: 'bn', name: 'Bangla', native: 'বাংলা' },
+  { code: 'bs', name: 'Bosnian', native: 'Bosanski' },
+  { code: 'ca', name: 'Catalan', native: 'Català' },
+  { code: 'cs', name: 'Czech', native: 'Čeština' },
+  { code: 'cy', name: 'Welsh', native: 'Cymraeg' },
+  { code: 'da', name: 'Danish', native: 'Dansk' },
+  { code: 'de', name: 'German', native: 'Deutsch' },
+  { code: 'el', name: 'Greek', native: 'Ελληνικά' },
+  { code: 'en', name: 'English', native: 'English' },
+  { code: 'es', name: 'Spanish', native: 'Español' },
+  { code: 'et', name: 'Estonian', native: 'Eesti' },
+  { code: 'eu', name: 'Basque', native: 'Euskara' },
+  { code: 'fa', name: 'Persian', native: 'فارسی' },
+  { code: 'fi', name: 'Finnish', native: 'Suomi' },
+  { code: 'fr', name: 'French', native: 'Français' },
+  { code: 'ga', name: 'Irish', native: 'Gaeilge' },
+  { code: 'gl', name: 'Galician', native: 'Galego' },
+  { code: 'gu', name: 'Gujarati', native: 'ગુજરાતી' },
+  { code: 'he', name: 'Hebrew', native: 'עברית' },
+  { code: 'hi', name: 'Hindi', native: 'हिन्दी' },
+  { code: 'hr', name: 'Croatian', native: 'Hrvatski' },
+  { code: 'hu', name: 'Hungarian', native: 'Magyar' },
+  { code: 'hy', name: 'Armenian', native: 'Հայերեն' },
+  { code: 'id', name: 'Indonesian', native: 'Bahasa Indonesia' },
+  { code: 'is', name: 'Icelandic', native: 'Íslenska' },
+  { code: 'it', name: 'Italian', native: 'Italiano' },
+  { code: 'ja', name: 'Japanese', native: '日本語' },
+  { code: 'ka', name: 'Georgian', native: 'ქართული' },
+  { code: 'kk', name: 'Kazakh', native: 'Қазақша' },
+  { code: 'km', name: 'Khmer', native: 'ខ្មែរ' },
+  { code: 'kn', name: 'Kannada', native: 'ಕನ್ನಡ' },
+  { code: 'ko', name: 'Korean', native: '한국어' },
+  { code: 'ky', name: 'Kyrgyz', native: 'Кыргызча' },
+  { code: 'lo', name: 'Lao', native: 'ລາວ' },
+  { code: 'lt', name: 'Lithuanian', native: 'Lietuvių' },
+  { code: 'lv', name: 'Latvian', native: 'Latviešu' },
+  { code: 'mk', name: 'Macedonian', native: 'Македонски' },
+  { code: 'ml', name: 'Malayalam', native: 'മലയാളം' },
+  { code: 'mn', name: 'Mongolian', native: 'Монгол' },
+  { code: 'mr', name: 'Marathi', native: 'मराठी' },
+  { code: 'ms', name: 'Malay', native: 'Bahasa Melayu' },
+  { code: 'my', name: 'Burmese', native: 'မြန်မာ' },
+  { code: 'ne', name: 'Nepali', native: 'नेपाली' },
+  { code: 'nl', name: 'Dutch', native: 'Nederlands' },
+  { code: 'no', name: 'Norwegian', native: 'Norsk' },
+  { code: 'or', name: 'Odia', native: 'ଓଡ଼ିଆ' },
+  { code: 'pa', name: 'Punjabi', native: 'ਪੰਜਾਬੀ' },
+  { code: 'pl', name: 'Polish', native: 'Polski' },
+  { code: 'ps', name: 'Pashto', native: 'پښتو' },
+  { code: 'pt', name: 'Portuguese', native: 'Português' },
+  { code: 'ro', name: 'Romanian', native: 'Română' },
+  { code: 'ru', name: 'Russian', native: 'Русский' },
+  { code: 'si', name: 'Sinhala', native: 'සිංහල' },
+  { code: 'sk', name: 'Slovak', native: 'Slovenčina' },
+  { code: 'sl', name: 'Slovenian', native: 'Slovenščina' },
+  { code: 'sq', name: 'Albanian', native: 'Shqip' },
+  { code: 'sr', name: 'Serbian', native: 'Српски' },
+  { code: 'sv', name: 'Swedish', native: 'Svenska' },
+  { code: 'sw', name: 'Swahili', native: 'Kiswahili' },
+  { code: 'ta', name: 'Tamil', native: 'தமிழ்' },
+  { code: 'te', name: 'Telugu', native: 'తెలుగు' },
+  { code: 'th', name: 'Thai', native: 'ไทย' },
+  { code: 'tl', name: 'Filipino', native: 'Filipino' },
+  { code: 'tr', name: 'Turkish', native: 'Türkçe' },
+  { code: 'uk', name: 'Ukrainian', native: 'Українська' },
+  { code: 'ur', name: 'Urdu', native: 'اردو' },
+  { code: 'uz', name: 'Uzbek', native: 'Oʻzbekcha' },
+  { code: 'vi', name: 'Vietnamese', native: 'Tiếng Việt' },
+  { code: 'zh', name: 'Chinese', native: '中文' },
+  { code: 'zu', name: 'Zulu', native: 'isiZulu' },
+];
+export const HOTEL_LANGUAGE_CODES: readonly string[] = HOTEL_LANGUAGES.map(
+  (language) => language.code,
+);
+
 /** The languages shown first, because most hotels here speak them. */
 export const COMMON_LANGUAGE_CODES = [
   'sq',
@@ -317,12 +416,21 @@ const TEXT_MAX: Partial<Record<ProfileFieldKey, number>> = {
   website: 500,
   reservationsEmail: 254,
   supportEmail: 254,
+  accountingEmail: 254,
+  mainContactName: 120,
+  mainContactRole: 120,
+  mainContactEmail: 254,
   registeredStreet: 200,
   registeredCity: 100,
   registeredPostalCode: 20,
 };
 
-const PHONE_KEYS: readonly ProfileFieldKey[] = ['phone', 'whatsappNumber', 'afterHoursPhone'];
+const PHONE_KEYS: readonly ProfileFieldKey[] = [
+  'phone',
+  'whatsappNumber',
+  'afterHoursPhone',
+  'mainContactPhone',
+];
 const isPhoneKey = (key: ProfileFieldKey) => PHONE_KEYS.includes(key);
 
 /** A phone as it is stored: international form with no spaces (E.164), or the text unchanged when it is not a valid number. */
@@ -356,7 +464,13 @@ export function normaliseProfileValue(key: ProfileFieldKey, raw: unknown): unkno
   if (key === 'taxNumber') value = value.replace(/\s+/g, '').toUpperCase();
   if (key === 'nearestAirportCode') value = value.toUpperCase();
   if (isPhoneKey(key) && value) value = toE164(value);
-  if (key === 'website' || key === 'reservationsEmail' || key === 'supportEmail')
+  if (
+    key === 'website' ||
+    key === 'reservationsEmail' ||
+    key === 'supportEmail' ||
+    key === 'accountingEmail' ||
+    key === 'mainContactEmail'
+  )
     value = value.replace(/\s+/g, '');
   if (key === 'accentColour') value = value.toLowerCase();
   if (key === 'latitude' || key === 'longitude' || key === 'nearestAirportKm')
@@ -423,7 +537,12 @@ export function checkProfileField(
     return /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? null : 'Use a time such as 08:00.';
   if (key === 'accentColour')
     return /^#[0-9a-f]{6}$/.test(value) ? null : 'Enter a colour such as #224858.';
-  if (key === 'supportEmail' || key === 'reservationsEmail')
+  if (
+    key === 'supportEmail' ||
+    key === 'reservationsEmail' ||
+    key === 'accountingEmail' ||
+    key === 'mainContactEmail'
+  )
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
       ? null
       : 'Enter an email address such as hello@hotel.com.';

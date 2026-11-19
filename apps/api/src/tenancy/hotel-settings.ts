@@ -43,6 +43,11 @@ export type HotelSettings = {
   directions?: string | null;
   nearestAirportCode?: string | null;
   nearestAirportKm?: number | null;
+  accountingEmail?: string | null;
+  mainContactName?: string | null;
+  mainContactRole?: string | null;
+  mainContactPhone?: string | null;
+  mainContactEmail?: string | null;
   registeredSameAsHotel?: boolean;
   registeredStreet?: string | null;
   registeredCity?: string | null;
@@ -115,6 +120,11 @@ export const hotelFields = [
   { key: 'directions', column: 'directions', kind: 'profile', max: 300 },
   { key: 'nearestAirportCode', column: 'nearest_airport_code', kind: 'profile', max: 3 },
   { key: 'nearestAirportKm', column: 'nearest_airport_km', kind: 'profile', max: 0 },
+  { key: 'accountingEmail', column: 'accounting_email', kind: 'profile', max: 254 },
+  { key: 'mainContactName', column: 'main_contact_name', kind: 'profile', max: 120 },
+  { key: 'mainContactRole', column: 'main_contact_role', kind: 'profile', max: 120 },
+  { key: 'mainContactPhone', column: 'main_contact_phone', kind: 'profile', max: 20 },
+  { key: 'mainContactEmail', column: 'main_contact_email', kind: 'profile', max: 254 },
   {
     key: 'registeredSameAsHotel',
     column: 'registered_same_as_hotel',
@@ -148,7 +158,7 @@ export const hotelColumns = Prisma.raw(
 );
 /** The one column list every property read and write returns (settings redesign P13). */
 export const propertyColumns = Prisma.raw(
-  `online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",deduct_payment_fee_on_guest_refund AS "deductPaymentFeeOnGuestRefund",clock_cancel_refund_policy AS "clockCancelRefundPolicy",clock_payment_folio AS "clockPaymentFolio",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns.sql},logo_url AS "logoUrl", phone, support_email AS "supportEmail", booking_mode AS "bookingMode", min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights", check_in_time AS "checkInTime", check_out_time AS "checkOutTime", rules, advance_booking_days AS "advanceBookingDays", free_cancellation_days_before_arrival AS "freeCancellationDaysBeforeArrival", public_website_origin AS "publicWebsiteOrigin", json_build_object('stripe', stripe_enabled, 'pokpay', pokpay_enabled, 'payAtHotel', pay_at_hotel_enabled) AS "paymentGateways"`,
+  `online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",deduct_payment_fee_on_guest_refund AS "deductPaymentFeeOnGuestRefund",clock_cancel_refund_policy AS "clockCancelRefundPolicy",clock_payment_folio AS "clockPaymentFolio",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns.sql},logo_url AS "logoUrl", logo_dark_url AS "logoDarkUrl", icon_url AS "iconUrl", favicon_url AS "faviconUrl", cover_url AS "coverUrl", phone, support_email AS "supportEmail", booking_mode AS "bookingMode", min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights", check_in_time AS "checkInTime", check_out_time AS "checkOutTime", rules, advance_booking_days AS "advanceBookingDays", free_cancellation_days_before_arrival AS "freeCancellationDaysBeforeArrival", public_website_origin AS "publicWebsiteOrigin", json_build_object('stripe', stripe_enabled, 'pokpay', pokpay_enabled, 'payAtHotel', pay_at_hotel_enabled) AS "paymentGateways"`,
 );
 export function hotelInput(raw: Record<string, unknown>): HotelSettings {
   const out: Record<string, unknown> = {};

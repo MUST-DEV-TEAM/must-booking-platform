@@ -1,7 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
 import { Button } from './button';
 
@@ -52,8 +52,14 @@ export function LocationPin({
   longitude,
   address,
   disabled,
+  label,
+  children,
   onChange,
 }: {
+  /** A name shown above the pin, for example the hotel name. */
+  label?: string;
+  /** Shown in the right column under the button, for example the latitude and longitude fields. */
+  children?: ReactNode;
   latitude: string;
   longitude: string;
   /** The address to look up, for example "Rruga e Plazhit, Durrës, Albania". */
@@ -75,13 +81,17 @@ export function LocationPin({
   const place = (a: number, b: number) => onChange(sixDecimals(a), sixDecimals(b));
 
   return (
-    <div className="flex flex-col gap-2">
-      {canDraw ? <LocationPinMap position={position} disabled={disabled} onChange={place} /> : null}
-      <div className="flex flex-wrap items-center gap-3">
+    <div className="grid gap-4 md:grid-cols-3">
+      <div className="md:col-span-2">
+        {canDraw ? (
+          <LocationPinMap position={position} disabled={disabled} label={label} onChange={place} />
+        ) : null}
+      </div>
+      <div className="flex min-w-0 flex-col gap-3">
         <Button
           type="button"
           variant="outline"
-          size="sm"
+          className="w-full"
           disabled={disabled || searching || !address.trim()}
           onClick={async () => {
             setSearching(true);
@@ -113,22 +123,28 @@ export function LocationPin({
         >
           {searching ? 'Finding…' : 'Find from address'}
         </Button>
-        <span className="text-xs text-muted-foreground">
-          {position
-            ? `Pin: ${latitude}, ${longitude}`
-            : 'No pin yet. Find it from the address or click the map.'}
-        </span>
+        {status ? (
+          <p role="status" className="m-0 text-xs text-muted-foreground">
+            {status}
+          </p>
+        ) : !position ? (
+          <p className="m-0 text-xs text-muted-foreground">
+            No pin yet. Find it from the address or click the map.
+          </p>
+        ) : null}
+        {children}
         {position && !disabled ? (
-          <Button type="button" variant="ghost" size="sm" onClick={() => onChange('', '')}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="self-start"
+            onClick={() => onChange('', '')}
+          >
             Remove pin
           </Button>
         ) : null}
       </div>
-      {status ? (
-        <p role="status" className="m-0 text-xs text-muted-foreground">
-          {status}
-        </p>
-      ) : null}
     </div>
   );
 }

@@ -8,8 +8,7 @@ import { Alert, AlertDescription, AlertTitle } from '../../components/ui/alert';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
-import { ChecklistPanel, type ChecklistItem } from '../../components/ui/checklist-panel';
-import { DetailList } from '../../components/ui/detail-list';
+import { SetupGuide, type SetupGuideStep } from '../../components/ui/setup-guide';
 import { SearchInput } from '../../components/ui/search-input';
 import { ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
 import type {
@@ -34,106 +33,238 @@ const stay = (min: number | null, max: number | null) =>
     ? 'No limits'
     : `${min ?? 1} to ${max === null ? 'any number of' : max} nights`;
 
+type GlanceTone = 'success' | 'warning' | 'secondary';
 type GlanceCard = {
   tab: SettingsTab;
-  status?: ReadinessStep['status'];
+  /** The pill at the top right of the card. */
+  badge: { label: string; tone: GlanceTone };
   items: Array<{ label: string; value: string | null }>;
 };
 
-/** The key values of each tab, read-only, for "Settings at a glance". */
-export function settingsGlance(property: Property, steps: readonly ReadinessStep[]): GlanceCard[] {
+const noShowWords: Record<string, string> = {
+  charge_first_night: 'First night charged',
+  charge_nothing: 'Nothing charged',
+  flag_for_review: 'Flagged for review',
+};
+const propertyTypeWords: Record<string, string> = {
+  hotel: 'Hotel',
+  resort: 'Resort',
+  boutique_hotel: 'Boutique hotel',
+  apartment_hotel: 'Apartment hotel',
+  apartments: 'Apartments',
+  guesthouse: 'Guesthouse / B&B',
+  hostel: 'Hostel',
+  villa: 'Villa',
+  motel: 'Motel',
+  campsite: 'Campsite / Glamping',
+};
+const onOff = (on: boolean | undefined) => (on ? 'On' : 'Off');
+
+/**
+ * The key values of each tab, read-only, for "Settings at a glance". A value that is not known yet
+ * (a setting whose page is not built) shows as null, which the card draws as a dash.
+ */
+export function settingsGlance(
+  property: Property,
+  steps: readonly ReadinessStep[],
+  attention: readonly SettingsAttentionItem[] = [],
+): GlanceCard[] {
   const status = (key: ReadinessStep['key']) => steps.find((step) => step.key === key)?.status;
+  const ready = (key: ReadinessStep['key']): GlanceCard['badge'] =>
+    status(key) === 'done'
+      ? { label: 'Complete', tone: 'success' }
+      : status(key) === 'attention'
+        ? { label: 'Needs attention', tone: 'warning' }
+        : { label: 'Not set', tone: 'secondary' };
+  const flagged = (prefix: string) => attention.filter((item) => item.key.startsWith(prefix));
   const gateways = property.paymentGateways;
-  const methods = [
-    gateways.payAtHotel ? 'Pay at hotel' : null,
-    gateways.stripe ? 'Stripe' : null,
-    gateways.pokpay ? 'PokPay' : null,
-  ].filter(Boolean);
+  const connected = new Set(property.connectedProviders ?? []);
+  const testMode = flagged('payments-test').length > 0;
+  const failedEmails = attention.find((item) => item.key === 'email-failed');
+  const pms = property.pmsSource === 'CLOCK_PMS';
+  const place = [property.city, property.country ? regionName(property.country) : null]
+    .filter(Boolean)
+    .join(', ');
+  const live = connected.size + (property.wordpressConnectedAt ? 1 : 0);
   return [
     {
       tab: 'profile',
-      status: status('profile'),
+      badge: ready('profile'),
       items: [
-        { label: 'Name', value: property.name },
-        { label: 'Address', value: property.address },
-        { label: 'Time zone', value: property.timezone },
+        {
+          label: 'Hotel',
+          value: property.starRating ? `${property.name} · ${property.starRating}★` : property.name,
+        },
+        {
+          label: 'Type',
+          value: property.propertyType
+            ? (propertyTypeWords[property.propertyType] ?? property.propertyType)
+            : null,
+        },
+        { label: 'Location', value: place || property.address },
         { label: 'Currency', value: property.defaultCurrency ?? null },
       ],
     },
     {
       tab: 'contact-brand',
-      status: status('contact'),
+      badge: ready('contact'),
       items: [
-        { label: 'Guest contact email', value: property.supportEmail },
+        { label: 'Guest email', value: property.supportEmail },
         { label: 'Phone', value: property.phone },
-        { label: 'Website', value: property.website ?? null },
+        {
+          label: 'Brand',
+          value:
+            [property.logoUrl ? 'Logo' : null, property.brandColour ?? null]
+              .filter(Boolean)
+              .join(' and ') || null,
+        },
       ],
     },
     {
       tab: 'booking-rules',
-      status: status('booking-rules'),
+      badge: ready('booking-rules'),
       items: [
-        { label: 'Inventory mode', value: bookingModes[property.bookingMode] },
         { label: 'Stay', value: stay(property.minStayNights, property.maxStayNights) },
         {
-          label: 'Booking window',
+          label: 'Book ahead',
           value:
             property.advanceBookingDays === null
               ? 'No limit'
-              : `${property.advanceBookingDays} days ahead`,
+              : `up to ${property.advanceBookingDays} days`,
         },
+        {
+          label: 'Same day',
+          value:
+            property.allowSameDayBooking === false
+              ? 'Not allowed'
+              : property.sameDayCutoffTime
+                ? `until ${property.sameDayCutoffTime}`
+                : 'Allowed',
+        },
+        { label: 'Guests choose', value: bookingModes[property.bookingMode].toLowerCase() },
       ],
     },
     {
       tab: 'policies',
-      status: status('policies'),
+      badge: ready('policies'),
       items: [
-        { label: 'Check-in', value: property.checkInTime },
-        { label: 'Check-out', value: property.checkOutTime },
+        {
+          label: 'Check-in / out',
+          value:
+            property.checkInTime && property.checkOutTime
+              ? `${property.checkInTime} / ${property.checkOutTime}`
+              : null,
+        },
         {
           label: 'Free cancellation',
           value: `${property.freeCancellationDaysBeforeArrival} days before arrival`,
         },
+        { label: 'Automatic refund', value: onOff(property.autoRefundOnFreeCancellation) },
+        { label: 'No-show', value: noShowWords[property.noShowRule ?? ''] ?? null },
+      ],
+    },
+    {
+      tab: 'taxes-fees',
+      badge: { label: 'Not set', tone: 'secondary' },
+      items: [
+        { label: 'VAT', value: property.vatRegistered ? 'Registered' : null },
+        { label: 'City tax', value: null },
       ],
     },
     {
       tab: 'payment-methods',
-      status: status('payment-methods'),
-      items: [{ label: 'Guests can pay with', value: methods.join(', ') || 'Nothing yet' }],
-    },
-    {
-      tab: 'integrations',
-      status: status('website'),
+      badge: testMode
+        ? { label: 'Test mode', tone: 'warning' }
+        : status('payment-methods') === 'done'
+          ? { label: 'Live', tone: 'success' }
+          : ready('payment-methods'),
       items: [
+        { label: 'Pay at hotel', value: onOff(gateways.payAtHotel) },
+        { label: 'Card (Stripe)', value: gateways.stripe ? (testMode ? 'Test' : 'On') : 'Off' },
+        { label: 'PokPay', value: onOff(gateways.pokpay) },
         {
-          label: 'Hotel website',
-          value: property.wordpressConnectedAt ? 'Connected' : 'Not connected yet',
+          label: 'Payment hold',
+          value:
+            property.onlinePaymentHoldMinutes === undefined
+              ? null
+              : `${property.onlinePaymentHoldMinutes} minutes`,
         },
       ],
     },
     {
+      tab: 'integrations',
+      badge: live ? { label: `${live} active`, tone: 'success' } : ready('website'),
+      items: [
+        { label: 'Property system', value: pms ? 'Connected' : 'MUST' },
+        { label: 'Stripe', value: connected.has('STRIPE') ? 'Connected' : 'Off' },
+        { label: 'Website', value: property.wordpressConnectedAt ? 'Connected' : 'Not connected' },
+        { label: 'PokPay', value: connected.has('POKPAY') ? 'Connected' : 'Off' },
+      ],
+    },
+    {
       tab: 'emails',
-      status: status('email'),
+      badge: failedEmails
+        ? { label: 'Needs attention', tone: 'warning' }
+        : status('email') === 'done'
+          ? { label: 'Own provider', tone: 'success' }
+          : { label: 'MUST address', tone: 'secondary' },
       items: [
         {
-          label: 'Guest emails are sent from',
-          value:
-            status('email') === 'done'
-              ? 'Your own email provider'
-              : status('email')
-                ? "MUST's address"
-                : null,
+          label: 'Sender',
+          value: status('email') === 'done' ? 'Your own provider' : "MUST's address",
         },
+        { label: 'Reservations email', value: property.reservationsEmail ?? null },
+        {
+          label: 'Last 7 days',
+          value: failedEmails ? failedEmails.label.split(' not')[0] + ' failed' : 'No problems',
+        },
+      ],
+    },
+    {
+      tab: 'team',
+      badge:
+        property.staffCount === undefined
+          ? { label: 'Team', tone: 'secondary' }
+          : { label: `${property.staffCount} staff`, tone: 'secondary' },
+      items: [
+        {
+          label: 'Staff',
+          value: property.staffCount === undefined ? null : `${property.staffCount} active`,
+        },
+        { label: 'Roles', value: null },
+        { label: 'Extra permissions', value: null },
+      ],
+    },
+    {
+      tab: 'plan-usage',
+      badge: { label: 'Plan', tone: 'secondary' },
+      items: [
+        { label: 'Staff accounts', value: null },
+        {
+          label: 'Rooms',
+          value: property.roomCount === undefined ? null : String(property.roomCount),
+        },
+      ],
+    },
+    {
+      tab: 'audit-log',
+      badge: { label: 'History', tone: 'secondary' },
+      items: [
+        { label: 'Last change', value: null },
+        { label: 'By', value: null },
+        { label: 'When', value: null },
       ],
     },
   ];
 }
 
-const glanceBadge = {
-  done: { variant: 'success', label: 'Ready' },
-  attention: { variant: 'warning', label: 'Needs attention' },
-  todo: { variant: 'secondary', label: 'Not set' },
-} as const;
+function regionName(code: string) {
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'region' }).of(code) ?? code;
+  } catch {
+    return code;
+  }
+}
 
 /**
  * The Settings overview: a setup guide while setup is unfinished, what needs attention, every tab
@@ -222,17 +353,47 @@ export function SettingsOverview({
       action: 'View',
     })),
   ];
-  const guide: ChecklistItem[] = steps.map((step) => ({
+  const guide: SetupGuideStep[] = steps.map((step) => ({
     key: step.key,
     label: step.optional ? `${step.label} (recommended)` : step.label,
     detail: step.note,
-    status: step.status,
+    done: step.status === 'done',
     href: link(step.tab),
+    action: step.status === 'attention' ? 'Fix' : 'Set up',
   }));
   const matches = findSettings(search);
 
   return (
     <div className="flex flex-col gap-5">
+      <section aria-label="Find a setting" className="flex flex-col gap-2">
+        <SearchInput
+          aria-label="Find a setting"
+          placeholder="Find a setting, for example check-in, NUIS, webhook"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
+        {search.trim() ? (
+          matches.length ? (
+            <ul className="m-0 flex list-none flex-col gap-1 p-0">
+              {matches.map((entry) => (
+                <li key={entry.label}>
+                  <a
+                    href={link(entry.tab)}
+                    className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm text-inherit no-underline hover:bg-accent"
+                  >
+                    <span>{entry.label}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {settingsTab(entry.tab).label}
+                    </span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="m-0 text-sm text-muted-foreground">No setting matches that.</p>
+          )
+        ) : null}
+      </section>
       {!ready ? (
         hidden.setupGuide ? (
           <div>
@@ -241,18 +402,16 @@ export function SettingsOverview({
             </Button>
           </div>
         ) : (
-          <div className="flex flex-col gap-2">
-            <ChecklistPanel
-              title="Set up your hotel"
-              description="Finish these and guests can book and pay online."
-              items={guide}
-            />
-            <div>
-              <Button variant="ghost" size="sm" onClick={() => hide.mutate({ setupGuide: true })}>
+          <SetupGuide
+            title="Set up your hotel"
+            description={`${done} of ${steps.length} done. Finish these and guests can book and pay online.`}
+            steps={guide}
+            headerAction={
+              <Button variant="outline" size="sm" onClick={() => hide.mutate({ setupGuide: true })}>
                 Hide for now
               </Button>
-            </div>
-          </div>
+            }
+          />
         )
       ) : readyShownNow ? (
         <Alert variant="success">
@@ -296,67 +455,58 @@ export function SettingsOverview({
       ) : null}
 
       <section aria-label="Settings at a glance" className="flex flex-col gap-3">
-        <div className="flex flex-col gap-0.5">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h4 className="m-0 text-base font-semibold">Settings at a glance</h4>
-          <p className="m-0 text-sm text-muted-foreground">
+          <p className="m-0 text-xs text-muted-foreground">
             Read-only summary. Edit opens the tab.
           </p>
         </div>
-        <div className="grid gap-3 md:grid-cols-2">
-          {settingsGlance(property, steps).map((card) => (
-            <Card key={card.tab}>
-              <CardHeader>
-                <CardTitle className="text-base">
-                  {settingsTab(card.tab).label}{' '}
-                  {card.status ? (
-                    <Badge variant={glanceBadge[card.status].variant}>
-                      {glanceBadge[card.status].label}
-                    </Badge>
-                  ) : null}
-                </CardTitle>
-                <CardAction>
-                  <Button asChild size="sm" variant="outline">
-                    <a href={link(card.tab)}>{canWrite ? 'Edit' : 'View'}</a>
-                  </Button>
-                </CardAction>
-              </CardHeader>
-              <CardContent>
-                <DetailList items={card.items} />
-              </CardContent>
-            </Card>
-          ))}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {settingsGlance(property, steps, query.data.attention ?? []).map((card) => {
+            const tab = settingsTab(card.tab);
+            return (
+              <Card key={card.tab} className="gap-3">
+                <CardHeader>
+                  <CardTitle className="text-base">{tab.label}</CardTitle>
+                  <CardAction>
+                    <Badge variant={card.badge.tone}>{card.badge.label}</Badge>
+                  </CardAction>
+                </CardHeader>
+                <CardContent className="flex flex-1 flex-col gap-3">
+                  <dl className="m-0 flex flex-col">
+                    {card.items.map((item) => (
+                      <div
+                        key={item.label}
+                        className="flex items-baseline justify-between gap-3 border-b py-1.5 text-sm last:border-b-0"
+                      >
+                        <dt className="shrink-0 text-xs text-muted-foreground">{item.label}</dt>
+                        <dd className="m-0 min-w-0 break-words text-right font-medium">
+                          {item.value ?? '—'}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                  <div className="mt-auto">
+                    {tab.available ? (
+                      <Button asChild size="sm" variant="outline">
+                        <a href={link(card.tab)}>{canWrite ? 'Edit' : 'View'}</a>
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled
+                        title="This page is not built yet"
+                      >
+                        Edit
+                      </Button>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
-      </section>
-
-      <section aria-label="Find a setting" className="flex flex-col gap-2">
-        <h4 className="m-0 text-base font-semibold">Find a setting</h4>
-        <SearchInput
-          aria-label="Find a setting"
-          placeholder="Try check-in, currency or tax number"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-        />
-        {search.trim() ? (
-          matches.length ? (
-            <ul className="m-0 flex list-none flex-col gap-1 p-0">
-              {matches.map((entry) => (
-                <li key={entry.label}>
-                  <a
-                    href={link(entry.tab)}
-                    className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm text-inherit no-underline hover:bg-accent"
-                  >
-                    <span>{entry.label}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {settingsTab(entry.tab).label}
-                    </span>
-                  </a>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="m-0 text-sm text-muted-foreground">No setting matches that.</p>
-          )
-        ) : null}
       </section>
     </div>
   );

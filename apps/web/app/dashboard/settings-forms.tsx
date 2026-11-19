@@ -9,6 +9,7 @@ import { FormField } from '../../components/ui/form-field';
 import { FormSection } from '../../components/ui/form-section';
 import { Input, Textarea } from '../../components/ui/input';
 import { HotelCurrencyNote } from './hotel-currency-note';
+import { AlsoShowPrices, ExchangeRateTable } from './display-currencies-settings';
 import { SaveBar } from '../../components/ui/save-bar';
 import {
   Select,
@@ -21,14 +22,37 @@ import { validateRules, validTime, type BookingMode, type Property } from './set
 
 type Save = (update: Partial<Property>) => void;
 type FormProps = { property: Property; saving: boolean; onSave: Save; canWrite?: boolean };
+type GeneralProps = FormProps & { tenantId?: string };
 
 const text = (value: number | null) => (value === null ? '' : String(value));
 const toNumber = (value: string): number | null => (value.trim() === '' ? null : Number(value));
 
 /** The Profile tab: identity, location with the map pin, legal and tax, languages, currency, formats. */
-export function GeneralSettings({ property, saving, onSave, canWrite = false }: FormProps) {
-  const rich = useHotelSettings(property, 'general', canWrite);
+export function GeneralSettings({
+  property,
+  saving,
+  onSave,
+  canWrite = false,
+  tenantId,
+}: GeneralProps) {
+  // The exchange-rate controls need the dashboard's query client, so they are drawn only with a hotel scope.
+  const currencyScope = tenantId
+    ? { tenantId, propertyId: property.id, canWrite, refreshKey: property.defaultCurrency }
+    : null;
+  const rich = useHotelSettings(
+    property,
+    'general',
+    canWrite,
+    currencyScope
+      ? {
+          alsoShow: <AlsoShowPrices {...currencyScope} />,
+          exchangeRates: <ExchangeRateTable {...currencyScope} />,
+        }
+      : undefined,
+  );
   useUnsavedChanges(canWrite && rich.dirty);
+  // A changed time zone moves the arrival times of existing bookings, so it is confirmed first.
+  const [confirmZone, setConfirmZone] = useState(false);
   return (
     <div className="flex flex-col gap-4">
       {rich.fields}
@@ -37,8 +61,20 @@ export function GeneralSettings({ property, saving, onSave, canWrite = false }: 
         dirty={canWrite && rich.dirty}
         saving={saving}
         canSave={!Object.keys(rich.errors).length}
-        onSave={() => onSave(rich.update)}
+        onSave={() => (rich.update.timezone ? setConfirmZone(true) : onSave(rich.update))}
         onDiscard={rich.discard}
+      />
+      <ConfirmDialog
+        open={confirmZone}
+        onOpenChange={setConfirmZone}
+        title="Change the time zone?"
+        description={`The hotel time zone changes to ${rich.update.timezone ?? ''}. Arrival times, same-day cutoffs and the dates shown for existing bookings follow it. The bookings themselves are not changed.`}
+        confirmLabel="Change time zone"
+        cancelLabel="Cancel"
+        onConfirm={async () => {
+          onSave(rich.update);
+          setConfirmZone(false);
+        }}
       />
     </div>
   );

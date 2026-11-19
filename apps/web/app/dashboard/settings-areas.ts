@@ -37,12 +37,27 @@ export type Property = {
   directions?: string | null;
   nearestAirportCode?: string | null;
   nearestAirportKm?: number | null;
+  logoDarkUrl?: string | null;
+  iconUrl?: string | null;
+  faviconUrl?: string | null;
+  coverUrl?: string | null;
+  accountingEmail?: string | null;
+  mainContactName?: string | null;
+  mainContactRole?: string | null;
+  mainContactPhone?: string | null;
+  mainContactEmail?: string | null;
   registeredSameAsHotel?: boolean;
   registeredStreet?: string | null;
   registeredCity?: string | null;
   registeredPostalCode?: string | null;
   /** Active rooms from Accommodations (or the PMS import), read-only. */
   roomCount?: number;
+  /** People who can work in this hotel (from the hotels list). */
+  staffCount?: number;
+  /** Which system owns rooms and rates: MUST, or the connected PMS. */
+  pmsSource?: 'MUST' | 'CLOCK_PMS';
+  /** Providers connected and enabled for this hotel, for example STRIPE, POKPAY. */
+  connectedProviders?: string[];
   whatsappSameAsPhone?: boolean;
   whatsappNumber?: string | null;
   afterHoursPhone?: string | null;

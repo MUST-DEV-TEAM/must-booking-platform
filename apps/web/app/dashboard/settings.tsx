@@ -7,7 +7,6 @@ import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
 import { UnsavedChangesBoundary } from '../../components/ui/unsaved-changes';
-import { DisplayCurrenciesSettings } from './display-currencies-settings';
 import { IntegrationSettings } from './integration-settings';
 import { toast } from 'sonner';
 import { CheckInOutSettings, BookingRulesSettings, GeneralSettings } from './settings-forms';
@@ -220,12 +219,7 @@ export function DashboardSettings({
             property={property}
             saving={saveMutation.isPending}
             onSave={(update) => void save(update)}
-          />
-          <DisplayCurrenciesSettings
             tenantId={tenantId}
-            propertyId={propertyId}
-            canWrite={canWrite}
-            refreshKey={property.defaultCurrency}
           />
         </SettingsAreaPanel>
         <SettingsAreaPanel activeArea={settingsArea} area="booking-rules">

@@ -1,10 +1,10 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   ALBANIA_REGIONS,
   COMMON_LANGUAGE_CODES,
   COUNTRY_CODES,
-  LANGUAGE_CODES,
+  HOTEL_LANGUAGES,
   DESCRIPTION_MAX,
   PROFILE_FIELD_KEYS,
   PROPERTY_TYPES,
@@ -20,34 +20,34 @@ import {
   type SettingGroup,
 } from '../../components/ui/settings-fields';
 import { timeZoneOptions, type Property } from './settings-areas';
-/** "Albanian · Shqip", the common languages first, then every other one by name. */
+/** "Albanian · Shqip": the English name and the language's own name, or just the name when they match. */
+export function languageLabel(code: string) {
+  const known = HOTEL_LANGUAGES.find((language) => language.code === code);
+  if (known)
+    return known.native.toLowerCase() === known.name.toLowerCase()
+      ? known.name
+      : `${known.name} · ${known.native}`;
+  // A code saved long ago that is no longer offered: the browser's name for it.
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'language' }).of(code) ?? code;
+  } catch {
+    return code;
+  }
+}
+
+/** The common languages first, then the other modern ones by name. */
 export function languageOptions() {
-  const english = new Intl.DisplayNames(['en'], { type: 'language' });
-  const label = (code: string) => {
-    const name = english.of(code) ?? code;
-    let own = name;
-    try {
-      own = new Intl.DisplayNames([code], { type: 'language' }).of(code) ?? name;
-    } catch {
-      /* no native name known */
-    }
-    return own && own.toLowerCase() !== name.toLowerCase()
-      ? `${name} · ${own.charAt(0).toUpperCase()}${own.slice(1)}`
-      : name;
-  };
   const common = new Set<string>(COMMON_LANGUAGE_CODES);
-  const all = LANGUAGE_CODES.map((code) => ({ value: code, label: label(code) })).sort((x, y) =>
-    x.label.localeCompare(y.label),
-  );
+  const rest = HOTEL_LANGUAGES.filter(({ code }) => !common.has(code))
+    .map(({ code }) => ({ value: code, label: languageLabel(code) }))
+    .sort((x, y) => x.label.localeCompare(y.label));
   return [
     ...COMMON_LANGUAGE_CODES.map((code) => ({
       value: code,
-      label: label(code),
+      label: languageLabel(code),
       group: 'Common',
     })),
-    ...all
-      .filter((item) => !common.has(item.value))
-      .map((item) => ({ ...item, group: 'All languages' })),
+    ...rest.map((item) => ({ ...item, group: 'All languages' })),
   ];
 }
 const options = (pairs: string[][]) => pairs.map(([value, label]) => ({ value, label }));
@@ -70,30 +70,61 @@ export const hotelSettingGroups: Record<
       title: 'Hotel identity',
       description: 'Shown to guests on the booking page, in emails and on your website.',
       fields: [
-        { key: 'name', label: 'Hotel name', max: 120, required: true },
-        { key: 'chainName', label: 'Chain or brand', max: 120, hint: 'Optional.' },
+        {
+          key: 'name',
+          label: 'Hotel name',
+          max: 120,
+          required: true,
+          span: 'half',
+          counter: true,
+          hint: 'Shown everywhere.',
+        },
+        {
+          key: 'chainName',
+          label: 'Chain or brand',
+          max: 120,
+          span: 'half',
+          placeholder: 'Leave empty if independent',
+          hint: 'Optional.',
+        },
         {
           key: 'propertyType',
           label: 'Property type',
           kind: 'choice',
           options: PROPERTY_TYPES,
+          required: true,
+          span: 'half',
           hint: 'Used for booking page wording, website search data and channels.',
         },
-        { key: 'starRating', label: 'Star rating', kind: 'stars' },
+        { key: 'starRating', label: 'Star rating', kind: 'stars', span: 'half' },
         {
           key: 'starRatingOfficial',
           label: 'Issued by the national tourism authority',
           kind: 'boolean',
           defaultValue: false,
-          whenSet: 'starRating',
+          inlineWith: 'starRating',
         },
-        { key: 'yearOpened', label: 'Year opened', kind: 'year' },
-        { key: 'yearRenovated', label: 'Last renovated', kind: 'year' },
+        {
+          key: 'yearOpened',
+          label: 'Year opened',
+          kind: 'year',
+          span: 'third',
+          hint: 'Optional. 4 digits.',
+        },
+        {
+          key: 'yearRenovated',
+          label: 'Last renovated',
+          kind: 'year',
+          span: 'third',
+          hint: 'Optional. Not before the year opened.',
+        },
         {
           key: 'roomCount',
           label: 'Number of rooms',
           kind: 'static',
-          hint: 'Counted automatically from Accommodations, never typed.',
+          span: 'third',
+          suffix: 'from Accommodations',
+          hint: 'Counted automatically, never typed.',
         },
         {
           key: 'summary',
@@ -101,6 +132,7 @@ export const hotelSettingGroups: Record<
           max: SUMMARY_MAX,
           counter: true,
           hint: 'Shown in Google results and the website header.',
+          span: 'full',
         },
         {
           key: 'description',
@@ -109,6 +141,7 @@ export const hotelSettingGroups: Record<
           max: DESCRIPTION_MAX,
           counter: true,
           hint: 'Plain text, 50 to 1000 characters, or leave empty.',
+          span: 'full',
         },
       ],
     },
@@ -116,74 +149,82 @@ export const hotelSettingGroups: Record<
       title: 'Location',
       description: 'Used for the "Find us" link, emails, your website and channels.',
       fields: [
-        { key: 'address', label: 'Street address', max: 200, required: true },
-        { key: 'addressLine2', label: 'Address line 2', max: 200, hint: 'Optional.' },
-        { key: 'city', label: 'City', max: 100 },
+        { key: 'address', label: 'Street address', max: 200, required: true, span: 'full' },
+        {
+          key: 'addressLine2',
+          label: 'Address line 2',
+          max: 200,
+          span: 'full',
+          placeholder: 'Building, floor (optional)',
+        },
+        { key: 'city', label: 'City', max: 100, required: true, span: 'third' },
         {
           key: 'region',
-          label: 'Region',
+          label: 'Region (qark)',
           kind: 'region',
           max: 100,
+          span: 'third',
           optionsByCountry: { AL: ALBANIA_REGIONS },
-          hint: 'Albania: choose the county.',
         },
-        { key: 'postalCode', label: 'Postal code', max: 20, hint: 'Albania: 4 digits.' },
+        {
+          key: 'postalCode',
+          label: 'Postal code',
+          max: 20,
+          span: 'third',
+          hint: 'Use the local postal code format.',
+          hintByCountry: { AL: '4 digits.' },
+        },
         {
           key: 'country',
           label: 'Country',
           kind: 'country',
-          hint: 'Also sets the postal code and tax number rules.',
-        },
-        {
-          key: 'mapPin',
-          label: 'Map pin',
-          kind: 'location',
-          hint: 'Find it from the address, then drag the pin to the entrance. Map data © OpenStreetMap.',
-          pin: {
-            latKey: 'latitude',
-            lngKey: 'longitude',
-            addressKeys: ['address', 'city', 'postalCode', 'countryName'],
-          },
-        },
-        {
-          key: 'latitude',
-          label: 'Latitude',
-          kind: 'decimal',
-          hint: 'From -90 to 90, up to 6 decimals.',
-        },
-        {
-          key: 'longitude',
-          label: 'Longitude',
-          kind: 'decimal',
-          hint: 'From -180 to 180, up to 6 decimals.',
-        },
-        {
-          key: 'directions',
-          label: 'Directions',
-          kind: 'textarea',
-          max: 300,
-          counter: true,
-          hint: 'In the confirmation email, for example how to find the entrance.',
-        },
-        {
-          key: 'nearestAirportCode',
-          label: 'Nearest airport',
-          max: 3,
-          placeholder: 'TIA',
-          hint: '3-letter airport code.',
-        },
-        {
-          key: 'nearestAirportKm',
-          label: 'Distance to the airport (km)',
-          kind: 'decimal',
-          hint: '0 to 500, one decimal.',
+          required: true,
+          span: 'half',
+          hint: 'Also sets the postal code format and suggests the time zone.',
         },
         {
           key: 'timezone',
           label: 'Time zone',
           kind: 'timezone',
           required: true,
-          hint: 'Dates, arrivals and same-day cutoffs follow this time zone.',
+          span: 'half',
+          hint: 'Changing it shifts arrival times of existing bookings; you are asked to confirm.',
+        },
+        {
+          key: 'mapPin',
+          label: 'Map pin',
+          kind: 'location',
+          span: 'full',
+          pin: {
+            latKey: 'latitude',
+            lngKey: 'longitude',
+            addressKeys: ['address', 'city', 'postalCode', 'countryName'],
+          },
+        },
+        { key: 'latitude', label: 'Latitude', kind: 'decimal', inlineWith: 'mapPin' },
+        { key: 'longitude', label: 'Longitude', kind: 'decimal', inlineWith: 'mapPin' },
+        {
+          key: 'directions',
+          label: 'Directions',
+          max: 300,
+          counter: true,
+          span: 'third',
+          hint: 'In the confirmation email.',
+        },
+        {
+          key: 'nearestAirportCode',
+          label: 'Nearest airport',
+          max: 3,
+          span: 'third',
+          placeholder: 'TIA',
+          hint: '3-letter code (Tirana: TIA).',
+        },
+        {
+          key: 'nearestAirportKm',
+          label: 'Distance to airport (km)',
+          kind: 'decimal',
+          span: 'third',
+          hint: 'In km, 1 decimal.',
         },
       ],
     },
@@ -192,17 +233,23 @@ export const hotelSettingGroups: Record<
       description:
         'Printed in the footer of payment and refund emails. Clock still issues the fiscal invoices.',
       fields: [
-        { key: 'legalName', label: 'Legal business name', max: 200 },
+        { key: 'legalName', label: 'Legal business name', max: 200, span: 'half' },
         {
           key: 'taxNumber',
           label: 'Tax number (NUIS)',
-          hint: 'Albania: a letter, 8 digits and a letter, such as L12345678A.',
           max: 30,
+          span: 'half',
+          mono: true,
+          placeholder: 'L12345678A',
+          hint: '3 to 30 letters and digits.',
+          hintByCountry: { AL: 'Letter, 8 digits, letter.' },
         },
         {
           key: 'tourismLicence',
           label: 'Tourism licence number',
           max: 50,
+          span: 'half',
+          placeholder: 'Optional',
           hint: 'Some countries require it on the website.',
         },
         {
@@ -210,6 +257,7 @@ export const hotelSettingGroups: Record<
           label: 'VAT registered',
           kind: 'boolean',
           defaultValue: false,
+          boxed: true,
           hint: 'Shown on receipts. Rates are set in Taxes and fees.',
         },
         {
@@ -217,6 +265,8 @@ export const hotelSettingGroups: Record<
           label: 'Registered address is the same as the hotel address',
           kind: 'boolean',
           defaultValue: true,
+          checkbox: true,
+          span: 'full',
         },
         {
           key: 'registeredStreet',
@@ -224,6 +274,7 @@ export const hotelSettingGroups: Record<
           max: 200,
           whenOff: 'registeredSameAsHotel',
           required: true,
+          span: 'full',
         },
         {
           key: 'registeredCity',
@@ -231,12 +282,14 @@ export const hotelSettingGroups: Record<
           max: 100,
           whenOff: 'registeredSameAsHotel',
           required: true,
+          span: 'half',
         },
         {
           key: 'registeredPostalCode',
           label: 'Registered postal code',
           max: 20,
           whenOff: 'registeredSameAsHotel',
+          span: 'half',
         },
       ],
     },
@@ -256,13 +309,16 @@ export const hotelSettingGroups: Record<
     },
     {
       title: 'Currency',
-      description: 'Prices, payments and refunds use the hotel currency.',
+      description: '',
       fields: [
+        { key: 'defaultCurrency', label: 'Hotel currency', kind: 'currency', span: 'half' },
+        { key: 'alsoShow', label: 'Also show prices in', kind: 'custom', span: 'half' },
         {
-          key: 'defaultCurrency',
-          label: 'Hotel currency',
-          kind: 'currency',
-          hint: 'A preference only: it never converts existing prices.',
+          key: 'exchangeRates',
+          label: 'Exchange rates',
+          kind: 'custom',
+          span: 'full',
+          hideLabel: true,
         },
       ],
     },
@@ -413,6 +469,20 @@ export const hotelSettingGroups: Record<
       ],
     },
     {
+      title: 'Terms and conditions',
+      description: 'Guests are linked to these terms in booking emails and on the booking page.',
+      fields: [
+        {
+          key: 'termsUrl',
+          label: 'Terms and conditions link',
+          max: 500,
+          span: 'full',
+          placeholder: 'https://',
+          hint: 'A full https:// address.',
+        },
+      ],
+    },
+    {
       title: 'Children and pets',
       description: 'Optional information for staff. Notes are plain text, up to 300 characters.',
       fields: [
@@ -428,10 +498,29 @@ export function useHotelSettings(
   property: Property,
   area: keyof typeof hotelSettingGroups,
   canWrite: boolean,
+  extras?: Record<string, ReactNode>,
 ) {
-  const groups = hotelSettingGroups[area],
-    fields = groups.flatMap((g) => g.fields),
-    saveable = fields.filter((f) => f.kind !== 'static' && f.kind !== 'location');
+  const savedLanguages = Array.isArray(property.languages) ? property.languages : [];
+  const groups = hotelSettingGroups[area].map((group) => ({
+    ...group,
+    fields: group.fields.map((f) =>
+      f.kind === 'multi' && f.key === 'languages'
+        ? {
+            ...f,
+            options: [
+              ...(f.options ?? []),
+              ...savedLanguages
+                .filter((code) => !f.options?.some((o) => o.value === code))
+                .map((code) => ({ value: code, label: languageLabel(code), group: 'Saved' })),
+            ],
+          }
+        : f,
+    ),
+  }));
+  const fields = groups.flatMap((g) => g.fields),
+    saveable = fields.filter(
+      (f) => f.kind !== 'static' && f.kind !== 'location' && f.kind !== 'custom',
+    );
   const initial = () =>
     Object.fromEntries(
       fields.map((f) => {
@@ -473,6 +562,8 @@ export function useHotelSettings(
       continue;
     }
     if (typeof v === 'string') {
+      if (f.key === 'termsUrl' && v.trim() && !/^https:\/\/[^\s]+$/i.test(v.trim()))
+        errors[f.key] = 'Enter a full https:// address.';
       if (f.key === 'name' && /[<>\\\r\n]/.test(v))
         errors[f.key] = 'Use a single line without < > or \\.';
       if (f.max && v.length > f.max) errors[f.key] = `Keep this to ${f.max} characters or fewer.`;
@@ -572,6 +663,8 @@ export function useHotelSettings(
         errors={errors}
         disabled={!canWrite}
         currencyLocked={property.defaultCurrencyLocked}
+        currencyBadge={property.pmsSource === 'CLOCK_PMS' ? 'From Clock · Locked' : 'Locked'}
+        extras={extras}
       />
     ),
   };

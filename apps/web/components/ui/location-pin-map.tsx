@@ -4,7 +4,7 @@ import 'leaflet/dist/leaflet.css';
 
 import L from 'leaflet';
 import { useEffect } from 'react';
-import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-leaflet';
+import { MapContainer, Marker, TileLayer, Tooltip, useMap, useMapEvents } from 'react-leaflet';
 
 /** Where the map opens when no pin is set yet: Albania. */
 const FALLBACK_CENTER: [number, number] = [41.15, 20.17];
@@ -37,38 +37,54 @@ function ClickToPlace({ onPlace }: { onPlace: (lat: number, lng: number) => void
 export default function LocationPinMap({
   position,
   disabled,
+  label,
   onChange,
 }: {
   position: [number, number] | null;
   disabled?: boolean;
+  /** A name shown above the pin, for example the hotel name. */
+  label?: string;
   onChange: (lat: number, lng: number) => void;
 }) {
   return (
-    <MapContainer
-      center={position ?? FALLBACK_CENTER}
-      zoom={position ? 16 : 7}
-      scrollWheelZoom={false}
-      className="h-72 w-full rounded-md border text-primary"
-    >
-      <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
-      <Recentre position={position} />
-      {disabled ? null : <ClickToPlace onPlace={onChange} />}
-      {position ? (
-        <Marker
-          position={position}
-          icon={pin}
-          draggable={!disabled}
-          eventHandlers={{
-            dragend: (event) => {
-              const point = (event.target as L.Marker).getLatLng();
-              onChange(point.lat, point.lng);
-            },
-          }}
+    <div className="relative">
+      <MapContainer
+        center={position ?? FALLBACK_CENTER}
+        zoom={position ? 16 : 7}
+        scrollWheelZoom={false}
+        className="h-72 w-full rounded-md border text-destructive"
+      >
+        <TileLayer
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-      ) : null}
-    </MapContainer>
+        <Recentre position={position} />
+        {disabled ? null : <ClickToPlace onPlace={onChange} />}
+        {position ? (
+          <Marker
+            position={position}
+            icon={pin}
+            draggable={!disabled}
+            eventHandlers={{
+              dragend: (event) => {
+                const point = (event.target as L.Marker).getLatLng();
+                onChange(point.lat, point.lng);
+              },
+            }}
+          >
+            {label ? (
+              <Tooltip permanent direction="top" offset={[0, -36]} opacity={1}>
+                {label}
+              </Tooltip>
+            ) : null}
+          </Marker>
+        ) : null}
+      </MapContainer>
+      {disabled ? null : (
+        <span className="pointer-events-none absolute right-2 top-2 z-[1000] rounded-md bg-card/95 px-2 py-1 text-xs text-muted-foreground shadow-xs">
+          Drag the pin to the entrance
+        </span>
+      )}
+    </div>
   );
 }

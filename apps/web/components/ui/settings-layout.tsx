@@ -79,7 +79,7 @@ export function SettingsLayout({
       <PageHeader title={title} description={description} />
       <div className="grid gap-6 lg:grid-cols-[14rem_minmax(0,1fr)]">
         <nav aria-label={`${title} menu`} className="hidden lg:block">
-          <div className="sticky top-4 flex flex-col gap-5">
+          <div className="sticky top-24 flex flex-col gap-5">
             {groups.map((group) => (
               <div key={group.key} className="flex flex-col gap-1">
                 <p className="m-0 px-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
