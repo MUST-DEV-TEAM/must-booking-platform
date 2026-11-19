@@ -6,6 +6,11 @@ import { evaluateBookingRules } from '../booking/booking-rules';
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 
 import { TenantDatabaseService } from './tenant-database.service';
+import {
+  publicHotelProfile,
+  publicProfileColumns,
+  type PublicProfileRow,
+} from './public-hotel-profile';
 import { roomImagePresentation, type RoomImageProjectionRow } from './room-image-projection';
 import { roomTypeImagePresentation } from './room-type-image-projection';
 import { resolveEffectiveHouseRules } from './effective-house-rules';
@@ -98,32 +103,59 @@ export class PublicCatalogService {
   async getProfile(tenantId: string, propertyId: string) {
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       const rows = await tx.$queryRaw<
-        Array<{
-          name: string;
-          address: string | null;
-          phone: string | null;
-          supportEmail: string | null;
-          checkInTime: string | null;
-          checkOutTime: string | null;
-          houseRules: string | null;
-          termsUrl: string | null;
-          freeCancellationDays: number | null;
-          currency: string | null;
-          timezone: string;
-        }>
+        Array<
+          {
+            name: string;
+            address: string | null;
+            phone: string | null;
+            supportEmail: string | null;
+            checkInTime: string | null;
+            checkOutTime: string | null;
+            houseRules: string | null;
+            termsUrl: string | null;
+            freeCancellationDays: number | null;
+            currency: string | null;
+            timezone: string;
+          } & PublicProfileRow
+        >
       >`
         SELECT p.name, p.address, p.phone, p.support_email AS "supportEmail",
           p.check_in_time AS "checkInTime", p.check_out_time AS "checkOutTime",
           p.rules AS "houseRules", p.terms_url AS "termsUrl",
           p.free_cancellation_days_before_arrival AS "freeCancellationDays",
           COALESCE(p.default_currency, (SELECT rp.currency FROM rate_plans rp WHERE rp.tenant_id=p.tenant_id AND rp.property_id=p.id ORDER BY rp.created_at LIMIT 1)) AS currency,
-          p.timezone
+          p.timezone, ${publicProfileColumns}
         FROM properties p WHERE p.tenant_id=${tenantId}::uuid AND p.id=${propertyId}::uuid`;
       const row = rows[0];
       if (!row) throw new NotFoundException('Hotel not found.');
       const days = row.freeCancellationDays;
+      const {
+        chainName: _c,
+        propertyType: _t,
+        starRating: _s,
+        starRatingOfficial: _o,
+        yearOpened: _y,
+        yearRenovated: _r,
+        summary: _m,
+        description: _d,
+        languages: _l,
+        tourismLicence: _n,
+        addressLine2: _a,
+        city: _i,
+        region: _g,
+        postalCode: _p,
+        country: _k,
+        latitude: _la,
+        longitude: _lo,
+        directions: _di,
+        nearestAirportCode: _ac,
+        nearestAirportKm: _ak,
+        roomCount: _rc,
+        ...existing
+      } = row;
       return {
-        ...row,
+        ...existing,
+        profile: publicHotelProfile(row),
         cancellationText:
           days && days > 0
             ? `Free cancellation up to ${days} days before arrival. Inside ${days} days, contact the hotel.`

@@ -51,7 +51,7 @@ export function GeneralSettings({
       : undefined,
   );
   useUnsavedChanges(canWrite && rich.dirty);
-  // A changed time zone moves the arrival times of existing bookings, so it is confirmed first.
+  // A changed time zone moves the arrival times of existing bookings, so a hotel that has bookings confirms it first.
   const [confirmZone, setConfirmZone] = useState(false);
   return (
     <div className="flex flex-col gap-4">
@@ -61,7 +61,9 @@ export function GeneralSettings({
         dirty={canWrite && rich.dirty}
         saving={saving}
         canSave={!Object.keys(rich.errors).length}
-        onSave={() => (rich.update.timezone ? setConfirmZone(true) : onSave(rich.update))}
+        onSave={() =>
+          rich.update.timezone && property.hasBookings ? setConfirmZone(true) : onSave(rich.update)
+        }
         onDiscard={rich.discard}
       />
       <ConfirmDialog

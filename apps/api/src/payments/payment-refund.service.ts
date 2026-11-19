@@ -1,3 +1,4 @@
+import { emailBrandExtraP } from '../mail/email-brand-columns';
 import { bookingContactSql } from '../booking/booking-contact';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
@@ -653,7 +654,7 @@ export class PaymentRefundService {
           b.nightly_rates AS "nightlyRates",
           COALESCE(r.name, rt.name) AS "roomName", p.name AS "propertyName",
           p.brand_colour AS "brandColour",p.email_footer_text AS "emailFooterText",p.terms_url AS "termsUrl",p.logo_url AS "logoUrl", p.support_email AS "supportEmail", p.phone,
-          p.public_website_origin AS "websiteUrl", p.address
+          p.public_website_origin AS "websiteUrl", p.address, ${emailBrandExtraP}
         FROM bookings b
         JOIN properties p ON p.tenant_id = b.tenant_id AND p.id = b.property_id
         JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
@@ -1147,7 +1148,7 @@ export class PaymentRefundService {
           b.nightly_rates AS "nightlyRates",
           COALESCE(r.name, rt.name) AS "roomName", p.name AS "propertyName",
           p.brand_colour AS "brandColour",p.email_footer_text AS "emailFooterText",p.terms_url AS "termsUrl",p.logo_url AS "logoUrl", p.support_email AS "supportEmail", p.phone,
-          p.public_website_origin AS "websiteUrl", p.address
+          p.public_website_origin AS "websiteUrl", p.address, ${emailBrandExtraP}
         FROM bookings b
         JOIN properties p ON p.tenant_id = b.tenant_id AND p.id = b.property_id
         JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id

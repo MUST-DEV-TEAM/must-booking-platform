@@ -214,6 +214,8 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
         cta: command.cancellationUrl
           ? { url: command.cancellationUrl, label: 'Manage booking' }
           : null,
+        showLegal: true,
+        showDirections: true,
         footerNote: `You&#39;re receiving this email because you made a reservation at ${escapeHtml(hotelName)}.`,
       }),
       text: `${command.template ? `${command.template.text}\n\n` : ''}${paid ? `Your payment of ${this.money(command.amount)} was received and your reservation is confirmed.` : 'Your reservation is confirmed. Payment will be collected at the hotel on arrival.'} Booking ${command.bookingReference}: ${command.rooms && command.rooms.length > 1 ? this.roomLines(command.rooms).replace(/\n/g, '; ') : command.roomName}, ${command.stay.startsOn} to ${command.stay.endsOn}, ${command.guestCount} guest${command.guestCount === 1 ? '' : 's'}.${command.specialRequests?.trim() ? ` Special requests: ${command.specialRequests.trim()}` : ''}${command.cancellationUrl ? ` Review or cancel: ${command.cancellationUrl}` : ''}`,
@@ -281,6 +283,7 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
           amountLabel: 'Refund amount',
           dateFormat: 'us',
         }),
+        showLegal: true,
         footerNote: `You&#39;re receiving this email because a refund was issued for a reservation at ${escapeHtml(hotelName)}.`,
       }),
       text: `${command.template ? `${command.template.text}\n\n` : ''}Your refund of ${this.money(command.amount)} for booking ${command.bookingReference} has been processed. It may take a few business days to appear on your original payment method.`,

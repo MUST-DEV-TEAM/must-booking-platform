@@ -160,6 +160,11 @@ export const hotelColumns = Prisma.raw(
 export const propertyColumns = Prisma.raw(
   `online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",deduct_payment_fee_on_guest_refund AS "deductPaymentFeeOnGuestRefund",clock_cancel_refund_policy AS "clockCancelRefundPolicy",clock_payment_folio AS "clockPaymentFolio",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns.sql},logo_url AS "logoUrl", logo_dark_url AS "logoDarkUrl", icon_url AS "iconUrl", favicon_url AS "faviconUrl", cover_url AS "coverUrl", phone, support_email AS "supportEmail", booking_mode AS "bookingMode", min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights", check_in_time AS "checkInTime", check_out_time AS "checkOutTime", rules, advance_booking_days AS "advanceBookingDays", free_cancellation_days_before_arrival AS "freeCancellationDaysBeforeArrival", public_website_origin AS "publicWebsiteOrigin", json_build_object('stripe', stripe_enabled, 'pokpay', pokpay_enabled, 'payAtHotel', pay_at_hotel_enabled) AS "paymentGateways"`,
 );
+const REQUIRED_HOTEL_FIELDS: Record<string, string> = {
+  propertyType: 'Property type',
+  city: 'City',
+  country: 'Country',
+};
 export function hotelInput(raw: Record<string, unknown>): HotelSettings {
   const out: Record<string, unknown> = {};
   for (const f of hotelFields) {
@@ -251,6 +256,10 @@ export function hotelInput(raw: Record<string, unknown>): HotelSettings {
       bad('Choose a policy from the list.');
     if (f.key === 'dateFormat' && !['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD'].includes(String(v)))
       bad('Choose a supported hotel date format.');
+    // These stay filled in once set: guests and emails depend on them. (A hotel that never set one can still
+    // save other settings; the Profile form asks for them.)
+    if (v === null && REQUIRED_HOTEL_FIELDS[f.key])
+      throw new BadRequestException(`${REQUIRED_HOTEL_FIELDS[f.key]} is required.`);
     out[f.key] = v;
   }
   return out as HotelSettings;

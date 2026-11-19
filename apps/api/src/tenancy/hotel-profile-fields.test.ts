@@ -27,6 +27,20 @@ describe('hotel profile fields', () => {
     });
   });
 
+  it('refuses to blank the fields guests and emails depend on', () => {
+    for (const [key, label] of [
+      ['propertyType', 'Property type'],
+      ['city', 'City'],
+      ['country', 'Country'],
+    ] as const) {
+      expect(() => hotelInput({ [key]: null })).toThrow(`${label} is required.`);
+      expect(() => hotelInput({ [key]: '  ' })).toThrow(`${label} is required.`);
+    }
+    // Other fields may still be cleared, and a field that is not sent is left alone.
+    expect(hotelInput({ chainName: '' })).toEqual({ chainName: null });
+    expect(hotelInput({ yearOpened: 2001 })).toEqual({ yearOpened: 2001 });
+  });
+
   it('turns cleared text into null', () => {
     expect(hotelInput({ chainName: '  ', yearOpened: null })).toEqual({
       chainName: null,

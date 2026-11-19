@@ -1,3 +1,4 @@
+import { emailBrandExtraP } from './email-brand-columns';
 import { bookingContactSql } from '../booking/booking-contact';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { PaymentProviderContext } from '@must/domain-contracts';
@@ -20,6 +21,11 @@ type CancellationRow = {
   propertyName: string;
   brandColour: string | null;
   emailFooterText: string | null;
+  legalName: string | null;
+  taxNumber: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  directions: string | null;
   termsUrl: string | null;
   logoUrl: string | null;
   supportEmail: string | null;
@@ -70,7 +76,7 @@ export class BookingCancellationNotificationService {
           b.nightly_rates AS "nightlyRates",
           COALESCE(r.name, rt.name) AS "roomName", p.name AS "propertyName",
           p.brand_colour AS "brandColour",p.email_footer_text AS "emailFooterText",p.terms_url AS "termsUrl",p.logo_url AS "logoUrl", p.support_email AS "supportEmail", p.phone AS "propertyPhone",
-          p.public_website_origin AS "publicWebsiteOrigin", p.address AS "propertyAddress"
+          p.public_website_origin AS "publicWebsiteOrigin", p.address AS "propertyAddress", ${emailBrandExtraP}
         FROM bookings b
         JOIN properties p ON p.tenant_id = b.tenant_id AND p.id = b.property_id
         LEFT JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
@@ -138,6 +144,11 @@ export class BookingCancellationNotificationService {
       name: row.propertyName,
       brandColour: row.brandColour,
       emailFooterText: row.emailFooterText,
+      legalName: row.legalName,
+      taxNumber: row.taxNumber,
+      latitude: row.latitude,
+      longitude: row.longitude,
+      directions: row.directions,
       termsUrl: row.termsUrl,
       logoUrl: row.logoUrl,
       supportEmail: row.supportEmail,

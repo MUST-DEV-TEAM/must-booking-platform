@@ -163,6 +163,14 @@ export type MailBrand = {
   phone?: string | null;
   websiteUrl?: string | null;
   address?: string | null;
+  /** The hotel's legal business name and tax number, printed in payment and refund emails. */
+  legalName?: string | null;
+  taxNumber?: string | null;
+  /** The map pin; directions links use it when it is set, the address otherwise. */
+  latitude?: number | null;
+  longitude?: number | null;
+  /** How to find the hotel, in the hotel's own words (shown in the stay-confirmed email). */
+  directions?: string | null;
 };
 
 export interface StorageProvider {
