@@ -7,6 +7,8 @@ import { MultiSelect } from './multi-select';
 import { CountrySelect } from './country-select';
 import { Combobox } from './combobox';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from './select';
+import { SegmentedControl } from './segmented-control';
+import { LocationPin } from './location-pin';
 export type SettingValue = string | boolean | string[];
 export type SettingField = {
   key: string;
@@ -23,7 +25,15 @@ export type SettingField = {
     | 'currency'
     | 'year'
     | 'decimal'
-    | 'region';
+    | 'region'
+    /** Not rated, or 1 to 5 stars, as a row of buttons. */
+    | 'stars'
+    /** A searchable list of IANA time zones. */
+    | 'timezone'
+    /** Shown, never edited or saved (for example a count worked out elsewhere). */
+    | 'static'
+    /** A map pin that writes `pin.latKey` and `pin.lngKey`; the field's own key is not saved. */
+    | 'location';
   hint?: string;
   placeholder?: string;
   options?: readonly { value: string; label: string; group?: string }[];
@@ -36,6 +46,12 @@ export type SettingField = {
   whenSet?: string;
   /** Show a "used / max" counter under the field. */
   counter?: boolean;
+  /** Show only while this switch is off. */
+  whenOff?: string;
+  /** Marked as required next to the label. */
+  required?: boolean;
+  /** For a location field: where the pin is saved and which fields make the address to look up. */
+  pin?: { latKey: string; lngKey: string; addressKeys: readonly string[] };
 };
 export type SettingGroup = {
   title: string;
@@ -43,6 +59,20 @@ export type SettingGroup = {
   fields: SettingField[];
   compact?: boolean;
 };
+/** Every IANA time zone this browser knows, with the saved one kept even if it is not in the list. */
+function timeZones(current: string): string[] {
+  let zones: string[] = [];
+  try {
+    zones =
+      (Intl as unknown as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf?.(
+        'timeZone',
+      ) ?? [];
+  } catch {
+    zones = [];
+  }
+  return !current || zones.includes(current) ? zones : [current, ...zones];
+}
+
 /** Shared field composition for grouped property settings. The caller owns validation and saving. */
 export function SettingsFields({
   groups,
@@ -68,7 +98,8 @@ export function SettingsFields({
               .filter(
                 (f) =>
                   (!f.when || values[f.when.key] === f.when.value) &&
-                  (!f.whenSet || Boolean(values[f.whenSet])),
+                  (!f.whenSet || Boolean(values[f.whenSet])) &&
+                  (!f.whenOff || values[f.whenOff] === false),
               )
               .map((f) => {
                 const id = 'hotel-' + f.key,
@@ -80,14 +111,23 @@ export function SettingsFields({
                     layout={f.kind === 'boolean' ? 'toggle' : 'stack'}
                     className={
                       f.kind === 'boolean' ||
-                      !['time', 'number', 'choice', 'year', 'decimal', 'region'].includes(
-                        f.kind ?? '',
-                      )
+                      (![
+                        'time',
+                        'number',
+                        'choice',
+                        'year',
+                        'decimal',
+                        'region',
+                        'timezone',
+                        'static',
+                      ].includes(f.kind ?? '') &&
+                        !(f.kind === undefined && f.max !== undefined && f.max <= 20))
                         ? 'sm:col-span-2'
                         : undefined
                     }
                     htmlFor={id}
                     label={f.label}
+                    required={f.required}
                     hint={
                       f.kind === 'currency' && currencyLocked
                         ? 'Prices already exist. Their currencies stay on the rate plans.'
@@ -97,7 +137,53 @@ export function SettingsFields({
                     }
                     error={errors[f.key]}
                   >
-                    {f.kind === 'boolean' ? (
+                    {f.kind === 'stars' ? (
+                      <SegmentedControl
+                        label={f.label}
+                        value={String(v)}
+                        disabled={locked}
+                        onChange={(value) => onChange(f.key, value)}
+                        options={[
+                          { value: '', label: 'Not rated' },
+                          ...['1', '2', '3', '4', '5'].map((n) => ({
+                            value: n,
+                            label: `${n} ★`,
+                            hint: `${n} star${n === '1' ? '' : 's'}`,
+                          })),
+                        ]}
+                      />
+                    ) : f.kind === 'timezone' ? (
+                      <Combobox
+                        label={f.label}
+                        value={String(v)}
+                        disabled={locked}
+                        placeholder="Search time zones…"
+                        triggerClassName="w-full"
+                        options={timeZones(String(v)).map((zone) => ({
+                          value: zone,
+                          label: zone.replaceAll('_', ' '),
+                        }))}
+                        onChange={(value) => onChange(f.key, value)}
+                      />
+                    ) : f.kind === 'static' ? (
+                      <p id={id} className="m-0 text-sm font-semibold">
+                        {String(v) || 'Not counted yet'}
+                      </p>
+                    ) : f.kind === 'location' && f.pin ? (
+                      <LocationPin
+                        latitude={String(values[f.pin.latKey] ?? '')}
+                        longitude={String(values[f.pin.lngKey] ?? '')}
+                        address={f.pin.addressKeys
+                          .map((key) => String(values[key] ?? '').trim())
+                          .filter(Boolean)
+                          .join(', ')}
+                        disabled={locked}
+                        onChange={(lat, lng) => {
+                          onChange(f.pin!.latKey, lat);
+                          onChange(f.pin!.lngKey, lng);
+                        }}
+                      />
+                    ) : f.kind === 'boolean' ? (
                       <Switch
                         id={id}
                         checked={v === true}

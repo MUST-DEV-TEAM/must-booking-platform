@@ -348,11 +348,11 @@ describe('DashboardSettings', () => {
       )?.disabled,
     ).toBe(true);
 
-    await value(container.querySelector('#settings-name')!, 'Grand Hotel Tirana');
+    await value(container.querySelector('#hotel-name')!, 'Grand Hotel Tirana');
     await saveChanges(container);
     const identityRequest = fetch.mock.calls.find(([, init]) => init?.method === 'PATCH')!;
     expect(JSON.parse(identityRequest[1]!.body as string)).toEqual({ name: 'Grand Hotel Tirana' });
-    expect((container.querySelector('#settings-name') as HTMLInputElement).value).toBe(
+    expect((container.querySelector('#hotel-name') as HTMLInputElement).value).toBe(
       'Grand Hotel Tirana',
     );
 

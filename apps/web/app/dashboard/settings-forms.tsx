@@ -1,10 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { useHotelSettings } from './hotel-settings-fields';
 import { useUnsavedChanges } from '../../components/ui/unsaved-changes';
-import { Combobox } from '../../components/ui/combobox';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import { FormField } from '../../components/ui/form-field';
 import { FormSection } from '../../components/ui/form-section';
@@ -18,13 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../../components/ui/select';
-import {
-  timeZoneOptions,
-  validateRules,
-  validTime,
-  type BookingMode,
-  type Property,
-} from './settings-areas';
+import { validateRules, validTime, type BookingMode, type Property } from './settings-areas';
 
 type Save = (update: Partial<Property>) => void;
 type FormProps = { property: Property; saving: boolean; onSave: Save; canWrite?: boolean };
@@ -32,102 +25,20 @@ type FormProps = { property: Property; saving: boolean; onSave: Save; canWrite?:
 const text = (value: number | null) => (value === null ? '' : String(value));
 const toNumber = (value: string): number | null => (value.trim() === '' ? null : Number(value));
 
-/** Hotel name, address and time zone. */
+/** The Profile tab: identity, location with the map pin, legal and tax, languages, currency, formats. */
 export function GeneralSettings({ property, saving, onSave, canWrite = false }: FormProps) {
   const rich = useHotelSettings(property, 'general', canWrite);
-  const initial = { name: property.name, address: property.address, timezone: property.timezone };
-  const [draft, setDraft] = useState(initial);
-  useEffect(() => setDraft(initial), [property.name, property.address, property.timezone]);
-  const zones = useMemo(() => timeZoneOptions(property.timezone), [property.timezone]);
-  const errors = {
-    name: draft.name.trim() ? null : 'Enter the hotel name.',
-    address: draft.address.trim() ? null : 'Enter the hotel address.',
-    timezone:
-      !zones.length || zones.includes(draft.timezone) ? null : 'Choose a time zone from the list.',
-  };
-  const dirty =
-    rich.dirty ||
-    draft.name !== property.name ||
-    draft.address !== property.address ||
-    draft.timezone !== property.timezone;
-  useUnsavedChanges(canWrite && dirty);
-  const save = () => {
-    const update: Partial<Property> = { ...rich.update };
-    if (draft.name !== property.name) update.name = draft.name.trim();
-    if (draft.address !== property.address) update.address = draft.address.trim();
-    if (draft.timezone !== property.timezone) update.timezone = draft.timezone;
-    onSave(update);
-  };
+  useUnsavedChanges(canWrite && rich.dirty);
   return (
     <div className="flex flex-col gap-4">
-      <FormSection title="Hotel identity" description="Shown to guests and in booking emails.">
-        <FormField
-          label="Hotel name"
-          htmlFor="settings-name"
-          required
-          error={dirty ? errors.name : null}
-        >
-          <Input
-            disabled={!canWrite}
-            id="settings-name"
-            value={draft.name}
-            onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-          />
-        </FormField>
-        <FormField
-          label="Address"
-          hint="Used for the Find us link in guest emails. Enter the full hotel address."
-          htmlFor="settings-address"
-          required
-          error={dirty ? errors.address : null}
-        >
-          <Input
-            disabled={!canWrite}
-            id="settings-address"
-            value={draft.address}
-            onChange={(e) => setDraft({ ...draft, address: e.target.value })}
-          />
-        </FormField>
-        <FormField
-          label="Time zone"
-          htmlFor="settings-timezone"
-          required
-          hint="Dates, arrivals and same-day cutoffs follow this time zone."
-          error={dirty ? errors.timezone : null}
-        >
-          {zones.length ? (
-            <Combobox
-              disabled={!canWrite}
-              label="Time zone"
-              value={draft.timezone}
-              onChange={(timezone) => setDraft({ ...draft, timezone })}
-              options={zones.map((zone) => ({ value: zone, label: zone.replaceAll('_', ' ') }))}
-              placeholder="Search time zones…"
-              triggerClassName="w-full"
-            />
-          ) : (
-            <Input
-              disabled={!canWrite}
-              id="settings-timezone"
-              value={draft.timezone}
-              onChange={(e) => setDraft({ ...draft, timezone: e.target.value })}
-            />
-          )}
-        </FormField>
-      </FormSection>
       {rich.fields}
       <HotelCurrencyNote propertyId={property.id} refreshKey={property.defaultCurrency ?? ''} />
       <SaveBar
-        dirty={canWrite && dirty}
+        dirty={canWrite && rich.dirty}
         saving={saving}
-        canSave={
-          !errors.name && !errors.address && !errors.timezone && !Object.keys(rich.errors).length
-        }
-        onSave={save}
-        onDiscard={() => {
-          setDraft(initial);
-          rich.discard();
-        }}
+        canSave={!Object.keys(rich.errors).length}
+        onSave={() => onSave(rich.update)}
+        onDiscard={rich.discard}
       />
     </div>
   );

@@ -37,6 +37,12 @@ export type Property = {
   directions?: string | null;
   nearestAirportCode?: string | null;
   nearestAirportKm?: number | null;
+  registeredSameAsHotel?: boolean;
+  registeredStreet?: string | null;
+  registeredCity?: string | null;
+  registeredPostalCode?: string | null;
+  /** Active rooms from Accommodations (or the PMS import), read-only. */
+  roomCount?: number;
   whatsappSameAsPhone?: boolean;
   whatsappNumber?: string | null;
   afterHoursPhone?: string | null;

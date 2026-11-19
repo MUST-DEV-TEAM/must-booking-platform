@@ -59,9 +59,34 @@ it('groups General, validates business/about fields, locks a priced currency and
       />,
     );
   try {
-    expect(m.host.textContent).toContain('Currency and languages');
-    expect(m.host.textContent).toContain('About the hotel');
+    for (const group of [
+      'Hotel identity',
+      'Location',
+      'Legal and tax',
+      'Languages spoken at the hotel',
+      'Currency',
+      'Formats',
+    ])
+      expect(m.host.textContent).toContain(group);
+    // The street address lives in Location only (no second address box), the room count is read-only.
+    expect(m.host.querySelectorAll('#hotel-address')).toHaveLength(1);
+    expect(m.host.querySelector('#hotel-roomCount')?.textContent).toBe('Not counted yet');
+    expect(button('Find from address')).toBeDefined();
     expect(button('Save changes')).toBeUndefined();
+    // The hotel name is required, checked before saving.
+    await value('hotel-name', ' ');
+    expect(m.host.textContent).toContain('Enter the hotel name.');
+    await value('hotel-name', 'Hotel');
+    // The registered address asks for its fields only when it differs from the hotel's.
+    expect(m.host.querySelector('#hotel-registeredStreet')).toBeNull();
+    await act(async () =>
+      m.host.querySelector<HTMLButtonElement>('#hotel-registeredSameAsHotel')!.click(),
+    );
+    expect(m.host.querySelector('#hotel-registeredStreet')).not.toBeNull();
+    expect(m.host.textContent).toContain('Enter the registered street address.');
+    await act(async () =>
+      m.host.querySelector<HTMLButtonElement>('#hotel-registeredSameAsHotel')!.click(),
+    );
     expect(
       [...m.host.querySelectorAll<HTMLButtonElement>('button')].find((b) =>
         b.textContent?.includes('EUR'),
