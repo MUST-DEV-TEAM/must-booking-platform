@@ -24,6 +24,15 @@ const row: PublicProfileRow = {
   nearestAirportCode: 'TIA',
   nearestAirportKm: 120.5,
   roomCount: 81,
+  logoUrl: 'https://cdn.example/logo.png',
+  logoDarkUrl: null,
+  iconUrl: 'https://cdn.example/icon.png',
+  faviconUrl: null,
+  coverUrl: 'https://cdn.example/cover.jpg',
+  brandColour: '#215448',
+  onlineProfiles: { instagram: 'https://www.instagram.com/hotel' },
+  phone: '+355 69 123 4567',
+  supportEmail: 'hello@hotel.al',
 };
 
 describe('publicHotelProfile', () => {
@@ -39,6 +48,16 @@ describe('publicHotelProfile', () => {
     expect(profile.location.nearestAirport).toEqual({ code: 'TIA', distanceKm: 120.5 });
     expect(profile.starRatingOfficial).toBe(true);
     expect(profile.roomCount).toBe(81);
+    // Brand for the website: the favicon falls back to the square icon; nothing internal is included.
+    expect(profile.brand).toMatchObject({
+      logoUrl: 'https://cdn.example/logo.png',
+      faviconUrl: 'https://cdn.example/icon.png',
+      coverUrl: 'https://cdn.example/cover.jpg',
+      colour: '#215448',
+      email: 'hello@hotel.al',
+      onlineProfiles: { instagram: 'https://www.instagram.com/hotel' },
+    });
+    expect(JSON.stringify(profile)).not.toMatch(/accounting|mainContact|legalName|taxNumber/);
   });
 
   it('leaves out what is not set, and never shows a half pin', () => {

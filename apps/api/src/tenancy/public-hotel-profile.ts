@@ -9,7 +9,10 @@ export const publicProfileColumns = Prisma.raw(`
   p.tourism_licence AS "tourismLicence", p.address_line_2 AS "addressLine2", p.city, p.region,
   p.postal_code AS "postalCode", p.country, p.latitude, p.longitude, p.directions,
   p.nearest_airport_code AS "nearestAirportCode", p.nearest_airport_km AS "nearestAirportKm",
-  (SELECT count(*)::int FROM rooms r WHERE r.tenant_id=p.tenant_id AND r.property_id=p.id AND r.is_active) AS "roomCount"`);
+  (SELECT count(*)::int FROM rooms r WHERE r.tenant_id=p.tenant_id AND r.property_id=p.id AND r.is_active) AS "roomCount",
+  p.logo_url AS "logoUrl", p.logo_dark_url AS "logoDarkUrl", p.icon_url AS "iconUrl",
+  p.favicon_url AS "faviconUrl", p.cover_url AS "coverUrl", p.brand_colour AS "brandColour",
+  p.online_profiles AS "onlineProfiles", p.phone, p.support_email AS "supportEmail"`);
 
 export type PublicProfileRow = {
   chainName: string | null;
@@ -33,6 +36,15 @@ export type PublicProfileRow = {
   nearestAirportCode: string | null;
   nearestAirportKm: number | null;
   roomCount: number | null;
+  logoUrl: string | null;
+  logoDarkUrl: string | null;
+  iconUrl: string | null;
+  faviconUrl: string | null;
+  coverUrl: string | null;
+  brandColour: string | null;
+  onlineProfiles: Record<string, string> | null;
+  phone: string | null;
+  supportEmail: string | null;
 };
 
 const regionName = (code: string) => {
@@ -69,6 +81,19 @@ export function publicHotelProfile(row: PublicProfileRow) {
     })),
     roomCount: row.roomCount,
     tourismLicence: row.tourismLicence,
+    /** What a website needs to look like the hotel: images, colour, contact and its pages on other sites. */
+    brand: {
+      logoUrl: row.logoUrl,
+      logoDarkUrl: row.logoDarkUrl,
+      iconUrl: row.iconUrl,
+      /** The favicon, or the square icon when no separate favicon was uploaded. */
+      faviconUrl: row.faviconUrl ?? row.iconUrl,
+      coverUrl: row.coverUrl,
+      colour: row.brandColour,
+      phone: row.phone,
+      email: row.supportEmail,
+      onlineProfiles: row.onlineProfiles ?? {},
+    },
     location: {
       addressLine2: row.addressLine2,
       city: row.city,
