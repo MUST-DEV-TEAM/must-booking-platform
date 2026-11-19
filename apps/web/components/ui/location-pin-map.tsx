@@ -47,7 +47,7 @@ export default function LocationPinMap({
   onChange: (lat: number, lng: number) => void;
 }) {
   return (
-    <div className="relative">
+    <div className="relative isolate z-0">
       <MapContainer
         center={position ?? FALLBACK_CENTER}
         zoom={position ? 16 : 7}

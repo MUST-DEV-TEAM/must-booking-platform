@@ -10,6 +10,7 @@ import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { MultiSelect } from '../../components/ui/multi-select';
+import { currentCurrencyCodes } from '../../lib/currencies';
 import {
   Table,
   TableBody,
@@ -77,16 +78,6 @@ const currencyName = (code: string) => {
     return code;
   }
 };
-const allCurrencies = (): string[] => {
-  try {
-    return (Intl as unknown as { supportedValuesOf: (key: string) => string[] }).supportedValuesOf(
-      'currency',
-    );
-  } catch {
-    return [];
-  }
-};
-
 /**
  * The hotel's display currencies and exchange rates, read and written through the exchange-rates API.
  * The server keeps a rate as "hotel-currency units per one unit of the other currency"; staff see and type
@@ -132,14 +123,19 @@ export function AlsoShowPrices(scope: Scope) {
   const { query, change, data, selected } = useDisplayCurrencies(scope);
   const options = useMemo(
     () =>
-      allCurrencies()
+      currentCurrencyCodes
         .filter((code) => code !== data?.base)
         .map((code) => ({
           value: code,
           label: code,
           description: currencyName(code),
-          disabled: selected.length >= MAX_DISPLAY_CURRENCIES && !selected.includes(code),
-          disabledReason: `You can show up to ${MAX_DISPLAY_CURRENCIES} currencies.`,
+          // Only set once the limit is reached: any reason at all greys the choice out.
+          ...(selected.length >= MAX_DISPLAY_CURRENCIES && !selected.includes(code)
+            ? {
+                disabled: true,
+                disabledReason: `You can show up to ${MAX_DISPLAY_CURRENCIES} currencies.`,
+              }
+            : {}),
         })),
     [data?.base, selected],
   );

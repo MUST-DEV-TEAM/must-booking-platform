@@ -174,3 +174,28 @@ describe('Display currencies and exchange rates', () => {
     locked.client.clear();
   });
 });
+
+describe('Currencies offered in the pickers', () => {
+  it('offers only currencies in use today', async () => {
+    const { currentCurrencyCodes } = await import('../../lib/currencies');
+    expect(currentCurrencyCodes).toContain('EUR');
+    expect(currentCurrencyCodes).toContain('ALL');
+    expect(currentCurrencyCodes).not.toContain('ALK');
+    expect(currentCurrencyCodes).not.toContain('BGN');
+    expect(currentCurrencyCodes).not.toContain('HRK');
+  });
+
+  it('lets a first currency be chosen while the limit is not reached', async () => {
+    const { host, root, client } = await mount({ displayCurrencies: [], rates: [] });
+    await act(async () => host.querySelector<HTMLElement>('[role="combobox"]')!.click());
+    const option = [...document.body.querySelectorAll<HTMLElement>('[role="checkbox"]')].find((e) =>
+      e.textContent?.includes('USD'),
+    );
+    expect(option).toBeTruthy();
+    expect(
+      option!.hasAttribute('disabled') || option!.getAttribute('aria-disabled') === 'true',
+    ).toBe(false);
+    await act(async () => root.unmount());
+    client.clear();
+  });
+});

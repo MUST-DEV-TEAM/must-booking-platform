@@ -1,4 +1,5 @@
 'use client';
+import { currentCurrencyCodes } from '../../lib/currencies';
 import { FormField } from './form-field';
 import { FormSection } from './form-section';
 import { Input, Textarea } from './input';
@@ -396,9 +397,11 @@ export function SettingsFields({
                         disabled={locked}
                         options={[
                           { value: '', label: 'Not set' },
-                          ...(Intl as unknown as { supportedValuesOf: (k: string) => string[] })
-                            .supportedValuesOf('currency')
-                            .map((c) => ({ value: c, label: c })),
+                          // A currency saved earlier stays selectable even if it is no longer in use.
+                          ...(v && !currentCurrencyCodes.includes(String(v))
+                            ? [String(v), ...currentCurrencyCodes]
+                            : currentCurrencyCodes
+                          ).map((c) => ({ value: c, label: c })),
                         ]}
                         onChange={(value) => onChange(f.key, value)}
                       />
