@@ -37,15 +37,6 @@ export type Property = {
   directions?: string | null;
   nearestAirportCode?: string | null;
   nearestAirportKm?: number | null;
-  logoDarkUrl?: string | null;
-  iconUrl?: string | null;
-  faviconUrl?: string | null;
-  coverUrl?: string | null;
-  accountingEmail?: string | null;
-  mainContactName?: string | null;
-  mainContactRole?: string | null;
-  mainContactPhone?: string | null;
-  mainContactEmail?: string | null;
   registeredSameAsHotel?: boolean;
   registeredStreet?: string | null;
   registeredCity?: string | null;
