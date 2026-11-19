@@ -27,7 +27,7 @@ export function useSettingsSummary(tenantId: string, propertyId: string) {
 export function settingsAttentionCount(summary: SettingsSummary | undefined) {
   if (!summary) return 0;
   return (
-    summary.steps.filter((step) => step.status === 'attention').length +
+    (summary.steps ?? []).filter((step) => step.status === 'attention').length +
     (summary.attention?.length ?? 0)
   );
 }
