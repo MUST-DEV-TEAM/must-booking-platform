@@ -105,6 +105,12 @@ type RefundEmailRow = {
   propertyName: string;
   brandColour: string | null;
   emailFooterText: string | null;
+  legalName: string | null;
+  taxNumber: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  directions: string | null;
+  dateFormat: string | null;
   termsUrl: string | null;
   logoUrl: string | null;
   supportEmail: string | null;
@@ -1385,6 +1391,12 @@ export class PaymentRefundService {
         phone: row.phone,
         websiteUrl: row.websiteUrl,
         address: row.address,
+        legalName: row.legalName,
+        taxNumber: row.taxNumber,
+        latitude: row.latitude,
+        longitude: row.longitude,
+        directions: row.directions,
+        dateFormat: row.dateFormat,
       },
       guest: { name: [row.firstName, row.lastName].filter(Boolean).join(' ').trim() || row.email },
       stay: { startsOn: row.startsOn, endsOn: row.endsOn },

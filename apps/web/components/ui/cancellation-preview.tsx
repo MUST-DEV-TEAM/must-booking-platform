@@ -1,4 +1,4 @@
-import { formatDateTime } from '../../lib/hotel-format';
+import { formatDateTime, hotelFormats } from '../../lib/hotel-format';
 import { ScopedHotelMoney } from '../../app/dashboard/approximate-money';
 import { DetailList } from './detail-list';
 import { Alert, AlertDescription, AlertTitle } from './alert';
@@ -66,7 +66,12 @@ export function CancellationPreview({
               e.policySource === 'CLOCK_PMS'
                 ? 'Not supplied by Clock'
                 : e.cutoffAt
-                  ? formatDateTime(e.cutoffAt)
+                  ? // The deadline is read in the time zone saved with these cancellation terms, which may differ
+                    // from the hotel's current one.
+                    formatDateTime(e.cutoffAt, 'numeric', {
+                      ...hotelFormats(),
+                      timeZone: e.timezone,
+                    })
                   : 'No free cancellation',
           },
           { label: 'Paid', value: amount(e.paid) },
