@@ -49,7 +49,11 @@ export type ProfileFieldKey =
   | 'website'
   | 'reservationsEmail'
   | 'supportEmail'
-  | 'accentColour';
+  | 'accentColour'
+  | 'registeredSameAsHotel'
+  | 'registeredStreet'
+  | 'registeredCity'
+  | 'registeredPostalCode';
 
 export const PROFILE_FIELD_KEYS: readonly ProfileFieldKey[] = [
   'chainName',
@@ -83,6 +87,10 @@ export const PROFILE_FIELD_KEYS: readonly ProfileFieldKey[] = [
   'reservationsEmail',
   'supportEmail',
   'accentColour',
+  'registeredSameAsHotel',
+  'registeredStreet',
+  'registeredCity',
+  'registeredPostalCode',
 ];
 
 /** ISO 639-1 language codes a hotel can say it speaks (G-59). */
@@ -309,6 +317,9 @@ const TEXT_MAX: Partial<Record<ProfileFieldKey, number>> = {
   website: 500,
   reservationsEmail: 254,
   supportEmail: 254,
+  registeredStreet: 200,
+  registeredCity: 100,
+  registeredPostalCode: 20,
 };
 
 const PHONE_KEYS: readonly ProfileFieldKey[] = ['phone', 'whatsappNumber', 'afterHoursPhone'];
@@ -364,7 +375,8 @@ export function checkProfileField(
     key === 'starRatingOfficial' ||
     key === 'vatRegistered' ||
     key === 'whatsappSameAsPhone' ||
-    key === 'receptionOpen24h'
+    key === 'receptionOpen24h' ||
+    key === 'registeredSameAsHotel'
   )
     return typeof value === 'boolean' ? null : 'Choose yes or no.';
   if (key === 'yearOpened' || key === 'yearRenovated')
@@ -431,7 +443,7 @@ export function checkProfileField(
     return (ALBANIA_REGIONS as readonly string[]).includes(value)
       ? null
       : 'Choose one of the 12 Albanian counties.';
-  if (key === 'postalCode')
+  if (key === 'postalCode' || key === 'registeredPostalCode')
     return context.country === 'AL'
       ? /^\d{4}$/.test(value)
         ? null
@@ -464,6 +476,9 @@ export function checkProfileCombination(values: {
   receptionOpen24h?: boolean;
   receptionFrom?: string | null;
   receptionTo?: string | null;
+  registeredSameAsHotel?: boolean;
+  registeredStreet?: string | null;
+  registeredCity?: string | null;
 }): Partial<Record<ProfileFieldKey, string>> {
   const out: Partial<Record<ProfileFieldKey, string>> = {};
   if (
@@ -483,6 +498,10 @@ export function checkProfileCombination(values: {
     else if (!values.receptionTo) out.receptionTo = 'Enter the closing time.';
     else if (values.receptionFrom === values.receptionTo)
       out.receptionTo = 'Closing time must differ from opening time, or choose "Open 24 hours".';
+  }
+  if (values.registeredSameAsHotel === false) {
+    if (!values.registeredStreet) out.registeredStreet = 'Enter the registered street address.';
+    if (!values.registeredCity) out.registeredCity = 'Enter the registered city.';
   }
   return out;
 }

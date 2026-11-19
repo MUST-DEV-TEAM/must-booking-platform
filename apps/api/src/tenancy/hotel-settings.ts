@@ -43,6 +43,10 @@ export type HotelSettings = {
   directions?: string | null;
   nearestAirportCode?: string | null;
   nearestAirportKm?: number | null;
+  registeredSameAsHotel?: boolean;
+  registeredStreet?: string | null;
+  registeredCity?: string | null;
+  registeredPostalCode?: string | null;
   phone?: string | null;
   supportEmail?: string | null;
   accentColour?: string | null;
@@ -111,6 +115,15 @@ export const hotelFields = [
   { key: 'directions', column: 'directions', kind: 'profile', max: 300 },
   { key: 'nearestAirportCode', column: 'nearest_airport_code', kind: 'profile', max: 3 },
   { key: 'nearestAirportKm', column: 'nearest_airport_km', kind: 'profile', max: 0 },
+  {
+    key: 'registeredSameAsHotel',
+    column: 'registered_same_as_hotel',
+    kind: 'profile',
+    max: 0,
+  },
+  { key: 'registeredStreet', column: 'registered_street', kind: 'profile', max: 200 },
+  { key: 'registeredCity', column: 'registered_city', kind: 'profile', max: 100 },
+  { key: 'registeredPostalCode', column: 'registered_postal_code', kind: 'profile', max: 20 },
   { key: 'allowSameDayBooking', column: 'same_day_booking_allowed', kind: 'boolean', max: 0 },
   { key: 'sameDayCutoffTime', column: 'same_day_cutoff_time', kind: 'time', max: 5 },
   { key: 'maxGuestsPerBooking', column: 'max_guests_per_booking', kind: 'integer', max: 0 },
@@ -163,7 +176,8 @@ export function hotelInput(raw: Record<string, unknown>): HotelSettings {
         (key === 'starRatingOfficial' ||
           key === 'vatRegistered' ||
           key === 'whatsappSameAsPhone' ||
-          key === 'receptionOpen24h')
+          key === 'receptionOpen24h' ||
+          key === 'registeredSameAsHotel')
       )
         bad('Choose yes or no.');
     } else if (f.kind === 'boolean') {
@@ -233,7 +247,7 @@ export function hotelInput(raw: Record<string, unknown>): HotelSettings {
 }
 export function checkHotelSettings(value: HotelSettings, changed: readonly string[] = []) {
   const year = new Date().getFullYear();
-  for (const key of ['taxNumber', 'region', 'postalCode'] as const) {
+  for (const key of ['taxNumber', 'region', 'postalCode', 'registeredPostalCode'] as const) {
     const current = value[key];
     if (current && (changed.includes(key) || changed.includes('country'))) {
       const message = checkProfileField(key, current, { country: value.country, year });
@@ -253,6 +267,9 @@ export function checkHotelSettings(value: HotelSettings, changed: readonly strin
       'receptionOpen24h',
       'receptionFrom',
       'receptionTo',
+      'registeredSameAsHotel',
+      'registeredStreet',
+      'registeredCity',
     ].some((key) => changed.includes(key))
   ) {
     const problem = Object.values(checkProfileCombination(value))[0];
