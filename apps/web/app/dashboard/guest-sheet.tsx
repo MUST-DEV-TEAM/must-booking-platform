@@ -1,4 +1,6 @@
 'use client';
+
+import { formatDate } from '../../lib/hotel-format';
 import { MoneyList } from './approximate-money';
 
 import { Mail, Phone } from 'lucide-react';
@@ -23,14 +25,7 @@ export type GuestSummary = {
 
 export const dayLabel = (iso: string | undefined, withYear = true) => {
   if (!iso) return '';
-  const date = new Date(`${iso}T00:00:00Z`);
-  if (Number.isNaN(date.valueOf())) return iso;
-  return date.toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    ...(withYear ? { year: 'numeric' } : {}),
-    timeZone: 'UTC',
-  });
+  return formatDate(iso, withYear ? 'medium' : 'short') || iso;
 };
 
 export const stayLabel = (stay: { startsOn: string; endsOn: string } | undefined) =>

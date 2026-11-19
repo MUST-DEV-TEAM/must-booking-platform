@@ -1,5 +1,7 @@
 'use client';
 
+import { formatTime } from '../../lib/hotel-format';
+
 import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 
@@ -133,7 +135,7 @@ export function SupportBar() {
                     Reason: “{session.reason}”.{' '}
                     {session.status === 'PENDING_APPROVAL'
                       ? 'They can make limited changes for up to an hour once you approve. Never billing, staff, credentials, refunds or deletions.'
-                      : `Until ${new Date(session.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. Everything they do is recorded in your audit log.`}
+                      : `Until ${formatTime(session.expiresAt)}. Everything they do is recorded in your audit log.`}
                   </span>
                   <span className="flex gap-2">
                     {session.status === 'PENDING_APPROVAL' ? (

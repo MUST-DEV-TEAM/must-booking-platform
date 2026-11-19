@@ -63,6 +63,7 @@ type PropertyRow = {
   latitude?: number | null;
   longitude?: number | null;
   directions?: string | null;
+  dateFormat?: string | null;
   checkInTime: string | null;
 };
 type StayRow = {

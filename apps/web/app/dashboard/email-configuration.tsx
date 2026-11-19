@@ -1,4 +1,6 @@
 'use client';
+
+import { formatDateTime } from '../../lib/hotel-format';
 import type {
   NotificationSettingsResponse,
   NotificationTopicSettings,
@@ -772,7 +774,7 @@ function SuppressionList({ base, canWrite }: { base: string; canWrite: boolean }
               {
                 id: 'updated',
                 label: 'Updated',
-                value: (row) => new Date(row.updatedAt).toLocaleString(),
+                value: (row) => formatDateTime(row.updatedAt),
               },
             ]}
             emptyTitle="No suppressed recipients"

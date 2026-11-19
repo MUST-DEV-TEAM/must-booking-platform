@@ -1,3 +1,4 @@
+import { formatDateTime } from '../../lib/hotel-format';
 import { ScopedHotelMoney } from '../../app/dashboard/approximate-money';
 import { DetailList } from './detail-list';
 import { Alert, AlertDescription, AlertTitle } from './alert';
@@ -65,7 +66,7 @@ export function CancellationPreview({
               e.policySource === 'CLOCK_PMS'
                 ? 'Not supplied by Clock'
                 : e.cutoffAt
-                  ? new Date(e.cutoffAt).toLocaleString('en-GB', { timeZone: e.timezone })
+                  ? formatDateTime(e.cutoffAt)
                   : 'No free cancellation',
           },
           { label: 'Paid', value: amount(e.paid) },

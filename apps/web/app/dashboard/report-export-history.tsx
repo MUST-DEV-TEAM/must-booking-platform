@@ -1,4 +1,6 @@
 'use client';
+
+import { formatDateTime } from '../../lib/hotel-format';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { reportRequest, ReportRequestError } from '../../lib/report-presentation';
@@ -73,8 +75,7 @@ export function ReportExportHistory({
               {
                 id: 'created',
                 label: 'Exported',
-                value: (r) =>
-                  new Date(r.createdAt).toLocaleString(undefined, { timeZone: r.timezone }),
+                value: (r) => formatDateTime(r.createdAt),
               },
             ]}
             storageKey={`must.reports.export-history.${propertyId}`}

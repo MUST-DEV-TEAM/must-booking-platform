@@ -1,3 +1,4 @@
+import { formatNumber } from '../../lib/hotel-format';
 /**
  * Guidance shown next to a hotel exchange rate. A rate is "hotel-currency units per one unit of the display
  * currency" (1 EUR = 100 ALL), the reverse of how many people think about it ("100 ALL = ? EUR"), so the screen
@@ -27,7 +28,7 @@ export function worked(value: string, base: string, currency: string): string | 
   const rate = positive(value);
   if (rate === null) return null;
   const amount = 100 / rate;
-  const text = amount.toLocaleString('en', { maximumFractionDigits: amount < 1 ? 4 : 2 });
+  const text = formatNumber(amount, { maximumFractionDigits: amount < 1 ? 4 : 2 });
   return `100 ${base} ≈ ${text} ${currency}`;
 }
 

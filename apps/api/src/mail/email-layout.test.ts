@@ -89,3 +89,13 @@ it("prints the hotel's own directions only in the email that asks for them, and 
     '<script>x</script>',
   );
 });
+
+import { emailDateOrder } from './resend-mail.provider';
+
+it('writes email dates day first unless the hotel chose month first', () => {
+  expect(emailDateOrder({ dateFormat: 'DD/MM/YYYY' })).toBe('gb');
+  expect(emailDateOrder({ dateFormat: 'YYYY-MM-DD' })).toBe('gb');
+  expect(emailDateOrder({ dateFormat: 'MM/DD/YYYY' })).toBe('us');
+  expect(emailDateOrder({})).toBe('gb');
+  expect(emailDateOrder(undefined)).toBe('gb');
+});

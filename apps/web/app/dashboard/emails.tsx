@@ -1,4 +1,6 @@
 'use client';
+
+import { formatDateTime } from '../../lib/hotel-format';
 import {
   UnsavedChangesBoundary,
   useUnsavedNavigation,
@@ -576,7 +578,7 @@ function DeliveryDirectory({
             id: 'created',
             label: 'Created',
             value: (row) => row.createdAt,
-            render: (row) => new Date(row.createdAt).toLocaleString(),
+            render: (row) => formatDateTime(row.createdAt),
           },
           { id: 'booking', label: 'Booking', value: (row) => row.bookingReference ?? 'Not linked' },
         ]}
@@ -1022,7 +1024,7 @@ function TemplateDraft({
                 {
                   id: 'created',
                   label: 'Saved',
-                  value: (row) => new Date(row.createdAt).toLocaleString(),
+                  value: (row) => formatDateTime(row.createdAt),
                 },
               ]}
               storageKey="must.email-versions.table"
@@ -1150,7 +1152,7 @@ function EmailDeliveryDetail({
               { label: 'Subject', value: query.data.subject },
               { label: 'Booking reference', value: query.data.bookingReference ?? 'Not linked' },
               { label: 'Attempts', value: query.data.attemptCount },
-              { label: 'Created', value: new Date(query.data.createdAt).toLocaleString() },
+              { label: 'Created', value: formatDateTime(query.data.createdAt) },
               { label: 'Sent', value: query.data.sentAt ?? 'Not recorded' },
               { label: 'Delivered', value: query.data.deliveredAt ?? 'Not recorded' },
               { label: 'Failure', value: query.data.lastError },
@@ -1316,11 +1318,11 @@ function EmailDeliveryDetail({
                 items={[
                   {
                     label: 'Preview captured',
-                    value: new Date(query.data.renderedPreview.capturedAt).toLocaleString(),
+                    value: formatDateTime(query.data.renderedPreview.capturedAt),
                   },
                   {
                     label: 'Preview expires',
-                    value: new Date(query.data.renderedPreview.expiresAt).toLocaleString(),
+                    value: formatDateTime(query.data.renderedPreview.expiresAt),
                   },
                 ]}
               />

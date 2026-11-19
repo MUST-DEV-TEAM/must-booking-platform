@@ -1,5 +1,6 @@
 'use client';
-import { useHotelDateFormat, formatHotelDate } from '../../lib/hotel-date-format';
+import { formatHotelDate } from '../../lib/hotel-date-format';
+import { formatDate, useHotelFormats } from '../../lib/hotel-format';
 
 import { useEffect, useState, type ReactNode } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -25,9 +26,7 @@ function dateKey(date: Date) {
 
 function formatShort(value: string | null) {
   const date = parseDate(value);
-  return date
-    ? new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' }).format(date)
-    : '';
+  return date ? formatDate(value, 'short') : '';
 }
 
 export function formatCalendarSelection(selection: CalendarSelection, mode: 'single' | 'range') {
@@ -35,17 +34,13 @@ export function formatCalendarSelection(selection: CalendarSelection, mode: 'sin
   const end = parseDate(selection.end);
   if (!start) return '';
   if (mode === 'single' || !end) {
-    return new Intl.DateTimeFormat('en-GB', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-    }).format(start);
+    return formatDate(selection.start, 'medium');
   }
   const sameMonth =
     start.getFullYear() === end.getFullYear() && start.getMonth() === end.getMonth();
   return sameMonth
-    ? `${start.getDate()}–${new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(end)}`
-    : `${formatShort(selection.start)} – ${new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(end)}`;
+    ? `${formatShort(selection.start)} – ${formatDate(selection.end, 'medium')}`
+    : `${formatShort(selection.start)} – ${formatDate(selection.end, 'medium')}`;
 }
 
 function CalendarMonth({
@@ -325,7 +320,7 @@ export function CalendarPicker({
     if (controlledOpen === undefined) setInternalOpen(next);
     onOpenChange?.(next);
   };
-  const hotelFormat = useHotelDateFormat();
+  const hotelFormat = useHotelFormats().dateFormat;
   const dateFormat = displayFormat || hotelFormat;
   const labelText =
     mode === 'single' && value.start

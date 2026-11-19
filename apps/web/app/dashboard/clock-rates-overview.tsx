@@ -1,4 +1,6 @@
 'use client';
+
+import { formatDate, formatDateTime } from '../../lib/hotel-format';
 import { HotelMoney } from './approximate-money';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -65,10 +67,7 @@ function useClockRates(root: string) {
   return { snapshot, hidden, off: new Set(hidden.data?.hiddenRateIds ?? []) };
 }
 
-const sampleDate = (iso: string) =>
-  new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' }).format(
-    new Date(`${iso}T00:00:00`),
-  );
+const sampleDate = (iso: string) => formatDate(iso, 'short');
 
 type SamplePrices = {
   startsOn: string | null;
@@ -132,7 +131,7 @@ export function ClockOverviewTiles({
       <StatTile
         label="Last synced with Clock"
         size="sm"
-        value={synced ? synced.toLocaleString() : 'Not yet'}
+        value={synced ? formatDateTime(synced) : 'Not yet'}
         tone={stale ? 'warning' : 'default'}
         note={
           stale
@@ -186,7 +185,7 @@ export function ClockRatesOverview({
       <CardContent className="flex flex-col gap-4">
         <p className="m-0 text-xs text-muted-foreground">
           {snapshot.data?.lastSyncedAt
-            ? `Last synchronized ${new Date(snapshot.data.lastSyncedAt).toLocaleString()}`
+            ? `Last synchronized ${formatDateTime(snapshot.data.lastSyncedAt)}`
             : 'Rates are synchronizing automatically.'}
         </p>
         <p className="m-0 text-sm text-muted-foreground" role="status">

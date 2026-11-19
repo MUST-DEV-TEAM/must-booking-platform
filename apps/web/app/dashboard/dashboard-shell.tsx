@@ -1,6 +1,6 @@
 'use client';
 import { HotelMoneyProvider } from '../../lib/hotel-money-scope';
-import { HotelDateFormatProvider } from '../../lib/hotel-date-format';
+import { HotelFormatProvider, hotelFormatsFrom } from '../../lib/hotel-format';
 import { SectionAccess } from '../../components/ui/state-panel';
 import { ApprovalsQueue, useApprovals } from './approvals';
 import { PlanAccessBoundary, usePlanUsage } from './plan-access';
@@ -533,7 +533,7 @@ export function DashboardShell({
       : tab;
 
   const content = (
-    <HotelDateFormatProvider value={selectedProperty?.dateFormat}>
+    <HotelFormatProvider value={hotelFormatsFrom(selectedProperty)}>
       <AppShell
         hotelBrand={
           selectedProperty
@@ -883,7 +883,7 @@ export function DashboardShell({
           </SettingsFrame>
         ) : null}
       </AppShell>
-    </HotelDateFormatProvider>
+    </HotelFormatProvider>
   );
   return (
     <HotelMoneyProvider

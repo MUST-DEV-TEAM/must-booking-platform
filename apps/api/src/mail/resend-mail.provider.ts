@@ -31,6 +31,11 @@ function resendEmailsUrl(): string {
 
 const RESEND_REQUEST_TIMEOUT_MS = 10_000;
 
+/** Day first ('gb') or month first ('us'), from the hotel's date format; day first unless the hotel chose MM/DD/YYYY. */
+export function emailDateOrder(brand: { dateFormat?: string | null } | undefined): 'gb' | 'us' {
+  return brand?.dateFormat === 'MM/DD/YYYY' ? 'us' : 'gb';
+}
+
 @Injectable()
 export class ResendMailProvider implements MailProvider, OnModuleInit {
   private readonly logger = new Logger(ResendMailProvider.name);
@@ -209,7 +214,7 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
         summaryRows: this.bookingSummaryRows(command, {
           paymentMethod: command.paymentMethod,
           amountLabel: paid ? 'Paid' : 'Due at hotel',
-          dateFormat: paid ? 'gb' : 'us',
+          dateFormat: emailDateOrder(command.brand),
         }),
         cta: command.cancellationUrl
           ? { url: command.cancellationUrl, label: 'Manage booking' }
@@ -243,7 +248,7 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
         summaryRows: this.bookingSummaryRows(command, {
           paymentMethod: command.paymentMethod,
           amountLabel: 'Total',
-          dateFormat: 'us',
+          dateFormat: emailDateOrder(command.brand),
         }),
         cta: this.dashboardReservationUrl(command.bookingReference)
           ? {
@@ -281,7 +286,7 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
           `<p style="margin:0 0 18px 0;">Hello <strong>${escapeHtml(command.guest.name)}</strong>, your refund has been processed. It may take a few business days to appear on your original payment method.</p>`,
         summaryRows: this.bookingSummaryRows(command, {
           amountLabel: 'Refund amount',
-          dateFormat: 'us',
+          dateFormat: emailDateOrder(command.brand),
         }),
         showLegal: true,
         footerNote: `You&#39;re receiving this email because a refund was issued for a reservation at ${escapeHtml(hotelName)}.`,
@@ -309,7 +314,10 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
         content:
           command.template?.html ??
           `<p style="margin:0 0 18px 0;">Hello <strong>${escapeHtml(command.guest.name)}</strong>, your booking has been cancelled as requested. If you need help planning a new stay, we're here for you.</p>`,
-        summaryRows: this.bookingSummaryRows(command, { includeGuests: false, dateFormat: 'us' }),
+        summaryRows: this.bookingSummaryRows(command, {
+          includeGuests: false,
+          dateFormat: emailDateOrder(command.brand),
+        }),
         cta: this.guestBookingUrl(command.brand, command.bookingReference)
           ? {
               url: this.guestBookingUrl(command.brand, command.bookingReference)!,
@@ -351,7 +359,10 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
         heading: 'Booking cancelled',
         content: `${command.template?.html ?? ''}<p style="margin:0 0 4px 0;"><strong>Guest</strong><br>${escapeHtml(command.guest.name)}<br>${escapeHtml(command.guest.email)}${command.guest.phone ? `<br>${escapeHtml(command.guest.phone)}` : ''}</p>${refundContent}`,
         summaryRows: [
-          ...this.bookingSummaryRows(command, { includeGuests: false, dateFormat: 'us' }),
+          ...this.bookingSummaryRows(command, {
+            includeGuests: false,
+            dateFormat: emailDateOrder(command.brand),
+          }),
           ...(refundLabel && refund
             ? [{ label: refundLabel, value: this.money(refund.amount) }]
             : []),

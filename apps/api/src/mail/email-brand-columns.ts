@@ -6,8 +6,8 @@ import { Prisma } from '@prisma/client';
  * property table is `p`.
  */
 export const emailBrandExtra = Prisma.raw(
-  'legal_name AS "legalName", tax_number AS "taxNumber", latitude, longitude, directions',
+  'legal_name AS "legalName", tax_number AS "taxNumber", latitude, longitude, directions, date_format AS "dateFormat"',
 );
 export const emailBrandExtraP = Prisma.raw(
-  'p.legal_name AS "legalName", p.tax_number AS "taxNumber", p.latitude, p.longitude, p.directions',
+  'p.legal_name AS "legalName", p.tax_number AS "taxNumber", p.latitude, p.longitude, p.directions, p.date_format AS "dateFormat"',
 );

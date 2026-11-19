@@ -1,5 +1,7 @@
 'use client';
 
+import { formatDateTime } from '../../lib/hotel-format';
+
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
@@ -395,7 +397,7 @@ export function ExchangeRateTable(scope: Scope) {
             <TableBody>
               {history.data.map((entry) => (
                 <TableRow key={entry.id}>
-                  <TableCell>{new Date(entry.changedAt).toLocaleString()}</TableCell>
+                  <TableCell>{formatDateTime(entry.changedAt)}</TableCell>
                   <TableCell>{entry.currency}</TableCell>
                   <TableCell>
                     {plain(entry.oldRate)} → {plain(entry.newRate)} {data.base} per {entry.currency}

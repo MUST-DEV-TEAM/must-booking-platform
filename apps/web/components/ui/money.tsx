@@ -1,9 +1,7 @@
+import { formatDate } from '../../lib/hotel-format';
 import { formatMoney, type ApproximateMoney } from '../../lib/money';
 
-const dayLabel = (iso: string) =>
-  new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(
-    new Date(`${iso}T00:00:00`),
-  );
+const dayLabel = (iso: string) => formatDate(iso, 'medium');
 
 /**
  * An amount in its own currency. When another currency is worth showing, an approximate amount follows in

@@ -1,4 +1,6 @@
 'use client';
+
+import { formatDate } from '../../lib/hotel-format';
 import { ConvertedMoney, HotelMoney } from './approximate-money';
 import { useQuery } from '@tanstack/react-query';
 import { Download, MoreHorizontal, UserRound } from 'lucide-react';
@@ -69,14 +71,7 @@ const FILTERS: Array<{ key: PaymentFilter; label: string }> = [
 
 function formatDay(value: string | undefined, withYear: boolean) {
   if (!value) return '';
-  const date = new Date(`${value}T00:00:00Z`);
-  if (Number.isNaN(date.valueOf())) return value;
-  return date.toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    ...(withYear ? { year: 'numeric' } : {}),
-    timeZone: 'UTC',
-  });
+  return formatDate(value, withYear ? 'medium' : 'short') || value;
 }
 
 // A byte-order mark makes Excel read the file as UTF-8, so accented guest names survive.

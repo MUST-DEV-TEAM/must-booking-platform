@@ -1,3 +1,4 @@
+import { formatDateTime } from '../../lib/hotel-format';
 import { Button } from '../../components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/card';
 import { StatTile } from '../../components/ui/stat-tile';
@@ -55,7 +56,7 @@ export function EmailHealthOverview({
           value={data.queued}
           note={
             data.oldestQueued
-              ? `Oldest queued: ${new Date(data.oldestQueued).toLocaleString()}`
+              ? `Oldest queued: ${formatDateTime(data.oldestQueued)}`
               : 'No queued messages'
           }
           onClick={() => onDelivery('queued')}
@@ -138,12 +139,7 @@ export function EmailHealthOverview({
                   ? [
                       {
                         label: 'Last checked',
-                        value:
-                          new Intl.DateTimeFormat('en-GB', {
-                            timeZone: 'UTC',
-                            dateStyle: 'medium',
-                            timeStyle: 'short',
-                          }).format(new Date(domain.checkedAt)) + ' UTC',
+                        value: formatDateTime(domain.checkedAt, 'medium'),
                       },
                       { label: 'SPF', value: domain.spf },
                       { label: 'DKIM', value: domain.dkim },
