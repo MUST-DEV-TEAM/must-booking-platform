@@ -50,11 +50,6 @@ export type ProfileFieldKey =
   | 'reservationsEmail'
   | 'supportEmail'
   | 'accentColour'
-  | 'accountingEmail'
-  | 'mainContactName'
-  | 'mainContactRole'
-  | 'mainContactPhone'
-  | 'mainContactEmail'
   | 'registeredSameAsHotel'
   | 'registeredStreet'
   | 'registeredCity'
@@ -92,11 +87,6 @@ export const PROFILE_FIELD_KEYS: readonly ProfileFieldKey[] = [
   'reservationsEmail',
   'supportEmail',
   'accentColour',
-  'accountingEmail',
-  'mainContactName',
-  'mainContactRole',
-  'mainContactPhone',
-  'mainContactEmail',
   'registeredSameAsHotel',
   'registeredStreet',
   'registeredCity',
@@ -416,21 +406,12 @@ const TEXT_MAX: Partial<Record<ProfileFieldKey, number>> = {
   website: 500,
   reservationsEmail: 254,
   supportEmail: 254,
-  accountingEmail: 254,
-  mainContactName: 120,
-  mainContactRole: 120,
-  mainContactEmail: 254,
   registeredStreet: 200,
   registeredCity: 100,
   registeredPostalCode: 20,
 };
 
-const PHONE_KEYS: readonly ProfileFieldKey[] = [
-  'phone',
-  'whatsappNumber',
-  'afterHoursPhone',
-  'mainContactPhone',
-];
+const PHONE_KEYS: readonly ProfileFieldKey[] = ['phone', 'whatsappNumber', 'afterHoursPhone'];
 const isPhoneKey = (key: ProfileFieldKey) => PHONE_KEYS.includes(key);
 
 /** A phone as it is stored: international form with no spaces (E.164), or the text unchanged when it is not a valid number. */
@@ -464,13 +445,7 @@ export function normaliseProfileValue(key: ProfileFieldKey, raw: unknown): unkno
   if (key === 'taxNumber') value = value.replace(/\s+/g, '').toUpperCase();
   if (key === 'nearestAirportCode') value = value.toUpperCase();
   if (isPhoneKey(key) && value) value = toE164(value);
-  if (
-    key === 'website' ||
-    key === 'reservationsEmail' ||
-    key === 'supportEmail' ||
-    key === 'accountingEmail' ||
-    key === 'mainContactEmail'
-  )
+  if (key === 'website' || key === 'reservationsEmail' || key === 'supportEmail')
     value = value.replace(/\s+/g, '');
   if (key === 'accentColour') value = value.toLowerCase();
   if (key === 'latitude' || key === 'longitude' || key === 'nearestAirportKm')
@@ -537,12 +512,7 @@ export function checkProfileField(
     return /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? null : 'Use a time such as 08:00.';
   if (key === 'accentColour')
     return /^#[0-9a-f]{6}$/.test(value) ? null : 'Enter a colour such as #224858.';
-  if (
-    key === 'supportEmail' ||
-    key === 'reservationsEmail' ||
-    key === 'accountingEmail' ||
-    key === 'mainContactEmail'
-  )
+  if (key === 'supportEmail' || key === 'reservationsEmail')
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
       ? null
       : 'Enter an email address such as hello@hotel.com.';

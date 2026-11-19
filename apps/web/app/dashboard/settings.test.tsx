@@ -267,7 +267,7 @@ describe('DashboardSettings', () => {
 
   it.each([
     ['payment-methods', 'Payment methods', 'Email branding'],
-    ['contact-brand', 'Brand', 'Payment methods'],
+    ['contact-brand', 'Logo and colour', 'Payment methods'],
   ] as const)(
     'renders the %s Settings sub-view',
     async (settingsArea, visiblePanel, hiddenPanel) => {
@@ -521,7 +521,7 @@ describe('DashboardSettings', () => {
         (b) => b.textContent === 'Save changes',
       )!.disabled,
     ).toBe(true);
-    expect(container.textContent).toContain('bad-email · +355 12');
+    expect(container.textContent).toContain('bad-email | +355 12');
     const before = new Event('beforeunload', { cancelable: true });
     window.dispatchEvent(before);
     expect(before.defaultPrevented).toBe(true);

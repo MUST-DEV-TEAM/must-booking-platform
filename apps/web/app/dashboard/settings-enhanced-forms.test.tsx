@@ -187,28 +187,32 @@ it('selects an https library logo, guards uploads and previews and validates dra
     await value('branding-brandColour', '#cc1122');
     await value('branding-emailFooterText', 'Welcome to Ada');
     await value('branding-supportEmail', 'hello@hotel.test');
+    await value('branding-termsUrl', 'http://hotel.test/terms');
+    expect(document.body.textContent).toContain('full https terms');
+    await value('branding-termsUrl', 'https://hotel.test/terms');
     await click('Save changes');
     expect(save).toHaveBeenCalledWith({
       logoUrl: 'https://photos.test/logo.png',
       brandColour: '#cc1122',
       emailFooterText: 'Welcome to Ada',
       supportEmail: 'hello@hotel.test',
+      termsUrl: 'https://hotel.test/terms',
     });
-    // The live preview shows the logo, the note and the brand colour as they are typed.
-    expect(document.querySelector('img[src="https://photos.test/logo.png"]')).not.toBeNull();
+    expect(document.querySelector('img[alt="Hotel Ada logo"]')).not.toBeNull();
     expect(document.body.textContent).toContain('Welcome to Ada');
-    expect(document.body.textContent).toContain('14 / 300');
+    expect(document.body.textContent).toContain('14/300 characters');
     expect(document.querySelector('input[type=color]')).not.toBeNull();
-    const button = () =>
-      [...document.querySelectorAll<HTMLElement>('span[style]')].find(
-        (span) => span.textContent === 'View booking',
-      )!;
-    expect(button().style.backgroundColor).toBe('rgb(204, 17, 34)');
+    expect((document.querySelector('a[style]') as HTMLElement).style.color).toBe(
+      'rgb(204, 17, 34)',
+    );
+    expect((document.querySelector('span[style]') as HTMLElement).style.backgroundColor).toBe(
+      'rgb(204, 17, 34)',
+    );
     await value('branding-brandColour-picker', '#005577');
     expect((document.querySelector('#branding-brandColour') as HTMLInputElement).value).toBe(
       '#005577',
     );
-    expect(button().style.backgroundColor).toBe('rgb(0, 85, 119)');
+    expect((document.querySelector('a[style]') as HTMLElement).style.color).toBe('rgb(0, 85, 119)');
   } finally {
     await m.close();
   }

@@ -29,63 +29,19 @@ function usableLogoUrl(url: string): boolean {
 const CHECKER =
   'repeating-conic-gradient(var(--muted, #eee) 0% 25%, transparent 0% 50%) 50% / 16px 16px';
 
-/** How each kind of brand image is shown and described. */
-const KINDS = {
-  logo: {
-    label: 'Hotel logo',
-    noun: 'logo',
-    hint: 'PNG, JPG or WebP, up to 10 MB. A wide logo at least 400 pixels across stays sharp in emails.',
-    box: 'h-24 w-48',
-    fit: 'object-contain',
-  },
-  dark: {
-    label: 'Logo for dark backgrounds',
-    noun: 'dark logo',
-    hint: 'A light version of the logo. Without it the main logo is shown on a white strip.',
-    box: 'h-24 w-48',
-    fit: 'object-contain',
-  },
-  icon: {
-    label: 'Square icon',
-    noun: 'icon',
-    hint: 'At least 512 × 512 pixels. Shown cropped to a square; used in the hotel switcher and for sharing.',
-    box: 'size-24 rounded-2xl',
-    fit: 'object-cover',
-  },
-  favicon: {
-    label: 'Favicon',
-    noun: 'favicon',
-    hint: 'The small image in the browser tab. Made from the square icon unless you choose another.',
-    box: 'size-16 rounded-lg',
-    fit: 'object-cover',
-  },
-  cover: {
-    label: 'Cover photo',
-    noun: 'cover photo',
-    hint: 'A landscape photo at least 1600 pixels wide, for the top of the booking page and emails.',
-    box: 'h-24 w-48',
-    fit: 'object-cover',
-  },
-} as const;
-export type BrandImageKind = keyof typeof KINDS;
-
 export function HotelLogoPicker({
   tenantId,
   propertyId,
   value,
   onChange,
   canManage,
-  kind = 'logo',
 }: {
   tenantId: string;
   propertyId: string;
   value: string;
   onChange: (url: string) => void;
   canManage: boolean;
-  /** Which brand image this is; the default is the main logo. */
-  kind?: BrandImageKind;
 }) {
-  const copy = KINDS[kind];
   const [open, setOpen] = useState(false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
@@ -124,47 +80,34 @@ export function HotelLogoPicker({
       client.setQueryData(libraryQueryKey(tenantId, propertyId), images);
       const image = images.find((i) => i.id === id);
       if (!image)
-        throw new Error('The uploaded image is not ready. Try choosing it from the library again.');
+        throw new Error('The uploaded logo is not ready. Try choosing it from the library again.');
       select(image.url);
     } catch {
-      setError(`Could not upload this ${copy.noun}. Check photo access and try again.`);
+      setError('Could not upload this logo. Check photo access and try again.');
     } finally {
       setBusy(false);
     }
   }
   const images = query.data ?? [];
   return (
-    <FormField label={copy.label} hint={copy.hint}>
+    <FormField
+      label="Hotel logo"
+      hint="PNG, JPG or WebP, up to 10 MB. A wide logo at least 400 pixels across stays sharp in emails."
+    >
       <div className="flex flex-wrap items-center gap-4">
         <div
-          className={cn(
-            'flex items-center justify-center overflow-hidden rounded-lg border bg-card',
-            copy.box,
-            copy.fit === 'object-contain' && 'p-2',
-          )}
-          style={
-            value
-              ? kind === 'dark'
-                ? { background: '#1f2933' }
-                : copy.fit === 'object-contain'
-                  ? { background: CHECKER }
-                  : undefined
-              : undefined
-          }
+          className="flex h-24 w-48 items-center justify-center overflow-hidden rounded-lg border bg-card p-2"
+          style={value ? { background: CHECKER } : undefined}
         >
           {value ? (
             <img
               src={value}
-              alt={`Current ${copy.noun}`}
-              className={cn(
-                copy.fit === 'object-cover'
-                  ? 'size-full object-cover'
-                  : 'max-h-full max-w-full object-contain',
-              )}
+              alt="Current hotel logo"
+              className="max-h-full max-w-full object-contain"
             />
           ) : (
-            <span className="flex items-center gap-2 px-2 text-center text-xs text-muted-foreground">
-              <ImageIcon aria-hidden="true" className="size-4 shrink-0" /> No {copy.noun} yet
+            <span className="flex items-center gap-2 text-sm text-muted-foreground">
+              <ImageIcon aria-hidden="true" className="size-4" /> No logo yet
             </span>
           )}
         </div>
@@ -178,11 +121,11 @@ export function HotelLogoPicker({
                 setOpen(true);
               }}
             >
-              {value ? `Change ${copy.noun}` : `Choose ${copy.noun}`}
+              {value ? 'Change logo' : 'Choose logo'}
             </Button>
             {value ? (
               <Button variant="ghost" onClick={() => onChange('')}>
-                Remove {copy.noun}
+                Remove logo
               </Button>
             ) : null}
           </div>
@@ -197,16 +140,16 @@ export function HotelLogoPicker({
         >
           <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
             <DialogHeader>
-              <DialogTitle>Choose {copy.noun}</DialogTitle>
+              <DialogTitle>Choose hotel logo</DialogTitle>
               <DialogDescription>
-                Upload a new image, or pick one from this hotel’s photo library.
+                Upload a new logo, or pick one from this hotel’s photo library.
               </DialogDescription>
             </DialogHeader>
-            <FormField htmlFor={`${kind}-upload`} label={`Upload a new ${copy.noun}`}>
+            <FormField htmlFor="logo-upload" label="Upload a new logo">
               <div className="flex items-center gap-3">
                 <Upload aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
                 <Input
-                  id={`${kind}-upload`}
+                  id="logo-upload"
                   type="file"
                   accept="image/png,image/jpeg,image/webp"
                   disabled={busy}
@@ -235,7 +178,7 @@ export function HotelLogoPicker({
                 </Alert>
               ) : images.length === 0 ? (
                 <p className="m-0 text-sm text-muted-foreground">
-                  No photos yet. Upload an image above to get started.
+                  No photos yet. Upload a logo above to get started.
                 </p>
               ) : (
                 <>
