@@ -1,4 +1,7 @@
 'use client';
+import { formatDate as hotelDate, formatDateTime as hotelDateTime } from '../../lib/hotel-format';
+
+import {} from '../../lib/hotel-format';
 import { HotelMoney, LedgerAmount } from './approximate-money';
 import { ClockFinancialCard, useClockFinancial } from './clock-financial';
 import { CancellationDialog } from './cancellation-dialog';
@@ -100,21 +103,12 @@ function eventDetail(event: LedgerEvent) {
 }
 
 function formatTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.valueOf())) return value;
-  return date.toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
+  return hotelDateTime(value, 'medium') || value;
 }
 
 function formatDay(value: string | undefined, withYear: boolean) {
   if (!value) return '';
-  const date = new Date(`${value}T00:00:00Z`);
-  if (Number.isNaN(date.valueOf())) return value;
-  return date.toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    ...(withYear ? { year: 'numeric' } : {}),
-    timeZone: 'UTC',
-  });
+  return hotelDate(value, withYear ? 'medium' : 'short') || value;
 }
 
 function entryMethod(entry: LedgerEntry) {

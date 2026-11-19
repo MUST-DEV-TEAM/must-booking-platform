@@ -1,5 +1,7 @@
 'use client';
 
+import { formatNumber } from '../../../lib/hotel-format';
+
 import Link from 'next/link';
 import {
   Activity,
@@ -629,7 +631,7 @@ function stayNightCount(dates: CalendarSelection) {
 }
 
 function euroAmount(amount: number) {
-  return `€${amount.toLocaleString('en-GB')}`;
+  return `€${formatNumber(amount)}`;
 }
 
 function QuantityStepper({
@@ -1657,8 +1659,8 @@ function QuickBookingWorkspace({
                     ? 'Deposit paid'
                     : 'Unpaid'}
                 {' · '}
-                {paymentMethod.replaceAll('-', ' ')} · €
-                {Number(amountCollected || 0).toLocaleString('en-GB')} collected
+                {paymentMethod.replaceAll('-', ' ')} · €{formatNumber(Number(amountCollected || 0))}{' '}
+                collected
               </p>
             </div>
           ) : (

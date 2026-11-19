@@ -43,6 +43,10 @@ export type HotelSettings = {
   directions?: string | null;
   nearestAirportCode?: string | null;
   nearestAirportKm?: number | null;
+  registeredSameAsHotel?: boolean;
+  registeredStreet?: string | null;
+  registeredCity?: string | null;
+  registeredPostalCode?: string | null;
   phone?: string | null;
   supportEmail?: string | null;
   accentColour?: string | null;
@@ -111,6 +115,15 @@ export const hotelFields = [
   { key: 'directions', column: 'directions', kind: 'profile', max: 300 },
   { key: 'nearestAirportCode', column: 'nearest_airport_code', kind: 'profile', max: 3 },
   { key: 'nearestAirportKm', column: 'nearest_airport_km', kind: 'profile', max: 0 },
+  {
+    key: 'registeredSameAsHotel',
+    column: 'registered_same_as_hotel',
+    kind: 'profile',
+    max: 0,
+  },
+  { key: 'registeredStreet', column: 'registered_street', kind: 'profile', max: 200 },
+  { key: 'registeredCity', column: 'registered_city', kind: 'profile', max: 100 },
+  { key: 'registeredPostalCode', column: 'registered_postal_code', kind: 'profile', max: 20 },
   { key: 'allowSameDayBooking', column: 'same_day_booking_allowed', kind: 'boolean', max: 0 },
   { key: 'sameDayCutoffTime', column: 'same_day_cutoff_time', kind: 'time', max: 5 },
   { key: 'maxGuestsPerBooking', column: 'max_guests_per_booking', kind: 'integer', max: 0 },
@@ -137,6 +150,11 @@ export const hotelColumns = Prisma.raw(
 export const propertyColumns = Prisma.raw(
   `online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",deduct_payment_fee_on_guest_refund AS "deductPaymentFeeOnGuestRefund",clock_cancel_refund_policy AS "clockCancelRefundPolicy",clock_payment_folio AS "clockPaymentFolio",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns.sql},logo_url AS "logoUrl", phone, support_email AS "supportEmail", booking_mode AS "bookingMode", min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights", check_in_time AS "checkInTime", check_out_time AS "checkOutTime", rules, advance_booking_days AS "advanceBookingDays", free_cancellation_days_before_arrival AS "freeCancellationDaysBeforeArrival", public_website_origin AS "publicWebsiteOrigin", json_build_object('stripe', stripe_enabled, 'pokpay', pokpay_enabled, 'payAtHotel', pay_at_hotel_enabled) AS "paymentGateways"`,
 );
+const REQUIRED_HOTEL_FIELDS: Record<string, string> = {
+  propertyType: 'Property type',
+  city: 'City',
+  country: 'Country',
+};
 export function hotelInput(raw: Record<string, unknown>): HotelSettings {
   const out: Record<string, unknown> = {};
   for (const f of hotelFields) {
@@ -163,7 +181,8 @@ export function hotelInput(raw: Record<string, unknown>): HotelSettings {
         (key === 'starRatingOfficial' ||
           key === 'vatRegistered' ||
           key === 'whatsappSameAsPhone' ||
-          key === 'receptionOpen24h')
+          key === 'receptionOpen24h' ||
+          key === 'registeredSameAsHotel')
       )
         bad('Choose yes or no.');
     } else if (f.kind === 'boolean') {
@@ -227,13 +246,17 @@ export function hotelInput(raw: Record<string, unknown>): HotelSettings {
       bad('Choose a policy from the list.');
     if (f.key === 'dateFormat' && !['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD'].includes(String(v)))
       bad('Choose a supported hotel date format.');
+    // These stay filled in once set: guests and emails depend on them. (A hotel that never set one can still
+    // save other settings; the Profile form asks for them.)
+    if (v === null && REQUIRED_HOTEL_FIELDS[f.key])
+      throw new BadRequestException(`${REQUIRED_HOTEL_FIELDS[f.key]} is required.`);
     out[f.key] = v;
   }
   return out as HotelSettings;
 }
 export function checkHotelSettings(value: HotelSettings, changed: readonly string[] = []) {
   const year = new Date().getFullYear();
-  for (const key of ['taxNumber', 'region', 'postalCode'] as const) {
+  for (const key of ['taxNumber', 'region', 'postalCode', 'registeredPostalCode'] as const) {
     const current = value[key];
     if (current && (changed.includes(key) || changed.includes('country'))) {
       const message = checkProfileField(key, current, { country: value.country, year });
@@ -253,6 +276,9 @@ export function checkHotelSettings(value: HotelSettings, changed: readonly strin
       'receptionOpen24h',
       'receptionFrom',
       'receptionTo',
+      'registeredSameAsHotel',
+      'registeredStreet',
+      'registeredCity',
     ].some((key) => changed.includes(key))
   ) {
     const problem = Object.values(checkProfileCombination(value))[0];

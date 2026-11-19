@@ -1,4 +1,6 @@
 'use client';
+
+import { formatDate } from '../../lib/hotel-format';
 import { ScopedHotelMoney } from './approximate-money';
 import { CountrySelect } from '../../components/ui/country-select';
 
@@ -158,10 +160,7 @@ const gatewayLabels: Record<GatewayMethod, { title: string; description: string 
 };
 
 const money = (value: Money) => <ScopedHotelMoney {...value} />;
-const longDate = (iso: string) =>
-  new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(
-    new Date(`${iso}T00:00:00`),
-  );
+const longDate = (iso: string) => formatDate(iso, 'medium');
 
 function href(tenantId: string, propertyId: string, extra: string) {
   return `/dashboard/${tenantId}?propertyId=${encodeURIComponent(propertyId)}&${extra}`;

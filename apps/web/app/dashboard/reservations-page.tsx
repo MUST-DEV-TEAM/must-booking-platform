@@ -1,4 +1,6 @@
 'use client';
+
+import { formatDate, formatDateTime } from '../../lib/hotel-format';
 import { ScopedHotelMoney } from './approximate-money';
 
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
@@ -295,21 +297,9 @@ const money = (amount: string, currency: string) => (
   <ScopedHotelMoney amount={amount} currency={currency} />
 );
 
-const shortDate = (iso: string) =>
-  new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' }).format(
-    new Date(`${iso}T00:00:00`),
-  );
-const longDate = (iso: string) =>
-  new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(
-    new Date(`${iso}T00:00:00`),
-  );
-const createdLabel = (iso: string) =>
-  new Intl.DateTimeFormat('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(iso));
+const shortDate = (iso: string) => formatDate(iso, 'short');
+const longDate = (iso: string) => formatDate(iso, 'medium');
+const createdLabel = (iso: string) => formatDateTime(iso, 'short');
 
 const guestName = (row: ReservationRow) =>
   [row.guestFirstName, row.guestLastName].filter(Boolean).join(' ') || 'No guest details';

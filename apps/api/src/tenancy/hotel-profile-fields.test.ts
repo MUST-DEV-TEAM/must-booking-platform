@@ -27,6 +27,20 @@ describe('hotel profile fields', () => {
     });
   });
 
+  it('refuses to blank the fields guests and emails depend on', () => {
+    for (const [key, label] of [
+      ['propertyType', 'Property type'],
+      ['city', 'City'],
+      ['country', 'Country'],
+    ] as const) {
+      expect(() => hotelInput({ [key]: null })).toThrow(`${label} is required.`);
+      expect(() => hotelInput({ [key]: '  ' })).toThrow(`${label} is required.`);
+    }
+    // Other fields may still be cleared, and a field that is not sent is left alone.
+    expect(hotelInput({ chainName: '' })).toEqual({ chainName: null });
+    expect(hotelInput({ yearOpened: 2001 })).toEqual({ yearOpened: 2001 });
+  });
+
   it('turns cleared text into null', () => {
     expect(hotelInput({ chainName: '  ', yearOpened: null })).toEqual({
       chainName: null,
@@ -106,6 +120,39 @@ describe('hotel profile fields', () => {
     [{ directions: 'x'.repeat(301) }, '300'],
   ])('refuses %j', (body, hint) => {
     expect(() => hotelInput(body)).toThrow(hint);
+  });
+
+  it('asks for the registered address only when it differs from the hotel address', () => {
+    expect(hotelInput({ registeredSameAsHotel: true })).toEqual({ registeredSameAsHotel: true });
+    expect(() => hotelInput({ registeredSameAsHotel: 'no' })).toThrow('Choose yes or no.');
+    const changed = ['registeredSameAsHotel', 'registeredStreet', 'registeredCity'];
+    expect(() =>
+      checkHotelSettings({ registeredSameAsHotel: false, registeredCity: 'Tiranë' }, changed),
+    ).toThrow('Enter the registered street address.');
+    expect(() =>
+      checkHotelSettings(
+        {
+          country: 'AL',
+          registeredSameAsHotel: false,
+          registeredStreet: 'Rruga Myslym Shyri 12',
+          registeredCity: 'Tiranë',
+          registeredPostalCode: '1001',
+        },
+        [...changed, 'registeredPostalCode'],
+      ),
+    ).not.toThrow();
+    expect(() =>
+      checkHotelSettings(
+        {
+          country: 'AL',
+          registeredSameAsHotel: false,
+          registeredStreet: 'Rruga Myslym Shyri 12',
+          registeredCity: 'Tiranë',
+          registeredPostalCode: '10010',
+        },
+        ['registeredPostalCode'],
+      ),
+    ).toThrow('An Albanian postal code has 4 digits.');
   });
 
   it('checks region and postal code against the country', () => {

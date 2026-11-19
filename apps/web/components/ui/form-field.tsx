@@ -13,6 +13,7 @@ export function FormField({
   children,
   className,
   layout = 'stack',
+  labelHidden = false,
 }: {
   label: string;
   htmlFor?: string;
@@ -22,6 +23,8 @@ export function FormField({
   children: ReactNode;
   className?: string;
   layout?: 'stack' | 'toggle';
+  /** Keep the label for screen readers only (the control explains itself). */
+  labelHidden?: boolean;
 }) {
   return (
     <div
@@ -32,7 +35,7 @@ export function FormField({
         className,
       )}
     >
-      <Label htmlFor={htmlFor}>
+      <Label htmlFor={htmlFor} className={labelHidden ? 'sr-only' : undefined}>
         {label}
         {required ? <span className="text-destructive"> *</span> : null}
       </Label>

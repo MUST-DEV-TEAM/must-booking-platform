@@ -1,5 +1,7 @@
 'use client';
 
+import { formatDate } from '../../lib/hotel-format';
+
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy, MoreHorizontal } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
@@ -116,9 +118,7 @@ function sortValue(member: StaffMember, key: SortKey): string {
 function formatLastActive(value: string | null): string {
   if (!value) return '—';
   const timestamp = Date.parse(value);
-  return Number.isNaN(timestamp)
-    ? '—'
-    : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(timestamp);
+  return Number.isNaN(timestamp) ? '—' : formatDate(timestamp, 'medium');
 }
 
 /** Staff users for one selected property. */

@@ -1,3 +1,4 @@
+import { emailBrandExtraP } from '../mail/email-brand-columns';
 import { bookingContactSql } from '../booking/booking-contact';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
@@ -104,6 +105,12 @@ type RefundEmailRow = {
   propertyName: string;
   brandColour: string | null;
   emailFooterText: string | null;
+  legalName: string | null;
+  taxNumber: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  directions: string | null;
+  dateFormat: string | null;
   termsUrl: string | null;
   logoUrl: string | null;
   supportEmail: string | null;
@@ -653,7 +660,7 @@ export class PaymentRefundService {
           b.nightly_rates AS "nightlyRates",
           COALESCE(r.name, rt.name) AS "roomName", p.name AS "propertyName",
           p.brand_colour AS "brandColour",p.email_footer_text AS "emailFooterText",p.terms_url AS "termsUrl",p.logo_url AS "logoUrl", p.support_email AS "supportEmail", p.phone,
-          p.public_website_origin AS "websiteUrl", p.address
+          p.public_website_origin AS "websiteUrl", p.address, ${emailBrandExtraP}
         FROM bookings b
         JOIN properties p ON p.tenant_id = b.tenant_id AND p.id = b.property_id
         JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
@@ -1147,7 +1154,7 @@ export class PaymentRefundService {
           b.nightly_rates AS "nightlyRates",
           COALESCE(r.name, rt.name) AS "roomName", p.name AS "propertyName",
           p.brand_colour AS "brandColour",p.email_footer_text AS "emailFooterText",p.terms_url AS "termsUrl",p.logo_url AS "logoUrl", p.support_email AS "supportEmail", p.phone,
-          p.public_website_origin AS "websiteUrl", p.address
+          p.public_website_origin AS "websiteUrl", p.address, ${emailBrandExtraP}
         FROM bookings b
         JOIN properties p ON p.tenant_id = b.tenant_id AND p.id = b.property_id
         JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
@@ -1384,6 +1391,12 @@ export class PaymentRefundService {
         phone: row.phone,
         websiteUrl: row.websiteUrl,
         address: row.address,
+        legalName: row.legalName,
+        taxNumber: row.taxNumber,
+        latitude: row.latitude,
+        longitude: row.longitude,
+        directions: row.directions,
+        dateFormat: row.dateFormat,
       },
       guest: { name: [row.firstName, row.lastName].filter(Boolean).join(' ').trim() || row.email },
       stay: { startsOn: row.startsOn, endsOn: row.endsOn },

@@ -37,8 +37,14 @@ export type Property = {
   directions?: string | null;
   nearestAirportCode?: string | null;
   nearestAirportKm?: number | null;
+  registeredSameAsHotel?: boolean;
+  registeredStreet?: string | null;
+  registeredCity?: string | null;
+  registeredPostalCode?: string | null;
   /** Active rooms from Accommodations (or the PMS import), read-only. */
   roomCount?: number;
+  /** True once the hotel has any booking. */
+  hasBookings?: boolean;
   /** People who can work in this hotel (from the hotels list). */
   staffCount?: number;
   /** Which system owns rooms and rates: MUST, or the connected PMS. */

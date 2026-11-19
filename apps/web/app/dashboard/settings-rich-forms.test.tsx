@@ -9,6 +9,9 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const property: Property = {
   id: 'p',
   name: 'Hotel',
+  city: 'Tirana',
+  country: 'AL',
+  propertyType: 'hotel',
   address: 'Main street',
   timezone: 'Europe/Tirane',
   logoUrl: null,
@@ -59,14 +62,42 @@ it('groups General, validates business/about fields, locks a priced currency and
       />,
     );
   try {
-    expect(m.host.textContent).toContain('Currency and languages');
-    expect(m.host.textContent).toContain('About the hotel');
+    for (const group of [
+      'Hotel identity',
+      'Location',
+      'Legal and tax',
+      'Languages spoken at the hotel',
+      'Currency',
+      'Formats',
+    ])
+      expect(m.host.textContent).toContain(group);
+    // The street address lives in Location only (no second address box), the room count is read-only.
+    expect(m.host.querySelectorAll('#hotel-address')).toHaveLength(1);
+    expect(m.host.querySelector('#hotel-roomCount')?.textContent).toContain('Not counted yet');
+    expect(button('Find from address')).toBeDefined();
     expect(button('Save changes')).toBeUndefined();
+    // The hotel name is required, checked before saving.
+    await value('hotel-name', ' ');
+    expect(m.host.textContent).toContain('Enter the hotel name.');
+    await value('hotel-name', 'Hotel');
+    // The registered address asks for its fields only when it differs from the hotel's.
+    expect(m.host.querySelector('#hotel-registeredStreet')).toBeNull();
+    await act(async () =>
+      m.host.querySelector<HTMLButtonElement>('#hotel-registeredSameAsHotel')!.click(),
+    );
+    expect(m.host.querySelector('#hotel-registeredStreet')).not.toBeNull();
+    expect(m.host.textContent).toContain('Enter the registered street address.');
+    await act(async () =>
+      m.host.querySelector<HTMLButtonElement>('#hotel-registeredSameAsHotel')!.click(),
+    );
+    // A priced hotel's currency is shown as a locked box, not as something to change.
+    expect(m.host.textContent).toContain('EUR · Euro');
+    expect(m.host.textContent).toContain('Locked');
     expect(
-      [...m.host.querySelectorAll<HTMLButtonElement>('button')].find((b) =>
+      [...m.host.querySelectorAll<HTMLButtonElement>('button')].some((b) =>
         b.textContent?.includes('EUR'),
-      )!.disabled,
-    ).toBe(true);
+      ),
+    ).toBe(false);
     await value('hotel-legalName', 'Hotel Ltd');
     await value('hotel-description', 'A quiet hotel.');
     expect(m.host.textContent).toContain('at least 50 characters');
@@ -74,7 +105,8 @@ it('groups General, validates business/about fields, locks a priced currency and
     const description = 'A quiet beach hotel with a garden, a pool and a short walk to the sea.';
     await value('hotel-description', description);
     await value('hotel-taxNumber', '12345');
-    expect(m.host.textContent).not.toContain('NUIS is a letter');
+    // The sample hotel is in Albania, so a short number is refused with the Albanian rule.
+    expect(m.host.textContent).toContain('Albanian NUIS is a letter');
     await value('hotel-taxNumber', 'l12345678a');
     await value('hotel-summary', 'Quiet beach hotel.');
     await act(async () => button('Save changes').click());
@@ -169,7 +201,10 @@ it.each([GeneralSettings, BookingRulesSettings, CheckInOutSettings])(
 it('lists every language by name with the common ones first', async () => {
   const { languageOptions } = await import('./hotel-settings-fields');
   const list = languageOptions();
-  expect(list.length).toBeGreaterThan(150);
+  // The modern, widely spoken languages only (no obscure codes such as aa or ab).
+  expect(list.length).toBeGreaterThan(70);
+  expect(list.length).toBeLessThan(100);
+  expect(list.some((item) => item.value === 'aa' || item.value === 'ab')).toBe(false);
   expect(list[0]).toMatchObject({ value: 'sq', group: 'Common' });
   expect(list[0]!.label).toBe('Albanian · Shqip');
   expect(list.find((item) => item.value === 'ja')?.group).toBe('All languages');

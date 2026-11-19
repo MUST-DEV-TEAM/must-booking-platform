@@ -1,4 +1,5 @@
-﻿'use client';
+'use client';
+import { formatDateTime } from '../../lib/hotel-format';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { usePmsSource } from './use-pms-source';
 import { ClockSyncProgress, type SyncSummary } from './clock-sync-progress';
@@ -144,7 +145,7 @@ export function ClockSyncStatus({
             : pending
               ? 'Clock data is updating automatically'
               : 'Clock data is synchronized'}
-        {latest ? ` · Last update ${new Date(latest).toLocaleString()}` : ''}
+        {latest ? ` · Last update ${formatDateTime(latest)}` : ''}
       </p>
       {status.error ? <p>{status.error.message}</p> : null}
       {details && status.data?.groups && status.data.overall ? (

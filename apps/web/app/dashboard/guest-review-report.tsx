@@ -1,5 +1,7 @@
 'use client';
 
+import { formatDate } from '../../lib/hotel-format';
+
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
@@ -60,16 +62,11 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 function shortDate(value: string) {
-  return new Date(value).toLocaleDateString(undefined, {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
+  return formatDate(value, 'medium');
 }
 
 function stayRange(startsOn: string, endsOn: string) {
-  const format = (value: string) =>
-    new Date(`${value}T00:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  const format = (value: string) => formatDate(value, 'short');
   return `${format(startsOn)} – ${format(endsOn)}`;
 }
 

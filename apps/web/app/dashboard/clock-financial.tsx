@@ -1,4 +1,6 @@
 'use client';
+
+import { formatDateTime } from '../../lib/hotel-format';
 import { formatMoney } from '../../lib/money';
 import { HotelMoney } from './approximate-money';
 import { useQuery } from '@tanstack/react-query';
@@ -117,8 +119,8 @@ export function ClockFinancialCard({
               />
             </div>
             <p className="text-sm text-muted-foreground">
-              Checked {new Date(data.fetchedAt).toLocaleString()}. Clock totals already include
-              payments mirrored from MUST; the two totals must not be added together.
+              Checked {formatDateTime(data.fetchedAt)}. Clock totals already include payments
+              mirrored from MUST; the two totals must not be added together.
             </p>
             {Number(data.paid.amount) !== Number(localPaid) ? (
               <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm">

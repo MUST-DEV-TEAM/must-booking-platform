@@ -69,6 +69,8 @@ type PropertyListItem = Property & {
   connectedProviders: string[];
   /** Active rooms, counted from Accommodations (or the PMS import); never typed. */
   roomCount: number;
+  /** True once the hotel has any booking; a time zone change then needs a confirmation. */
+  hasBookings: boolean;
   readiness: SettingsReadiness;
 };
 type PropertyDeleteBlocker = { resource: string; count: number };
@@ -171,6 +173,7 @@ export class PropertiesService {
           public_website_origin AS "publicWebsiteOrigin",
           wordpress_connected_at AS "wordpressConnectedAt",
           (SELECT count(*)::int FROM rooms r WHERE r.tenant_id=p.tenant_id AND r.property_id=p.id AND r.is_active) AS "roomCount",
+          EXISTS(SELECT 1 FROM bookings b WHERE b.tenant_id=p.tenant_id AND b.property_id=p.id) AS "hasBookings",
           json_build_object('stripe', stripe_enabled, 'pokpay', pokpay_enabled, 'payAtHotel', pay_at_hotel_enabled) AS "paymentGateways"
           FROM properties p
           WHERE p.tenant_id=${tenantId}::uuid AND EXISTS (
@@ -252,11 +255,12 @@ export class PropertiesService {
         FROM properties WHERE id = ${propertyId}::uuid
       `;
       if (!existing[0]) throw new BadRequestException('Property not found.');
-      const ownedLogo = input.logoUrl ? this.serverLogoKey(new URL(input.logoUrl)) : null;
-      if (ownedLogo) {
+      for (const url of [input.logoUrl]) {
+        const ownedImage = url ? this.serverLogoKey(new URL(url)) : null;
+        if (!ownedImage) continue;
         const images = await tx.$queryRaw<
           Array<{ id: string }>
-        >`SELECT l.id FROM property_library_images l JOIN server_media_uploads u ON u.tenant_id=l.tenant_id AND u.property_id=l.property_id AND u.object_key=l.object_key AND u.uploaded_at IS NOT NULL WHERE l.tenant_id=${tenantId}::uuid AND l.property_id=${propertyId}::uuid AND l.object_key=${ownedLogo} AND l.confirmed_at IS NOT NULL`;
+        >`SELECT l.id FROM property_library_images l JOIN server_media_uploads u ON u.tenant_id=l.tenant_id AND u.property_id=l.property_id AND u.object_key=l.object_key AND u.uploaded_at IS NOT NULL WHERE l.tenant_id=${tenantId}::uuid AND l.property_id=${propertyId}::uuid AND l.object_key=${ownedImage} AND l.confirmed_at IS NOT NULL`;
         if (!images[0])
           throw new BadRequestException('Choose a confirmed image from this hotel photo library.');
       }
@@ -518,7 +522,7 @@ export class PropertiesService {
       name,
       address,
       timezone,
-      logoUrl: this.optionalLogoUrl(v, false) ?? null,
+      logoUrl: this.optionalImageUrl(v, 'logoUrl', false) ?? null,
       phone: this.optionalBrandText(v, 'phone', 100, false) ?? null,
       supportEmail: this.optionalSupportEmail(v, false) ?? null,
     };
@@ -745,7 +749,7 @@ export class PropertiesService {
       brandColour,
       emailFooterText,
       termsUrl,
-      logoUrl: this.optionalLogoUrl(value, true),
+      logoUrl: this.optionalImageUrl(value, 'logoUrl', true),
       phone: this.optionalBrandText(value, 'phone', 100, true),
       supportEmail: this.optionalSupportEmail(value, true),
     };
@@ -768,15 +772,17 @@ export class PropertiesService {
       : null;
   }
 
-  private optionalLogoUrl(
+  /** A brand image address: one from this hotel's photo library, or a public https PNG, JPG or WebP. */
+  private optionalImageUrl(
     value: Record<string, unknown>,
+    field: 'logoUrl',
     allowAbsent: boolean,
   ): string | null | undefined {
-    if (!Object.hasOwn(value, 'logoUrl')) return allowAbsent ? undefined : null;
-    const logoUrl = value.logoUrl;
+    if (!Object.hasOwn(value, field)) return allowAbsent ? undefined : null;
+    const logoUrl = value[field];
     if (logoUrl === null || logoUrl === '') return null;
     if (typeof logoUrl !== 'string' || logoUrl.trim().length > 2048)
-      throw new BadRequestException('Invalid logoUrl.');
+      throw new BadRequestException(`Invalid ${field}.`);
     try {
       const url = new URL(logoUrl.trim());
       if (this.serverLogoKey(url) && !url.username && !url.password) return url.toString();

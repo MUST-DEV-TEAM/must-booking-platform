@@ -1,4 +1,6 @@
 'use client';
+
+import { formatDateTime } from '../../lib/hotel-format';
 import { useEffect, useState } from 'react';
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
@@ -680,9 +682,7 @@ export function WebsiteSettings({
           {property.wordpressConnectedAt ? 'WordPress paired' : 'Not connected'}
         </Badge>
         {property.wordpressConnectedAt ? (
-          <p className="m-0 text-sm">
-            Paired on {new Date(property.wordpressConnectedAt).toLocaleString()}
-          </p>
+          <p className="m-0 text-sm">Paired on {formatDateTime(property.wordpressConnectedAt)}</p>
         ) : null}
         {clockManaged ? (
           <p className="m-0 text-sm text-muted-foreground">

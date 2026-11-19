@@ -11,6 +11,7 @@ export function SegmentedControl<T extends string>({
   onChange,
   label,
   className,
+  disabled,
 }: {
   options: ReadonlyArray<SegmentedOption<T>>;
   value: T;
@@ -18,6 +19,7 @@ export function SegmentedControl<T extends string>({
   /** Accessible name of the group. */
   label: string;
   className?: string;
+  disabled?: boolean;
 }) {
   return (
     <div
@@ -34,9 +36,10 @@ export function SegmentedControl<T extends string>({
             role="radio"
             aria-checked={active}
             title={option.hint}
+            disabled={disabled}
             onClick={() => onChange(option.value)}
             className={cn(
-              'rounded-md border-0 bg-transparent px-3 py-1.5 text-sm font-semibold text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50',
+              'rounded-md border-0 bg-transparent px-3 py-1.5 text-sm font-semibold text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-60',
               active && 'bg-card text-foreground shadow-xs',
             )}
           >
