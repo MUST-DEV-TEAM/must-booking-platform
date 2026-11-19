@@ -223,7 +223,7 @@ export const hotelSettingGroups: Record<
           key: 'nearestAirportKm',
           label: 'Distance to airport (km)',
           kind: 'decimal',
-          span: 'third',
+          span: 'full',
           hint: 'In km, 1 decimal.',
         },
       ],
