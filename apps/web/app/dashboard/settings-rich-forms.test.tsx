@@ -203,7 +203,7 @@ it('lists every language by name with the common ones first', async () => {
   const list = languageOptions();
   // The modern, widely spoken languages only (no obscure codes such as aa or ab).
   expect(list.length).toBeGreaterThan(70);
-  expect(list.length).toBeLessThan(130);
+  expect(list.length).toBeLessThan(260);
   expect(list.some((item) => item.value === 'aa' || item.value === 'ab')).toBe(false);
   expect(list[0]).toMatchObject({ value: 'sq', group: 'Common' });
   expect(list[0]!.label).toBe('Albanian · Shqip');

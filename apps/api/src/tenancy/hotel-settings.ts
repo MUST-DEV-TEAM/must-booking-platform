@@ -3,6 +3,7 @@ import { BadRequestException } from '@nestjs/common';
 import {
   COUNTRY_CODES,
   normaliseOnlineProfiles,
+  HOTEL_LANGUAGE_CODES,
   LANGUAGE_CODES,
   NUMBER_FORMATS,
   TIME_FORMATS,
@@ -188,7 +189,14 @@ export function hotelInput(raw: Record<string, unknown>): HotelSettings {
     } else if (f.kind === 'boolean') {
       if (typeof v !== 'boolean') bad('Choose yes or no.');
     } else if (f.kind === 'languages') {
-      if (!Array.isArray(v) || v.some((x) => typeof x !== 'string' || !LANGUAGE_CODES.includes(x)))
+      if (
+        !Array.isArray(v) ||
+        v.some(
+          (x) =>
+            typeof x !== 'string' ||
+            !(LANGUAGE_CODES.includes(x) || HOTEL_LANGUAGE_CODES.includes(x)),
+        )
+      )
         bad('Choose languages from the list.');
       if ((v as unknown[]).length === 0) bad('Choose at least one language.');
       v = [...new Set(v as string[])].sort();

@@ -175,6 +175,10 @@ describe('hotel profile fields', () => {
 
   it('accepts any ISO language and the display formats, and needs one language', () => {
     expect(hotelInput({ languages: ['sq', 'ja', 'sq'] })).toEqual({ languages: ['ja', 'sq'] });
+    // Languages without a two-letter code (Montenegrin, Cantonese, Romani, Aromanian) have a three-letter one.
+    expect(hotelInput({ languages: ['yue', 'cnr', 'rom', 'rup'] })).toEqual({
+      languages: ['cnr', 'rom', 'rup', 'yue'],
+    });
     expect(() => hotelInput({ languages: [] })).toThrow('at least one');
     expect(() => hotelInput({ languages: ['xx'] })).toThrow('from the list');
     expect(
