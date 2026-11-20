@@ -33,7 +33,60 @@ const row: PublicProfileRow = {
   onlineProfiles: { instagram: 'https://www.instagram.com/hotel' },
   phone: '+355 69 123 4567',
   supportEmail: 'hello@hotel.al',
+  minStayNights: 2,
+  maxStayNights: null,
+  advanceBookingDays: 365,
+  minNoticeHours: 24,
+  seasonOpenFrom: '04-15',
+  seasonOpenTo: '10-31',
+  arrivalDays: [5, 6],
+  departureDays: null,
+  sameDayBookingAllowed: true,
+  sameDayCutoffTime: null,
+  maxGuestsPerBooking: 8,
+  maxRoomsPerBooking: 4,
+  groupRequestForm: true,
+  minBookingAge: null,
+  childrenUpToAge: 10,
+  infantsUpToAge: null,
+  askChildrenAges: true,
+  confirmationMode: 'on_request',
+  onRequestHours: null,
+  fillGapNights: false,
+  formPhone: 'optional',
+  formCountry: 'required',
+  formAddress: 'hidden',
+  formArrivalTime: 'hidden',
+  formSpecialRequests: 'optional',
+  formGuestNamePerRoom: 'hidden',
+  formCompany: 'hidden',
+  formMarketing: 'optional',
 };
+
+describe('publicHotelProfile booking rules', () => {
+  it('publishes the rules with the usual defaults and never the group request address', () => {
+    const { booking } = publicHotelProfile(row);
+    expect(booking.stay).toEqual({
+      minNights: 2,
+      maxNights: null,
+      bookUpToDays: 365,
+      minNoticeHours: 24,
+    });
+    expect(booking.season).toEqual({ from: '04-15', to: '10-31' });
+    expect(booking.arrivalDays).toEqual([5, 6]);
+    expect(booking.departureDays).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(booking.group).toEqual({ maxGuests: 8, maxRooms: 4, requestForm: true });
+    expect(booking.ages).toEqual({
+      minimumToBook: 18,
+      childrenUpTo: 10,
+      infantsUpTo: 2,
+      askChildrenAges: true,
+    });
+    expect(booking.confirmation).toEqual({ mode: 'on_request', answerWithinHours: 24 });
+    expect(booking.form.phone).toBe('optional');
+    expect(JSON.stringify(booking)).not.toMatch(/@/);
+  });
+});
 
 describe('publicHotelProfile', () => {
   it('turns codes into names and groups the location', () => {
