@@ -69,6 +69,7 @@ Empire Beach Resort reported a website booking (rate "early booking save 12%", w
 - A booking carries its own `meals` list (`[{ id, name }]`). The Meal boxes in the booking form are this field. It is writable on create: `POST /bookings/` with `meals: [{ "id": <meal id> }]` stores it (sandbox 2026-11-20, booking #3033). Ticking Breakfast by hand in the form changed only `meals` (sandbox booking #3031, diff of the full record before and after).
 - `first_meal_id` is a different setting (the first meal of the arrival day, used by Clock's restaurant meal report). Setting it did not fill the Meal field (sandbox booking #3032), so it is not used.
 - Meal ids differ per hotel (Breakfast is 9479 at Empire, 11510 in the sandbox), so they are read from the chosen rate's own `meals` in `/rates` and sent as they are. A room-only rate sends nothing.
+- Live check (2026-11-20, after the deploy): a guest booking on the Must Hotel sandbox through the public API (Bed & breakfast rate 803405, pay at hotel) arrived in Clock with `meals: [Breakfast]`, and the Meal box showed Breakfast ticked in Clock's booking screen (sandbox booking #3053).
 - Only creation sends meals. A stay amendment keeps the booking's existing meals. Bookings created before this change, such as the Empire one above, were ticked by hand in Clock.
 - Empire's own record showed the booking edited by hotel staff after creation, which is why an API read later showed Breakfast while the client's first screenshot did not (inference from the edit record).
 
