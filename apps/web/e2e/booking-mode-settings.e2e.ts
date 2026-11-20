@@ -49,10 +49,12 @@ test('changing booking mode in Settings changes real booking enforcement', async
       .getByRole('navigation', { name: 'Settings menu' })
       .getByRole('link', { name: 'Booking rules' })
       .click();
-    // The booking mode is now the "Inventory mode" on the Booking rules screen, saved from the
+    // The booking mode is now "How guests choose rooms" on the Booking rules screen, saved from the
     // sticky save bar after a confirmation.
-    await page.getByRole('combobox', { name: 'Inventory mode' }).click();
-    await page.getByRole('option', { name: 'Individual rooms' }).click();
+    await page
+      .getByRole('radiogroup', { name: 'How guests choose rooms' })
+      .getByRole('radio', { name: /A specific room/ })
+      .click();
     const saveResponse = page.waitForResponse(
       (response) =>
         response.request().method() === 'PATCH' &&
