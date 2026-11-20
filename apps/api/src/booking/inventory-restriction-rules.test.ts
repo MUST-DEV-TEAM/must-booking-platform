@@ -258,3 +258,14 @@ describe('Restriction activation conflicts and lifecycle', () => {
     expect(restrictionLifecycle(rule({ lifecycle: 'Archived' }), '2026-12-01')).toBe('Archived');
   });
 });
+describe('staff override and per-date restrictions', () => {
+  it('never overrides a minimum stay that comes from a date rule', () => {
+    const result = check([rule({ value: 4 })], undefined, undefined, {
+      channel: 'staff',
+      overrideRules: true,
+    });
+    expect(codes(result)).toContain('MIN_STAY');
+    expect(result.errors.find((e) => e.code === 'MIN_STAY')?.source).toBe('date');
+    expect(result.overridden).toBeUndefined();
+  });
+});

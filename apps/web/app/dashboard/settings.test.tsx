@@ -257,9 +257,9 @@ describe('DashboardSettings', () => {
     const { container, root } = await mount('booking-rules');
 
     for (const section of [
-      'Stay limits',
+      'Length of stay',
       'Cancellation',
-      'Inventory mode',
+      'How guests choose rooms',
       'House rules',
       'How online checkout works',
     ])
@@ -419,7 +419,7 @@ describe('DashboardSettings', () => {
       phone: '+355691234567',
     });
 
-    await value(container.querySelector('#rules-min')!, '3');
+    await value(container.querySelector('#hotel-minStayNights')!, '3');
     await saveChanges(container);
     const patchCalls = fetch.mock.calls.filter(([, init]) => init?.method === 'PATCH');
     expect(JSON.parse(patchCalls[2][1]!.body as string)).toEqual({ minStayNights: 3 });

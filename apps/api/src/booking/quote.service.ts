@@ -23,6 +23,7 @@ import {
 } from './promo-code.service';
 import { evaluateBookingRules, sameDayBookingViolation, rangeViolation } from './booking-rules';
 import { enforcedRoomCapacity, isClockManagedProperty } from './clock-managed-property';
+import { bookingPolicyColumns } from './booking-policy-columns';
 export { propertyClock, isSameDayBookingClosed } from './booking-rules';
 
 export type QuoteInput = {
@@ -118,11 +119,28 @@ function formatIsoDate(time: number): string {
 
 /** Why a room type cannot be booked for a stay, in terms a guest can act on. */
 export type StayUnavailableReason =
-  UnavailableReason | 'max_stay' | 'same_day_closed' | 'too_far_ahead' | 'past_date';
+  | UnavailableReason
+  | 'max_stay'
+  | 'same_day_closed'
+  | 'too_far_ahead'
+  | 'past_date'
+  | 'too_short_notice'
+  | 'outside_season'
+  | 'too_many_rooms';
 
 /** The reason behind a booking rule that refused a stay, from the code the rule raised. */
-function reasonFromRule(code: string | undefined): StayUnavailableReason {
+export function reasonFromRule(code: string | undefined): StayUnavailableReason {
   switch (code) {
+    case 'ARRIVAL_DAY_NOT_ALLOWED':
+      return 'no_arrival';
+    case 'DEPARTURE_DAY_NOT_ALLOWED':
+      return 'no_departure';
+    case 'MIN_NOTICE':
+      return 'too_short_notice';
+    case 'OUTSIDE_SEASON':
+      return 'outside_season';
+    case 'MAX_ROOMS_PER_BOOKING':
+      return 'too_many_rooms';
     case 'MIN_STAY':
       return 'min_stay';
     case 'MAX_STAY':
@@ -205,7 +223,7 @@ export class QuoteService {
     tenantId: string,
     propertyId: string,
     input: QuoteInput,
-    options: { skipRules?: boolean } = {},
+    options: { skipRules?: boolean; overrideRules?: boolean } = {},
   ): Promise<Money> {
     const normalizedInput = this.normalizeOccupancy(input);
     if (normalizedInput.promoCode)
@@ -213,7 +231,8 @@ export class QuoteService {
         await this.priceWithNightlyRates(tenantId, propertyId, normalizedInput, 'staff', options)
       ).total;
     this.validStayInput(normalizedInput);
-    if (!options.skipRules) await this.enforceBookingRules(tenantId, propertyId, normalizedInput);
+    if (!options.skipRules)
+      await this.enforceBookingRules(tenantId, propertyId, normalizedInput, options.overrideRules);
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
     if (connection?.provider === 'CLOCK_PMS') {
       const quote = await this.clockAvailability.getQuote(tenantId, propertyId, {
@@ -239,7 +258,7 @@ export class QuoteService {
     propertyId: string,
     input: QuoteInput,
     pricingChannel: 'website' | 'staff' = 'staff',
-    options: { skipRules?: boolean } = {},
+    options: { skipRules?: boolean; overrideRules?: boolean } = {},
   ): Promise<PricedQuote> {
     const base = await this.priceBase(tenantId, propertyId, input, pricingChannel, options);
     const code = normalizePromoCode(input.promoCode);
@@ -292,11 +311,12 @@ export class QuoteService {
     propertyId: string,
     input: QuoteInput,
     pricingChannel: 'website' | 'staff' = 'staff',
-    options: { skipRules?: boolean } = {},
+    options: { skipRules?: boolean; overrideRules?: boolean } = {},
   ): Promise<PricedQuote> {
     const normalizedInput = this.normalizeOccupancy(input);
     this.validStayInput(normalizedInput);
-    if (!options.skipRules) await this.enforceBookingRules(tenantId, propertyId, normalizedInput);
+    if (!options.skipRules)
+      await this.enforceBookingRules(tenantId, propertyId, normalizedInput, options.overrideRules);
 
     // Clock-connected properties are always quoted live against Clock's own
     // /products endpoint (owner's call — no local rate_plan mirror). Rate is
@@ -567,6 +587,8 @@ export class QuoteService {
     tenantId: string,
     propertyId: string,
     input: QuoteInput,
+    /** Staff only: skip the hotel's own booking limits (the safety rules always apply). */
+    overrideRules = false,
   ): Promise<void> {
     await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       const catalog = await tx.$queryRaw<
@@ -598,20 +620,23 @@ export class QuoteService {
           maxRoomsPerBooking: number | null;
         }>
       >`
-        SELECT min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
-          advance_booking_days AS "advanceBookingDays", timezone,same_day_booking_allowed AS "sameDayBookingAllowed",same_day_cutoff_time AS "sameDayCutoffTime",max_guests_per_booking AS "maxGuestsPerBooking",max_rooms_per_booking AS "maxRoomsPerBooking"
+        SELECT ${bookingPolicyColumns}
         FROM properties WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid
       `;
       if (!properties[0]) throw new NotFoundException('Property was not found.');
       const restrictions = await applicableRestrictions(tx, tenantId, propertyId, input.roomTypeId);
       const clockManaged = await isClockManagedProperty(tx, tenantId, propertyId);
-      this.validateBookingRules(input, {
-        restrictions,
-        ...properties[0],
-        maxOccupancy: enforcedRoomCapacity(clockManaged, catalog[0]),
-        roomTypeStatus: catalog[0].status,
-        roomActive: room?.isActive,
-      });
+      this.validateBookingRules(
+        input,
+        {
+          restrictions,
+          ...properties[0],
+          maxOccupancy: enforcedRoomCapacity(clockManaged, catalog[0]),
+          roomTypeStatus: catalog[0].status,
+          roomActive: room?.isActive,
+        },
+        overrideRules,
+      );
     });
   }
 
@@ -829,10 +854,12 @@ export class QuoteService {
       roomActive?: boolean;
       restrictions?: BookingRestriction[];
     },
+    overrideRules = false,
   ): void {
     const occupancy = resolveBookingOccupancy(input);
     const result = evaluateBookingRules({
       channel: 'staff',
+      overrideRules,
       startsOn: input.startsOn,
       endsOn: input.endsOn,
       policy: rules,

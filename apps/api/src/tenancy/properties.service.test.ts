@@ -53,3 +53,24 @@ describe('PropertiesService room rules', () => {
     );
   });
 });
+
+describe('PropertiesService connected PMS', () => {
+  it('refuses on-request confirmation and gap filling while a PMS is connected', async () => {
+    const queryRaw = vi
+      .fn()
+      .mockResolvedValueOnce([{ id: propertyId }])
+      .mockResolvedValueOnce([{ id: propertyId, name: 'Grand Hotel', timezone: 'Europe/Tirane' }])
+      .mockResolvedValue([{ managed: true }]);
+    const database = {
+      withTenantTransaction: async (
+        _context: unknown,
+        callback: (tx: { $queryRaw: typeof queryRaw }) => Promise<unknown>,
+      ) => callback({ $queryRaw: queryRaw }),
+    };
+    const audit = { recordInTransaction: vi.fn().mockResolvedValue(undefined) };
+    const connected = new PropertiesService(database as never, audit as never, {} as never);
+    await expect(
+      connected.update(tenantId, propertyId, actorUserId, { confirmationMode: 'on_request' }),
+    ).rejects.toThrow('not available with a connected PMS');
+  });
+});

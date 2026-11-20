@@ -105,6 +105,7 @@ export class StaffBookingController {
   ) {
     const input = this.input(body);
     this.validateGuest(input.guest);
+    const ruleOverrideReason = this.overrideReason(body);
     const key = this.idempotencyKey(idempotencyKey);
     // With a promo code the price comes from the full pricing path, which also says what was taken off.
     const priced = input.promoCode
@@ -113,6 +114,7 @@ export class StaffBookingController {
           request.tenantContext.propertyId,
           input,
           'staff',
+          { overrideRules: Boolean(ruleOverrideReason) },
         )
       : null;
     const total =
@@ -121,6 +123,7 @@ export class StaffBookingController {
         request.tenantContext.tenantId,
         request.tenantContext.propertyId,
         input,
+        { overrideRules: Boolean(ruleOverrideReason) },
       ));
     const result = await this.provider.createBooking(request.tenantContext, {
       ...input,
@@ -129,6 +132,7 @@ export class StaffBookingController {
       total,
       ...(priced?.promo ? { promo: priced.promo } : {}),
       staffActorId: request.tenantContext.userId,
+      ...(ruleOverrideReason ? { ruleOverrideReason } : {}),
       skipQuoteValidation: true,
     });
     if (!result.ok && result.error.code === 'IDEMPOTENCY_KEY_CONFLICT')
@@ -136,6 +140,17 @@ export class StaffBookingController {
         'This idempotency key was already used with a different request.',
       );
     return result;
+  }
+
+  /** Why staff override the hotel's own booking limits: left out, or 5 to 300 characters. */
+  private overrideReason(body: unknown): string | undefined {
+    const raw = (body as Record<string, unknown> | null)?.ruleOverrideReason;
+    if (raw === undefined || raw === null || raw === '') return undefined;
+    if (typeof raw !== 'string' || raw.trim().length < 5 || raw.trim().length > 300)
+      throw new BadRequestException(
+        'Enter a reason of 5 to 300 characters to override the booking limits.',
+      );
+    return raw.trim();
   }
 
   /** The same rules the dashboard form applies, so other clients cannot save bad contact data. */

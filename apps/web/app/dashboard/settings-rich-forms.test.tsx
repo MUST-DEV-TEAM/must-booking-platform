@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { it, expect, vi } from 'vitest';
@@ -32,7 +33,14 @@ const property: Property = {
 async function mount(node: React.ReactNode) {
   const host = document.body.appendChild(document.createElement('div')),
     root = createRoot(host);
-  await act(async () => root.render(<UnsavedChangesBoundary>{node}</UnsavedChangesBoundary>));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  await act(async () =>
+    root.render(
+      <QueryClientProvider client={client}>
+        <UnsavedChangesBoundary>{node}</UnsavedChangesBoundary>
+      </QueryClientProvider>,
+    ),
+  );
   return {
     host,
     root,
@@ -178,6 +186,26 @@ it('groups arrival and policies, validates paired hours and saves notes without 
     await m.close();
   }
 });
+it('locks what a connected PMS owns and hides gap filling', async () => {
+  const m = await mount(
+    <BookingRulesSettings
+      property={{ ...property, pmsSource: 'CLOCK_PMS' }}
+      saving={false}
+      canWrite
+      onSave={vi.fn()}
+    />,
+  );
+  try {
+    expect(m.host.textContent).toContain('Not used with a connected PMS yet');
+    expect(m.host.textContent).not.toContain('Fill gap nights');
+    expect((m.host.querySelector('#hotel-childrenUpToAge') as HTMLInputElement).disabled).toBe(
+      true,
+    );
+    expect((m.host.querySelector('#hotel-minBookingAge') as HTMLInputElement).disabled).toBe(false);
+  } finally {
+    await m.close();
+  }
+});
 it.each([GeneralSettings, BookingRulesSettings, CheckInOutSettings])(
   'renders values but no save controls for a read-only viewer',
   async (Component) => {
@@ -209,4 +237,34 @@ it('lists every language by name with the common ones first', async () => {
   expect(list[0]!.label).toBe('Albanian · Shqip');
   expect(list.find((item) => item.value === 'ja')?.group).toBe('All languages');
   expect(new Set(list.map((item) => item.value)).size).toBe(list.length);
+});
+it('asks for notice, season and arrival days with the same rules as the server', async () => {
+  const save = vi.fn(),
+    m = await mount(
+      <BookingRulesSettings property={property} saving={false} canWrite onSave={save} />,
+    );
+  try {
+    expect(m.host.textContent).toContain('Booking window and season');
+    await value('hotel-minNoticeHours', '900');
+    expect(m.host.textContent).toContain('0 to 720');
+    expect(button('Save changes').disabled).toBe(true);
+    await value('hotel-minNoticeHours', '24');
+    // Switch Monday to Friday off for arrivals: only Saturday and Sunday remain.
+    const arrival = (day: string) =>
+      m.host.querySelector<HTMLButtonElement>(`button[aria-label="Arrival days: ${day}"]`)!;
+    for (const day of ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'])
+      await act(async () => arrival(day).click());
+    expect(arrival('Sat').getAttribute('aria-pressed')).toBe('true');
+    expect(arrival('Mon').getAttribute('aria-pressed')).toBe('false');
+    // Switching the last two off is refused: at least one day stays on.
+    await act(async () => arrival('Sat').click());
+    await act(async () => arrival('Sun').click());
+    expect(m.host.textContent).toContain('Choose at least one day');
+    expect(button('Save changes').disabled).toBe(true);
+    await act(async () => arrival('Sat').click());
+    await act(async () => button('Save changes').click());
+    expect(save).toHaveBeenCalledWith({ minNoticeHours: 24, arrivalDays: [6] });
+  } finally {
+    await m.close();
+  }
 });

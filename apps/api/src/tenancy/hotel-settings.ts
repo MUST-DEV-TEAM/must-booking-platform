@@ -2,6 +2,11 @@ import { Prisma } from '@prisma/client';
 import { BadRequestException } from '@nestjs/common';
 import {
   COUNTRY_CODES,
+  checkBookingLimit,
+  checkBookingWindow,
+  checkWeekdays,
+  checkSeason,
+  type BookingLimitKey,
   normaliseOnlineProfiles,
   HOTEL_LANGUAGE_CODES,
   LANGUAGE_CODES,
@@ -55,6 +60,28 @@ export type HotelSettings = {
   registeredPostalCode?: string | null;
   phone?: string | null;
   supportEmail?: string | null;
+  minNoticeHours?: number | null;
+  seasonOpenFrom?: string | null;
+  seasonOpenTo?: string | null;
+  arrivalDays?: number[];
+  departureDays?: number[];
+  groupRequestForm?: boolean;
+  groupRequestEmail?: string | null;
+  minBookingAge?: number | null;
+  childrenUpToAge?: number | null;
+  infantsUpToAge?: number | null;
+  askChildrenAges?: boolean;
+  fillGapNights?: boolean;
+  confirmationMode?: string;
+  onRequestHours?: number | null;
+  formPhone?: string;
+  formCountry?: string;
+  formAddress?: string;
+  formArrivalTime?: string;
+  formSpecialRequests?: string;
+  formGuestNamePerRoom?: string;
+  formCompany?: string;
+  formMarketing?: string;
   accentColour?: string | null;
   onlineProfiles?: Record<string, string>;
   whatsappSameAsPhone?: boolean;
@@ -101,6 +128,28 @@ export const hotelFields = [
   { key: 'receptionFrom', column: 'reception_from', kind: 'profile', max: 5 },
   { key: 'receptionTo', column: 'reception_to', kind: 'profile', max: 5 },
   { key: 'accentColour', column: 'accent_colour', kind: 'profile', max: 7 },
+  { key: 'minNoticeHours', column: 'min_notice_hours', kind: 'limit', max: 0 },
+  { key: 'seasonOpenFrom', column: 'season_open_from', kind: 'monthday', max: 5 },
+  { key: 'seasonOpenTo', column: 'season_open_to', kind: 'monthday', max: 5 },
+  { key: 'arrivalDays', column: 'arrival_days', kind: 'weekdays', max: 0 },
+  { key: 'departureDays', column: 'departure_days', kind: 'weekdays', max: 0 },
+  { key: 'groupRequestForm', column: 'group_request_form', kind: 'boolean', max: 0 },
+  { key: 'groupRequestEmail', column: 'group_request_email', kind: 'email', max: 254 },
+  { key: 'minBookingAge', column: 'min_booking_age', kind: 'limit', max: 0 },
+  { key: 'childrenUpToAge', column: 'children_up_to_age', kind: 'limit', max: 0 },
+  { key: 'infantsUpToAge', column: 'infants_up_to_age', kind: 'limit', max: 0 },
+  { key: 'askChildrenAges', column: 'ask_children_ages', kind: 'boolean', max: 0 },
+  { key: 'fillGapNights', column: 'fill_gap_nights', kind: 'boolean', max: 0 },
+  { key: 'confirmationMode', column: 'confirmation_mode', kind: 'confirmation', max: 10 },
+  { key: 'onRequestHours', column: 'on_request_hours', kind: 'limit', max: 0 },
+  { key: 'formPhone', column: 'form_phone', kind: 'formfield', max: 8 },
+  { key: 'formCountry', column: 'form_country', kind: 'formfield', max: 8 },
+  { key: 'formAddress', column: 'form_address', kind: 'formfield', max: 8 },
+  { key: 'formArrivalTime', column: 'form_arrival_time', kind: 'formfield', max: 8 },
+  { key: 'formSpecialRequests', column: 'form_special_requests', kind: 'formfield', max: 8 },
+  { key: 'formGuestNamePerRoom', column: 'form_guest_name_per_room', kind: 'formfield', max: 8 },
+  { key: 'formCompany', column: 'form_company', kind: 'formfield', max: 8 },
+  { key: 'formMarketing', column: 'form_marketing', kind: 'formfield', max: 8 },
   { key: 'onlineProfiles', column: 'online_profiles', kind: 'profiles', max: 0 },
   { key: 'description', column: 'description', kind: 'profile', max: 1000 },
   { key: 'starRating', column: 'star_rating', kind: 'stars', max: 0 },
@@ -137,8 +186,8 @@ export const hotelFields = [
   { key: 'registeredPostalCode', column: 'registered_postal_code', kind: 'profile', max: 20 },
   { key: 'allowSameDayBooking', column: 'same_day_booking_allowed', kind: 'boolean', max: 0 },
   { key: 'sameDayCutoffTime', column: 'same_day_cutoff_time', kind: 'time', max: 5 },
-  { key: 'maxGuestsPerBooking', column: 'max_guests_per_booking', kind: 'integer', max: 0 },
-  { key: 'maxRoomsPerBooking', column: 'max_rooms_per_booking', kind: 'integer', max: 0 },
+  { key: 'maxGuestsPerBooking', column: 'max_guests_per_booking', kind: 'limit', max: 0 },
+  { key: 'maxRoomsPerBooking', column: 'max_rooms_per_booking', kind: 'limit', max: 0 },
   { key: 'noShowRule', column: 'no_show_rule', kind: 'no_show', max: 0 },
   { key: 'earlyCheckInPolicy', column: 'early_check_in_policy', kind: 'arrival', max: 0 },
   { key: 'earlyCheckInUntil', column: 'early_check_in_until', kind: 'time', max: 5 },
@@ -174,7 +223,19 @@ export function hotelInput(raw: Record<string, unknown>): HotelSettings {
     const bad = (message: string): never => {
       throw new BadRequestException(message);
     };
-    if (f.kind === 'profiles') {
+    if (f.kind === 'limit') {
+      v = v === '' ? null : v;
+      const message = checkBookingLimit(f.key as BookingLimitKey, v);
+      if (message) bad(message);
+    } else if (f.kind === 'monthday') {
+      v = v === '' ? null : v;
+      if (v !== null && typeof v !== 'string') bad('Choose a real date for the season.');
+    } else if (f.kind === 'weekdays') {
+      if (Array.isArray(v)) v = [...new Set(v)];
+      const message = checkWeekdays(v);
+      if (message) bad(message);
+      v = (v as number[]).sort();
+    } else if (f.kind === 'profiles') {
       const result = normaliseOnlineProfiles(v);
       const first = Object.values(result.errors)[0];
       if (first) bad(first);
@@ -212,7 +273,7 @@ export function hotelInput(raw: Record<string, unknown>): HotelSettings {
       v = [...new Set(v as string[])].sort();
     } else if (v === null || v === '') {
       v = null;
-    } else if (f.kind === 'integer' || f.kind === 'stars') {
+    } else if (f.kind === 'stars') {
       if (
         !Number.isSafeInteger(v) ||
         Number(v) < 1 ||
@@ -239,27 +300,38 @@ export function hotelInput(raw: Record<string, unknown>): HotelSettings {
           .includes(v as string)
       )
         bad('Choose a currency from the list.');
+      if (v && f.kind === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v as string))
+        bad('Enter a valid email address.');
       if (v && f.kind === 'time' && !/^([01]\d|2[0-3]):[0-5]\d$/.test(v as string))
         bad('Use a local time such as 15:00.');
       const choices =
         f.kind === 'no_show'
           ? ['charge_first_night', 'charge_nothing', 'flag_for_review']
-          : f.kind === 'arrival'
-            ? ['not_offered', 'on_request', 'free_until']
-            : f.kind === 'policy'
-              ? ['allowed', 'on_request', 'not_allowed']
-              : f.kind === 'format'
-                ? ((f.key === 'timeFormat'
-                    ? TIME_FORMATS
-                    : f.key === 'weekStart'
-                      ? WEEK_STARTS
-                      : NUMBER_FORMATS) as readonly string[])
-                : null;
+          : f.kind === 'confirmation'
+            ? ['instant', 'on_request']
+            : f.kind === 'formfield'
+              ? ['required', 'optional', 'hidden']
+              : f.kind === 'arrival'
+                ? ['not_offered', 'on_request', 'free_until']
+                : f.kind === 'policy'
+                  ? ['allowed', 'on_request', 'not_allowed']
+                  : f.kind === 'format'
+                    ? ((f.key === 'timeFormat'
+                        ? TIME_FORMATS
+                        : f.key === 'weekStart'
+                          ? WEEK_STARTS
+                          : NUMBER_FORMATS) as readonly string[])
+                    : null;
       if (choices && v && !choices.includes(v as string)) bad('Choose a policy from the list.');
     }
     if (
       v === null &&
-      (f.kind === 'no_show' || f.kind === 'arrival' || f.kind === 'boolean' || f.kind === 'format')
+      (f.kind === 'confirmation' ||
+        f.kind === 'formfield' ||
+        f.kind === 'no_show' ||
+        f.kind === 'arrival' ||
+        f.kind === 'boolean' ||
+        f.kind === 'format')
     )
       bad('Choose a policy from the list.');
     if (f.key === 'dateFormat' && !['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD'].includes(String(v)))
@@ -274,6 +346,10 @@ export function hotelInput(raw: Record<string, unknown>): HotelSettings {
 }
 export function checkHotelSettings(value: HotelSettings, changed: readonly string[] = []) {
   const year = new Date().getFullYear();
+  if (['seasonOpenFrom', 'seasonOpenTo'].some((key) => changed.includes(key))) {
+    const message = checkSeason(value.seasonOpenFrom, value.seasonOpenTo);
+    if (message) throw new BadRequestException(message);
+  }
   for (const key of ['taxNumber', 'region', 'postalCode', 'registeredPostalCode'] as const) {
     const current = value[key];
     if (current && (changed.includes(key) || changed.includes('country'))) {
@@ -306,6 +382,11 @@ export function checkHotelSettings(value: HotelSettings, changed: readonly strin
     throw new BadRequestException('Enter the free early check-in time.');
   if (value.lateCheckOutPolicy === 'free_until' && !value.lateCheckOutUntil)
     throw new BadRequestException('Enter the free late check-out time.');
+  if (
+    ['childrenUpToAge', 'infantsUpToAge'].some((key) => changed.includes(key)) &&
+    checkBookingWindow(value).infantsUpToAge
+  )
+    throw new BadRequestException(checkBookingWindow(value).infantsUpToAge);
   if (Boolean(value.quietHoursFrom) !== Boolean(value.quietHoursTo))
     throw new BadRequestException('Enter both quiet-hours times, or leave both empty.');
 }
@@ -315,7 +396,7 @@ export function hotelUpdates(input: HotelSettings) {
       .filter((f) => Object.hasOwn(input, f.key))
       .map(
         (f) =>
-          Prisma.sql`${Prisma.raw(f.column)}=${f.kind === 'languages' ? Prisma.sql`ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(input[f.key])}::jsonb))` : f.kind === 'profiles' ? Prisma.sql`${JSON.stringify(input[f.key])}::jsonb` : input[f.key]}`,
+          Prisma.sql`${Prisma.raw(f.column)}=${f.kind === 'weekdays' ? Prisma.sql`ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(input[f.key])}::jsonb)::smallint)` : f.kind === 'languages' ? Prisma.sql`ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(input[f.key])}::jsonb))` : f.kind === 'profiles' ? Prisma.sql`${JSON.stringify(input[f.key])}::jsonb` : input[f.key]}`,
       ),
   );
 }

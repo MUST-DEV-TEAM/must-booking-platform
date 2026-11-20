@@ -77,6 +77,7 @@ describe('bounded staff availability', () => {
       'property',
       expect.objectContaining({ roomId: r2 }),
       'staff',
+      { overrideRules: false },
     );
     expect(pms.unavailableRoomsForBooking).not.toHaveBeenCalled();
   });

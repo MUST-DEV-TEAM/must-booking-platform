@@ -22,6 +22,7 @@ import {
   ruleNights,
   type BookingRulePolicy,
 } from '../../booking/booking-rules';
+import { bookingPolicyColumns } from '../../booking/booking-policy-columns';
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 // JSONB reorders keys. Request identity must survive that round trip.
 const commandHash = (command: StayAmendmentCommand) =>
@@ -126,7 +127,7 @@ export class ClockStayAmendmentService {
       (tx) =>
         tx.$queryRaw<
           BookingRulePolicy[]
-        >`SELECT timezone,min_stay_nights AS "minStayNights",max_stay_nights AS "maxStayNights",advance_booking_days AS "advanceBookingDays",same_day_booking_allowed AS "sameDayBookingAllowed",same_day_cutoff_time AS "sameDayCutoffTime" FROM properties WHERE tenant_id=${c.tenantId}::uuid AND id=${c.propertyId}::uuid`,
+        >`SELECT ${bookingPolicyColumns} FROM properties WHERE tenant_id=${c.tenantId}::uuid AND id=${c.propertyId}::uuid`,
     );
     const rules = evaluateBookingRules({
       ...q,
