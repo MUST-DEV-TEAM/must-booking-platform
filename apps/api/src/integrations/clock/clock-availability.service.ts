@@ -224,7 +224,9 @@ export type ClockStayOffer = {
 
 /** Clock's numeric ids of a rate's meals; meals without a usable id are left out. */
 export function mealIdsOf(meals: Array<{ id?: number | string }> | undefined): number[] {
-  const ids = (meals ?? []).map((meal) => Number(meal.id)).filter((id) => Number.isInteger(id) && id > 0);
+  const ids = (meals ?? [])
+    .map((meal) => Number(meal.id))
+    .filter((id) => Number.isInteger(id) && id > 0);
   return [...new Set(ids)];
 }
 
