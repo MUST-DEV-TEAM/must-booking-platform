@@ -18,9 +18,6 @@ type Save = (update: Partial<Property>) => void;
 type FormProps = { property: Property; saving: boolean; onSave: Save; canWrite?: boolean };
 type GeneralProps = FormProps & { tenantId?: string };
 
-const text = (value: number | null) => (value === null ? '' : String(value));
-const toNumber = (value: string): number | null => (value.trim() === '' ? null : Number(value));
-
 /** The Profile tab: identity, location with the map pin, legal and tax, languages, currency, formats. */
 export function GeneralSettings({
   property,
@@ -98,9 +95,6 @@ const MODES: ReadonlyArray<{ value: BookingMode; label: string; hint: string }> 
 export function BookingRulesSettings({ property, saving, onSave, canWrite = false }: FormProps) {
   const rich = useHotelSettings(property, 'booking-rules', canWrite);
   const initial = () => ({
-    minStayNights: text(property.minStayNights),
-    maxStayNights: text(property.maxStayNights),
-    advanceBookingDays: text(property.advanceBookingDays),
     freeCancellationDaysBeforeArrival: String(property.freeCancellationDaysBeforeArrival),
     rules: property.rules ?? '',
     bookingMode: property.bookingMode,
@@ -118,12 +112,6 @@ export function BookingRulesSettings({ property, saving, onSave, canWrite = fals
   const modeChanged = draft.bookingMode !== property.bookingMode;
   const commit = () => {
     const update: Partial<Property> = { ...rich.update };
-    if (draft.minStayNights !== saved.minStayNights)
-      update.minStayNights = toNumber(draft.minStayNights);
-    if (draft.maxStayNights !== saved.maxStayNights)
-      update.maxStayNights = toNumber(draft.maxStayNights);
-    if (draft.advanceBookingDays !== saved.advanceBookingDays)
-      update.advanceBookingDays = toNumber(draft.advanceBookingDays);
     if (draft.freeCancellationDaysBeforeArrival !== saved.freeCancellationDaysBeforeArrival)
       update.freeCancellationDaysBeforeArrival = Number(draft.freeCancellationDaysBeforeArrival);
     if (draft.rules !== saved.rules) update.rules = draft.rules.trim() === '' ? null : draft.rules;
@@ -133,64 +121,14 @@ export function BookingRulesSettings({ property, saving, onSave, canWrite = fals
   const set = (patch: Partial<typeof draft>) => setDraft({ ...draft, ...patch });
   return (
     <div className="flex flex-col gap-4">
-      <FormSection
-        title="Stay limits"
-        description="Applied to every booking, including staff bookings. Leave a limit empty for no limit."
-      >
-        <div className="grid gap-4 sm:grid-cols-3">
-          <FormField label="Minimum stay (nights)" htmlFor="rules-min" error={errors.minStayNights}>
-            <Input
-              disabled={!canWrite}
-              id="rules-min"
-              inputMode="numeric"
-              value={draft.minStayNights}
-              onChange={(e) => set({ minStayNights: e.target.value })}
-            />
-          </FormField>
-          <FormField label="Maximum stay (nights)" htmlFor="rules-max" error={errors.maxStayNights}>
-            <Input
-              disabled={!canWrite}
-              id="rules-max"
-              inputMode="numeric"
-              value={draft.maxStayNights}
-              onChange={(e) => set({ maxStayNights: e.target.value })}
-            />
-          </FormField>
-          <FormField
-            label="Booking window (days ahead)"
-            htmlFor="rules-advance"
-            hint="How far ahead guests can book."
-            error={errors.advanceBookingDays}
-          >
-            <Input
-              disabled={!canWrite}
-              id="rules-advance"
-              inputMode="numeric"
-              value={draft.advanceBookingDays}
-              onChange={(e) => set({ advanceBookingDays: e.target.value })}
-            />
-          </FormField>
-        </div>
-      </FormSection>
-      <FormSection
-        title="Cancellation"
-        description="The free-cancellation window is evaluated before arrival. Automatic refunds follow Payments settings; staff can handle a refund separately."
-      >
-        <FormField
-          label="Free cancellation (days before arrival)"
-          htmlFor="rules-cancel"
-          error={errors.freeCancellationDaysBeforeArrival}
-        >
-          <Input
-            disabled={!canWrite}
-            id="rules-cancel"
-            inputMode="numeric"
-            className="sm:max-w-48"
-            value={draft.freeCancellationDaysBeforeArrival}
-            onChange={(e) => set({ freeCancellationDaysBeforeArrival: e.target.value })}
-          />
-        </FormField>
-      </FormSection>
+      {rich.section(
+        'Length of stay',
+        'Booking window and season',
+        'Same-day booking',
+        'Arrival and departure days',
+        'Group size',
+        'Guest ages',
+      )}
       <FormSection
         title="How guests choose rooms"
         description="Changing this asks for confirmation. Existing bookings are not changed."
@@ -208,6 +146,28 @@ export function BookingRulesSettings({ property, saving, onSave, canWrite = fals
           ))}
         </div>
       </FormSection>
+      {rich.section('Confirmation', 'Booking form', 'Advanced')}
+      <FormSection
+        title="Cancellation"
+        description="The free-cancellation window is evaluated before arrival. Automatic refunds follow Payments settings; staff can handle a refund separately."
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <FormField
+            label="Free cancellation (days before arrival)"
+            htmlFor="rules-cancel"
+            hint="Whole days, 0 or more."
+            error={errors.freeCancellationDaysBeforeArrival}
+          >
+            <Input
+              disabled={!canWrite}
+              id="rules-cancel"
+              inputMode="numeric"
+              value={draft.freeCancellationDaysBeforeArrival}
+              onChange={(e) => set({ freeCancellationDaysBeforeArrival: e.target.value })}
+            />
+          </FormField>
+        </div>
+      </FormSection>
       <FormSection
         title="House rules"
         description="Shown on room detail pages unless a room has its own rules."
@@ -223,6 +183,7 @@ export function BookingRulesSettings({ property, saving, onSave, canWrite = fals
           />
         </FormField>
       </FormSection>
+      {rich.section('No-show guidance')}
       <FormSection
         title="How online checkout works"
         description="Set by the system, shown here so staff know what to expect."
@@ -233,7 +194,6 @@ export function BookingRulesSettings({ property, saving, onSave, canWrite = fals
           hold is released and the booking expires.
         </p>
       </FormSection>
-      {rich.fields}
       <SaveBar
         dirty={canWrite && combinedDirty}
         saving={saving}

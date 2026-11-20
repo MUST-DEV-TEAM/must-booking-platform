@@ -380,23 +380,72 @@ export const hotelSettingGroups: Record<
   ],
   'booking-rules': [
     {
-      title: 'Booking notice and season',
+      title: 'Length of stay',
       description:
-        'How early guests must book, and the time of year the hotel takes bookings. Leave empty for no limit.',
+        'Applied to every booking, including staff bookings. Leave a limit empty for no limit.',
+      fields: [
+        {
+          key: 'minStayNights',
+          label: 'Minimum stay (nights)',
+          kind: 'number',
+          span: 'half',
+          hint: '1 to 30 nights.',
+        },
+        {
+          key: 'maxStayNights',
+          label: 'Maximum stay (nights)',
+          kind: 'number',
+          span: 'half',
+          hint: '1 to 365 nights, not below the minimum.',
+        },
+      ],
+    },
+    {
+      title: 'Booking window and season',
+      description:
+        'How early guests must book, how far ahead they can, and the time of year you take bookings.',
       fields: [
         {
           key: 'minNoticeHours',
           label: 'Book at least (hours before check-in day)',
           kind: 'number',
+          span: 'half',
           hint: '0 to 720 hours. 24 means the day before at the latest.',
+        },
+        {
+          key: 'advanceBookingDays',
+          label: 'Book up to (days ahead)',
+          kind: 'number',
+          span: 'half',
+          hint: '1 to 730 days.',
         },
         {
           key: 'seasonOpenFrom',
           label: 'Open from',
           kind: 'monthday',
+          span: 'half',
           hint: 'Leave both dates empty to be open all year.',
         },
-        { key: 'seasonOpenTo', label: 'Open until', kind: 'monthday' },
+        { key: 'seasonOpenTo', label: 'Open until', kind: 'monthday', span: 'half' },
+      ],
+    },
+    {
+      title: 'Same-day booking',
+      description: 'Applied to guests and staff, using the hotel time zone.',
+      fields: [
+        {
+          key: 'allowSameDayBooking',
+          label: 'Allow same-day bookings',
+          kind: 'boolean',
+          defaultValue: true,
+        },
+        {
+          key: 'sameDayCutoffTime',
+          label: 'Same-day cutoff time',
+          kind: 'time',
+          span: 'half',
+          hint: 'Optional. Same-day arrivals close at this local time.',
+        },
       ],
     },
     {
@@ -418,25 +467,7 @@ export const hotelSettingGroups: Record<
       ],
     },
     {
-      title: 'Same-day booking',
-      description: 'Applied to guests and staff, using the hotel time zone.',
-      fields: [
-        {
-          key: 'allowSameDayBooking',
-          label: 'Allow same-day bookings',
-          kind: 'boolean',
-          defaultValue: true,
-        },
-        {
-          key: 'sameDayCutoffTime',
-          label: 'Same-day cutoff time',
-          kind: 'time',
-          hint: 'Optional. Same-day arrivals close at this local time.',
-        },
-      ],
-    },
-    {
-      title: 'Booking size limits',
+      title: 'Group size',
       description:
         'Limits apply to a whole booking or multi-room order, including children. Leave empty for no extra limit.',
       fields: [
@@ -444,12 +475,14 @@ export const hotelSettingGroups: Record<
           key: 'maxGuestsPerBooking',
           label: 'Maximum guests per booking',
           kind: 'number',
+          span: 'half',
           hint: '1 to 50.',
         },
         {
           key: 'maxRoomsPerBooking',
           label: 'Maximum rooms per booking',
           kind: 'number',
+          span: 'half',
           hint: '1 to 20.',
         },
         {
@@ -513,14 +546,21 @@ export const hotelSettingGroups: Record<
         {
           key: 'confirmationMode',
           label: 'Confirm bookings',
-          kind: 'choice',
-          span: 'half',
+          kind: 'cards',
           defaultValue: 'instant',
-          options: options([
-            ['instant', 'Instantly (default)'],
-            ['on_request', 'On request: staff accept or decline'],
-          ]),
-          hint: 'On request: if nobody answers in time, the booking is declined and the room is released. After acceptance the guest pays by payment link.',
+          options: [
+            {
+              value: 'instant',
+              label: 'Instantly',
+              description: 'The booking is confirmed as soon as the guest completes it.',
+            },
+            {
+              value: 'on_request',
+              label: 'On request',
+              description:
+                'Staff accept or decline. If nobody answers in time the booking is declined and the room is released. After acceptance the guest pays by payment link.',
+            },
+          ],
         },
         {
           key: 'onRequestHours',
@@ -542,7 +582,7 @@ export const hotelSettingGroups: Record<
           key: 'formPhone',
           label: 'Phone number',
           kind: 'choice',
-          span: 'third',
+          span: 'half',
           defaultValue: 'required',
           options: options([
             ['required', 'Required'],
@@ -554,8 +594,8 @@ export const hotelSettingGroups: Record<
           key: 'formCountry',
           label: 'Country',
           kind: 'choice',
-          span: 'third',
-          defaultValue: 'optional',
+          span: 'half',
+          defaultValue: 'required',
           options: options([
             ['required', 'Required'],
             ['optional', 'Optional'],
@@ -566,7 +606,7 @@ export const hotelSettingGroups: Record<
           key: 'formAddress',
           label: 'Address',
           kind: 'choice',
-          span: 'third',
+          span: 'half',
           defaultValue: 'hidden',
           options: options([
             ['required', 'Required'],
@@ -578,8 +618,8 @@ export const hotelSettingGroups: Record<
           key: 'formArrivalTime',
           label: 'Expected arrival time',
           kind: 'choice',
-          span: 'third',
-          defaultValue: 'optional',
+          span: 'half',
+          defaultValue: 'hidden',
           options: options([
             ['required', 'Required'],
             ['optional', 'Optional'],
@@ -590,7 +630,7 @@ export const hotelSettingGroups: Record<
           key: 'formSpecialRequests',
           label: 'Special requests',
           kind: 'choice',
-          span: 'third',
+          span: 'half',
           defaultValue: 'optional',
           options: options([
             ['required', 'Required'],
@@ -602,7 +642,7 @@ export const hotelSettingGroups: Record<
           key: 'formGuestNamePerRoom',
           label: 'Guest name for each room',
           kind: 'choice',
-          span: 'third',
+          span: 'half',
           defaultValue: 'hidden',
           options: options([
             ['required', 'Required'],
@@ -614,7 +654,7 @@ export const hotelSettingGroups: Record<
           key: 'formCompany',
           label: 'Company name and tax number',
           kind: 'choice',
-          span: 'third',
+          span: 'half',
           defaultValue: 'hidden',
           options: options([
             ['required', 'Required'],
@@ -626,7 +666,7 @@ export const hotelSettingGroups: Record<
           key: 'formMarketing',
           label: 'Marketing consent',
           kind: 'choice',
-          span: 'third',
+          span: 'half',
           defaultValue: 'optional',
           options: options([
             ['required', 'Required'],
@@ -657,6 +697,7 @@ export const hotelSettingGroups: Record<
           key: 'noShowRule',
           label: 'If a guest does not arrive',
           kind: 'choice',
+          span: 'half',
           defaultValue: 'flag_for_review',
           options: options([
             ['charge_first_night', 'Charge first night'],
@@ -880,6 +921,14 @@ export function useHotelSettings(
   for (const key of ['arrivalDays', 'departureDays'])
     if (key in values && changed(key) && checkWeekdays((values[key] as string[]).map(Number)))
       errors[key] = 'Choose at least one day.';
+  if ((changed('minStayNights') || changed('maxStayNights')) && 'minStayNights' in values) {
+    const stay = (key: string) => (/^\d+$/.test(String(values[key])) ? Number(values[key]) : null);
+    const problem = checkBookingWindow({
+      minStayNights: stay('minStayNights'),
+      maxStayNights: stay('maxStayNights'),
+    }).maxStayNights;
+    if (problem) errors.maxStayNights = problem;
+  }
   if ((changed('childrenUpToAge') || changed('infantsUpToAge')) && 'infantsUpToAge' in values) {
     const age = (key: string) => (/^\d+$/.test(String(values[key])) ? Number(values[key]) : null);
     const problem = checkBookingWindow({
@@ -940,6 +989,21 @@ export function useHotelSettings(
     errors,
     update,
     discard: () => setValues(initial()),
+    /** The same form, restricted to the groups with these titles (so a page can interleave its own sections). */
+    section: (...titles: string[]) => (
+      <SettingsFields
+        groups={groups
+          .filter((group) => titles.includes(group.title))
+          .map((group) => ({ ...group, compact: true }))}
+        values={{ ...values, countryName: countryName(values.country) }}
+        onChange={(key, value) => setValues((v) => ({ ...v, [key]: value }))}
+        errors={errors}
+        disabled={!canWrite}
+        currencyLocked={property.defaultCurrencyLocked}
+        currencyBadge={property.pmsSource === 'CLOCK_PMS' ? 'From Clock · Locked' : 'Locked'}
+        extras={extras}
+      />
+    ),
     fields: (
       <SettingsFields
         groups={groups.map((group) => ({ ...group, compact: true }))}

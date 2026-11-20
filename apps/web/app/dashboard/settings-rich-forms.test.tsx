@@ -216,7 +216,7 @@ it('asks for notice, season and arrival days with the same rules as the server',
       <BookingRulesSettings property={property} saving={false} canWrite onSave={save} />,
     );
   try {
-    expect(m.host.textContent).toContain('Booking notice and season');
+    expect(m.host.textContent).toContain('Booking window and season');
     await value('hotel-minNoticeHours', '900');
     expect(m.host.textContent).toContain('0 to 720');
     expect(button('Save changes').disabled).toBe(true);

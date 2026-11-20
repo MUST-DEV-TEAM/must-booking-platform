@@ -1,4 +1,3 @@
-import { checkBookingLimit } from '@must/domain-contracts';
 /** The Settings areas, how healthy each one looks, and the checks the forms run before saving. */
 export type PaymentGateways = { stripe: boolean; pokpay: boolean; payAtHotel: boolean };
 export type BookingMode = 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
@@ -255,39 +254,12 @@ export function timeZoneOptions(current: string): string[] {
 const wholeNumber = (value: string) => /^\d+$/.test(value.trim());
 
 export type RulesDraft = {
-  minStayNights: string;
-  maxStayNights: string;
-  advanceBookingDays: string;
   freeCancellationDaysBeforeArrival: string;
 };
 
-/** Plain-words problems with the stay limits; an empty object means they can be saved. */
+/** Plain-words problems with the cancellation window; an empty object means it can be saved. */
 export function validateRules(draft: RulesDraft): Partial<Record<keyof RulesDraft, string>> {
   const errors: Partial<Record<keyof RulesDraft, string>> = {};
-  const asNumber = (text: string) => (/^\d+$/.test(text) ? Number(text) : NaN);
-  const min = draft.minStayNights.trim();
-  const max = draft.maxStayNights.trim();
-  if (min !== '') {
-    const message = checkBookingLimit('minStayNights', asNumber(min));
-    if (message) errors.minStayNights = message;
-  }
-  if (max !== '') {
-    const message = checkBookingLimit('maxStayNights', asNumber(max));
-    if (message) errors.maxStayNights = message;
-  }
-  if (
-    !errors.minStayNights &&
-    !errors.maxStayNights &&
-    min !== '' &&
-    max !== '' &&
-    Number(min) > Number(max)
-  )
-    errors.minStayNights = 'The minimum stay cannot be longer than the maximum stay.';
-  const advance = draft.advanceBookingDays.trim();
-  if (advance !== '') {
-    const message = checkBookingLimit('advanceBookingDays', asNumber(advance));
-    if (message) errors.advanceBookingDays = message;
-  }
   const cancel = draft.freeCancellationDaysBeforeArrival.trim();
   if (cancel === '' || !wholeNumber(cancel))
     errors.freeCancellationDaysBeforeArrival = 'Use a whole number of days, 0 or more.';

@@ -16,6 +16,7 @@ import { Badge } from './badge';
 import { Label } from './label';
 import type { ReactNode } from 'react';
 import { LocationPin } from './location-pin';
+import { OptionCard } from './option-card';
 export type SettingValue = string | boolean | string[];
 export type SettingField = {
   key: string;
@@ -46,10 +47,12 @@ export type SettingField = {
     /** A month and a day of the year (a yearly season start or end). */
     | 'monthday'
     /** Seven weekday chips. */
-    | 'weekdays';
+    | 'weekdays'
+    /** The options as a column of option cards (a title and a line of help each); one can be chosen. */
+    | 'cards';
   hint?: string;
   placeholder?: string;
-  options?: readonly { value: string; label: string; group?: string }[];
+  options?: readonly { value: string; label: string; group?: string; description?: string }[];
   max?: number;
   defaultValue?: SettingValue;
   when?: { key: string; value: string };
@@ -455,6 +458,19 @@ export function SettingsFields({
                         ]}
                         onChange={(value) => onChange(f.key, value)}
                       />
+                    ) : f.kind === 'cards' ? (
+                      <div role="radiogroup" aria-label={f.label} className="grid gap-3">
+                        {(f.options ?? []).map((option) => (
+                          <OptionCard
+                            key={option.value}
+                            title={option.label}
+                            description={option.description}
+                            selected={String(v) === option.value}
+                            disabled={locked}
+                            onSelect={() => onChange(f.key, option.value)}
+                          />
+                        ))}
+                      </div>
                     ) : f.kind === 'choice' ? (
                       <Select
                         value={String(v) || '__none__'}
@@ -491,7 +507,8 @@ export function SettingsFields({
                       <Input
                         id={id}
                         className={
-                          f.kind === 'time' || f.kind === 'number' || f.kind === 'decimal'
+                          (f.kind === 'time' || f.kind === 'number' || f.kind === 'decimal') &&
+                          !f.span
                             ? 'sm:max-w-64'
                             : f.mono
                               ? 'font-mono text-xs'
