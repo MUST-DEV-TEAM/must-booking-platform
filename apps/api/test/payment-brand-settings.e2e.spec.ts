@@ -240,7 +240,7 @@ it('selects expiry candidates using each property hold rather than the old unive
     );
   expect((await query()).some((r) => r.bookingId === id)).toBe(false);
   await request(app.getHttpServer()).patch(url).send({ onlinePaymentHoldMinutes: 10 }).expect(200);
-  expect((await query()).some((r) => r.bookingId === id)).toBe(true);  // The shortest allowed hold is 5 minutes; the same booking is still due.
+  expect((await query()).some((r) => r.bookingId === id)).toBe(true); // The shortest allowed hold is 5 minutes; the same booking is still due.
   await request(app.getHttpServer()).patch(url).send({ onlinePaymentHoldMinutes: 5 }).expect(200);
   expect((await query()).some((r) => r.bookingId === id)).toBe(true);
 });
