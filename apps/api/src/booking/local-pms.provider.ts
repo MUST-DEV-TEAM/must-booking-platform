@@ -1237,7 +1237,14 @@ export class LocalPmsProvider implements PmsProvider {
   private async releaseUnpaidHold(
     tx: TenantTransaction,
     context: PmsProviderContext,
-    row: { id: string; status: BookingStatus; roomId?: string | null; roomTypeId: string; startsOn: string; endsOn: string },
+    row: {
+      id: string;
+      status: BookingStatus;
+      roomId?: string | null;
+      roomTypeId: string;
+      startsOn: string;
+      endsOn: string;
+    },
   ): Promise<void> {
     if (!row.roomId)
       await this.availability.releaseBookedUnits(tx, context.tenantId, context.propertyId, {

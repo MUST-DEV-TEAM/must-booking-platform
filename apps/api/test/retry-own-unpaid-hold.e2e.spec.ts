@@ -63,7 +63,10 @@ describe('retry after an abandoned online payment', () => {
       };
     },
     async refund() {
-      return { ok: false, error: { code: 'NOT_USED', message: 'Not used here.', retryable: false } };
+      return {
+        ok: false,
+        error: { code: 'NOT_USED', message: 'Not used here.', retryable: false },
+      };
     },
     async getPayment() {
       return null;
@@ -255,7 +258,12 @@ describe('retry after an abandoned online payment', () => {
       ratePlanId,
       startsOn: '2035-08-10',
       endsOn: '2035-08-12',
-      guest: { email: `bad-quote-${randomUUID()}@example.test`, firstName: 'Retry', lastName: 'Guest', phone: null },
+      guest: {
+        email: `bad-quote-${randomUUID()}@example.test`,
+        firstName: 'Retry',
+        lastName: 'Guest',
+        phone: null,
+      },
       total: quote.total,
       quoteToken: `${quote.quoteToken}x`,
       quoteSessionId: sessionId,
