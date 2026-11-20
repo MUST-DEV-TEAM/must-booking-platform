@@ -54,12 +54,23 @@ Clock support answered our written questions. These replace the guesses made ear
 | `adults`, `children` | Same names on create | Normalized integer occupancy; quote uses product-search adult/child count fields |
 | `guest_count` | n/a | Compatibility total = adults + children |
 | `special_requests` | `client_request` | Singular write field; not `active_notes` or plural `client_requests` |
+| the chosen rate's meals | `meals` (`[{ id }]`) | Sent on create so the booking's Meal boxes are ticked; see [Meals on a booking](#meals-on-a-booking-finding-and-fix-2026-11-20) |
 | `version` | n/a | MUST concurrency counter |
 | n/a | `lock_version` | Fresh vendor version used for updates/cancellation, not MUST's counter |
 | `total_amount`, `nightly_rates` | `total_booking_value`, `rate_calculation` | Hydration can overwrite local values from Clock; no immutable-price guarantee on this path |
 | `status` | `status` | Hydration: canceled -> CANCELLED; every other string -> CONFIRMED |
 
 No distinct check-in/out/no-show enum or complete unknown-status normalizer exists. [Hydration gaps](architecture.md#known-gaps-and-deviations) must be considered when changing reports or local inventory.
+
+### Meals on a booking (finding and fix, 2026-11-20)
+
+Empire Beach Resort reported a website booking (rate "early booking save 12%", which includes Breakfast) arriving in Clock with the Meal boxes unticked, so reception did not see the meal. Cause: the booking was created with `rate_id` only; Clock does not copy a rate's meals onto a booking created over the API.
+
+- A booking carries its own `meals` list (`[{ id, name }]`). The Meal boxes in the booking form are this field. It is writable on create: `POST /bookings/` with `meals: [{ "id": <meal id> }]` stores it (sandbox 2026-11-20, booking #3033). Ticking Breakfast by hand in the form changed only `meals` (sandbox booking #3031, diff of the full record before and after).
+- `first_meal_id` is a different setting (the first meal of the arrival day, used by Clock's restaurant meal report). Setting it did not fill the Meal field (sandbox booking #3032), so it is not used.
+- Meal ids differ per hotel (Breakfast is 9479 at Empire, 11510 in the sandbox), so they are read from the chosen rate's own `meals` in `/rates` and sent as they are. A room-only rate sends nothing.
+- Only creation sends meals. A stay amendment keeps the booking's existing meals. Bookings created before this change, such as the Empire one above, were ticked by hand in Clock.
+- Empire's own record showed the booking edited by hotel staff after creation, which is why an API read later showed Breakfast while the client's first screenshot did not (inference from the edit record).
 
 ## Guests
 

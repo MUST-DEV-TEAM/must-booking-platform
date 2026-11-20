@@ -40,6 +40,16 @@ import {
 import { ClockRateLimiterService } from './clock-rate-limiter';
 import { ClockAvailabilityService } from './clock-availability.service';
 
+/**
+ * The meals the chosen rate includes, in the shape Clock stores them on a booking. Without this
+ * the booking is created with no meal ticked and front desk has to tick it by hand (confirmed on
+ * the Clock sandbox 2026-11-20: `meals: [{ id }]` on create fills the booking's Meal field; the
+ * separate `first_meal_id` does not). Room-only rates send nothing.
+ */
+export function mealsOf(mealIds: number[] | undefined): { meals?: Array<{ id: number }> } {
+  return mealIds && mealIds.length > 0 ? { meals: mealIds.map((id) => ({ id })) } : {};
+}
+
 // Confirmed against Clock's own public Postman docs (2026-08-04) — see
 // docs/CLOCK_ENDPOINT_MATRIX.md. Live sandbox success responses were not
 // observed (the demo account has no rate/availability configured for any
@@ -411,7 +421,8 @@ export class ClockBookingService {
             status: 'expected',
             arrival_room_type_id: Number(externalRoomTypeId),
             arrival_room_id: externalRoomId ? Number(externalRoomId) : null,
-            rate_id: Number(rate.value),
+            rate_id: Number(rate.value.rateId),
+            ...mealsOf(rate.value.mealIds),
             reference_number: externalReference,
             adults: occupancy.adults,
             children: occupancy.children,
@@ -505,7 +516,11 @@ export class ClockBookingService {
             );
           }
 
-          await this.applyRateGuaranteePolicy(connection.value, Number(rate.value), response.value);
+          await this.applyRateGuaranteePolicy(
+            connection.value,
+            Number(rate.value.rateId),
+            response.value,
+          );
 
           if (!mappedClockGuest && !existingClockGuest.value) {
             const responseGuestId = clockGuestIdFromBooking(response.value);
@@ -733,7 +748,8 @@ export class ClockBookingService {
       status: 'expected',
       arrival_room_type_id: Number(externalRoomTypeId),
       arrival_room_id: externalRoomId ? Number(externalRoomId) : null,
-      rate_id: Number(rate.value),
+      rate_id: Number(rate.value.rateId),
+      ...mealsOf(rate.value.mealIds),
       reference_number: row.externalReference,
       adults: row.adults,
       children: row.children,
@@ -819,7 +835,11 @@ export class ClockBookingService {
       );
     }
 
-    await this.applyRateGuaranteePolicy(connection.value, Number(rate.value), response.value);
+    await this.applyRateGuaranteePolicy(
+      connection.value,
+      Number(rate.value.rateId),
+      response.value,
+    );
 
     if (!mappedClockGuest && !existingClockGuest.value && row.guestId) {
       const responseGuestId = clockGuestIdFromBooking(response.value);
@@ -2567,7 +2587,7 @@ export class ClockBookingService {
     childrenCount: number,
     childrenAges?: number[],
     chosenRateId?: string,
-  ): Promise<Result<string>> {
+  ): Promise<Result<{ rateId: string; mealIds: number[] }>> {
     const selection = await this.availability.selectRateForStay(credentials, {
       tenantId: context.tenantId,
       propertyId: context.propertyId,
@@ -2581,7 +2601,10 @@ export class ClockBookingService {
       chosenRateId,
     });
     if (!selection.ok) return selection;
-    return { ok: true, value: selection.value.rateId };
+    return {
+      ok: true,
+      value: { rateId: selection.value.rateId, mealIds: selection.value.mealIds ?? [] },
+    };
   }
 
   private async resolveGuest(
