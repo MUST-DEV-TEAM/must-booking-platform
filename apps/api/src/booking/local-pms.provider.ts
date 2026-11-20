@@ -521,6 +521,11 @@ export class LocalPmsProvider implements PmsProvider {
                     AND property_id = ${context.propertyId}::uuid
                 `;
               }
+              // A guest who leaves the payment page and tries again must not be refused by their own unpaid
+              // attempt. Released only now, after the quote is proven to belong to this session, so a failed
+              // retry never costs the guest the hold they already have.
+              if (!command.skipQuoteValidation)
+                await this.releaseOwnUnpaidHolds(tx, context, command);
               const autoAssignedRoomId = roomSelection.autoAssign
                 ? await this.reserveSamePricedRoom(tx, context, command)
                 : null;
@@ -532,9 +537,12 @@ export class LocalPmsProvider implements PmsProvider {
                   status,
                   BookingStatus.AVAILABILITY_FAILED,
                 );
-                return this.failure(
-                  'AUTO_ASSIGNMENT_UNAVAILABLE',
-                  'No available room matches the quoted price for the requested stay.',
+                return (
+                  (await this.heldForPaymentFailure(tx, context, command, bookingId)) ??
+                  this.failure(
+                    'AUTO_ASSIGNMENT_UNAVAILABLE',
+                    'No available room matches the quoted price for the requested stay.',
+                  )
                 );
               }
               if (autoAssignedRoomId)
@@ -571,11 +579,14 @@ export class LocalPmsProvider implements PmsProvider {
                   status,
                   BookingStatus.AVAILABILITY_FAILED,
                 );
-                return this.failure(
-                  'AVAILABILITY_FAILED',
-                  (autoAssignedRoomId ?? command.roomId)
-                    ? 'The selected room is no longer available for the requested stay.'
-                    : 'Inventory is no longer available for the requested stay.',
+                return (
+                  (await this.heldForPaymentFailure(tx, context, command, bookingId)) ??
+                  this.failure(
+                    'AVAILABILITY_FAILED',
+                    (autoAssignedRoomId ?? command.roomId)
+                      ? 'The selected room is no longer available for the requested stay.'
+                      : 'Inventory is no longer available for the requested stay.',
+                  )
                 );
               }
 
@@ -1209,14 +1220,7 @@ export class LocalPmsProvider implements PmsProvider {
       });
       return true;
     }
-    if (!row.roomId)
-      await this.availability.releaseBookedUnits(tx, context.tenantId, context.propertyId, {
-        roomTypeId: row.roomTypeId,
-        startsOn: row.startsOn,
-        endsOn: row.endsOn,
-        units: 1,
-      });
-    await this.transition(tx, context, bookingId, row.status, BookingStatus.EXPIRED);
+    await this.releaseUnpaidHold(tx, context, row);
     await this.audit.recordInTransaction(tx, {
       tenantId: context.tenantId,
       propertyId: context.propertyId,
@@ -1227,6 +1231,108 @@ export class LocalPmsProvider implements PmsProvider {
       details: { cutoffAt: cutoffAt.toISOString() },
     });
     return true;
+  }
+
+  /** Gives back what a single unpaid online booking held and marks it expired. */
+  private async releaseUnpaidHold(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    row: {
+      id: string;
+      status: BookingStatus;
+      roomId?: string | null;
+      roomTypeId: string;
+      startsOn: string;
+      endsOn: string;
+    },
+  ): Promise<void> {
+    if (!row.roomId)
+      await this.availability.releaseBookedUnits(tx, context.tenantId, context.propertyId, {
+        roomTypeId: row.roomTypeId,
+        startsOn: row.startsOn,
+        endsOn: row.endsOn,
+        units: 1,
+      });
+    await this.transition(tx, context, row.id, row.status, BookingStatus.EXPIRED);
+  }
+
+  /**
+   * A guest who leaves the payment page and starts again would otherwise be refused by their own unpaid
+   * hold until it ran out (30 minutes by default). Before a new website booking reserves anything, the
+   * same browser session's earlier unpaid single-room online booking for the same room type and overlapping dates
+   * is released. The session is the server-issued guest cookie that the signed quote is bound to; the email a guest
+   * types is deliberately not used, because anyone could type another person's address. Only a booking that is still
+   * waiting for payment and has no payment recorded is touched. If the guest still pays on the old page, the
+   * late-payment flow refunds it (ADR-0043), and an old Stripe page is closed by the expiry sweep.
+   */
+  private async releaseOwnUnpaidHolds(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    command: LocalCreateBookingCommand,
+  ): Promise<void> {
+    if (command.staffActorId || !command.quoteSessionId) return;
+    const held = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT b.id
+      FROM bookings b
+      WHERE b.tenant_id = ${context.tenantId}::uuid AND b.property_id = ${context.propertyId}::uuid
+        AND b.status = 'PAYMENT_PENDING'::"BookingStatus"
+        AND b.source = 'WEBSITE'
+        AND b.order_reference IS NULL
+        AND b.room_type_id = ${command.roomTypeId}::uuid
+        AND b.starts_on < ${command.endsOn}::date AND b.ends_on > ${command.startsOn}::date
+        AND b.guest_session_id = ${command.quoteSessionId}::uuid
+        AND NOT EXISTS (
+          SELECT 1 FROM payments p
+          WHERE p.tenant_id = b.tenant_id AND p.property_id = b.property_id AND p.booking_id = b.id)
+      ORDER BY b.id
+      FOR UPDATE OF b
+    `;
+    for (const { id } of held) {
+      const row = await this.bookingById(tx, context, id);
+      if (!row || row.status !== BookingStatus.PAYMENT_PENDING) continue;
+      await this.releaseUnpaidHold(tx, context, row);
+      await this.audit.recordInTransaction(tx, {
+        tenantId: context.tenantId,
+        propertyId: context.propertyId,
+        actorUserId: null,
+        action: 'booking.payment_superseded',
+        targetType: 'booking',
+        targetId: id,
+        details: { replacedByExternalReference: command.externalReference ?? null },
+      });
+    }
+  }
+
+  /**
+   * When a new booking is refused and the room is only held by someone else's unpaid booking, say that
+   * (and when it frees up) instead of the generic "no longer available". Returns null when nothing is
+   * held for payment, so the usual refusal stands.
+   */
+  private async heldForPaymentFailure(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    command: LocalCreateBookingCommand,
+    bookingId: string,
+  ): Promise<Result<never> | null> {
+    const held = await tx.$queryRaw<Array<{ minutes: number }>>`
+      SELECT GREATEST(1, CEIL(EXTRACT(EPOCH FROM (
+        MIN(b.created_at) + make_interval(mins => p.online_payment_hold_minutes) - now()
+      )) / 60))::int AS minutes
+      FROM bookings b
+      JOIN properties p ON p.tenant_id = b.tenant_id AND p.id = b.property_id
+      WHERE b.tenant_id = ${context.tenantId}::uuid AND b.property_id = ${context.propertyId}::uuid
+        AND b.id <> ${bookingId}::uuid
+        AND b.status = 'PAYMENT_PENDING'::"BookingStatus"
+        AND b.room_type_id = ${command.roomTypeId}::uuid
+        AND b.starts_on < ${command.endsOn}::date AND b.ends_on > ${command.startsOn}::date
+      GROUP BY p.online_payment_hold_minutes
+    `;
+    const minutes = held[0]?.minutes;
+    if (minutes === undefined || minutes === null) return null;
+    return this.failure(
+      'ROOM_HELD_FOR_PAYMENT',
+      `This room is being held for another guest who has not finished paying yet. If they do not, it becomes available again in about ${minutes} minute${minutes === 1 ? '' : 's'}. Please try again then, or choose other dates.`,
+    );
   }
 
   async cancelBooking(
