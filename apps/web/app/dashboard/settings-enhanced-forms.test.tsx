@@ -86,8 +86,8 @@ it('shows the three payment methods, validates hold bounds and saves the setting
       await act(async () => {
         (document.querySelector(`#${id}`) as HTMLButtonElement).click();
       });
-    await value('payment-hold', '9');
-    expect(document.body.textContent).toContain('between 10 and 1440');
+    await value('payment-hold', '4');
+    expect(document.body.textContent).toContain('between 5 and 1440');
     await value('payment-hold', '45');
     await click('Save changes');
     expect(save).toHaveBeenCalledWith(
