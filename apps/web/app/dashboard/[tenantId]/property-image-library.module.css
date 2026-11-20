@@ -244,3 +244,43 @@
   background: white;
   color: #245846;
 }
+
+.tabs {
+  padding: 0 1.25rem 0.75rem;
+}
+
+.dropzone {
+  display: flex;
+  min-height: 14rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 1.5rem;
+  border: 2px dashed #cddbd4;
+  border-radius: 0.75rem;
+  color: #66766f;
+  cursor: pointer;
+  font-size: 0.86rem;
+  text-align: center;
+}
+
+.dropzone strong {
+  color: #245846;
+  font-size: 1rem;
+}
+
+.dropzone:hover,
+.dropzoneActive {
+  border-color: #245846;
+  background: #f3f8f5;
+}
+
+.dropzone input {
+  display: none;
+}
+
+.dropzone:has(input:disabled) {
+  cursor: progress;
+  opacity: 0.7;
+}

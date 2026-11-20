@@ -829,8 +829,13 @@ export class PropertiesService {
     try {
       const url = new URL(logoUrl.trim());
       if (this.serverLogoKey(url) && !url.username && !url.password) return url.toString();
+      // Local development serves photos from http://localhost; production only ever accepts https.
+      const localDev =
+        process.env.NODE_ENV !== 'production' &&
+        url.protocol === 'http:' &&
+        ['localhost', '127.0.0.1'].includes(url.hostname);
       if (
-        url.protocol !== 'https:' ||
+        (url.protocol !== 'https:' && !localDev) ||
         url.username ||
         url.password ||
         !/\.(png|jpe?g|webp)$/i.test(url.pathname)

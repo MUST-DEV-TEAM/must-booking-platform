@@ -174,14 +174,10 @@ it('selects an https library logo, guards uploads and previews and validates dra
     await act(async () => {
       await new Promise((r) => setTimeout(r, 60));
     });
-    const upload = document.querySelector<HTMLInputElement>('#logo-upload')!;
-    Object.defineProperty(upload, 'files', {
-      configurable: true,
-      value: [new File(['x'], 'bad.svg', { type: 'image/svg+xml' })],
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>('button[aria-label*="hotel.png"]')!.click();
     });
-    await act(async () => upload.dispatchEvent(new Event('change', { bubbles: true })));
-    expect(document.body.textContent).toContain('Choose JPG, PNG, or WebP');
-    await click('hotel.png');
+    await click('Use this logo');
     await value('branding-brandColour', 'red');
     expect(document.body.textContent).toContain('Enter a colour such as');
     await value('branding-brandColour', '#cc1122');

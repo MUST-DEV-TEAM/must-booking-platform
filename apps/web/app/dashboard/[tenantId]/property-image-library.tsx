@@ -5,6 +5,7 @@ import { Check, ImagePlus, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { TabBar } from '../../../components/ui/tab-bar';
 import styles from './property-image-library.module.css';
 
 export type LibraryImage = {
@@ -112,6 +113,8 @@ export function PropertyImageLibraryDialog({
 }) {
   const queryClient = useQueryClient();
   const queryKey = libraryQueryKey(tenantId, propertyId);
+  const [tab, setTab] = useState<'library' | 'new'>('library');
+  const [dragging, setDragging] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -153,6 +156,7 @@ export function PropertyImageLibraryDialog({
       setProgress(null);
       void queryClient.invalidateQueries({ queryKey });
       if (uploadedIds.length) {
+        setTab('library');
         toast.success(
           `${uploadedIds.length} ${uploadedIds.length === 1 ? 'photo' : 'photos'} added to the library.`,
         );
@@ -191,7 +195,7 @@ export function PropertyImageLibraryDialog({
     },
   });
 
-  async function acceptFiles(fileList: FileList | null) {
+  async function acceptFiles(fileList: FileList | File[] | null) {
     const files = Array.from(fileList ?? []);
     if (!files.length) return;
     const problem = await checkImageFiles(files);
@@ -239,108 +243,137 @@ export function PropertyImageLibraryDialog({
           </button>
         </header>
 
-        <div className={styles.toolbar}>
-          <label className={styles.uploadButton}>
-            <ImagePlus aria-hidden="true" size={16} />
-            <span>
-              {progress
-                ? `Uploading ${progress.done} of ${progress.total}…`
-                : mode === 'single'
-                  ? 'Upload a new photo'
-                  : 'Upload photos'}
-            </span>
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              multiple={mode !== 'single'}
-              disabled={uploadMutation.isPending}
-              onChange={(event) => {
-                void acceptFiles(event.target.files);
-                event.target.value = '';
-              }}
-            />
-          </label>
-          <span className={styles.count}>
-            {images.length} {images.length === 1 ? 'photo' : 'photos'} in library
-          </span>
+        <div className={styles.tabs}>
+          <TabBar
+            label="Photo source"
+            current={tab}
+            onSelect={(id) => setTab(id as 'library' | 'new')}
+            tabs={[
+              { id: 'library', label: 'Library', count: images.length },
+              { id: 'new', label: 'New' },
+            ]}
+          />
         </div>
 
-        <div className={styles.body}>
-          {libraryQuery.isLoading ? <p className={styles.empty}>Loading the library…</p> : null}
-          {libraryQuery.isError ? (
-            <p className={styles.empty}>
-              {libraryQuery.error instanceof Error
-                ? libraryQuery.error.message
-                : 'Unable to load the library.'}
-            </p>
-          ) : null}
-          {!libraryQuery.isLoading && !libraryQuery.isError && images.length === 0 ? (
-            <p className={styles.empty}>The library is empty. Upload photos to get started.</p>
-          ) : null}
-          {images.length > 0 ? (
-            <div className={styles.grid}>
-              {images.map((image, index) => {
-                const alreadyAdded = attachedUrls?.has(image.url) === true;
-                const isSelected = selected.includes(image.id);
-                return (
-                  <article
-                    className={`${styles.tile} ${isSelected ? styles.tileSelected : ''} ${alreadyAdded ? styles.tileDisabled : ''}`}
-                    key={image.id}
-                  >
-                    <button
-                      className={styles.tileButton}
-                      type="button"
-                      disabled={mode === 'manage' || alreadyAdded}
-                      aria-pressed={mode === 'manage' ? undefined : isSelected}
-                      aria-label={`${alreadyAdded ? 'Already added: ' : ''}Library photo ${index + 1}${image.originalName ? `, ${image.originalName}` : ''}`}
-                      onClick={() => toggle(image)}
+        {tab === 'new' ? (
+          <div className={styles.body}>
+            <label
+              className={`${styles.dropzone} ${dragging ? styles.dropzoneActive : ''}`}
+              onDragOver={(event) => {
+                event.preventDefault();
+                setDragging(true);
+              }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={(event) => {
+                event.preventDefault();
+                setDragging(false);
+                const files = Array.from(event.dataTransfer.files);
+                void acceptFiles(mode === 'single' ? files.slice(0, 1) : files);
+              }}
+            >
+              <ImagePlus aria-hidden="true" size={32} />
+              <strong>
+                {progress
+                  ? `Uploading ${progress.done} of ${progress.total}…`
+                  : mode === 'single'
+                    ? 'Upload a new photo'
+                    : 'Upload photos'}
+              </strong>
+              <span>
+                {mode === 'single' ? 'Click to choose a file' : 'Click to choose one or more files'}
+                {' or drop '}
+                {mode === 'single' ? 'it' : 'them'} here. JPG, PNG or WebP, up to 10 MB each.
+              </span>
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                multiple={mode !== 'single'}
+                disabled={uploadMutation.isPending}
+                onChange={(event) => {
+                  void acceptFiles(event.target.files);
+                  event.target.value = '';
+                }}
+              />
+            </label>
+          </div>
+        ) : (
+          <div className={styles.body}>
+            {libraryQuery.isLoading ? <p className={styles.empty}>Loading the library…</p> : null}
+            {libraryQuery.isError ? (
+              <p className={styles.empty}>
+                {libraryQuery.error instanceof Error
+                  ? libraryQuery.error.message
+                  : 'Unable to load the library.'}
+              </p>
+            ) : null}
+            {!libraryQuery.isLoading && !libraryQuery.isError && images.length === 0 ? (
+              <p className={styles.empty}>The library is empty. Upload photos to get started.</p>
+            ) : null}
+            {images.length > 0 ? (
+              <div className={styles.grid}>
+                {images.map((image, index) => {
+                  const alreadyAdded = attachedUrls?.has(image.url) === true;
+                  const isSelected = selected.includes(image.id);
+                  return (
+                    <article
+                      className={`${styles.tile} ${isSelected ? styles.tileSelected : ''} ${alreadyAdded ? styles.tileDisabled : ''}`}
+                      key={image.id}
                     >
-                      <img src={image.url} alt="" loading="lazy" />
-                    </button>
-                    {isSelected ? (
-                      <span className={styles.check}>
-                        <Check size={14} />
-                      </span>
-                    ) : null}
-                    {alreadyAdded ? <span className={styles.badge}>Added</span> : null}
-                    {mode === 'manage' && image.usageCount > 0 ? (
-                      <span className={styles.badge}>
-                        Used by {image.usageCount} {image.usageCount === 1 ? 'room' : 'rooms'}
-                      </span>
-                    ) : null}
-                    {mode === 'manage' ? (
-                      confirmingDeleteId === image.id ? (
-                        <div className={styles.confirm}>
-                          <span>Delete this photo?</span>
+                      <button
+                        className={styles.tileButton}
+                        type="button"
+                        disabled={mode === 'manage' || alreadyAdded}
+                        aria-pressed={mode === 'manage' ? undefined : isSelected}
+                        aria-label={`${alreadyAdded ? 'Already added: ' : ''}Library photo ${index + 1}${image.originalName ? `, ${image.originalName}` : ''}`}
+                        onClick={() => toggle(image)}
+                      >
+                        <img src={image.url} alt="" loading="lazy" />
+                      </button>
+                      {isSelected ? (
+                        <span className={styles.check}>
+                          <Check size={14} />
+                        </span>
+                      ) : null}
+                      {alreadyAdded ? <span className={styles.badge}>Added</span> : null}
+                      {mode === 'manage' && image.usageCount > 0 ? (
+                        <span className={styles.badge}>
+                          Used by {image.usageCount} {image.usageCount === 1 ? 'room' : 'rooms'}
+                        </span>
+                      ) : null}
+                      {mode === 'manage' ? (
+                        confirmingDeleteId === image.id ? (
+                          <div className={styles.confirm}>
+                            <span>Delete this photo?</span>
+                            <button
+                              type="button"
+                              disabled={deleteMutation.isPending}
+                              onClick={() => deleteMutation.mutate(image.id)}
+                            >
+                              Delete
+                            </button>
+                            <button type="button" onClick={() => setConfirmingDeleteId(null)}>
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
                           <button
+                            className={styles.deleteButton}
                             type="button"
-                            disabled={deleteMutation.isPending}
-                            onClick={() => deleteMutation.mutate(image.id)}
+                            aria-label={`Delete library photo ${index + 1}`}
+                            title="Delete from library"
+                            onClick={() => setConfirmingDeleteId(image.id)}
                           >
-                            Delete
+                            <Trash2 size={15} />
                           </button>
-                          <button type="button" onClick={() => setConfirmingDeleteId(null)}>
-                            Cancel
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          className={styles.deleteButton}
-                          type="button"
-                          aria-label={`Delete library photo ${index + 1}`}
-                          title="Delete from library"
-                          onClick={() => setConfirmingDeleteId(image.id)}
-                        >
-                          <Trash2 size={15} />
-                        </button>
-                      )
-                    ) : null}
-                  </article>
-                );
-              })}
-            </div>
-          ) : null}
-        </div>
+                        )
+                      ) : null}
+                    </article>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+        )}
 
         {mode !== 'manage' ? (
           <footer className={styles.footer}>
