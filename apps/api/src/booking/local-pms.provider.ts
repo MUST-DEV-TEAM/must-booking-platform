@@ -402,9 +402,6 @@ export class LocalPmsProvider implements PmsProvider {
               const resolvedGuest = await this.resolveGuest(tx, context.tenantId, command.guest);
               if (!resolvedGuest.ok) return resolvedGuest;
               const guestId = resolvedGuest.value;
-              // A guest who leaves the payment page and tries again must not be refused by their own unpaid
-              // attempt. Release it before the rooms and the promo code are checked.
-              await this.releaseOwnUnpaidHolds(tx, context, command, guestId);
               const externalReference =
                 command.externalReference ?? (await this.generatedExternalReference(tx, context));
 
@@ -524,6 +521,11 @@ export class LocalPmsProvider implements PmsProvider {
                     AND property_id = ${context.propertyId}::uuid
                 `;
               }
+              // A guest who leaves the payment page and tries again must not be refused by their own unpaid
+              // attempt. Released only now, after the quote is proven to belong to this session, so a failed
+              // retry never costs the guest the hold they already have.
+              if (!command.skipQuoteValidation)
+                await this.releaseOwnUnpaidHolds(tx, context, command);
               const autoAssignedRoomId = roomSelection.autoAssign
                 ? await this.reserveSamePricedRoom(tx, context, command)
                 : null;
@@ -1250,8 +1252,9 @@ export class LocalPmsProvider implements PmsProvider {
   /**
    * A guest who leaves the payment page and starts again would otherwise be refused by their own unpaid
    * hold until it ran out (30 minutes by default). Before a new website booking reserves anything, the
-   * same guest's earlier unpaid single-room online booking for the same room type and overlapping dates is
-   * released: the same browser session, or the same guest (the email they typed). Only a booking that is still
+   * same browser session's earlier unpaid single-room online booking for the same room type and overlapping dates
+   * is released. The session is the server-issued guest cookie that the signed quote is bound to; the email a guest
+   * types is deliberately not used, because anyone could type another person's address. Only a booking that is still
    * waiting for payment and has no payment recorded is touched. If the guest still pays on the old page, the
    * late-payment flow refunds it (ADR-0043), and an old Stripe page is closed by the expiry sweep.
    */
@@ -1259,9 +1262,8 @@ export class LocalPmsProvider implements PmsProvider {
     tx: TenantTransaction,
     context: PmsProviderContext,
     command: LocalCreateBookingCommand,
-    guestId: string,
   ): Promise<void> {
-    if (command.staffActorId) return;
+    if (command.staffActorId || !command.quoteSessionId) return;
     const held = await tx.$queryRaw<Array<{ id: string }>>`
       SELECT b.id
       FROM bookings b
@@ -1271,9 +1273,7 @@ export class LocalPmsProvider implements PmsProvider {
         AND b.order_reference IS NULL
         AND b.room_type_id = ${command.roomTypeId}::uuid
         AND b.starts_on < ${command.endsOn}::date AND b.ends_on > ${command.startsOn}::date
-        AND (b.guest_id = ${guestId}::uuid
-          OR (${command.quoteSessionId ?? null}::uuid IS NOT NULL
-            AND b.guest_session_id = ${command.quoteSessionId ?? null}::uuid))
+        AND b.guest_session_id = ${command.quoteSessionId}::uuid
         AND NOT EXISTS (
           SELECT 1 FROM payments p
           WHERE p.tenant_id = b.tenant_id AND p.property_id = b.property_id AND p.booking_id = b.id)

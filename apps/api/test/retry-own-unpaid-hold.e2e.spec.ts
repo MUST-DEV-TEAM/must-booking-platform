@@ -212,8 +212,8 @@ describe('retry after an abandoned online payment', () => {
     expect(audit[0]!.count).toBe(1n);
   });
 
-  it('releases it when the same guest (same email) tries again from another session', async () => {
-    const email = `same-guest-${randomUUID()}@example.test`;
+  it('does not release a hold from another session just because the email matches', async () => {
+    const email = `same-email-${randomUUID()}@example.test`;
     const first = await bookOnline({
       sessionId: randomUUID(),
       email,
@@ -222,14 +222,47 @@ describe('retry after an abandoned online payment', () => {
     });
     if (!first.ok) throw new Error(`First attempt failed: ${first.error.code}`);
 
+    // Anyone can type someone else's email, so it must not let them cancel that person's hold.
     const second = await bookOnline({
       sessionId: randomUUID(),
       email,
       startsOn: '2035-04-10',
       endsOn: '2035-04-12',
     });
-    expect(second).toMatchObject({ ok: true, value: { status: 'PAYMENT_PENDING' } });
-    expect(await statusOf(first.value.id)).toBe('EXPIRED');
+    expect(second).toMatchObject({ ok: false, error: { code: 'ROOM_HELD_FOR_PAYMENT' } });
+    expect(await statusOf(first.value.id)).toBe('PAYMENT_PENDING');
+  });
+
+  it('keeps the old hold when the new attempt fails the quote check', async () => {
+    const sessionId = randomUUID();
+    const first = await bookOnline({
+      sessionId,
+      email: `bad-quote-${randomUUID()}@example.test`,
+      startsOn: '2035-08-10',
+      endsOn: '2035-08-12',
+    });
+    if (!first.ok) throw new Error(`First attempt failed: ${first.error.code}`);
+    const quote = await app.get(QuoteService).create(tenantId, propertyId, sessionId, {
+      roomTypeId,
+      ratePlanId,
+      startsOn: '2035-08-10',
+      endsOn: '2035-08-12',
+    });
+    const retry = await app.get(LocalPmsProvider).createBooking(context(), {
+      idempotencyKey: randomUUID(),
+      externalReference: `must-${randomUUID()}`,
+      roomTypeId,
+      ratePlanId,
+      startsOn: '2035-08-10',
+      endsOn: '2035-08-12',
+      guest: { email: `bad-quote-${randomUUID()}@example.test`, firstName: 'Retry', lastName: 'Guest', phone: null },
+      total: quote.total,
+      quoteToken: `${quote.quoteToken}x`,
+      quoteSessionId: sessionId,
+      paymentMethod: 'stripe',
+    });
+    expect(retry).toMatchObject({ ok: false, error: { code: 'QUOTE_INVALID' } });
+    expect(await statusOf(first.value.id)).toBe('PAYMENT_PENDING');
   });
 
   it('keeps another guest’s hold and says the room is held, and for how long', async () => {
