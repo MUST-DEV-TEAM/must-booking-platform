@@ -259,7 +259,7 @@ describe('DashboardSettings', () => {
     for (const section of [
       'Stay limits',
       'Cancellation',
-      'Inventory mode',
+      'How guests choose rooms',
       'House rules',
       'How online checkout works',
     ])

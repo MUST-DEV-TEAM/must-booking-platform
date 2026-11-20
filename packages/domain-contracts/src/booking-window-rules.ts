@@ -21,7 +21,8 @@ export type BookingLimitKey =
   | 'maxRoomsPerBooking'
   | 'minBookingAge'
   | 'childrenUpToAge'
-  | 'infantsUpToAge';
+  | 'infantsUpToAge'
+  | 'onRequestHours';
 
 /** Allowed whole-number ranges. A field left empty means "no limit". */
 export const BOOKING_LIMIT_RANGES: Record<
@@ -37,6 +38,7 @@ export const BOOKING_LIMIT_RANGES: Record<
   minBookingAge: { min: 16, max: 25, unit: 'years' },
   childrenUpToAge: { min: 1, max: 17, unit: 'years' },
   infantsUpToAge: { min: 0, max: 5, unit: 'years' },
+  onRequestHours: { min: 1, max: 48, unit: 'hours' },
 };
 
 export function checkBookingLimit(key: BookingLimitKey, value: unknown): string | null {

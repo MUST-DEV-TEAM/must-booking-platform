@@ -507,6 +507,136 @@ export const hotelSettingGroups: Record<
       ],
     },
     {
+      title: 'Confirmation',
+      description: 'How a new booking becomes confirmed.',
+      fields: [
+        {
+          key: 'confirmationMode',
+          label: 'Confirm bookings',
+          kind: 'choice',
+          span: 'half',
+          defaultValue: 'instant',
+          options: options([
+            ['instant', 'Instantly (default)'],
+            ['on_request', 'On request: staff accept or decline'],
+          ]),
+          hint: 'On request: if nobody answers in time, the booking is declined and the room is released. After acceptance the guest pays by payment link.',
+        },
+        {
+          key: 'onRequestHours',
+          label: 'Answer within (hours)',
+          kind: 'number',
+          span: 'half',
+          placeholder: '24',
+          hint: '1 to 48 hours. Empty means 24.',
+          when: { key: 'confirmationMode', value: 'on_request' },
+        },
+      ],
+    },
+    {
+      title: 'Booking form',
+      description:
+        'What guests are asked for. Email and the main guest name are always required. Marketing consent is never ticked in advance.',
+      fields: [
+        {
+          key: 'formPhone',
+          label: 'Phone number',
+          kind: 'choice',
+          span: 'third',
+          defaultValue: 'required',
+          options: options([
+            ['required', 'Required'],
+            ['optional', 'Optional'],
+            ['hidden', 'Hidden'],
+          ]),
+        },
+        {
+          key: 'formCountry',
+          label: 'Country',
+          kind: 'choice',
+          span: 'third',
+          defaultValue: 'optional',
+          options: options([
+            ['required', 'Required'],
+            ['optional', 'Optional'],
+            ['hidden', 'Hidden'],
+          ]),
+        },
+        {
+          key: 'formAddress',
+          label: 'Address',
+          kind: 'choice',
+          span: 'third',
+          defaultValue: 'hidden',
+          options: options([
+            ['required', 'Required'],
+            ['optional', 'Optional'],
+            ['hidden', 'Hidden'],
+          ]),
+        },
+        {
+          key: 'formArrivalTime',
+          label: 'Expected arrival time',
+          kind: 'choice',
+          span: 'third',
+          defaultValue: 'optional',
+          options: options([
+            ['required', 'Required'],
+            ['optional', 'Optional'],
+            ['hidden', 'Hidden'],
+          ]),
+        },
+        {
+          key: 'formSpecialRequests',
+          label: 'Special requests',
+          kind: 'choice',
+          span: 'third',
+          defaultValue: 'optional',
+          options: options([
+            ['required', 'Required'],
+            ['optional', 'Optional'],
+            ['hidden', 'Hidden'],
+          ]),
+        },
+        {
+          key: 'formGuestNamePerRoom',
+          label: 'Guest name for each room',
+          kind: 'choice',
+          span: 'third',
+          defaultValue: 'hidden',
+          options: options([
+            ['required', 'Required'],
+            ['optional', 'Optional'],
+            ['hidden', 'Hidden'],
+          ]),
+        },
+        {
+          key: 'formCompany',
+          label: 'Company name and tax number',
+          kind: 'choice',
+          span: 'third',
+          defaultValue: 'hidden',
+          options: options([
+            ['required', 'Required'],
+            ['optional', 'Optional'],
+            ['hidden', 'Hidden'],
+          ]),
+        },
+        {
+          key: 'formMarketing',
+          label: 'Marketing consent',
+          kind: 'choice',
+          span: 'third',
+          defaultValue: 'optional',
+          options: options([
+            ['required', 'Required'],
+            ['optional', 'Optional'],
+            ['hidden', 'Hidden'],
+          ]),
+        },
+      ],
+    },
+    {
       title: 'Advanced',
       description: 'For hotels that want to sell every night.',
       fields: [

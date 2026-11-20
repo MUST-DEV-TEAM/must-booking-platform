@@ -79,6 +79,16 @@ export type Property = {
   infantsUpToAge?: number | null;
   askChildrenAges?: boolean;
   fillGapNights?: boolean;
+  confirmationMode?: string;
+  onRequestHours?: number | null;
+  formPhone?: string;
+  formCountry?: string;
+  formAddress?: string;
+  formArrivalTime?: string;
+  formSpecialRequests?: string;
+  formGuestNamePerRoom?: string;
+  formCompany?: string;
+  formMarketing?: string;
   accentColour?: string | null;
   onlineProfiles?: Record<string, string>;
   allowSameDayBooking?: boolean;

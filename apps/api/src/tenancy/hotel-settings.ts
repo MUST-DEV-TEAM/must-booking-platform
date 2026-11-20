@@ -72,6 +72,16 @@ export type HotelSettings = {
   infantsUpToAge?: number | null;
   askChildrenAges?: boolean;
   fillGapNights?: boolean;
+  confirmationMode?: string;
+  onRequestHours?: number | null;
+  formPhone?: string;
+  formCountry?: string;
+  formAddress?: string;
+  formArrivalTime?: string;
+  formSpecialRequests?: string;
+  formGuestNamePerRoom?: string;
+  formCompany?: string;
+  formMarketing?: string;
   accentColour?: string | null;
   onlineProfiles?: Record<string, string>;
   whatsappSameAsPhone?: boolean;
@@ -130,6 +140,16 @@ export const hotelFields = [
   { key: 'infantsUpToAge', column: 'infants_up_to_age', kind: 'limit', max: 0 },
   { key: 'askChildrenAges', column: 'ask_children_ages', kind: 'boolean', max: 0 },
   { key: 'fillGapNights', column: 'fill_gap_nights', kind: 'boolean', max: 0 },
+  { key: 'confirmationMode', column: 'confirmation_mode', kind: 'confirmation', max: 10 },
+  { key: 'onRequestHours', column: 'on_request_hours', kind: 'limit', max: 0 },
+  { key: 'formPhone', column: 'form_phone', kind: 'formfield', max: 8 },
+  { key: 'formCountry', column: 'form_country', kind: 'formfield', max: 8 },
+  { key: 'formAddress', column: 'form_address', kind: 'formfield', max: 8 },
+  { key: 'formArrivalTime', column: 'form_arrival_time', kind: 'formfield', max: 8 },
+  { key: 'formSpecialRequests', column: 'form_special_requests', kind: 'formfield', max: 8 },
+  { key: 'formGuestNamePerRoom', column: 'form_guest_name_per_room', kind: 'formfield', max: 8 },
+  { key: 'formCompany', column: 'form_company', kind: 'formfield', max: 8 },
+  { key: 'formMarketing', column: 'form_marketing', kind: 'formfield', max: 8 },
   { key: 'onlineProfiles', column: 'online_profiles', kind: 'profiles', max: 0 },
   { key: 'description', column: 'description', kind: 'profile', max: 1000 },
   { key: 'starRating', column: 'star_rating', kind: 'stars', max: 0 },
@@ -287,22 +307,31 @@ export function hotelInput(raw: Record<string, unknown>): HotelSettings {
       const choices =
         f.kind === 'no_show'
           ? ['charge_first_night', 'charge_nothing', 'flag_for_review']
-          : f.kind === 'arrival'
-            ? ['not_offered', 'on_request', 'free_until']
-            : f.kind === 'policy'
-              ? ['allowed', 'on_request', 'not_allowed']
-              : f.kind === 'format'
-                ? ((f.key === 'timeFormat'
-                    ? TIME_FORMATS
-                    : f.key === 'weekStart'
-                      ? WEEK_STARTS
-                      : NUMBER_FORMATS) as readonly string[])
-                : null;
+          : f.kind === 'confirmation'
+            ? ['instant', 'on_request']
+            : f.kind === 'formfield'
+              ? ['required', 'optional', 'hidden']
+              : f.kind === 'arrival'
+                ? ['not_offered', 'on_request', 'free_until']
+                : f.kind === 'policy'
+                  ? ['allowed', 'on_request', 'not_allowed']
+                  : f.kind === 'format'
+                    ? ((f.key === 'timeFormat'
+                        ? TIME_FORMATS
+                        : f.key === 'weekStart'
+                          ? WEEK_STARTS
+                          : NUMBER_FORMATS) as readonly string[])
+                    : null;
       if (choices && v && !choices.includes(v as string)) bad('Choose a policy from the list.');
     }
     if (
       v === null &&
-      (f.kind === 'no_show' || f.kind === 'arrival' || f.kind === 'boolean' || f.kind === 'format')
+      (f.kind === 'confirmation' ||
+        f.kind === 'formfield' ||
+        f.kind === 'no_show' ||
+        f.kind === 'arrival' ||
+        f.kind === 'boolean' ||
+        f.kind === 'format')
     )
       bad('Choose a policy from the list.');
     if (f.key === 'dateFormat' && !['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD'].includes(String(v)))

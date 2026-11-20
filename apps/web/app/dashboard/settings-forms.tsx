@@ -7,17 +7,11 @@ import { useUnsavedChanges } from '../../components/ui/unsaved-changes';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import { FormField } from '../../components/ui/form-field';
 import { FormSection } from '../../components/ui/form-section';
+import { OptionCard } from '../../components/ui/option-card';
 import { Input, Textarea } from '../../components/ui/input';
 import { HotelCurrencyNote } from './hotel-currency-note';
 import { AlsoShowPrices, ExchangeRateTable } from './display-currencies-settings';
 import { SaveBar } from '../../components/ui/save-bar';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../../components/ui/select';
 import { validateRules, validTime, type BookingMode, type Property } from './settings-areas';
 
 type Save = (update: Partial<Property>) => void;
@@ -85,15 +79,19 @@ export function GeneralSettings({
 const MODES: ReadonlyArray<{ value: BookingMode; label: string; hint: string }> = [
   {
     value: 'ROOM_TYPE_ONLY',
-    label: 'Room types',
+    label: 'By room type',
     hint: 'Guests book a room type; staff assign the room.',
   },
   {
     value: 'INDIVIDUAL_ROOM_ONLY',
-    label: 'Individual rooms',
-    hint: 'Guests book a specific room.',
+    label: 'A specific room',
+    hint: 'Guests pick the exact room they want.',
   },
-  { value: 'MIXED', label: 'Both', hint: 'Guests can book either way.' },
+  {
+    value: 'MIXED',
+    label: 'Both',
+    hint: 'Guests can book either way: by room type or a specific room.',
+  },
 ];
 
 /** Stay limits, free cancellation, inventory mode and house rules. */
@@ -193,33 +191,22 @@ export function BookingRulesSettings({ property, saving, onSave, canWrite = fals
           />
         </FormField>
       </FormSection>
-      <FormSection title="Inventory mode" description="How guests choose what to book.">
-        <FormField
-          label="Inventory mode"
-          htmlFor="rules-mode"
-          hint={MODES.find((m) => m.value === draft.bookingMode)?.hint}
-        >
-          <Select
-            disabled={!canWrite}
-            value={draft.bookingMode}
-            onValueChange={(value) => set({ bookingMode: value as BookingMode })}
-          >
-            <SelectTrigger
-              id="rules-mode"
-              aria-label="Inventory mode"
-              className="w-full sm:max-w-72"
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {MODES.map((mode) => (
-                <SelectItem key={mode.value} value={mode.value}>
-                  {mode.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </FormField>
+      <FormSection
+        title="How guests choose rooms"
+        description="Changing this asks for confirmation. Existing bookings are not changed."
+      >
+        <div role="radiogroup" aria-label="How guests choose rooms" className="grid gap-3">
+          {MODES.map((mode) => (
+            <OptionCard
+              key={mode.value}
+              title={mode.label}
+              description={mode.hint}
+              selected={draft.bookingMode === mode.value}
+              disabled={!canWrite}
+              onSelect={() => set({ bookingMode: mode.value })}
+            />
+          ))}
+        </div>
       </FormSection>
       <FormSection
         title="House rules"
