@@ -51,13 +51,15 @@ const KINDS = {
     hint: 'At least 512 × 512 pixels. Shown cropped to a square; used in the hotel switcher and for sharing.',
     box: 'size-24 rounded-2xl',
     fit: 'object-cover',
+    wordless: true,
   },
   favicon: {
     label: 'Favicon',
     noun: 'favicon',
     hint: 'The small image in the browser tab. Made from the square icon unless you choose another.',
-    box: 'size-16 rounded-lg',
+    box: 'size-24 rounded-2xl',
     fit: 'object-cover',
+    wordless: true,
   },
   cover: {
     label: 'Cover photo',
@@ -145,7 +147,15 @@ export function HotelLogoPicker({
             />
           ) : (
             <span className="flex items-center gap-2 px-2 text-center text-xs text-muted-foreground">
-              <ImageIcon aria-hidden="true" className="size-4 shrink-0" /> No {copy.noun} yet
+              <ImageIcon
+                aria-hidden="true"
+                className={cn('shrink-0', 'wordless' in copy ? 'size-6' : 'size-4')}
+              />
+              {'wordless' in copy ? (
+                <span className="sr-only">No {copy.noun} yet</span>
+              ) : (
+                <>No {copy.noun} yet</>
+              )}
             </span>
           )}
         </div>
