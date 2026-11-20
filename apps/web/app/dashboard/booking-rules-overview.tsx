@@ -8,6 +8,7 @@ import { CalendarPicker, type CalendarSelection } from '../../components/ui/cale
 import { FormField } from '../../components/ui/form-field';
 import { FormSection } from '../../components/ui/form-section';
 import { NumberStepper } from '../../components/ui/number-stepper';
+import { SegmentedControl } from '../../components/ui/segmented-control';
 import {
   Select,
   SelectContent,
@@ -38,6 +39,7 @@ export function BookingRulesOverview({
   const [adults, setAdults] = useState(2);
   const [children, setChildren] = useState(0);
   const [roomTypeId, setRoomTypeId] = useState(ANY_ROOM);
+  const [viewer, setViewer] = useState<'guest' | 'staff'>('guest');
   const startsOn = dates.start ?? '';
   const endsOn = dates.end ?? '';
   const ready = Boolean(startsOn && endsOn && endsOn > startsOn);
@@ -61,7 +63,7 @@ export function BookingRulesOverview({
     tenantId,
     property.id,
     {
-      channel: 'guest',
+      channel: viewer,
       startsOn,
       endsOn,
       adults,
@@ -86,9 +88,20 @@ export function BookingRulesOverview({
         </FormSection>
         <FormSection
           title="Try a booking"
-          description="Pick the stay and the guests to see whether the saved rules allow it. Choose a room type to check availability and room size too."
+          description="Pick the stay and the guests to see whether the saved rules allow it. Choose a room type to check availability and room size too. Reception can override the hotel's own limits with a reason."
         >
           <div className="grid gap-4 sm:grid-cols-2">
+            <FormField className="sm:col-span-2" label="Check as">
+              <SegmentedControl
+                label="Check as"
+                value={viewer}
+                onChange={setViewer}
+                options={[
+                  { value: 'guest', label: 'A guest' },
+                  { value: 'staff', label: 'Reception' },
+                ]}
+              />
+            </FormField>
             <FormField
               className="sm:col-span-2"
               label="Stay dates"
@@ -155,7 +168,12 @@ export function BookingRulesOverview({
                 </p>
                 <ul className="m-0 list-disc pl-5">
                   {(result?.errors ?? []).map((error) => (
-                    <li key={error.code}>{error.message}</li>
+                    <li key={error.code}>
+                      {error.message}
+                      {error.overridable ? (
+                        <span className="text-muted-foreground"> (reception can override)</span>
+                      ) : null}
+                    </li>
                   ))}
                 </ul>
               </div>
