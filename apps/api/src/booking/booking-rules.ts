@@ -7,7 +7,31 @@ export type {
   RestrictionLifecycle,
 } from './inventory-restriction-rules';
 export type BookingRuleChannel = 'guest' | 'staff' | 'block';
-export type BookingRuleViolation = { code: string; message: string };
+export type BookingRuleViolation = {
+  code: string;
+  message: string;
+  /** `date`: the limit comes from a per-date restriction (Rates & Pricing), which is never overridden. */
+  source?: 'date';
+};
+/**
+ * The hotel's own website-style limits. Reception may override these with a reason; they are never
+ * overridden for guests. Safety rules (past dates, availability, room capacity, overlaps, unpublished
+ * rooms) and per-date restrictions are not on this list and can never be overridden.
+ */
+export const OVERRIDABLE_RULE_CODES: ReadonlySet<string> = new Set([
+  'MIN_STAY',
+  'MAX_STAY',
+  'ADVANCE_BOOKING_LIMIT',
+  'MIN_NOTICE',
+  'OUTSIDE_SEASON',
+  'ARRIVAL_DAY_NOT_ALLOWED',
+  'DEPARTURE_DAY_NOT_ALLOWED',
+  'SAME_DAY_CLOSED',
+  'MAX_GUESTS_PER_BOOKING',
+  'MAX_ROOMS_PER_BOOKING',
+]);
+export const isOverridableRule = (error: { code: string; source?: string }) =>
+  OVERRIDABLE_RULE_CODES.has(error.code) && error.source !== 'date';
 export const CHECK_IN_PAST_MESSAGE = 'Check-in cannot be in the past.';
 export type BookingRulePolicy = {
   timezone?: string | null;
@@ -79,9 +103,13 @@ export function evaluateBookingRules(input: {
   availableUnits?: number;
   conflicts?: RuleConflict[];
   restrictions?: BookingRestriction[];
+  /** Staff only: the limits on OVERRIDABLE_RULE_CODES are skipped and reported in `overridden`. */
+  overrideRules?: boolean;
 }): {
   valid: boolean;
   errors: BookingRuleViolation[];
+  /** The overridable rules that were skipped because staff overrode them. */
+  overridden?: BookingRuleViolation[];
   effectiveMinStayNights?: number | null;
   effectiveMaxStayNights?: number | null;
 } {
@@ -114,11 +142,13 @@ export function evaluateBookingRules(input: {
       errors.push({
         code: 'MIN_STAY',
         message: `A minimum stay of ${policy.minStayNights} nights is required.`,
+        ...(restrictions.minimumStay != null ? { source: 'date' as const } : {}),
       });
     if (policy.maxStayNights != null && nights > policy.maxStayNights)
       errors.push({
         code: 'MAX_STAY',
         message: `A maximum stay of ${policy.maxStayNights} nights is allowed.`,
+        ...(restrictions.maximumStay != null ? { source: 'date' as const } : {}),
       });
     if (
       policy.advanceBookingDays != null &&
@@ -181,9 +211,16 @@ export function evaluateBookingRules(input: {
         message: 'The selected range overlaps an availability block.',
       });
   }
+  const overridden =
+    input.overrideRules === true && input.channel === 'staff'
+      ? errors.filter(isOverridableRule)
+      : [];
+  if (overridden.length)
+    errors.splice(0, errors.length, ...errors.filter((e) => !overridden.includes(e)));
   return {
     valid: errors.length === 0,
     errors,
+    ...(overridden.length ? { overridden } : {}),
     ...(input.restrictions?.length && input.channel !== 'block'
       ? {
           effectiveMinStayNights: policy.minStayNights ?? null,

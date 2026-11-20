@@ -206,7 +206,7 @@ export class QuoteService {
     tenantId: string,
     propertyId: string,
     input: QuoteInput,
-    options: { skipRules?: boolean } = {},
+    options: { skipRules?: boolean; overrideRules?: boolean } = {},
   ): Promise<Money> {
     const normalizedInput = this.normalizeOccupancy(input);
     if (normalizedInput.promoCode)
@@ -214,7 +214,8 @@ export class QuoteService {
         await this.priceWithNightlyRates(tenantId, propertyId, normalizedInput, 'staff', options)
       ).total;
     this.validStayInput(normalizedInput);
-    if (!options.skipRules) await this.enforceBookingRules(tenantId, propertyId, normalizedInput);
+    if (!options.skipRules)
+      await this.enforceBookingRules(tenantId, propertyId, normalizedInput, options.overrideRules);
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
     if (connection?.provider === 'CLOCK_PMS') {
       const quote = await this.clockAvailability.getQuote(tenantId, propertyId, {
@@ -240,7 +241,7 @@ export class QuoteService {
     propertyId: string,
     input: QuoteInput,
     pricingChannel: 'website' | 'staff' = 'staff',
-    options: { skipRules?: boolean } = {},
+    options: { skipRules?: boolean; overrideRules?: boolean } = {},
   ): Promise<PricedQuote> {
     const base = await this.priceBase(tenantId, propertyId, input, pricingChannel, options);
     const code = normalizePromoCode(input.promoCode);
@@ -293,11 +294,12 @@ export class QuoteService {
     propertyId: string,
     input: QuoteInput,
     pricingChannel: 'website' | 'staff' = 'staff',
-    options: { skipRules?: boolean } = {},
+    options: { skipRules?: boolean; overrideRules?: boolean } = {},
   ): Promise<PricedQuote> {
     const normalizedInput = this.normalizeOccupancy(input);
     this.validStayInput(normalizedInput);
-    if (!options.skipRules) await this.enforceBookingRules(tenantId, propertyId, normalizedInput);
+    if (!options.skipRules)
+      await this.enforceBookingRules(tenantId, propertyId, normalizedInput, options.overrideRules);
 
     // Clock-connected properties are always quoted live against Clock's own
     // /products endpoint (owner's call — no local rate_plan mirror). Rate is
@@ -568,6 +570,8 @@ export class QuoteService {
     tenantId: string,
     propertyId: string,
     input: QuoteInput,
+    /** Staff only: skip the hotel's own booking limits (the safety rules always apply). */
+    overrideRules = false,
   ): Promise<void> {
     await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       const catalog = await tx.$queryRaw<
@@ -605,13 +609,17 @@ export class QuoteService {
       if (!properties[0]) throw new NotFoundException('Property was not found.');
       const restrictions = await applicableRestrictions(tx, tenantId, propertyId, input.roomTypeId);
       const clockManaged = await isClockManagedProperty(tx, tenantId, propertyId);
-      this.validateBookingRules(input, {
-        restrictions,
-        ...properties[0],
-        maxOccupancy: enforcedRoomCapacity(clockManaged, catalog[0]),
-        roomTypeStatus: catalog[0].status,
-        roomActive: room?.isActive,
-      });
+      this.validateBookingRules(
+        input,
+        {
+          restrictions,
+          ...properties[0],
+          maxOccupancy: enforcedRoomCapacity(clockManaged, catalog[0]),
+          roomTypeStatus: catalog[0].status,
+          roomActive: room?.isActive,
+        },
+        overrideRules,
+      );
     });
   }
 
@@ -829,10 +837,12 @@ export class QuoteService {
       roomActive?: boolean;
       restrictions?: BookingRestriction[];
     },
+    overrideRules = false,
   ): void {
     const occupancy = resolveBookingOccupancy(input);
     const result = evaluateBookingRules({
       channel: 'staff',
+      overrideRules,
       startsOn: input.startsOn,
       endsOn: input.endsOn,
       policy: rules,

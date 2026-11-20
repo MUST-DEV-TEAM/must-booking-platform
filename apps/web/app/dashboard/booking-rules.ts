@@ -8,7 +8,13 @@ export type BookingRulesEvaluation = {
   maxStayNights: number | null;
   disabledDates: string[];
   pastDateMessage?: string;
-  booking: { valid: boolean; errors: Array<{ code: string; message: string }> };
+  booking: {
+    valid: boolean;
+    /** `overridable`: reception may override this problem with a reason (never for guests). */
+    errors: Array<{ code: string; message: string; overridable?: boolean }>;
+    /** The hotel limits that were skipped because the request asked to override them. */
+    overridden?: Array<{ code: string; message: string }>;
+  };
   block: { valid: boolean; errors: Array<{ code: string; message: string }> };
 };
 

@@ -56,6 +56,8 @@ export type LocalCreateBookingCommand = CreateBookingCommand & {
   quoteToken?: string;
   quoteSessionId?: string;
   staffActorId?: string;
+  /** Staff only: why the hotel's own booking limits were overridden for this booking. */
+  ruleOverrideReason?: string;
   skipQuoteValidation?: boolean;
   /** Clock hotels: the published Clock rate chosen for the stay; it is part of the signed quote. */
   clockRateId?: string;
@@ -378,14 +380,20 @@ export class LocalPmsProvider implements PmsProvider {
                   'RATE_PLAN_REQUIRED',
                   'A rate plan is required for this room type.',
                 );
-              if (!command.allowPastStay)
-                await enforcePropertyBookingLimits(tx, context, {
-                  startsOn: command.startsOn,
-                  endsOn: command.endsOn,
-                  adults: occupancy.adults,
-                  children: occupancy.children,
-                  roomCount: 1,
-                });
+              const limits = command.allowPastStay
+                ? { overridden: [] }
+                : await enforcePropertyBookingLimits(
+                    tx,
+                    context,
+                    {
+                      startsOn: command.startsOn,
+                      endsOn: command.endsOn,
+                      adults: occupancy.adults,
+                      children: occupancy.children,
+                      roomCount: 1,
+                    },
+                    command.staffActorId ? command.ruleOverrideReason : undefined,
+                  );
               const catalog = await this.validateCatalog(
                 tx,
                 context,
@@ -459,6 +467,21 @@ export class LocalPmsProvider implements PmsProvider {
                 targetId: bookingId,
                 details: { guestId },
               });
+              if (limits.overridden.length)
+                await this.audit.recordInTransaction(tx, {
+                  tenantId: context.tenantId,
+                  propertyId: context.propertyId,
+                  actorUserId: command.staffActorId ?? null,
+                  action: 'booking.rules_overridden',
+                  source: 'MUST_STAFF',
+                  operationId: command.idempotencyKey,
+                  targetType: 'booking',
+                  targetId: bookingId,
+                  details: {
+                    reason: command.ruleOverrideReason,
+                    rules: limits.overridden.map((rule) => rule.code),
+                  },
+                });
               let status = BookingStatus.DRAFT;
               status = await this.transition(tx, context, bookingId, status, BookingStatus.QUOTED);
               status = await this.transition(
@@ -1882,20 +1905,26 @@ export class LocalPmsProvider implements PmsProvider {
       ORDER BY created_at
     `;
     for (const room of rooms) {
-      const price = await this.quotes.price(context.tenantId, context.propertyId, {
-        roomTypeId: command.roomTypeId,
-        roomId: room.id,
-        ratePlanId: command.ratePlanId,
-        // The room must cost the same under the rate the guest chose, not the default rate.
-        clockRateId: command.clockRateId,
-        promoCode: command.promoCode,
-        startsOn: command.startsOn,
-        endsOn: command.endsOn,
-        adults: occupancy.adults,
-        children: occupancy.children,
-        childrenAges: command.childrenAges,
-        guestCount: occupancy.guestCount,
-      });
+      const price = await this.quotes.price(
+        context.tenantId,
+        context.propertyId,
+        {
+          roomTypeId: command.roomTypeId,
+          roomId: room.id,
+          ratePlanId: command.ratePlanId,
+          // The room must cost the same under the rate the guest chose, not the default rate.
+          clockRateId: command.clockRateId,
+          promoCode: command.promoCode,
+          startsOn: command.startsOn,
+          endsOn: command.endsOn,
+          adults: occupancy.adults,
+          children: occupancy.children,
+          childrenAges: command.childrenAges,
+          guestCount: occupancy.guestCount,
+        },
+        // The same override the staff member used for the booking: the room is re-priced under the same limits.
+        { overrideRules: Boolean(command.staffActorId && command.ruleOverrideReason) },
+      );
       if (price.amount !== command.total.amount || price.currency !== command.total.currency)
         continue;
       const reserved = await this.availability.reserveRoom(

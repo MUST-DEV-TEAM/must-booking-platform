@@ -5,6 +5,7 @@ import {
   CHECK_IN_PAST_MESSAGE,
   effectiveMinimumStay,
   evaluateBookingRules,
+  isOverridableRule,
   propertyClock,
   rangeViolation,
   type BookingRulePolicy,
@@ -146,6 +147,9 @@ export async function evaluatePropertyBookingRules(
     roomTypeStatus: context.roomType?.status,
     roomActive: context.roomActive,
     restrictions: context.restrictions,
+    // Staff only: the hotel's own limits are skipped (the page asks for a reason before it books).
+    overrideRules:
+      channel === 'staff' && (value.overrideRules === true || value.overrideRules === 'true'),
   };
   const bookingConflicts = [...context.blocks, ...(roomId ? context.reservations : [])];
   let booking = hasRange
@@ -201,7 +205,14 @@ export async function evaluatePropertyBookingRules(
     minStayNights: booking.effectiveMinStayNights ?? context.policy.minStayNights ?? null,
     maxStayNights: booking.effectiveMaxStayNights ?? context.policy.maxStayNights ?? null,
     disabledDates,
-    booking,
+    /** `overridable`: reception may override this problem with a reason; guests never can. */
+    booking: {
+      ...booking,
+      errors: booking.errors.map((error) => ({
+        ...error,
+        overridable: channel === 'staff' && isOverridableRule(error),
+      })),
+    },
     block,
   };
 }
