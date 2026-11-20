@@ -186,6 +186,26 @@ it('groups arrival and policies, validates paired hours and saves notes without 
     await m.close();
   }
 });
+it('locks what a connected PMS owns and hides gap filling', async () => {
+  const m = await mount(
+    <BookingRulesSettings
+      property={{ ...property, pmsSource: 'CLOCK_PMS' }}
+      saving={false}
+      canWrite
+      onSave={vi.fn()}
+    />,
+  );
+  try {
+    expect(m.host.textContent).toContain('Not used with a connected PMS yet');
+    expect(m.host.textContent).not.toContain('Fill gap nights');
+    expect((m.host.querySelector('#hotel-childrenUpToAge') as HTMLInputElement).disabled).toBe(
+      true,
+    );
+    expect((m.host.querySelector('#hotel-minBookingAge') as HTMLInputElement).disabled).toBe(false);
+  } finally {
+    await m.close();
+  }
+});
 it.each([GeneralSettings, BookingRulesSettings, CheckInOutSettings])(
   'renders values but no save controls for a read-only viewer',
   async (Component) => {

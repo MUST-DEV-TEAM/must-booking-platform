@@ -517,6 +517,7 @@ export const hotelSettingGroups: Record<
         },
         {
           key: 'childrenUpToAge',
+          connectedLock: 'locked',
           label: 'Children up to age',
           kind: 'number',
           span: 'third',
@@ -525,6 +526,7 @@ export const hotelSettingGroups: Record<
         },
         {
           key: 'infantsUpToAge',
+          connectedLock: 'locked',
           label: 'Infants up to age',
           kind: 'number',
           span: 'third',
@@ -533,6 +535,7 @@ export const hotelSettingGroups: Record<
         },
         {
           key: 'askChildrenAges',
+          connectedLock: 'locked',
           label: "Ask for the children's ages",
           kind: 'boolean',
           defaultValue: false,
@@ -546,6 +549,7 @@ export const hotelSettingGroups: Record<
       fields: [
         {
           key: 'confirmationMode',
+          connectedLock: 'locked',
           label: 'Confirm bookings',
           kind: 'cards',
           defaultValue: 'instant',
@@ -565,6 +569,7 @@ export const hotelSettingGroups: Record<
         },
         {
           key: 'onRequestHours',
+          connectedLock: 'locked',
           label: 'Answer within (hours)',
           kind: 'number',
           span: 'half',
@@ -683,6 +688,7 @@ export const hotelSettingGroups: Record<
       fields: [
         {
           key: 'fillGapNights',
+          connectedLock: 'hidden',
           label: 'Fill gap nights',
           kind: 'boolean',
           defaultValue: false,
@@ -793,23 +799,31 @@ export function useHotelSettings(
 ) {
   const savedLanguages = Array.isArray(property.languages) ? property.languages : [];
   const connected = property.pmsSource === 'CLOCK_PMS';
-  const groups = hotelSettingGroups[area].map((group) => ({
-    ...group,
-    badge: area === 'booking-rules' ? ruleOwnerLabel(group.title, connected) : undefined,
-    fields: group.fields.map((f) =>
-      f.kind === 'multi' && f.key === 'languages'
-        ? {
-            ...f,
-            options: [
-              ...(f.options ?? []),
-              ...savedLanguages
-                .filter((code) => !f.options?.some((o) => o.value === code))
-                .map((code) => ({ value: code, label: languageLabel(code), group: 'Saved' })),
-            ],
-          }
-        : f,
-    ),
-  }));
+  const groups = hotelSettingGroups[area]
+    .map((group) => ({
+      ...group,
+      fields: group.fields.filter((f) => !(connected && f.connectedLock === 'hidden')),
+    }))
+    .filter((group) => group.fields.length > 0)
+    .map((group) => ({
+      ...group,
+      badge: area === 'booking-rules' ? ruleOwnerLabel(group.title, connected) : undefined,
+      fields: group.fields
+        .map((f) => (connected && f.connectedLock === 'locked' ? { ...f, readOnly: true } : f))
+        .map((f) =>
+          f.kind === 'multi' && f.key === 'languages'
+            ? {
+                ...f,
+                options: [
+                  ...(f.options ?? []),
+                  ...savedLanguages
+                    .filter((code) => !f.options?.some((o) => o.value === code))
+                    .map((code) => ({ value: code, label: languageLabel(code), group: 'Saved' })),
+                ],
+              }
+            : f,
+        ),
+    }));
   const fields = groups.flatMap((g) => g.fields),
     saveable = fields.filter(
       (f) => f.kind !== 'static' && f.kind !== 'location' && f.kind !== 'custom',

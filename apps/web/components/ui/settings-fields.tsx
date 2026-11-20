@@ -76,6 +76,10 @@ export type SettingField = {
   boxed?: boolean;
   /** For a yes/no field: draw it as a tickbox with its label beside it. */
   checkbox?: boolean;
+  /** With a connected PMS: `locked` shows the value but cannot be changed, `hidden` leaves the field out. */
+  connectedLock?: 'locked' | 'hidden';
+  /** Shown but not editable (set by the page, for example when a connected PMS owns the value). */
+  readOnly?: boolean;
   /** Type the value in a fixed-width font (codes and numbers). */
   mono?: boolean;
   /** Help text that depends on the chosen country; `hint` is used for any other country. */
@@ -200,7 +204,10 @@ export function SettingsFields({
               .map((f) => {
                 const id = 'hotel-' + f.key,
                   v = values[f.key] ?? '',
-                  locked = disabled || (f.kind === 'currency' && currencyLocked === true);
+                  locked =
+                    disabled ||
+                    f.readOnly === true ||
+                    (f.kind === 'currency' && currencyLocked === true);
                 if (f.boxed && f.kind === 'boolean')
                   // Laid out like the field beside it: an empty label row, then a row level with the
                   // input (title left, switch right), then the help text level with its hint.

@@ -8,6 +8,7 @@ import {
   type HotelSettings,
 } from './hotel-settings';
 import { Prisma } from '@prisma/client';
+import { isClockManagedProperty } from '../booking/clock-managed-property';
 import {
   BadRequestException,
   ConflictException,
@@ -297,6 +298,15 @@ export class PropertiesService {
       }
 
       checkHotelSettings({ ...existing[0], ...input }, Object.keys(input));
+      // With a connected PMS the booking is created there at once, so on-request confirmation and gap filling
+      // cannot work yet. The page locks them; the server refuses them too.
+      if (
+        (input.confirmationMode === 'on_request' || input.fillGapNights === true) &&
+        (await isClockManagedProperty(tx, tenantId, propertyId))
+      )
+        throw new BadRequestException(
+          'On-request confirmation and gap filling are not available with a connected PMS yet.',
+        );
       if (
         input.defaultCurrency !== undefined &&
         input.defaultCurrency !== existing[0].defaultCurrency
