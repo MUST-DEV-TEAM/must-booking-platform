@@ -717,8 +717,8 @@ export function PaymentSettings({
     property.clockPaymentFolio,
   ]);
   const holdError =
-    !/^\d+$/.test(hold) || Number(hold) < 10 || Number(hold) > 1440
-      ? 'Choose a hold between 10 and 1440 minutes.'
+    !/^\d+$/.test(hold) || Number(hold) < 5 || Number(hold) > 1440
+      ? 'Choose a hold between 5 and 1440 minutes.'
       : null;
   const dirty =
     JSON.stringify(draft) !== JSON.stringify(property.paymentGateways) ||
@@ -782,7 +782,7 @@ export function PaymentSettings({
           <Input
             id="payment-hold"
             type="number"
-            min={10}
+            min={5}
             max={1440}
             value={hold}
             disabled={!canWrite}

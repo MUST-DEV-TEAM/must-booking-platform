@@ -643,10 +643,10 @@ export class PropertiesService {
     if (
       has('onlinePaymentHoldMinutes') &&
       (!Number.isInteger(value.onlinePaymentHoldMinutes) ||
-        Number(value.onlinePaymentHoldMinutes) < 10 ||
+        Number(value.onlinePaymentHoldMinutes) < 5 ||
         Number(value.onlinePaymentHoldMinutes) > 1440)
     )
-      throw new BadRequestException('Choose a payment hold between 10 and 1440 minutes.');
+      throw new BadRequestException('Choose a payment hold between 5 and 1440 minutes.');
     if (
       has('deductPaymentFeeOnGuestRefund') &&
       typeof value.deductPaymentFeeOnGuestRefund !== 'boolean'

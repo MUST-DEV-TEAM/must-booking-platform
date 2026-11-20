@@ -178,7 +178,7 @@ it('defaults, validates and atomically saves the new fields with payment methods
   for (const body of [
     { logoUrl: 'https://photos.test/logo.svg' },
     { logoUrl: 'http://photos.test/logo.png' },
-    { onlinePaymentHoldMinutes: 9 },
+    { onlinePaymentHoldMinutes: 4 },
     { onlinePaymentHoldMinutes: 1441 },
     { onlinePaymentHoldMinutes: 10.5 },
     { autoRefundOnFreeCancellation: 'yes' },
@@ -240,6 +240,8 @@ it('selects expiry candidates using each property hold rather than the old unive
     );
   expect((await query()).some((r) => r.bookingId === id)).toBe(false);
   await request(app.getHttpServer()).patch(url).send({ onlinePaymentHoldMinutes: 10 }).expect(200);
+  expect((await query()).some((r) => r.bookingId === id)).toBe(true);  // The shortest allowed hold is 5 minutes; the same booking is still due.
+  await request(app.getHttpServer()).patch(url).send({ onlinePaymentHoldMinutes: 5 }).expect(200);
   expect((await query()).some((r) => r.bookingId === id)).toBe(true);
 });
 it('uses the existing encrypted PokPay create/test/assignment path without returning secrets and replaces only this hotel assignment', async () => {
