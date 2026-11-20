@@ -72,6 +72,13 @@ export type Property = {
   seasonOpenTo?: string | null;
   arrivalDays?: number[];
   departureDays?: number[];
+  groupRequestForm?: boolean;
+  groupRequestEmail?: string | null;
+  minBookingAge?: number | null;
+  childrenUpToAge?: number | null;
+  infantsUpToAge?: number | null;
+  askChildrenAges?: boolean;
+  fillGapNights?: boolean;
   accentColour?: string | null;
   onlineProfiles?: Record<string, string>;
   allowSameDayBooking?: boolean;

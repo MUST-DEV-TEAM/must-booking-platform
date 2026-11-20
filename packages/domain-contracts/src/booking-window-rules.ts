@@ -18,7 +18,10 @@ export type BookingLimitKey =
   | 'advanceBookingDays'
   | 'minNoticeHours'
   | 'maxGuestsPerBooking'
-  | 'maxRoomsPerBooking';
+  | 'maxRoomsPerBooking'
+  | 'minBookingAge'
+  | 'childrenUpToAge'
+  | 'infantsUpToAge';
 
 /** Allowed whole-number ranges. A field left empty means "no limit". */
 export const BOOKING_LIMIT_RANGES: Record<
@@ -31,6 +34,9 @@ export const BOOKING_LIMIT_RANGES: Record<
   minNoticeHours: { min: 0, max: 720, unit: 'hours' },
   maxGuestsPerBooking: { min: 1, max: 50, unit: 'guests' },
   maxRoomsPerBooking: { min: 1, max: 20, unit: 'rooms' },
+  minBookingAge: { min: 16, max: 25, unit: 'years' },
+  childrenUpToAge: { min: 1, max: 17, unit: 'years' },
+  infantsUpToAge: { min: 0, max: 5, unit: 'years' },
 };
 
 export function checkBookingLimit(key: BookingLimitKey, value: unknown): string | null {
@@ -85,8 +91,14 @@ export function checkBookingWindow(values: {
   maxStayNights?: number | null;
   seasonOpenFrom?: string | null;
   seasonOpenTo?: string | null;
-}): Partial<Record<'maxStayNights' | 'seasonOpenTo', string>> {
-  const out: Partial<Record<'maxStayNights' | 'seasonOpenTo', string>> = {};
+  childrenUpToAge?: number | null;
+  infantsUpToAge?: number | null;
+}): Partial<Record<'maxStayNights' | 'seasonOpenTo' | 'infantsUpToAge', string>> {
+  const out: Partial<Record<'maxStayNights' | 'seasonOpenTo' | 'infantsUpToAge', string>> = {};
+  // An empty age means the default (children up to 12, infants up to 2).
+  const children = values.childrenUpToAge ?? 12;
+  const infants = values.infantsUpToAge ?? 2;
+  if (infants >= children) out.infantsUpToAge = 'Infants must be younger than the child age limit.';
   if (
     values.minStayNights != null &&
     values.maxStayNights != null &&

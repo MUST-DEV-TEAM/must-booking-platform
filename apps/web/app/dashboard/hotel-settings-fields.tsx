@@ -4,6 +4,7 @@ import {
   ALBANIA_REGIONS,
   BOOKING_LIMIT_RANGES,
   checkBookingLimit,
+  checkBookingWindow,
   checkSeason,
   checkWeekdays,
   type BookingLimitKey,
@@ -451,6 +452,71 @@ export const hotelSettingGroups: Record<
           kind: 'number',
           hint: '1 to 20.',
         },
+        {
+          key: 'groupRequestForm',
+          label: 'Show a group request form',
+          kind: 'boolean',
+          defaultValue: false,
+          hint: 'Guests who need more than these limits send a request instead.',
+        },
+        {
+          key: 'groupRequestEmail',
+          label: 'Send group requests to',
+          max: 254,
+          whenSet: 'groupRequestForm',
+          placeholder: 'Leave empty to use the reservations email',
+        },
+      ],
+    },
+    {
+      title: 'Guest ages',
+      description:
+        'Used to price and describe guests on the booking page. Leave a field empty for the usual value.',
+      fields: [
+        {
+          key: 'minBookingAge',
+          label: 'Minimum age to book',
+          kind: 'number',
+          span: 'third',
+          placeholder: '18',
+          hint: '16 to 25 years.',
+        },
+        {
+          key: 'childrenUpToAge',
+          label: 'Children up to age',
+          kind: 'number',
+          span: 'third',
+          placeholder: '12',
+          hint: '1 to 17 years.',
+        },
+        {
+          key: 'infantsUpToAge',
+          label: 'Infants up to age',
+          kind: 'number',
+          span: 'third',
+          placeholder: '2',
+          hint: '0 to 5 years, below the child limit.',
+        },
+        {
+          key: 'askChildrenAges',
+          label: "Ask for the children's ages",
+          kind: 'boolean',
+          defaultValue: false,
+          hint: 'Needed when a rate prices by age.',
+        },
+      ],
+    },
+    {
+      title: 'Advanced',
+      description: 'For hotels that want to sell every night.',
+      fields: [
+        {
+          key: 'fillGapNights',
+          label: 'Fill gap nights',
+          kind: 'boolean',
+          defaultValue: false,
+          hint: 'Allow a shorter stay when it exactly fills a gap between two bookings.',
+        },
       ],
     },
     {
@@ -684,6 +750,20 @@ export function useHotelSettings(
   for (const key of ['arrivalDays', 'departureDays'])
     if (key in values && changed(key) && checkWeekdays((values[key] as string[]).map(Number)))
       errors[key] = 'Choose at least one day.';
+  if ((changed('childrenUpToAge') || changed('infantsUpToAge')) && 'infantsUpToAge' in values) {
+    const age = (key: string) => (/^\d+$/.test(String(values[key])) ? Number(values[key]) : null);
+    const problem = checkBookingWindow({
+      childrenUpToAge: age('childrenUpToAge'),
+      infantsUpToAge: age('infantsUpToAge'),
+    }).infantsUpToAge;
+    if (problem) errors.infantsUpToAge = problem;
+  }
+  if (
+    changed('groupRequestEmail') &&
+    String(values.groupRequestEmail ?? '').trim() &&
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(values.groupRequestEmail).trim())
+  )
+    errors.groupRequestEmail = 'Enter a valid email address.';
   if ((changed('seasonOpenFrom') || changed('seasonOpenTo')) && 'seasonOpenFrom' in values) {
     const season = checkSeason(
       String(values.seasonOpenFrom) || null,

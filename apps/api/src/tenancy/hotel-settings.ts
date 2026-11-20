@@ -3,6 +3,7 @@ import { BadRequestException } from '@nestjs/common';
 import {
   COUNTRY_CODES,
   checkBookingLimit,
+  checkBookingWindow,
   checkWeekdays,
   checkSeason,
   type BookingLimitKey,
@@ -64,6 +65,13 @@ export type HotelSettings = {
   seasonOpenTo?: string | null;
   arrivalDays?: number[];
   departureDays?: number[];
+  groupRequestForm?: boolean;
+  groupRequestEmail?: string | null;
+  minBookingAge?: number | null;
+  childrenUpToAge?: number | null;
+  infantsUpToAge?: number | null;
+  askChildrenAges?: boolean;
+  fillGapNights?: boolean;
   accentColour?: string | null;
   onlineProfiles?: Record<string, string>;
   whatsappSameAsPhone?: boolean;
@@ -115,6 +123,13 @@ export const hotelFields = [
   { key: 'seasonOpenTo', column: 'season_open_to', kind: 'monthday', max: 5 },
   { key: 'arrivalDays', column: 'arrival_days', kind: 'weekdays', max: 0 },
   { key: 'departureDays', column: 'departure_days', kind: 'weekdays', max: 0 },
+  { key: 'groupRequestForm', column: 'group_request_form', kind: 'boolean', max: 0 },
+  { key: 'groupRequestEmail', column: 'group_request_email', kind: 'email', max: 254 },
+  { key: 'minBookingAge', column: 'min_booking_age', kind: 'limit', max: 0 },
+  { key: 'childrenUpToAge', column: 'children_up_to_age', kind: 'limit', max: 0 },
+  { key: 'infantsUpToAge', column: 'infants_up_to_age', kind: 'limit', max: 0 },
+  { key: 'askChildrenAges', column: 'ask_children_ages', kind: 'boolean', max: 0 },
+  { key: 'fillGapNights', column: 'fill_gap_nights', kind: 'boolean', max: 0 },
   { key: 'onlineProfiles', column: 'online_profiles', kind: 'profiles', max: 0 },
   { key: 'description', column: 'description', kind: 'profile', max: 1000 },
   { key: 'starRating', column: 'star_rating', kind: 'stars', max: 0 },
@@ -265,6 +280,8 @@ export function hotelInput(raw: Record<string, unknown>): HotelSettings {
           .includes(v as string)
       )
         bad('Choose a currency from the list.');
+      if (v && f.kind === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v as string))
+        bad('Enter a valid email address.');
       if (v && f.kind === 'time' && !/^([01]\d|2[0-3]):[0-5]\d$/.test(v as string))
         bad('Use a local time such as 15:00.');
       const choices =
@@ -336,6 +353,11 @@ export function checkHotelSettings(value: HotelSettings, changed: readonly strin
     throw new BadRequestException('Enter the free early check-in time.');
   if (value.lateCheckOutPolicy === 'free_until' && !value.lateCheckOutUntil)
     throw new BadRequestException('Enter the free late check-out time.');
+  if (
+    ['childrenUpToAge', 'infantsUpToAge'].some((key) => changed.includes(key)) &&
+    checkBookingWindow(value).infantsUpToAge
+  )
+    throw new BadRequestException(checkBookingWindow(value).infantsUpToAge);
   if (Boolean(value.quietHoursFrom) !== Boolean(value.quietHoursTo))
     throw new BadRequestException('Enter both quiet-hours times, or leave both empty.');
 }
