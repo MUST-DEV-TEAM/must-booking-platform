@@ -25,6 +25,7 @@ import {
   type SettingValue,
   type SettingGroup,
 } from '../../components/ui/settings-fields';
+import { ruleOwnerLabel } from './booking-rules-owners';
 import { timeZoneOptions, type Property } from './settings-areas';
 /** "Albanian · Shqip": the English name and the language's own name, or just the name when they match. */
 export function languageLabel(code: string) {
@@ -791,8 +792,10 @@ export function useHotelSettings(
   extras?: Record<string, ReactNode>,
 ) {
   const savedLanguages = Array.isArray(property.languages) ? property.languages : [];
+  const connected = property.pmsSource === 'CLOCK_PMS';
   const groups = hotelSettingGroups[area].map((group) => ({
     ...group,
+    badge: area === 'booking-rules' ? ruleOwnerLabel(group.title, connected) : undefined,
     fields: group.fields.map((f) =>
       f.kind === 'multi' && f.key === 'languages'
         ? {

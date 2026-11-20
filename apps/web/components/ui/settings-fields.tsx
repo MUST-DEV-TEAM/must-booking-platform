@@ -90,6 +90,8 @@ export type SettingGroup = {
   description: string;
   fields: SettingField[];
   compact?: boolean;
+  /** A short note beside the title, such as who decides this group of settings. */
+  badge?: string;
 };
 /** "EUR · Euro". */
 function currencyLabel(code: string): string {
@@ -179,7 +181,12 @@ export function SettingsFields({
   return (
     <>
       {groups.map((group) => (
-        <FormSection key={group.title} title={group.title} description={group.description}>
+        <FormSection
+          key={group.title}
+          title={group.title}
+          description={group.description}
+          badge={group.badge}
+        >
           <div className={group.compact ? 'grid gap-4 sm:grid-cols-6' : 'flex flex-col gap-4'}>
             {group.fields
               .filter(

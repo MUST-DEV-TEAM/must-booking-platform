@@ -8,6 +8,8 @@ import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import { FormField } from '../../components/ui/form-field';
 import { FormSection } from '../../components/ui/form-section';
 import { OptionCard } from '../../components/ui/option-card';
+import { BookingRulesOverview } from './booking-rules-overview';
+import { ruleOwnerLabel } from './booking-rules-owners';
 import { Input, Textarea } from '../../components/ui/input';
 import { HotelCurrencyNote } from './hotel-currency-note';
 import { AlsoShowPrices, ExchangeRateTable } from './display-currencies-settings';
@@ -92,7 +94,14 @@ const MODES: ReadonlyArray<{ value: BookingMode; label: string; hint: string }> 
 ];
 
 /** Stay limits, free cancellation, inventory mode and house rules. */
-export function BookingRulesSettings({ property, saving, onSave, canWrite = false }: FormProps) {
+export function BookingRulesSettings({
+  property,
+  saving,
+  onSave,
+  canWrite = false,
+  tenantId = '',
+}: GeneralProps) {
+  const connected = property.pmsSource === 'CLOCK_PMS';
   const rich = useHotelSettings(property, 'booking-rules', canWrite);
   const initial = () => ({
     freeCancellationDaysBeforeArrival: String(property.freeCancellationDaysBeforeArrival),
@@ -121,6 +130,7 @@ export function BookingRulesSettings({ property, saving, onSave, canWrite = fals
   const set = (patch: Partial<typeof draft>) => setDraft({ ...draft, ...patch });
   return (
     <div className="flex flex-col gap-4">
+      <BookingRulesOverview tenantId={tenantId} property={property} />
       {rich.section(
         'Length of stay',
         'Booking window and season',
@@ -131,6 +141,7 @@ export function BookingRulesSettings({ property, saving, onSave, canWrite = fals
       )}
       <FormSection
         title="How guests choose rooms"
+        badge={ruleOwnerLabel('How guests choose rooms', connected)}
         description="Changing this asks for confirmation. Existing bookings are not changed."
       >
         <div role="radiogroup" aria-label="How guests choose rooms" className="grid gap-3">
@@ -149,6 +160,7 @@ export function BookingRulesSettings({ property, saving, onSave, canWrite = fals
       {rich.section('Confirmation', 'Booking form', 'Advanced')}
       <FormSection
         title="Cancellation"
+        badge={ruleOwnerLabel('Cancellation', connected)}
         description="The free-cancellation window is evaluated before arrival. Automatic refunds follow Payments settings; staff can handle a refund separately."
       >
         <div className="grid gap-4 sm:grid-cols-2">
@@ -170,6 +182,7 @@ export function BookingRulesSettings({ property, saving, onSave, canWrite = fals
       </FormSection>
       <FormSection
         title="House rules"
+        badge={ruleOwnerLabel('House rules', connected)}
         description="Shown on room detail pages unless a room has its own rules."
       >
         <FormField label="House rules" htmlFor="rules-text">

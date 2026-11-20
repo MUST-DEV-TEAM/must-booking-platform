@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { it, expect, vi } from 'vitest';
@@ -32,7 +33,14 @@ const property: Property = {
 async function mount(node: React.ReactNode) {
   const host = document.body.appendChild(document.createElement('div')),
     root = createRoot(host);
-  await act(async () => root.render(<UnsavedChangesBoundary>{node}</UnsavedChangesBoundary>));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  await act(async () =>
+    root.render(
+      <QueryClientProvider client={client}>
+        <UnsavedChangesBoundary>{node}</UnsavedChangesBoundary>
+      </QueryClientProvider>,
+    ),
+  );
   return {
     host,
     root,
