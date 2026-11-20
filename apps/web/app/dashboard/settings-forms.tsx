@@ -137,6 +137,7 @@ export function BookingRulesSettings({
         'Same-day booking',
         'Arrival and departure days',
         'Group size',
+        'Group requests',
         'Guest ages',
       )}
       <FormSection

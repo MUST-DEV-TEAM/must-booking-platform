@@ -119,11 +119,28 @@ function formatIsoDate(time: number): string {
 
 /** Why a room type cannot be booked for a stay, in terms a guest can act on. */
 export type StayUnavailableReason =
-  UnavailableReason | 'max_stay' | 'same_day_closed' | 'too_far_ahead' | 'past_date';
+  | UnavailableReason
+  | 'max_stay'
+  | 'same_day_closed'
+  | 'too_far_ahead'
+  | 'past_date'
+  | 'too_short_notice'
+  | 'outside_season'
+  | 'too_many_rooms';
 
 /** The reason behind a booking rule that refused a stay, from the code the rule raised. */
-function reasonFromRule(code: string | undefined): StayUnavailableReason {
+export function reasonFromRule(code: string | undefined): StayUnavailableReason {
   switch (code) {
+    case 'ARRIVAL_DAY_NOT_ALLOWED':
+      return 'no_arrival';
+    case 'DEPARTURE_DAY_NOT_ALLOWED':
+      return 'no_departure';
+    case 'MIN_NOTICE':
+      return 'too_short_notice';
+    case 'OUTSIDE_SEASON':
+      return 'outside_season';
+    case 'MAX_ROOMS_PER_BOOKING':
+      return 'too_many_rooms';
     case 'MIN_STAY':
       return 'min_stay';
     case 'MAX_STAY':

@@ -96,6 +96,8 @@ export type SettingGroup = {
   compact?: boolean;
   /** A short note beside the title, such as who decides this group of settings. */
   badge?: string;
+  /** A short warning beside the title, such as a setting that is saved but not applied yet. */
+  status?: string;
 };
 /** "EUR · Euro". */
 function currencyLabel(code: string): string {
@@ -190,6 +192,7 @@ export function SettingsFields({
           title={group.title}
           description={group.description}
           badge={group.badge}
+          status={group.status}
         >
           <div className={group.compact ? 'grid gap-4 sm:grid-cols-6' : 'flex flex-col gap-4'}>
             {group.fields

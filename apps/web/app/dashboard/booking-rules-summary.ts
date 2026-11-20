@@ -70,15 +70,10 @@ export function describeBookingRules(property: Property): string[] {
     const limits = [guests ? plural(guests, 'guest') : null, rooms ? plural(rooms, 'room') : null]
       .filter(Boolean)
       .join(' and ');
-    lines.push(
-      `A booking can have up to ${limits}${property.groupRequestForm ? '; bigger groups send a request' : ''}.`,
-    );
+    lines.push(`A booking can have up to ${limits}.`);
   }
 
-  lines.push(
-    property.confirmationMode === 'on_request'
-      ? `Bookings are confirmed on request, answered within ${plural(property.onRequestHours ?? 24, 'hour')}.`
-      : 'Bookings are confirmed instantly.',
-  );
+  // Confirmation mode, guest ages, the booking form and the group request form are saved but not applied to
+  // bookings yet (see NOT_APPLIED_YET), so they are not described here.
   return lines;
 }

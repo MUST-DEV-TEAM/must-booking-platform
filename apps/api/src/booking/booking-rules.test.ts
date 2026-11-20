@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { reasonFromRule } from './quote.service';
 import {
   evaluateBookingRules,
   isOverridableRule,
@@ -224,5 +225,17 @@ describe('staff override of the hotel limits', () => {
       'BOOKING_CONFLICT',
     ])
       expect(isOverridableRule({ code })).toBe(false);
+  });
+});
+
+describe('reasons shown to websites', () => {
+  it('turns each hotel rule into a reason a website can explain', () => {
+    expect(reasonFromRule('ARRIVAL_DAY_NOT_ALLOWED')).toBe('no_arrival');
+    expect(reasonFromRule('DEPARTURE_DAY_NOT_ALLOWED')).toBe('no_departure');
+    expect(reasonFromRule('MIN_NOTICE')).toBe('too_short_notice');
+    expect(reasonFromRule('OUTSIDE_SEASON')).toBe('outside_season');
+    expect(reasonFromRule('MAX_ROOMS_PER_BOOKING')).toBe('too_many_rooms');
+    expect(reasonFromRule('MIN_STAY')).toBe('min_stay');
+    expect(reasonFromRule('SOMETHING_NEW')).toBe('unavailable');
   });
 });

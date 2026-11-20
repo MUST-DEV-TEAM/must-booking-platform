@@ -25,7 +25,7 @@ import {
   type SettingValue,
   type SettingGroup,
 } from '../../components/ui/settings-fields';
-import { ruleOwnerLabel } from './booking-rules-owners';
+import { ruleOwnerLabel, ruleStatusLabel } from './booking-rules-owners';
 import { timeZoneOptions, type Property } from './settings-areas';
 /** "Albanian · Shqip": the English name and the language's own name, or just the name when they match. */
 export function languageLabel(code: string) {
@@ -486,6 +486,12 @@ export const hotelSettingGroups: Record<
           span: 'half',
           hint: '1 to 20.',
         },
+      ],
+    },
+    {
+      title: 'Group requests',
+      description: 'What happens when a booking is bigger than the group size limits.',
+      fields: [
         {
           key: 'groupRequestForm',
           label: 'Show a group request form',
@@ -808,6 +814,7 @@ export function useHotelSettings(
     .map((group) => ({
       ...group,
       badge: area === 'booking-rules' ? ruleOwnerLabel(group.title, connected) : undefined,
+      status: area === 'booking-rules' ? ruleStatusLabel(group.title) : undefined,
       fields: group.fields
         .map((f) => (connected && f.connectedLock === 'locked' ? { ...f, readOnly: true } : f))
         .map((f) =>

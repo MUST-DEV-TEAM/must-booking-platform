@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { ruleOwnerLabel } from './booking-rules-owners';
+import { ruleOwnerLabel, ruleStatusLabel } from './booking-rules-owners';
 import { describeBookingRules } from './booking-rules-summary';
 import type { Property } from './settings-areas';
 
@@ -12,7 +12,6 @@ describe('describeBookingRules', () => {
       'Guests can stay any number of nights.',
       'Open for bookings all year.',
       'Guests can arrive on any day.',
-      'Bookings are confirmed instantly.',
     ]);
   });
 
@@ -41,8 +40,7 @@ describe('describeBookingRules', () => {
       'Guests can only arrive on Friday, Saturday.',
       'Guests can only leave on Sunday.',
       'Same-day bookings close at 18:00.',
-      'A booking can have up to 8 guests and 4 rooms; bigger groups send a request.',
-      'Bookings are confirmed on request, answered within 12 hours.',
+      'A booking can have up to 8 guests and 4 rooms.',
     ]);
   });
 });
@@ -54,5 +52,20 @@ describe('ruleOwnerLabel', () => {
     expect(ruleOwnerLabel('Confirmation', true)).toContain('connected PMS');
     expect(ruleOwnerLabel('Advanced', true)).toContain('Standalone');
     expect(ruleOwnerLabel('Something else', true)).toBeUndefined();
+  });
+});
+
+describe('ruleStatusLabel', () => {
+  it('flags the sections that are saved but not applied to bookings yet', () => {
+    for (const title of [
+      'Group requests',
+      'Guest ages',
+      'Confirmation',
+      'Booking form',
+      'Advanced',
+    ])
+      expect(ruleStatusLabel(title)).toContain('not applied');
+    for (const title of ['Length of stay', 'Booking window and season', 'Group size'])
+      expect(ruleStatusLabel(title)).toBeUndefined();
   });
 });
