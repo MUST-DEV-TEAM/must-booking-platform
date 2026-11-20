@@ -1,3 +1,4 @@
+import { emailBrandExtra } from './email-brand-columns';
 import { EMAIL_TEMPLATES, savedTemplate, renderTemplate } from './email-templates';
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Queue, Worker } from 'bullmq';
@@ -145,7 +146,7 @@ export class AlertEmailService implements OnModuleInit, OnModuleDestroy {
       if (!recipients.length) return null;
       const rows = await tx.$queryRaw<Array<MailBrand & { timezone: string | null }>>`
         SELECT name, brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",logo_url AS "logoUrl", support_email AS "supportEmail", phone,
-          public_website_origin AS "websiteUrl", address, timezone
+          public_website_origin AS "websiteUrl", address, ${emailBrandExtra}, timezone
         FROM properties WHERE tenant_id = ${context.tenantId}::uuid AND id = ${context.propertyId}::uuid
       `;
       return {

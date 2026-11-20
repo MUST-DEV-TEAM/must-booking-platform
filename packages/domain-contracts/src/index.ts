@@ -163,6 +163,18 @@ export type MailBrand = {
   phone?: string | null;
   websiteUrl?: string | null;
   address?: string | null;
+  /** The hotel's legal business name and tax number, printed in payment and refund emails. */
+  legalName?: string | null;
+  taxNumber?: string | null;
+  /** The map pin; directions links use it when it is set, the address otherwise. */
+  latitude?: number | null;
+  longitude?: number | null;
+  /** How to find the hotel, in the hotel's own words (shown in the stay-confirmed email). */
+  directions?: string | null;
+  /** The hotel's pages on other sites (Instagram, Tripadvisor...), linked in the email footer. */
+  onlineProfiles?: Record<string, string> | null;
+  /** The hotel's date format (DD/MM/YYYY, MM/DD/YYYY or YYYY-MM-DD): decides the day order in email dates. */
+  dateFormat?: string | null;
 };
 
 export interface StorageProvider {

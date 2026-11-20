@@ -1,4 +1,6 @@
 'use client';
+
+import { formatDateTime } from '../../lib/hotel-format';
 import { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -140,7 +142,7 @@ export function MoveRoomDialog({
                   <AlertDescription>
                     {options.data.availability.lastSyncedAt
                       ? 'Saved bookings last synchronized ' +
-                        new Date(options.data.availability.lastSyncedAt).toLocaleString() +
+                        formatDateTime(options.data.availability.lastSyncedAt) +
                         '.'
                       : 'Initial booking synchronization is still in progress.'}
                     {!options.data.availability.complete || options.data.availability.stale

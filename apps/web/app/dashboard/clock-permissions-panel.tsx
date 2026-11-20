@@ -1,5 +1,7 @@
 'use client';
 
+import { formatDateTime } from '../../lib/hotel-format';
+
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
@@ -366,7 +368,7 @@ export function ClockPermissionsPanel({
         )}
         <p className="m-0 text-xs text-muted-foreground">
           {report?.checkedAt
-            ? `Last checked ${new Date(report.checkedAt).toLocaleString()}.`
+            ? `Last checked ${formatDateTime(report.checkedAt)}.`
             : 'Not checked yet. Press “Check now”.'}
         </p>
       </CardContent>

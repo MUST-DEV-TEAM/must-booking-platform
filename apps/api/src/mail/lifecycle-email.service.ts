@@ -1,3 +1,4 @@
+import { emailBrandExtra } from './email-brand-columns';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { MailBrand } from '@must/domain-contracts';
 
@@ -185,7 +186,7 @@ ${email.cta.label}: ${email.cta.url}`
         currency: facts.currency,
         hotelContact: brand.supportEmail ?? brand.phone ?? undefined,
         checkInTime: brand.checkInTime ?? undefined,
-        directions: brand.address ?? undefined,
+        directions: brand.directions?.trim() || brand.address || undefined,
       }),
       ...email.values,
     });
@@ -249,7 +250,7 @@ ${email.cta.label}: ${email.cta.url}`
     const rows = await tx.$queryRaw<BrandFacts[]>`
       SELECT name, brand_colour AS "brandColour", email_footer_text AS "emailFooterText",
         terms_url AS "termsUrl", logo_url AS "logoUrl", support_email AS "supportEmail", phone,
-        public_website_origin AS "websiteUrl", address, check_in_time AS "checkInTime"
+        public_website_origin AS "websiteUrl", address, ${emailBrandExtra}, check_in_time AS "checkInTime"
       FROM properties WHERE tenant_id = ${context.tenantId}::uuid AND id = ${context.propertyId}::uuid
     `;
     return rows[0]!;

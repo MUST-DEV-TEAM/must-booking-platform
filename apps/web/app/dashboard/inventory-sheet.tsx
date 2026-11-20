@@ -1,4 +1,6 @@
 'use client';
+
+import { formatDateTime } from '../../lib/hotel-format';
 import { useQuery } from '@tanstack/react-query';
 import { Clock3 } from 'lucide-react';
 import { useState } from 'react';
@@ -162,7 +164,7 @@ export function InventorySheet({
               },
               {
                 label: 'Updated',
-                value: record.updatedAt ? new Date(record.updatedAt).toLocaleString() : undefined,
+                value: record.updatedAt ? formatDateTime(record.updatedAt) : undefined,
               },
             ]}
           />

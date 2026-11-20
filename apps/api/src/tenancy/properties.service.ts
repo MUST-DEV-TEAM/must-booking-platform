@@ -25,6 +25,12 @@ import { TenantDatabaseService, type TenantTransaction } from './tenant-database
 import { AuditLogService } from './audit-log.service';
 import { PropertyRoleTemplatesService } from './property-role-templates.service';
 import { settingsReadiness, type SettingsReadiness } from './settings-readiness';
+import {
+  saveSettingsOverviewHidden,
+  settingsOverviewExtras,
+  type SettingsAttentionItem,
+  type SettingsOverviewHidden,
+} from './settings-attention';
 
 export type ClockCancelRefundPolicy = 'NEVER' | 'FREE_WINDOW' | 'ALWAYS';
 export type ClockPaymentFolio = 'DEPOSIT' | 'MAIN';
@@ -65,9 +71,29 @@ type PropertyListItem = Property & {
   staffCount: number;
   pmsSource: 'MUST' | 'CLOCK_PMS';
   connectedProviders: string[];
+  /** Active rooms, counted from Accommodations (or the PMS import); never typed. */
+  roomCount: number;
+  /** True once the hotel has any booking; a time zone change then needs a confirmation. */
+  hasBookings: boolean;
   readiness: SettingsReadiness;
 };
 type PropertyDeleteBlocker = { resource: string; count: number };
+/**
+ * The accounting email and main contact are for MUST and the hotel's accountant. Only the account's owners and
+ * admins receive them; front desk and other staff who can open the hotel get them blanked.
+ */
+function withoutInternalContacts<T extends object>(row: T, manager: boolean): T {
+  if (manager) return row;
+  return {
+    ...row,
+    accountingEmail: null,
+    mainContactName: null,
+    mainContactRole: null,
+    mainContactPhone: null,
+    mainContactEmail: null,
+  };
+}
+
 @Injectable()
 export class PropertiesService {
   constructor(
@@ -78,17 +104,64 @@ export class PropertiesService {
   /** The hotels this user may see, each with its "ready to take bookings" status worked out here. */
   async list(tenantId: string, userId: string): Promise<PropertyListItem[]> {
     const rows = await this.listRows(tenantId, userId);
-    return rows.map((row) => ({ ...row, readiness: settingsReadiness(row) }));
+    const manager = await this.isOwnerOrAdmin(tenantId, userId);
+    return rows.map((row) => {
+      const visible = withoutInternalContacts(row, manager);
+      return { ...visible, readiness: settingsReadiness(visible) };
+    });
   }
   /** One hotel's saved settings and its "ready to take bookings" status; refused if not visible. */
   async settingsSummary(
     tenantId: string,
     userId: string,
     propertyId: string,
-  ): Promise<SettingsReadiness & { hotel: PropertyListItem }> {
-    const hotel = (await this.list(tenantId, userId)).find((item) => item.id === propertyId);
-    if (!hotel) throw new NotFoundException('Property not found.');
-    return { ...hotel.readiness, hotel };
+  ): Promise<
+    SettingsReadiness & {
+      hotel: PropertyListItem;
+      attention: SettingsAttentionItem[];
+      hidden: SettingsOverviewHidden;
+    }
+  > {
+    const manager = await this.isOwnerOrAdmin(tenantId, userId);
+    const found = (await this.listRows(tenantId, userId)).find((item) => item.id === propertyId);
+    if (!found) throw new NotFoundException('Property not found.');
+    const listed = withoutInternalContacts(found, manager);
+    const { emailProviderActive, attention, hidden } = await settingsOverviewExtras(
+      this.database,
+      { tenantId, propertyId },
+      userId,
+    );
+    // The email step needs this hotel's sending profile, which only a single-hotel read may see.
+    const readiness = settingsReadiness({ ...listed, emailProviderActive });
+    // Live problems (refunds, payments, email failures) are for the people who run Settings: the account's
+    // owners and admins, as on the dashboard. Hotel staff and restaurant staff who can open this hotel get none.
+    return {
+      ...readiness,
+      attention: manager ? attention : [],
+      hidden,
+      hotel: { ...listed, readiness },
+    };
+  }
+  private async isOwnerOrAdmin(tenantId: string, userId: string): Promise<boolean> {
+    const rows = await this.database.withTenantTransaction(
+      { tenantId },
+      (tx) =>
+        tx.$queryRaw<Array<{ manager: boolean }>>`
+        SELECT EXISTS(SELECT 1 FROM tenant_memberships WHERE tenant_id=${tenantId}::uuid
+          AND user_id=${userId}::uuid AND role IN ('OWNER','ADMIN')) AS manager`,
+    );
+    return rows[0]?.manager === true;
+  }
+  /** "Hide for now" on the setup guide, or "Got it" on the ready notice, for this person and hotel. */
+  async setSettingsOverviewHidden(
+    tenantId: string,
+    userId: string,
+    propertyId: string,
+    input: unknown,
+  ): Promise<SettingsOverviewHidden> {
+    if ((await this.listRows(tenantId, userId)).every((item) => item.id !== propertyId))
+      throw new NotFoundException('Property not found.');
+    return saveSettingsOverviewHidden(this.database, { tenantId, propertyId }, userId, input);
   }
   private listRows(
     tenantId: string,
@@ -115,7 +188,7 @@ export class PropertiesService {
             WHERE pic.tenant_id=p.tenant_id AND pic.property_id=p.id AND pic.enabled AND ic.status='CONNECTED'
             ORDER BY ic.provider::text) AS "connectedProviders",
           EXISTS(SELECT 1 FROM rate_rules rr WHERE rr.tenant_id=p.tenant_id AND rr.property_id=p.id UNION ALL SELECT 1 FROM pricing_daily_prices dp WHERE dp.tenant_id=p.tenant_id AND dp.property_id=p.id UNION ALL SELECT 1 FROM room_price_overrides ro WHERE ro.tenant_id=p.tenant_id AND ro.property_id=p.id UNION ALL SELECT 1 FROM property_exchange_rates fx WHERE fx.tenant_id=p.tenant_id AND fx.property_id=p.id) AS "defaultCurrencyLocked",
-          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",deduct_payment_fee_on_guest_refund AS "deductPaymentFeeOnGuestRefund",clock_cancel_refund_policy AS "clockCancelRefundPolicy",clock_payment_folio AS "clockPaymentFolio",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
+          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",deduct_payment_fee_on_guest_refund AS "deductPaymentFeeOnGuestRefund",clock_cancel_refund_policy AS "clockCancelRefundPolicy",clock_payment_folio AS "clockPaymentFolio",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", logo_dark_url AS "logoDarkUrl", icon_url AS "iconUrl", favicon_url AS "faviconUrl", cover_url AS "coverUrl", phone, support_email AS "supportEmail",
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
@@ -124,6 +197,8 @@ export class PropertiesService {
           free_cancellation_days_before_arrival AS "freeCancellationDaysBeforeArrival",
           public_website_origin AS "publicWebsiteOrigin",
           wordpress_connected_at AS "wordpressConnectedAt",
+          (SELECT count(*)::int FROM rooms r WHERE r.tenant_id=p.tenant_id AND r.property_id=p.id AND r.is_active) AS "roomCount",
+          EXISTS(SELECT 1 FROM bookings b WHERE b.tenant_id=p.tenant_id AND b.property_id=p.id) AS "hasBookings",
           json_build_object('stripe', stripe_enabled, 'pokpay', pokpay_enabled, 'payAtHotel', pay_at_hotel_enabled) AS "paymentGateways"
           FROM properties p
           WHERE p.tenant_id=${tenantId}::uuid AND EXISTS (
@@ -205,11 +280,18 @@ export class PropertiesService {
         FROM properties WHERE id = ${propertyId}::uuid
       `;
       if (!existing[0]) throw new BadRequestException('Property not found.');
-      const ownedLogo = input.logoUrl ? this.serverLogoKey(new URL(input.logoUrl)) : null;
-      if (ownedLogo) {
+      for (const url of [
+        input.logoUrl,
+        input.logoDarkUrl,
+        input.iconUrl,
+        input.faviconUrl,
+        input.coverUrl,
+      ]) {
+        const ownedImage = url ? this.serverLogoKey(new URL(url)) : null;
+        if (!ownedImage) continue;
         const images = await tx.$queryRaw<
           Array<{ id: string }>
-        >`SELECT l.id FROM property_library_images l JOIN server_media_uploads u ON u.tenant_id=l.tenant_id AND u.property_id=l.property_id AND u.object_key=l.object_key AND u.uploaded_at IS NOT NULL WHERE l.tenant_id=${tenantId}::uuid AND l.property_id=${propertyId}::uuid AND l.object_key=${ownedLogo} AND l.confirmed_at IS NOT NULL`;
+        >`SELECT l.id FROM property_library_images l JOIN server_media_uploads u ON u.tenant_id=l.tenant_id AND u.property_id=l.property_id AND u.object_key=l.object_key AND u.uploaded_at IS NOT NULL WHERE l.tenant_id=${tenantId}::uuid AND l.property_id=${propertyId}::uuid AND l.object_key=${ownedImage} AND l.confirmed_at IS NOT NULL`;
         if (!images[0])
           throw new BadRequestException('Choose a confirmed image from this hotel photo library.');
       }
@@ -252,6 +334,10 @@ export class PropertiesService {
           address = CASE WHEN ${input.address !== undefined} THEN ${input.address} ELSE address END,
           timezone = CASE WHEN ${input.timezone !== undefined} THEN ${input.timezone} ELSE timezone END,
           logo_url = CASE WHEN ${input.logoUrl !== undefined} THEN ${input.logoUrl} ELSE logo_url END,
+          logo_dark_url = CASE WHEN ${input.logoDarkUrl !== undefined} THEN ${input.logoDarkUrl} ELSE logo_dark_url END,
+          icon_url = CASE WHEN ${input.iconUrl !== undefined} THEN ${input.iconUrl} ELSE icon_url END,
+          favicon_url = CASE WHEN ${input.faviconUrl !== undefined} THEN ${input.faviconUrl} ELSE favicon_url END,
+          cover_url = CASE WHEN ${input.coverUrl !== undefined} THEN ${input.coverUrl} ELSE cover_url END,
           phone = CASE WHEN ${input.phone !== undefined} THEN ${input.phone} ELSE phone END,
           support_email = CASE WHEN ${input.supportEmail !== undefined} THEN ${input.supportEmail} ELSE support_email END,
           booking_mode = CASE WHEN ${input.bookingMode !== undefined} THEN ${input.bookingMode}::"PropertyBookingMode" ELSE booking_mode END,
@@ -471,7 +557,7 @@ export class PropertiesService {
       name,
       address,
       timezone,
-      logoUrl: this.optionalLogoUrl(v, false) ?? null,
+      logoUrl: this.optionalImageUrl(v, 'logoUrl', false) ?? null,
       phone: this.optionalBrandText(v, 'phone', 100, false) ?? null,
       supportEmail: this.optionalSupportEmail(v, false) ?? null,
     };
@@ -513,6 +599,10 @@ export class PropertiesService {
     emailFooterText?: string | null;
     termsUrl?: string | null;
     logoUrl?: string | null;
+    logoDarkUrl?: string | null;
+    iconUrl?: string | null;
+    faviconUrl?: string | null;
+    coverUrl?: string | null;
     phone?: string | null;
     supportEmail?: string | null;
   } {
@@ -543,6 +633,10 @@ export class PropertiesService {
         'emailFooterText',
         'termsUrl',
         'logoUrl',
+        'logoDarkUrl',
+        'iconUrl',
+        'faviconUrl',
+        'coverUrl',
         'phone',
         'supportEmail',
       ]
@@ -692,7 +786,11 @@ export class PropertiesService {
       brandColour,
       emailFooterText,
       termsUrl,
-      logoUrl: this.optionalLogoUrl(value, true),
+      logoUrl: this.optionalImageUrl(value, 'logoUrl', true),
+      logoDarkUrl: this.optionalImageUrl(value, 'logoDarkUrl', true),
+      iconUrl: this.optionalImageUrl(value, 'iconUrl', true),
+      faviconUrl: this.optionalImageUrl(value, 'faviconUrl', true),
+      coverUrl: this.optionalImageUrl(value, 'coverUrl', true),
       phone: this.optionalBrandText(value, 'phone', 100, true),
       supportEmail: this.optionalSupportEmail(value, true),
     };
@@ -715,20 +813,27 @@ export class PropertiesService {
       : null;
   }
 
-  private optionalLogoUrl(
+  /** A brand image address: one from this hotel's photo library, or a public https PNG, JPG or WebP. */
+  private optionalImageUrl(
     value: Record<string, unknown>,
+    field: 'logoUrl' | 'logoDarkUrl' | 'iconUrl' | 'faviconUrl' | 'coverUrl',
     allowAbsent: boolean,
   ): string | null | undefined {
-    if (!Object.hasOwn(value, 'logoUrl')) return allowAbsent ? undefined : null;
-    const logoUrl = value.logoUrl;
+    if (!Object.hasOwn(value, field)) return allowAbsent ? undefined : null;
+    const logoUrl = value[field];
     if (logoUrl === null || logoUrl === '') return null;
     if (typeof logoUrl !== 'string' || logoUrl.trim().length > 2048)
-      throw new BadRequestException('Invalid logoUrl.');
+      throw new BadRequestException(`Invalid ${field}.`);
     try {
       const url = new URL(logoUrl.trim());
       if (this.serverLogoKey(url) && !url.username && !url.password) return url.toString();
+      // Local development serves photos from http://localhost; production only ever accepts https.
+      const localDev =
+        process.env.NODE_ENV !== 'production' &&
+        url.protocol === 'http:' &&
+        ['localhost', '127.0.0.1'].includes(url.hostname);
       if (
-        url.protocol !== 'https:' ||
+        (url.protocol !== 'https:' && !localDev) ||
         url.username ||
         url.password ||
         !/\.(png|jpe?g|webp)$/i.test(url.pathname)

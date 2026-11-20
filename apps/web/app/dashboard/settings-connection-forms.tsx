@@ -1,5 +1,8 @@
 'use client';
+
+import { formatDateTime } from '../../lib/hotel-format';
 import { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
 import { FormField } from '../../components/ui/form-field';
@@ -9,7 +12,8 @@ import {
   PokpayConnectionPanel,
   type PokpayConnection,
 } from '../../components/ui/pokpay-connection-panel';
-import { Input } from '../../components/ui/input';
+import { Input, Textarea } from '../../components/ui/input';
+import { Checkbox } from '../../components/ui/checkbox';
 import { ColourField } from '../../components/ui/colour-field';
 import { Switch } from '../../components/ui/switch';
 import { TimeField } from '../../components/ui/time-field';
@@ -32,7 +36,7 @@ import {
   SelectValue,
 } from '../../components/ui/select';
 import { SaveBar } from '../../components/ui/save-bar';
-import { EmailBrandingPreview } from '../../components/ui/email-branding-preview';
+import { BrandPreview } from '../../components/ui/brand-preview';
 import { useUnsavedChanges } from '../../components/ui/unsaved-changes';
 import type {
   ClockCancelRefundPolicy,
@@ -63,11 +67,31 @@ const webUrl = (s: string, originOnly = false) => {
     return false;
   }
 };
+/** The sites that can be asked for a review, and the private feedback page (same keys as the review-links API). */
+const REVIEW_SITES = [
+  { key: 'google', label: 'Google Business Profile' },
+  { key: 'tripadvisor', label: 'Tripadvisor' },
+  { key: 'booking_com', label: 'Booking.com' },
+  { key: 'facebook', label: 'Facebook' },
+] as const;
+type ReviewDraft = Record<string, string | null>;
+const reviewsKey = (tenantId: string, propertyId: string) =>
+  ['dashboard', 'review-links', tenantId, propertyId] as const;
+
 type BrandingDraft = {
   logoUrl: string;
+  logoDarkUrl: string;
+  iconUrl: string;
+  faviconUrl: string;
+  coverUrl: string;
+  accountingEmail: string;
+  mainContactName: string;
+  mainContactRole: string;
+  mainContactPhone: string;
+  mainContactEmail: string;
+  reviews: ReviewDraft;
   brandColour: string;
   emailFooterText: string;
-  termsUrl: string;
   supportEmail: string;
   reservationsEmail: string;
   phone: string;
@@ -81,9 +105,18 @@ type BrandingDraft = {
   accentColour: string;
   profiles: Record<string, string>;
 };
-const phoneKeys = ['phone', 'whatsappNumber', 'afterHoursPhone'] as const;
+const phoneKeys = ['phone', 'whatsappNumber', 'afterHoursPhone', 'mainContactPhone'] as const;
 const textKeys = [
   'logoUrl',
+  'logoDarkUrl',
+  'iconUrl',
+  'faviconUrl',
+  'coverUrl',
+  'accountingEmail',
+  'mainContactName',
+  'mainContactRole',
+  'mainContactPhone',
+  'mainContactEmail',
   'supportEmail',
   'reservationsEmail',
   'phone',
@@ -95,7 +128,6 @@ const textKeys = [
   'brandColour',
   'accentColour',
   'emailFooterText',
-  'termsUrl',
 ] as const;
 const shared = (key: ProfileFieldKey, text: string) =>
   text.trim()
@@ -116,11 +148,53 @@ export function BrandingSettings({
   canManagePhotos?: boolean;
   onSave: (update: Partial<Property>) => void;
 }) {
+  const client = useQueryClient();
+  const reviewQuery = useQuery({
+    queryKey: reviewsKey(tenantId, property.id),
+    queryFn: async () => {
+      const response = await fetch(
+        `/api/tenants/${tenantId}/properties/${property.id}/review-links`,
+        { credentials: 'include' },
+      );
+      if (!response.ok) throw new Error('Review links could not be read.');
+      return ((await response.json()) as { links: Record<string, string> }).links ?? {};
+    },
+  });
+  const savedReviews: Record<string, string> = reviewQuery.data ?? {};
+  const saveReviews = useMutation({
+    mutationFn: async (links: Record<string, string>) => {
+      const response = await fetch(
+        `/api/tenants/${tenantId}/properties/${property.id}/review-links`,
+        {
+          method: 'PUT',
+          credentials: 'include',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(links),
+        },
+      );
+      if (!response.ok) throw new Error('Review links could not be saved.');
+    },
+    onSuccess: () => client.invalidateQueries({ queryKey: reviewsKey(tenantId, property.id) }),
+  });
   const initial: BrandingDraft = {
     logoUrl: property.logoUrl ?? '',
+    logoDarkUrl: property.logoDarkUrl ?? '',
+    iconUrl: property.iconUrl ?? '',
+    faviconUrl: property.faviconUrl ?? '',
+    coverUrl: property.coverUrl ?? '',
+    accountingEmail: property.accountingEmail ?? '',
+    mainContactName: property.mainContactName ?? '',
+    mainContactRole: property.mainContactRole ?? '',
+    mainContactPhone: property.mainContactPhone ?? '',
+    mainContactEmail: property.mainContactEmail ?? '',
+    reviews: Object.fromEntries(
+      [...REVIEW_SITES.map((site) => site.key), 'feedback'].map((key) => [
+        key,
+        savedReviews[key] ?? null,
+      ]),
+    ),
     brandColour: property.brandColour ?? '',
     emailFooterText: property.emailFooterText ?? '',
-    termsUrl: property.termsUrl ?? '',
     supportEmail: property.supportEmail ?? '',
     reservationsEmail: property.reservationsEmail ?? '',
     phone: property.phone ?? '',
@@ -157,10 +231,23 @@ export function BrandingSettings({
         : 'Enter a colour such as #123ABC.',
     emailFooterText:
       draft.emailFooterText.length <= 300 ? null : 'Keep the footer to 300 characters or fewer.',
-    termsUrl:
-      !draft.termsUrl || (webUrl(draft.termsUrl) && draft.termsUrl.startsWith('https://'))
-        ? null
-        : 'Enter a full https terms link.',
+    accountingEmail: shared('accountingEmail', draft.accountingEmail),
+    mainContactName: shared('mainContactName', draft.mainContactName),
+    mainContactRole: shared('mainContactRole', draft.mainContactRole),
+    mainContactPhone: shared('mainContactPhone', draft.mainContactPhone),
+    mainContactEmail: shared('mainContactEmail', draft.mainContactEmail),
+    ...Object.fromEntries(
+      Object.entries(draft.reviews).map(([key, url]) => [
+        `review-${key}`,
+        url === null
+          ? null
+          : !url.trim()
+            ? 'Enter the review link, or untick this.'
+            : webUrl(url.trim()) && url.trim().startsWith('https://')
+              ? null
+              : 'Enter a full https:// address.',
+      ]),
+    ),
     supportEmail:
       !draft.supportEmail.trim() && initial.supportEmail
         ? 'Enter the guest contact email.'
@@ -195,8 +282,12 @@ export function BrandingSettings({
     website: 'Website address',
     brandColour: 'Brand colour',
     accentColour: 'Accent colour',
-    emailFooterText: 'Email footer text',
-    termsUrl: 'Terms and conditions link',
+    emailFooterText: 'Optional note',
+    accountingEmail: 'Accounting email',
+    mainContactName: 'Name',
+    mainContactRole: 'Role',
+    mainContactPhone: 'Phone',
+    mainContactEmail: 'Email',
   } as const;
   const shown = (key: keyof typeof errors) =>
     changed(key as keyof BrandingDraft) ||
@@ -237,27 +328,123 @@ export function BrandingSettings({
       )}
     </FormField>
   );
+  const picked = (url: string) => (webUrl(url.trim()) && url.trim() ? url.trim() : null);
+  const profileNames = ONLINE_PROFILE_SITES.filter((site) =>
+    (draft.profiles[site.key] ?? '').trim(),
+  ).map((site) => site.label);
+  // The email footer is built from what is saved elsewhere, so it cannot go out of date.
+  const footerLines = [
+    property.name,
+    [property.address, property.city].filter(Boolean).join(', '),
+    [draft.supportEmail.trim(), draft.phone.trim()].filter(Boolean).join(' · '),
+    property.legalName
+      ? `${property.legalName}${property.taxNumber ? ` · NUIS ${property.taxNumber}` : ''} (payment and refund emails)`
+      : '',
+    profileNames.length ? `Follow us: ${profileNames.join(', ')}` : '',
+  ].filter(Boolean);
+  const ticked = Object.entries(draft.reviews).filter(([, url]) => url !== null);
+  const setReview = (key: string, url: string | null) =>
+    setDraft({ ...draft, reviews: { ...draft.reviews, [key]: url } });
+  const reviewField = (key: string, label: string) => {
+    const url = draft.reviews[key];
+    const id = `branding-review-${key}`;
+    return (
+      <div key={key} className="flex flex-col gap-2">
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox
+            id={id}
+            checked={url !== null}
+            disabled={!canWrite}
+            onCheckedChange={(on) => setReview(key, on === true ? '' : null)}
+          />
+          {key === 'feedback' ? 'Private feedback' : `Ask guests for a review on ${label}`}
+        </label>
+        {url !== null ? (
+          <FormField
+            label={key === 'feedback' ? 'Private feedback link' : `${label} review link`}
+            htmlFor={`${id}-url`}
+            hint={
+              key === 'feedback'
+                ? 'A form where guests tell you how it went, before any public review.'
+                : 'The "write a review" page, which is not the same as your profile address.'
+            }
+            error={
+              JSON.stringify(url) !== JSON.stringify(initial.reviews[key])
+                ? errors[`review-${key}`]
+                : null
+            }
+          >
+            <Input
+              id={`${id}-url`}
+              disabled={!canWrite}
+              inputMode="url"
+              placeholder="https://"
+              value={url}
+              onChange={(e) => setReview(key, e.target.value)}
+            />
+          </FormField>
+        ) : null}
+      </div>
+    );
+  };
   return (
     <div className="flex flex-col gap-4">
       <p className="m-0 text-sm text-muted-foreground">
         These details style this system and the emails it sends. They are not shown on your public
         website.
       </p>
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)] lg:items-start">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,24rem)] xl:items-start">
         <div className="flex flex-col gap-4">
           <FormSection
-            title="Logo and colour"
-            description="Shown in the sidebar and at the top of booking emails."
+            title="Brand"
+            description="Your logos, icon and colours. Used in emails, on the booking page and in this system."
           >
+            <div className="grid gap-6 sm:grid-cols-2">
+              <HotelLogoPicker
+                tenantId={tenantId}
+                propertyId={property.id}
+                kind="logo"
+                value={draft.logoUrl}
+                onChange={(logoUrl) => setDraft({ ...draft, logoUrl })}
+                canManage={canWrite && canManagePhotos}
+              />
+              <HotelLogoPicker
+                tenantId={tenantId}
+                propertyId={property.id}
+                kind="dark"
+                value={draft.logoDarkUrl}
+                onChange={(logoDarkUrl) => setDraft({ ...draft, logoDarkUrl })}
+                canManage={canWrite && canManagePhotos}
+              />
+              <HotelLogoPicker
+                tenantId={tenantId}
+                propertyId={property.id}
+                kind="icon"
+                value={draft.iconUrl}
+                onChange={(iconUrl) => setDraft({ ...draft, iconUrl })}
+                canManage={canWrite && canManagePhotos}
+              />
+              <HotelLogoPicker
+                tenantId={tenantId}
+                propertyId={property.id}
+                kind="favicon"
+                value={draft.faviconUrl || draft.iconUrl}
+                onChange={(faviconUrl) => setDraft({ ...draft, faviconUrl })}
+                canManage={canWrite && canManagePhotos}
+              />
+            </div>
             <HotelLogoPicker
               tenantId={tenantId}
               propertyId={property.id}
-              value={draft.logoUrl}
-              onChange={(logoUrl) => setDraft({ ...draft, logoUrl })}
+              kind="cover"
+              value={draft.coverUrl}
+              onChange={(coverUrl) => setDraft({ ...draft, coverUrl })}
               canManage={canWrite && canManagePhotos}
             />
-            {field('brandColour', 'Used for buttons and headings in emails, for example #224858.')}
-            {field('accentColour', 'Optional second colour for links and highlights.')}
+            <div className="grid gap-4 sm:grid-cols-2">
+              {field('brandColour', 'Buttons and headings in emails, for example #224858.')}
+              {field('accentColour', 'Optional second colour for links and highlights.')}
+            </div>
             {(
               [
                 ['brandColour', 'Brand colour'],
@@ -336,63 +523,117 @@ export function BrandingSettings({
               </div>
             )}
             {field('website', 'A full https address. Does not change the website connection.')}
-            {field('termsUrl', `${draft.termsUrl.length} characters`)}
           </FormSection>
           <FormSection
-            title="Online profiles"
-            description="The hotel's pages on other sites. Full https addresses on that site only. Leave empty to leave one out."
+            title="Online profiles and reviews"
+            description="The hotel's pages on other sites, and where guests are asked to review you. Full https addresses on that site only. Leave empty to leave one out."
           >
-            {ONLINE_PROFILE_SITES.map((site) => (
-              <FormField
-                key={site.key}
-                label={site.label}
-                htmlFor={`branding-profile-${site.key}`}
-                error={
-                  JSON.stringify(draft.profiles[site.key]) !==
-                  JSON.stringify(initial.profiles[site.key])
-                    ? errors[`profile-${site.key}`]
-                    : null
-                }
-              >
-                <Input
-                  id={`branding-profile-${site.key}`}
-                  disabled={!canWrite}
-                  inputMode="url"
-                  placeholder="https://"
-                  value={draft.profiles[site.key] ?? ''}
-                  onChange={(e) =>
-                    setDraft({
-                      ...draft,
-                      profiles: { ...draft.profiles, [site.key]: e.target.value },
-                    })
-                  }
-                />
-              </FormField>
-            ))}
+            {ONLINE_PROFILE_SITES.map((site) => {
+              const reviewSite = REVIEW_SITES.find((entry) => entry.key === site.key);
+              return (
+                <div key={site.key} className="flex flex-col gap-3">
+                  <FormField
+                    label={site.label}
+                    htmlFor={`branding-profile-${site.key}`}
+                    error={
+                      JSON.stringify(draft.profiles[site.key]) !==
+                      JSON.stringify(initial.profiles[site.key])
+                        ? errors[`profile-${site.key}`]
+                        : null
+                    }
+                  >
+                    <Input
+                      id={`branding-profile-${site.key}`}
+                      disabled={!canWrite}
+                      inputMode="url"
+                      placeholder="https://"
+                      value={draft.profiles[site.key] ?? ''}
+                      onChange={(e) =>
+                        setDraft({
+                          ...draft,
+                          profiles: { ...draft.profiles, [site.key]: e.target.value },
+                        })
+                      }
+                    />
+                  </FormField>
+                  {reviewSite ? reviewField(reviewSite.key, reviewSite.label) : null}
+                </div>
+              );
+            })}
+            {reviewField('feedback', 'Private feedback')}
+            <p
+              className={`m-0 text-xs ${ticked.length > 3 ? 'text-warning' : 'text-muted-foreground'}`}
+            >
+              {ticked.length > 3
+                ? `${ticked.length} review links are ticked, but the after-stay email shows only the first 3, in the order listed here.`
+                : 'The after-stay email shows up to 3 review links, in the order listed here.'}
+            </p>
           </FormSection>
           <FormSection
             title="Email footer"
-            description="A short line at the bottom of every email, such as the hotel address."
+            description="Built from your saved details, so it never goes out of date. You can add one short note."
           >
-            {field('emailFooterText', `${draft.emailFooterText.length}/300 characters`)}
+            <div className="flex flex-col gap-0.5 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+              {footerLines.map((line) => (
+                <span key={line}>{line}</span>
+              ))}
+              <span className="mt-1 text-xs text-muted-foreground">
+                Name, address, contact, legal name and tax number come from Profile and Contact and
+                brand. Social links come from Online profiles above.
+              </span>
+            </div>
+            <FormField
+              label="Optional note"
+              htmlFor="branding-emailFooterText"
+              hint={`${draft.emailFooterText.length} / 300`}
+              error={shown('emailFooterText')}
+            >
+              <Textarea
+                id="branding-emailFooterText"
+                rows={2}
+                maxLength={300}
+                disabled={!canWrite}
+                value={draft.emailFooterText}
+                onChange={(e) => setDraft({ ...draft, emailFooterText: e.target.value })}
+              />
+            </FormField>
+          </FormSection>
+          <FormSection
+            title="Internal contacts"
+            description="Never shown to guests. For MUST and for your accountant."
+          >
+            <div className="grid gap-4 sm:grid-cols-2">
+              {field('accountingEmail', 'Where invoices and financial notices can be sent.')}
+            </div>
+            <p className="m-0 text-sm font-semibold">Main contact for MUST</p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {field('mainContactName')}
+              {field('mainContactRole')}
+              {field('mainContactPhone')}
+              {field('mainContactEmail')}
+            </div>
           </FormSection>
         </div>
-        <div className="lg:sticky lg:top-4">
-          <EmailBrandingPreview
+        <div className="xl:sticky xl:top-24">
+          <BrandPreview
             name={property.name}
-            logoUrl={webUrl(draft.logoUrl.trim()) ? draft.logoUrl.trim() : null}
-            email={draft.supportEmail}
-            phone={draft.phone}
+            logoUrl={picked(draft.logoUrl)}
+            logoDarkUrl={picked(draft.logoDarkUrl)}
+            iconUrl={picked(draft.iconUrl)}
+            faviconUrl={picked(draft.faviconUrl)}
+            coverUrl={picked(draft.coverUrl)}
             colour={draft.brandColour}
-            footer={draft.emailFooterText}
-            termsUrl={draft.termsUrl}
+            accent={draft.accentColour}
+            footerLines={footerLines}
+            note={draft.emailFooterText}
+            termsUrl={property.termsUrl ?? ''}
           />
         </div>
       </div>
       {canWrite ? (
         <SaveBar
           dirty={dirty}
-          saving={saving}
+          saving={saving || saveReviews.isPending}
           canSave={!Object.values(errors).some(Boolean)}
           onDiscard={() => setDraft(initial)}
           onSave={() => {
@@ -409,7 +650,22 @@ export function BrandingSettings({
               );
             for (const key of ['whatsappSameAsPhone', 'receptionOpen24h'] as const)
               if (draft[key] !== initial[key]) update[key] = draft[key];
-            onSave(update as Partial<Property>);
+            if (Object.keys(update).length) onSave(update as Partial<Property>);
+            if (changed('reviews'))
+              saveReviews.mutate({
+                // Links for other sites (the hotel's own website) are kept as they are.
+                ...savedReviews,
+                ...Object.fromEntries(
+                  Object.entries(draft.reviews)
+                    .filter(([, url]) => url !== null)
+                    .map(([key, url]) => [key, (url as string).trim()]),
+                ),
+                ...Object.fromEntries(
+                  Object.entries(draft.reviews)
+                    .filter(([key, url]) => url === null && key in savedReviews)
+                    .map(([key]) => [key, '']),
+                ),
+              });
           }}
         />
       ) : null}
@@ -680,9 +936,7 @@ export function WebsiteSettings({
           {property.wordpressConnectedAt ? 'WordPress paired' : 'Not connected'}
         </Badge>
         {property.wordpressConnectedAt ? (
-          <p className="m-0 text-sm">
-            Paired on {new Date(property.wordpressConnectedAt).toLocaleString()}
-          </p>
+          <p className="m-0 text-sm">Paired on {formatDateTime(property.wordpressConnectedAt)}</p>
         ) : null}
         {clockManaged ? (
           <p className="m-0 text-sm text-muted-foreground">

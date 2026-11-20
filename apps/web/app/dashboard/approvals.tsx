@@ -1,4 +1,6 @@
 'use client';
+
+import { formatDateTime } from '../../lib/hotel-format';
 import { SettingToggle } from '../../components/ui/setting-toggle';
 import { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -119,7 +121,7 @@ export function ApprovalPanel({
               </p>
             ) : null}
             <p>
-              Requested by {q.requesterName} | {new Date(q.createdAt).toLocaleString('en-GB')}
+              Requested by {q.requesterName} | {formatDateTime(q.createdAt)}
             </p>
             <p>
               {q.reasonCategory.replaceAll('_', ' ')}: {q.details}
@@ -234,7 +236,7 @@ export function ApprovalsQueue({ tenantId, propertyId }: { tenantId: string; pro
                 <strong>{q.payload.evidence.reference}</strong>{' '}
                 <Badge variant="warning">{priorityLabel(q.priority)}</Badge>
                 <p className="text-sm">
-                  {q.requesterName} | {new Date(q.createdAt).toLocaleString('en-GB')}
+                  {q.requesterName} | {formatDateTime(q.createdAt)}
                 </p>
               </div>
               <Button variant="outline" onClick={() => setSelected(q)}>

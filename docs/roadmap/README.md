@@ -4,6 +4,8 @@ Status reconciled against repository evidence on **2026-09-19**. This page owns 
 
 ## Current work
 
+**Plans awaiting owner approval (2026-11-17):** [Stripe hardening](stripe-hardening-plan.md) (13 findings, tasks T1-T12, decision D1 Connect vs pasted keys) and [Settings redesign](settings-redesign-plan.md) (15 problems, new structure, tasks R1-R11, decisions O1-O3).
+
 **Open follow-ups (2026-11-09):** the list of things not done yet, with owners of the detail, is in [open-follow-ups.md](open-follow-ups.md).
 
 **Overall order agreed 2026-11-09.** (1) ~~Close out [27](milestones/27-clock-rates-cancellation-permissions.md) and [28](milestones/28-release-and-cutover.md)~~ **reconciled 2026-11-09** against the code and the live system; the small rows still open are listed in each file and in the [open follow-ups](open-follow-ups.md). (2) [33 - Restaurants and venues](milestones/33-venues-restaurants.md), starting with the owner Q&A. (3) [32 - Empire website in Astro](milestones/32-empire-astro-website.md), built in its own repository, while [25 - Native PMS](milestones/25-native-pms.md) waits until the Clock PMS hotel work is finished (owner, 2026-11-09). Then 26, 30, 15 and 14. [34](milestones/34-beach-management.md) and [35](milestones/35-spa-pool-services.md) are recorded as future plans only.
@@ -64,6 +66,7 @@ The **one-time documentation initialization** was explicitly authorized outside 
 | [38 - Database hardening](milestones/38-database-hardening.md) | Planned 2026-11-13; tasks 1 (repository part), 2, 3, 4 and 5 live 2026-11-13; task 2 live; task 8 first release (counts only) in review; 6 and 7 wait for a week of query statistics |
 | [39 - Backend hardening](milestones/39-backend-hardening.md) | Planned 2026-11-14 from the backend review; 13 tasks; owner decisions recorded; ready to execute; nothing built |
 | [40 - Booking and payment flow hardening](milestones/40-booking-flow-hardening.md) | Planned 2026-11-14 from the booking flow review; 17 tasks; owner decisions recorded; ready to execute; nothing built |
+| [41 - Frontend hardening](milestones/41-frontend-hardening.md) | Planned 2026-11-14 from the frontend review; 13 tasks; owner decisions recorded; Astro launch tasks first; nothing built |
 
 ## How work proceeds
 

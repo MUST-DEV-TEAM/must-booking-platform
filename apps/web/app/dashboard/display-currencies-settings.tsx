@@ -1,20 +1,16 @@
 'use client';
 
-import { useState } from 'react';
+import { formatDateTime } from '../../lib/hotel-format';
+
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-  CardContent,
-} from '../../components/ui/card';
-import { Button } from '../../components/ui/button';
-import { Input } from '../../components/ui/input';
-import { Label } from '../../components/ui/label';
-import { Checkbox } from '../../components/ui/checkbox';
+
 import { Alert, AlertDescription } from '../../components/ui/alert';
 import { Badge } from '../../components/ui/badge';
+import { Button } from '../../components/ui/button';
+import { Input } from '../../components/ui/input';
+import { MultiSelect } from '../../components/ui/multi-select';
+import { currentCurrencyCodes } from '../../lib/currencies';
 import {
   Table,
   TableBody,
@@ -29,12 +25,15 @@ import {
   HARD_DEVIATION,
   SOFT_DEVIATION,
   STALE_DAYS,
-  worked,
 } from './exchange-rate-guidance';
 import { inventoryRequest } from './inventory-api';
 
+/** The most currencies a hotel can show next to its own. */
+export const MAX_DISPLAY_CURRENCIES = 5;
+
 type Rate = {
   currency: string;
+  /** Hotel-currency units for ONE unit of this currency (how the server stores it). */
   rate: string;
   updatedAt: string;
   updatedBy: string;
@@ -56,130 +55,38 @@ type Change = {
   changedAt: string;
   changedByName: string;
 };
-const plain = (value: string | null) => (value === null ? 'feed' : String(Number(value)));
-
-function RateRow({
-  currency,
-  base,
-  rate,
-  reference,
-  referenceDate,
-  enabled,
-  disabled,
-  onSelect,
-  onSave,
-  onRemove,
-}: {
-  currency: string;
-  base: string;
-  rate?: Rate;
-  reference?: number;
-  referenceDate?: string | null;
-  enabled: boolean;
-  disabled: boolean;
-  onSelect(enabled: boolean): void;
-  onSave(rate: string, confirmOutlier: boolean): void;
-  onRemove(): void;
-}) {
-  const [value, setValue] = useState(rate?.rate ?? '');
-  // A second, deliberate click is needed when the typed rate is far from the market.
-  const [acknowledged, setAcknowledged] = useState(false);
-  const deviation = deviationFromMarket(value, reference);
-  const far = deviation !== null && deviation > SOFT_DEVIATION;
-  const veryFar = deviation !== null && deviation > HARD_DEVIATION;
-  const example = worked(value, base, currency);
-  const age = rate ? daysSince(rate.updatedAt) : 0;
-  return (
-    <div className="flex flex-col gap-3 rounded-md border p-4">
-      <Label>
-        <Checkbox
-          checked={enabled}
-          disabled={disabled}
-          onCheckedChange={(checked) => onSelect(checked === true)}
-          aria-label={`Display ${currency}`}
-        />
-        Display {currency}
-        {rate && age >= STALE_DAYS ? (
-          <Badge variant="warning">Not reviewed for {age} days</Badge>
-        ) : null}
-      </Label>
-      <form
-        className="flex flex-wrap items-end gap-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (far && !acknowledged) {
-            setAcknowledged(true);
-            return;
-          }
-          onSave(value, veryFar);
-          setAcknowledged(false);
-        }}
-      >
-        <div className="flex flex-col gap-2">
-          <Label htmlFor={`fx-${currency}`}>
-            1 {currency} in {base}
-          </Label>
-          <Input
-            id={`fx-${currency}`}
-            aria-label={`Hotel rate for ${currency}`}
-            inputMode="decimal"
-            value={value}
-            disabled={disabled}
-            onChange={(event) => {
-              setValue(event.target.value);
-              setAcknowledged(false);
-            }}
-            placeholder="Use daily feed"
-          />
-        </div>
-        <Button type="submit" disabled={disabled || !value}>
-          {far && acknowledged ? 'Save anyway' : `Save ${currency} rate`}
-        </Button>
-        <Button type="button" variant="outline" disabled={disabled || !rate} onClick={onRemove}>
-          Use feed for {currency}
-        </Button>
-      </form>
-      {example ? <p className="m-0 text-sm">{example}</p> : null}
-      {reference ? (
-        <p className="m-0 text-sm text-muted-foreground">
-          Market today: 1 {currency} ≈ {reference} {base}
-          {referenceDate ? ` (daily feed, ${referenceDate})` : ''}.
-        </p>
-      ) : null}
-      {far ? (
-        <Alert variant="warning">
-          <AlertDescription>
-            {veryFar
-              ? `This is ${Math.round((deviation ?? 0) * 100)}% away from the market rate. A rate this far off is usually typed the wrong way round: the field is how many ${base} one ${currency} costs.`
-              : `This is ${Math.round((deviation ?? 0) * 100)}% away from the market rate.`}
-            {acknowledged ? ' Press Save anyway to keep it.' : ' Press save, then confirm.'}
-          </AlertDescription>
-        </Alert>
-      ) : null}
-      <p className="m-0 text-sm text-muted-foreground">
-        {rate
-          ? `1 ${currency} = ${rate.rate} ${base}. Last changed by ${rate.updatedByName || rate.updatedBy} on ${new Date(rate.updatedAt).toLocaleString()}.`
-          : 'Uses the daily feed when a rate is available.'}
-      </p>
-    </div>
-  );
-}
-
-export function DisplayCurrenciesSettings({
-  tenantId,
-  propertyId,
-  canWrite,
-  refreshKey,
-}: {
+type Scope = {
   tenantId: string;
   propertyId: string;
   canWrite: boolean;
   refreshKey?: string | null;
-}) {
+};
+
+const plain = (value: string | null) => (value === null ? 'feed' : String(Number(value)));
+
+const names = (() => {
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'currency' });
+  } catch {
+    return null;
+  }
+})();
+const currencyName = (code: string) => {
+  try {
+    return names?.of(code) ?? code;
+  } catch {
+    return code;
+  }
+};
+/**
+ * The hotel's display currencies and exchange rates, read and written through the exchange-rates API.
+ * The server keeps a rate as "hotel-currency units per one unit of the other currency"; staff see and type
+ * it the natural way round, "1 EUR equals 100.50 ALL", so this hook converts at the edges.
+ */
+export function useDisplayCurrencies({ tenantId, propertyId, refreshKey }: Scope) {
   const root = `/api/tenants/${tenantId}/properties/${propertyId}/exchange-rates`;
   const key = ['dashboard', 'display-currencies', tenantId, propertyId, refreshKey];
   const client = useQueryClient();
-  const [code, setCode] = useState('');
   const query = useQuery({
     queryKey: key,
     queryFn: async () => {
@@ -208,70 +115,238 @@ export function DisplayCurrenciesSettings({
   });
   const data = query.data;
   const selected = data?.displayCurrencies ?? [];
-  const codes = [
-    ...new Set([...selected, ...(data?.rates.map((rate) => rate.currency) ?? [])]),
-  ].sort();
-  const disabled = !canWrite || change.isPending;
-  const select = (currencies: string[]) => change.mutate({ method: 'PATCH', body: { currencies } });
+  return { query, history, change, data, selected };
+}
+
+/** "Also show prices in": up to five currencies, shown to guests as "about" amounts. */
+export function AlsoShowPrices(scope: Scope) {
+  const { query, change, data, selected } = useDisplayCurrencies(scope);
+  const options = useMemo(
+    () =>
+      currentCurrencyCodes
+        .filter((code) => code !== data?.base)
+        .map((code) => ({
+          value: code,
+          label: code,
+          description: currencyName(code),
+          // Only set once the limit is reached: any reason at all greys the choice out.
+          ...(selected.length >= MAX_DISPLAY_CURRENCIES && !selected.includes(code)
+            ? {
+                disabled: true,
+                disabledReason: `You can show up to ${MAX_DISPLAY_CURRENCIES} currencies.`,
+              }
+            : {}),
+        })),
+    [data?.base, selected],
+  );
+  if (query.isPending) return <p role="status">Loading currencies...</p>;
+  if (!data)
+    return (
+      <Alert variant="destructive">
+        <AlertDescription>
+          {query.error?.message ?? 'Currencies could not be read.'}
+        </AlertDescription>
+      </Alert>
+    );
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Display currencies</CardTitle>
-        <CardDescription>
-          Approximate prices only, not used for charging. Bookings, payments and refunds keep their
-          original amounts and currencies. Enter how many hotel-currency units equal one
-          display-currency unit.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        {query.isPending ? <p role="status">Loading display currencies...</p> : null}
-        {query.isError || change.isError ? (
-          <Alert variant="destructive">
-            <AlertDescription>
-              {(change.error ?? query.error)?.message ?? 'Display currencies could not be saved.'}
-            </AlertDescription>
-          </Alert>
-        ) : null}
-        {change.isSuccess ? <p role="status">Display currencies saved.</p> : null}
-        {data ? (
-          <>
-            <p className="m-0 text-sm">
-              Hotel currency: <strong>{data.base}</strong>. A hotel rate overrides the daily feed;
-              Use feed removes only that override.
-            </p>
-            {data.displayCurrencies === null ? (
-              <p className="m-0 text-sm text-muted-foreground">
-                The website currently uses its Elementor currency choices. Add a currency here to
-                manage the website list from these settings.
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <MultiSelect
+            label="Also show prices in"
+            value={selected}
+            options={options}
+            disabled={!scope.canWrite || change.isPending}
+            placeholder="No other currency"
+            onChange={(next) => {
+              if (next.length <= MAX_DISPLAY_CURRENCIES)
+                change.mutate({ method: 'PATCH', body: { currencies: next } });
+            }}
+          />
+        </div>
+        <span className="shrink-0 text-xs text-muted-foreground">
+          {selected.length} of {MAX_DISPLAY_CURRENCIES}
+        </span>
+      </div>
+      {change.isError ? (
+        <p role="alert" className="m-0 text-xs font-semibold text-destructive">
+          {change.error.message}
+        </p>
+      ) : (
+        <p className="m-0 text-xs text-muted-foreground">
+          Shown as &quot;about&quot; amounts. Guests always pay in {data.base}.
+        </p>
+      )}
+    </div>
+  );
+}
+
+const positive = (text: string) => {
+  const number = Number(text.trim().replace(',', '.'));
+  return Number.isFinite(number) && number > 0 ? number : null;
+};
+/** A rate as shown: two decimals for large ones (100.50), four for small ones (1.0820). */
+const shown = (value: number) => (value >= 10 ? value.toFixed(2) : value.toFixed(4));
+const ago = (iso: string) => {
+  const days = daysSince(iso);
+  return days === 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`;
+};
+
+function RateRow({
+  currency,
+  base,
+  rate,
+  reference,
+  disabled,
+  onSave,
+  onRemove,
+}: {
+  currency: string;
+  base: string;
+  rate?: Rate;
+  /** Today's market value: hotel-currency units per one unit of this currency. */
+  reference?: number;
+  disabled: boolean;
+  onSave(storedRate: string, confirmOutlier: boolean): void;
+  onRemove(): void;
+}) {
+  const initial = rate && Number(rate.rate) > 0 ? shown(1 / Number(rate.rate)) : '';
+  const [value, setValue] = useState(initial);
+  // A second, deliberate click is needed when the typed rate is far from the market.
+  const [acknowledged, setAcknowledged] = useState(false);
+  const typed = positive(value);
+  const stored = typed === null ? null : (1 / typed).toFixed(8);
+  const tooLarge = stored !== null && Number(stored) === 0;
+  const dirty = value !== initial;
+  // The market warning is for a rate being typed, not for one that is already saved.
+  const deviation = !dirty || stored === null ? null : deviationFromMarket(stored, reference);
+  const far = deviation !== null && deviation > SOFT_DEVIATION;
+  const veryFar = deviation !== null && deviation > HARD_DEVIATION;
+  const effective = typed ?? (reference ? 1 / reference : null);
+  const age = rate ? daysSince(rate.updatedAt) : 0;
+  const save = () => {
+    if (stored === null || tooLarge) return;
+    if (far && !acknowledged) {
+      setAcknowledged(true);
+      return;
+    }
+    onSave(stored, veryFar);
+    setAcknowledged(false);
+  };
+  return (
+    <>
+      <TableRow>
+        <TableCell className="font-semibold">
+          {currency} · {currencyName(currency)}
+        </TableCell>
+        <TableCell>
+          <form
+            className="flex items-center gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              save();
+            }}
+          >
+            <Input
+              aria-label={`1 ${base} equals how many ${currency}`}
+              className="w-28 font-mono text-xs"
+              inputMode="decimal"
+              value={value}
+              disabled={disabled}
+              placeholder={reference ? shown(1 / reference) : 'Daily feed'}
+              onChange={(event) => {
+                setValue(event.target.value);
+                setAcknowledged(false);
+              }}
+            />
+            {dirty && typed !== null && !tooLarge ? (
+              <Button type="submit" size="sm" disabled={disabled}>
+                {far && acknowledged ? 'Save anyway' : 'Save'}
+              </Button>
+            ) : null}
+          </form>
+        </TableCell>
+        <TableCell className="text-sm text-muted-foreground">
+          {rate ? ago(rate.updatedAt) : 'Daily feed'}
+          {rate && age >= STALE_DAYS ? (
+            <Badge variant="warning" className="ml-2">
+              Not reviewed for {age} days
+            </Badge>
+          ) : null}
+        </TableCell>
+        <TableCell className="text-sm text-muted-foreground">
+          {effective
+            ? `120.00 ${base} ≈ ${(120 * effective).toFixed(2)} ${currency}`
+            : 'No rate available yet'}
+        </TableCell>
+      </TableRow>
+      {far || tooLarge || rate ? (
+        <TableRow className="border-0 hover:bg-transparent">
+          <TableCell colSpan={4} className="pt-0">
+            {tooLarge ? (
+              <p role="alert" className="m-0 text-xs font-semibold text-destructive">
+                That rate is too large to store. Check it.
+              </p>
+            ) : far ? (
+              <Alert variant="warning">
+                <AlertDescription>
+                  {veryFar
+                    ? `This is ${Math.round((deviation ?? 0) * 100)}% away from the market rate. A rate this far off is usually typed the wrong way round: the field is how many ${currency} one ${base} buys.`
+                    : `This is ${Math.round((deviation ?? 0) * 100)}% away from the market rate.`}
+                  {acknowledged ? ' Press Save anyway to keep it.' : ' Press Save, then confirm.'}
+                </AlertDescription>
+              </Alert>
+            ) : rate ? (
+              <p className="m-0 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                Set by {rate.updatedByName || rate.updatedBy}. It overrides the daily feed
+                {reference
+                  ? ` (market today: 1 ${base} ≈ ${shown(1 / reference)} ${currency})`
+                  : ''}
+                .
+                <Button
+                  type="button"
+                  variant="link"
+                  size="sm"
+                  className="h-auto p-0 text-xs"
+                  disabled={disabled}
+                  onClick={onRemove}
+                >
+                  Use the daily feed
+                </Button>
               </p>
             ) : null}
-            <form
-              className="flex flex-wrap items-end gap-2"
-              onSubmit={(event) => {
-                event.preventDefault();
-                select([...selected, code.toUpperCase()]);
-                setCode('');
-              }}
-            >
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="display-currency-code">Extra display currency</Label>
-                <Input
-                  id="display-currency-code"
-                  placeholder="EUR"
-                  maxLength={3}
-                  value={code}
-                  disabled={disabled}
-                  onChange={(event) => setCode(event.target.value.toUpperCase())}
-                />
-              </div>
-              <Button
-                type="submit"
-                disabled={disabled || !/^[A-Z]{3}$/.test(code) || code === data.base}
-              >
-                Add display currency
-              </Button>
-            </form>
-            {codes.map((currency) => {
+          </TableCell>
+        </TableRow>
+      ) : null}
+    </>
+  );
+}
+
+/** One row per currency shown next to the hotel's own: the rate, when it changed and what guests see. */
+export function ExchangeRateTable(scope: Scope) {
+  const { query, history, change, data, selected } = useDisplayCurrencies(scope);
+  if (!data || selected.length === 0)
+    return query.isPending ? null : (
+      <p className="m-0 text-sm text-muted-foreground">
+        Choose a currency above to set its rate. Prices stay in {data?.base ?? 'the hotel currency'}
+        .
+      </p>
+    );
+  const disabled = !scope.canWrite || change.isPending;
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="overflow-x-auto rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Currency</TableHead>
+              <TableHead>1 {data.base} equals</TableHead>
+              <TableHead>Updated</TableHead>
+              <TableHead>Example shown to guests</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {selected.map((currency) => {
               const rate = data.rates.find((r) => r.currency === currency);
               return (
                 <RateRow
@@ -280,57 +355,58 @@ export function DisplayCurrenciesSettings({
                   base={data.base}
                   rate={rate}
                   reference={data.feed?.perUnit[currency]}
-                  referenceDate={data.feed?.date}
-                  enabled={selected.includes(currency)}
                   disabled={disabled}
-                  onSelect={(on) =>
-                    select(on ? [...selected, currency] : selected.filter((c) => c !== currency))
-                  }
-                  onSave={(rate, confirmOutlier) =>
+                  onSave={(storedRate, confirmOutlier) =>
                     change.mutate({
                       method: 'PUT',
                       path: `/${currency}`,
-                      body: confirmOutlier ? { rate, confirmOutlier: true } : { rate },
+                      body: confirmOutlier
+                        ? { rate: storedRate, confirmOutlier: true }
+                        : { rate: storedRate },
                     })
                   }
                   onRemove={() => change.mutate({ method: 'DELETE', path: `/${currency}` })}
                 />
               );
             })}
-            <div className="flex flex-col gap-2">
-              <h3 className="m-0 text-base font-semibold">Recent rate changes</h3>
-              {history.data && history.data.length > 0 ? (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>When</TableHead>
-                      <TableHead>Currency</TableHead>
-                      <TableHead>Change</TableHead>
-                      <TableHead>By</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {history.data.map((entry) => (
-                      <TableRow key={entry.id}>
-                        <TableCell>{new Date(entry.changedAt).toLocaleString()}</TableCell>
-                        <TableCell>{entry.currency}</TableCell>
-                        <TableCell>
-                          {plain(entry.oldRate)} → {plain(entry.newRate)} {data.base}
-                        </TableCell>
-                        <TableCell>{entry.changedByName}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              ) : (
-                <p className="m-0 text-sm text-muted-foreground">
-                  No hotel rate has been changed yet.
-                </p>
-              )}
-            </div>
-          </>
-        ) : null}
-      </CardContent>
-    </Card>
+          </TableBody>
+        </Table>
+      </div>
+      <p className="m-0 text-xs text-muted-foreground">Rates: above 0, up to 6 decimals.</p>
+      {change.isError ? (
+        <Alert variant="destructive">
+          <AlertDescription>{change.error.message}</AlertDescription>
+        </Alert>
+      ) : null}
+      <details className="text-sm">
+        <summary className="cursor-pointer font-semibold">Recent rate changes</summary>
+        {history.data && history.data.length > 0 ? (
+          <Table className="mt-2">
+            <TableHeader>
+              <TableRow>
+                <TableHead>When</TableHead>
+                <TableHead>Currency</TableHead>
+                <TableHead>Change</TableHead>
+                <TableHead>By</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {history.data.map((entry) => (
+                <TableRow key={entry.id}>
+                  <TableCell>{formatDateTime(entry.changedAt)}</TableCell>
+                  <TableCell>{entry.currency}</TableCell>
+                  <TableCell>
+                    {plain(entry.oldRate)} → {plain(entry.newRate)} {data.base} per {entry.currency}
+                  </TableCell>
+                  <TableCell>{entry.changedByName}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        ) : (
+          <p className="m-0 mt-2 text-muted-foreground">No hotel rate has been changed yet.</p>
+        )}
+      </details>
+    </div>
   );
 }

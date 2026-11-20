@@ -78,7 +78,7 @@ export class SenderVerificationStore {
       code_hash=NULL,encrypted_message=NULL
       WHERE s.tenant_id=${scope.tenantId}::uuid AND s.property_id=${scope.propertyId}::uuid AND s.state='pending'
       AND (s.expires_at<=now() OR NOT EXISTS(SELECT 1 FROM email_sending_profiles p WHERE p.tenant_id=s.tenant_id AND p.property_id=s.property_id
-      AND p.mode='SMTP' AND p.credential_revision=s.credential_revision AND p.from_address=s.from_address))`;
+      AND p.mode IN ('SMTP','BREVO') AND p.credential_revision=s.credential_revision AND p.from_address=s.from_address))`;
   }
 
   async command(scope: EmailContext, id: string): Promise<RenderedEmailCommand> {

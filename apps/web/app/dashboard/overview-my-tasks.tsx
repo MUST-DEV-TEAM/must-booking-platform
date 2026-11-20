@@ -1,5 +1,7 @@
 'use client';
 
+import { formatDate } from '../../lib/hotel-format';
+
 import { useQuery } from '@tanstack/react-query';
 
 import { ListCard, ListRow } from '../../components/ui/list-card';
@@ -37,7 +39,7 @@ export function MyTasksCard({ tenantId, propertyId }: { tenantId: string; proper
           href={`${base}&notification=${item.id}`}
           title={item.title}
           subtitle={item.priority}
-          trailing={new Date(item.createdAt).toLocaleDateString()}
+          trailing={formatDate(item.createdAt)}
         />
       ))}
     </ListCard>

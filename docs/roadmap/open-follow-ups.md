@@ -31,7 +31,7 @@ Open findings and required improvements:
 
 Validate free/late cancellation, open/closed deposit bills, partial/full/pending refunds, changed booking versions, staff permissions, duplicate requests and provider failures. Never repeat a cancellation or refund blindly to clear a notice. Canonical behavior and provider evidence: [booking and payments](../architecture/booking-and-payments.md), [Clock endpoint matrix](../integrations/clock/endpoint-matrix.md).
 
-An initial fix is unfinished and untested in local worktree `C:/tmp/wt-guest-cancellation`, branch `fix/guest-cancellation-financial-refresh`. It has not been pushed or deployed. Review it before continuing; this follow-up is not authorization for live provider actions, accounting corrections or deployment.
+The first item is partly addressed: since 2026-11-16 (#494) Clock hydration raises the booking version only on a real change, and on 2026-11-18 the guest cancel path retries its money check once when a concurrent update interrupts it, and answers "reload" instead of sending the guest to staff review (branch `fix/guest-cancel-concurrent-update`). The other findings above are still open; this follow-up is not authorization for live provider actions, accounting corrections or deployment.
 
 ## Websites (see [docs/websites](../websites/README.md))
 

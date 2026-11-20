@@ -1,3 +1,4 @@
+import { formatDateTime } from '../../../lib/hotel-format';
 import type { AccommodationActivity } from './room-management-types';
 
 export type AccommodationActivityGroup = {
@@ -109,7 +110,5 @@ export function formatRelativeActivityTime(value: string, now = new Date()): str
 /** Format the full local date used by the activity tooltip. */
 export function formatActivityDate(value: string): string {
   const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? 'Unknown time'
-    : new Intl.DateTimeFormat(undefined, { dateStyle: 'full', timeStyle: 'short' }).format(date);
+  return Number.isNaN(date.getTime()) ? 'Unknown time' : formatDateTime(date, 'medium');
 }

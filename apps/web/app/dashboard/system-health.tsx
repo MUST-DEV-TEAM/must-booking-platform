@@ -1,5 +1,7 @@
 'use client';
 
+import { formatDateTime } from '../../lib/hotel-format';
+
 import { useQuery } from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';
 
@@ -133,8 +135,8 @@ export function SystemHealthTab({
       </div>
       <ClockPermissionsPanel tenantId={tenantId} propertyId={propertyId} />
       <p className="m-0 text-xs text-muted-foreground">
-        Checked {new Date(health.checkedAt).toLocaleString()}. Readings come from stored records; no
-        outside system is contacted.
+        Checked {formatDateTime(health.checkedAt)}. Readings come from stored records; no outside
+        system is contacted.
       </p>
     </div>
   );

@@ -470,4 +470,52 @@ describe('scoped SMTP sender mailbox proofs through real PG/Redis with mocked de
     }
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
+
+  it('delivers and confirms the mailbox code for a Brevo sender too', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async (input) => {
+        const path = String(input);
+        if (path === 'https://api.brevo.com/v3/account') return Response.json({});
+        if (path === 'https://api.brevo.com/v3/senders')
+          return Response.json({ senders: [{ email: 'hotel@example.test', active: true }] });
+        if (path === 'https://api.brevo.com/v3/senders/domains')
+          return Response.json({ domains: [] });
+        throw new Error(`unexpected request ${path}`);
+      }),
+    );
+    try {
+      const p = randomUUID();
+      await admin.$executeRaw`INSERT INTO properties(id,tenant_id,name,slug) VALUES(${p}::uuid,${tenantId}::uuid,'Brevo proof hotel',${randomUUID()})`;
+      await request(app.getHttpServer())
+        .put(url(p))
+        .set('Cookie', cookie)
+        .set('Idempotency-Key', randomUUID())
+        .send({
+          version: 1,
+          mode: 'BREVO',
+          reason: 'Configure Brevo mailbox test',
+          fromAddress: 'hotel@example.test',
+          fallbackGuest: true,
+          credentials: { apiKey: 'xkeysib-test-only' },
+        })
+        .expect(200);
+      const checked = await post(p, '/check', { version: 2, reason: 'Check mocked Brevo' }).expect(
+        201,
+      );
+      expect(checked.body.state).toBe('verified');
+      const proof = await issue(p, checked.body.version as number);
+      expect(proof.state).toBe('pending');
+      const code = await waitCode(proof.id);
+      expect((await row(p, proof.id)).state).toBe('pending');
+      const confirmed = await post(p, '/verify-from/confirm', {
+        version: proof.version,
+        code,
+      }).expect(201);
+      expect(confirmed.body.state).toBe('verified');
+      expect((await profile(p)).fromVerifiedAt).toBeTruthy();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

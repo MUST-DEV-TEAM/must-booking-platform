@@ -339,8 +339,9 @@ describe('Emails workspace and legacy links', () => {
     const host = await mount('recipients');
     expect(host.textContent).toContain('Sender and language');
     expect(host.textContent).toContain('Daily summary');
-    expect(host.textContent).toContain('Review links');
-    expect(host.querySelector('input[value="https://g.page/r/villa/review"]')).not.toBeNull();
+    // Review links are edited under Contact and brand; Emails only points there.
+    expect(host.textContent).toContain('Contact and brand');
+    expect(host.querySelector('input[value="https://g.page/r/villa/review"]')).toBeNull();
     await click(button('Save pre-arrival reminder'));
     const save = calls.find((row) => row.url.endsWith('/topics/pre_arrival'));
     expect(save).toMatchObject({

@@ -1,4 +1,6 @@
 'use client';
+
+import { formatDateTime } from '../../lib/hotel-format';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
 import { Alert, AlertDescription } from '../../components/ui/alert';
@@ -335,7 +337,7 @@ export function ActivityAudit({
               id: 'createdAt',
               label: 'Time',
               value: (e) => e.createdAt,
-              render: (e) => new Date(e.createdAt).toLocaleString(),
+              render: (e) => formatDateTime(e.createdAt),
             },
             { id: 'family', label: 'Family', value: (e) => e.family },
             { id: 'source', label: 'Source', value: (e) => e.source ?? 'Not specified' },
@@ -416,7 +418,7 @@ export function ActivityAudit({
             <DetailList
               items={[
                 { label: 'Evidence ID', value: event.id },
-                { label: 'Time', value: new Date(event.createdAt).toLocaleString() },
+                { label: 'Time', value: formatDateTime(event.createdAt) },
                 { label: 'Action', value: event.title ?? event.action },
                 { label: 'Source', value: event.source ?? 'Not specified' },
                 ...(event.operationId
@@ -488,8 +490,7 @@ export function ActivityAudit({
                       </Button>
                       <p className="text-xs text-muted-foreground">
                         {auditResultLabel(item.result)}
-                        {item.source ? ' · ' + item.source : ''} ·{' '}
-                        {new Date(item.createdAt).toLocaleString()}
+                        {item.source ? ' · ' + item.source : ''} · {formatDateTime(item.createdAt)}
                       </p>
                     </li>
                   ))}
@@ -526,8 +527,7 @@ export function ActivityAudit({
                         {item.title ?? item.action}
                       </Button>
                       <p className="text-xs text-muted-foreground">
-                        {auditResultLabel(item.result)} ·{' '}
-                        {new Date(item.createdAt).toLocaleString()}
+                        {auditResultLabel(item.result)} · {formatDateTime(item.createdAt)}
                       </p>
                     </li>
                   ))}

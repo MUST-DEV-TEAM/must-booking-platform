@@ -1,4 +1,6 @@
 'use client';
+
+import { formatDateTime } from '../../lib/hotel-format';
 import type {
   NotificationSettingsResponse,
   NotificationTopicSettings,
@@ -33,7 +35,6 @@ type Preferences = {
   muteOptionalEmails: boolean;
   optionalEmails: { topic: string; label: string }[];
 };
-type Reviews = { links: Record<string, string>; sites: { key: string; label: string }[] };
 export function EmailConfiguration({
   tenantId,
   base,
@@ -51,10 +52,6 @@ export function EmailConfiguration({
     queryKey: ['emails', base, 'topics'],
     queryFn: () => emailRequest<NotificationSettingsResponse>(`${base}/notification-settings`),
   });
-  const reviews = useQuery({
-    queryKey: ['emails', base, 'reviews'],
-    queryFn: () => emailRequest<Reviews>(`${base}/review-links`),
-  });
   const sender = useQuery({
     queryKey: ['emails', base, 'sender'],
     queryFn: () =>
@@ -66,11 +63,10 @@ export function EmailConfiguration({
     queryKey: ['emails', tenantId, 'preferences'],
     queryFn: () => emailRequest<Preferences>(`/api/tenants/${tenantId}/my-email-preferences`),
   });
-  const error = config.error ?? topics.error ?? reviews.error ?? sender.error ?? preferences.error;
+  const error = config.error ?? topics.error ?? sender.error ?? preferences.error;
   const refresh = () => {
     void config.refetch();
     void topics.refetch();
-    void reviews.refetch();
     void sender.refetch();
     void preferences.refetch();
   };
@@ -82,8 +78,7 @@ export function EmailConfiguration({
         onRetry={refresh}
       />
     );
-  if (!config.data || !topics.data || !reviews.data || !sender.data || !preferences.data)
-    return <ListSkeleton />;
+  if (!config.data || !topics.data || !sender.data || !preferences.data) return <ListSkeleton />;
   return (
     <div className="flex flex-col gap-5">
       <EmailSendingSetup base={base} canWrite={canWrite} />
@@ -115,14 +110,7 @@ export function EmailConfiguration({
           refresh={refresh}
         />
       ))}
-      <ReviewEditor
-        key={`reviews/${config.data.version}`}
-        base={base}
-        reviews={reviews.data}
-        version={config.data.version}
-        canWrite={canWrite}
-        refresh={refresh}
-      />
+      <ReviewLinksMoved />
       <SuppressionList base={base} canWrite={canWrite} />
       <PersonalPreference
         base={base}
@@ -604,72 +592,19 @@ export function TopicEditor({
     </Card>
   );
 }
-function ReviewEditor({
-  base,
-  reviews,
-  version,
-  canWrite,
-  refresh,
-}: {
-  base: string;
-  reviews: Reviews;
-  version: number;
-  canWrite: boolean;
-  refresh: () => void;
-}) {
-  const [draft, setDraft] = useState(reviews.links),
-    [error, setError] = useState(''),
-    [busy, setBusy] = useState(false);
-  const writer = useRef(createEmailWriter()).current;
+function ReviewLinksMoved() {
   return (
     <Card>
       <CardHeader>
         <CardTitle>Review links</CardTitle>
       </CardHeader>
-      <CardContent className="flex flex-col gap-4">
+      <CardContent>
         <Alert>
           <AlertDescription>
-            Every guest receives the same review links in the post-stay email.
+            Review links are set once under Settings, Contact and brand, and the post-stay email
+            uses them from there.
           </AlertDescription>
         </Alert>
-        {reviews.sites.map((site) => (
-          <FormField key={site.key} label={site.label} htmlFor={`review-${site.key}`}>
-            <Input
-              id={`review-${site.key}`}
-              type="url"
-              placeholder="https://"
-              value={draft[site.key] ?? ''}
-              disabled={!canWrite || busy}
-              onChange={(e) => setDraft({ ...draft, [site.key]: e.target.value })}
-            />
-          </FormField>
-        ))}
-        {error ? (
-          <Alert variant="destructive">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        ) : null}
-        <Button
-          disabled={!canWrite || busy}
-          onClick={async () => {
-            setBusy(true);
-            setError('');
-            try {
-              await writer(
-                base + '/email-configuration/review-links',
-                { version, links: draft },
-                'PUT',
-              );
-              refresh();
-            } catch (e) {
-              setError(e instanceof Error ? e.message : 'Save failed.');
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          Save review links
-        </Button>
       </CardContent>
     </Card>
   );
@@ -772,7 +707,7 @@ function SuppressionList({ base, canWrite }: { base: string; canWrite: boolean }
               {
                 id: 'updated',
                 label: 'Updated',
-                value: (row) => new Date(row.updatedAt).toLocaleString(),
+                value: (row) => formatDateTime(row.updatedAt),
               },
             ]}
             emptyTitle="No suppressed recipients"

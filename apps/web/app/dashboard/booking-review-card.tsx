@@ -1,4 +1,6 @@
 'use client';
+
+import { formatDateTime } from '../../lib/hotel-format';
 import { useState } from 'react';
 import { Input } from '../../components/ui/input';
 
@@ -120,7 +122,7 @@ export function BookingReviewCard({
           {review.data.reasons.length ? (
             review.data.reasons.map((reason) => (
               <span key={`${reason.text}-${reason.openedAt}`}>
-                {reason.text} (since {new Date(reason.openedAt).toLocaleString()})
+                {reason.text} (since {formatDateTime(reason.openedAt)})
               </span>
             ))
           ) : (

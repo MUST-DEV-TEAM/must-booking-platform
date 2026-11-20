@@ -1846,7 +1846,7 @@ describe('ClockAvailabilityService.selectRateForStay', () => {
     expect(quote).toEqual({ ok: true, value: { amount: '110.00', currency: 'EUR' } });
     expect(selected).toEqual({
       ok: true,
-      value: { rateId: '803406', total: { amount: '110.00', currency: 'EUR' } },
+      value: { rateId: '803406', total: { amount: '110.00', currency: 'EUR' }, mealIds: [] },
     });
   });
 });
@@ -1855,7 +1855,11 @@ const bedAndBreakfast = { id: 546549, name: 'BB', meals: [{ name: 'Breakfast' }]
 const fullBoard = {
   id: 615688,
   name: 'FB',
-  meals: [{ name: 'Breakfast' }, { name: 'Lunch' }, { name: 'Dinner' }],
+  meals: [
+    { id: 9479, name: 'Breakfast' },
+    { id: 9480, name: 'Lunch' },
+    { id: 9481, name: 'Dinner' },
+  ],
 };
 const ratesBody = [
   {
@@ -2079,9 +2083,14 @@ describe('ClockAvailabilityService chosen rate', () => {
       chosenRateId: '615688',
     });
 
+    // The rate's own meal ids come with the selection, so the booking can carry the meals.
     expect(selected).toEqual({
       ok: true,
-      value: { rateId: '615688', total: { amount: '310.00', currency: 'EUR' } },
+      value: {
+        rateId: '615688',
+        total: { amount: '310.00', currency: 'EUR' },
+        mealIds: [9479, 9480, 9481],
+      },
     });
     expect(request).toHaveBeenLastCalledWith(
       credentials,

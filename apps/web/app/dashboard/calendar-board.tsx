@@ -1,4 +1,6 @@
 'use client';
+
+import { formatTime } from '../../lib/hotel-format';
 import { useClockRoomCounts } from './clock-room-counts';
 import {
   ClockSyncStatus,
@@ -1050,9 +1052,7 @@ export function CalendarBoard({
             </span>
           ) : null}
           <span className="ml-auto">
-            {board.dataUpdatedAt
-              ? `Updated ${new Date(board.dataUpdatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`
-              : ''}
+            {board.dataUpdatedAt ? `Updated ${formatTime(board.dataUpdatedAt)}` : ''}
           </span>
         </div>
       </Card>

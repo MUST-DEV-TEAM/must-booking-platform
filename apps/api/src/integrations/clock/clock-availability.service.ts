@@ -136,6 +136,11 @@ export const NO_CLOCK_CONNECTION_MESSAGE = 'This property has no active Clock PM
 export type ClockRateSelection = {
   rateId: string;
   total: Money;
+  /**
+   * Clock's ids of the meals the rate includes. A booking only shows its meals ticked when they
+   * are sent with it, so booking creation passes these on.
+   */
+  mealIds?: number[];
 };
 
 /**
@@ -195,6 +200,8 @@ export type ClockRateInfo = {
   /** Plain-language label derived from the rate's meals, for example "Bed & breakfast". */
   label: string;
   mealNames: string[];
+  /** Clock's ids for those meals, in the same order; they differ from hotel to hotel. */
+  mealIds?: number[];
   currency: string | null;
   /** The rate's "included discount" (0.12 = 12%), when the hotel set one. */
   includedDiscountRate: number | null;
@@ -214,6 +221,14 @@ export type ClockStayOffer = {
   /** The rate is hidden behind a promo code (a guest sees it only after entering the code; staff always see it). */
   requiresCode?: boolean;
 };
+
+/** Clock's numeric ids of a rate's meals; meals without a usable id are left out. */
+export function mealIdsOf(meals: Array<{ id?: number | string }> | undefined): number[] {
+  const ids = (meals ?? [])
+    .map((meal) => Number(meal.id))
+    .filter((id) => Number.isInteger(id) && id > 0);
+  return [...new Set(ids)];
+}
 
 /**
  * A plain label for a rate from its meals. Clock names rates by code ("BB", "FB"), which means
@@ -307,7 +322,7 @@ type ClockRateRow = {
   wbe: boolean;
   name?: string;
   currency?: string;
-  meals?: Array<{ name?: string }>;
+  meals?: Array<{ id?: number | string; name?: string }>;
   /** Promo codes that unlock this rate. A rate with codes is hidden from everyone who does not enter one. */
   bonus_codes?: unknown;
   /** Share of the price that is a discount, for drawing a crossed-out price (0.12 = 12%). Changes no price. */
@@ -1228,6 +1243,7 @@ export class ClockAvailabilityService {
           amount: (winner.offer.price.cents / 100).toFixed(2),
           currency: winner.offer.price.currency,
         },
+        mealIds: rateIds.value.info[winner.rateId]?.mealIds ?? [],
       },
     };
   }
@@ -1882,6 +1898,7 @@ export class ClockAvailabilityService {
         name: rate.name ?? '',
         label: rateOfferLabel(mealNames, rate.name ?? ''),
         mealNames,
+        mealIds: mealIdsOf(rate.meals),
         currency: rate.currency ?? null,
         includedDiscountRate: includedDiscountOf(rate),
         baseRateId: rate.base_rate_id ? String(rate.base_rate_id) : null,

@@ -1,3 +1,4 @@
+import { emailBrandExtra } from './email-brand-columns';
 import { bookingContactSql } from '../booking/booking-contact';
 import {
   Inject,
@@ -57,6 +58,13 @@ type PropertyRow = {
   phone: string | null;
   websiteUrl: string | null;
   address: string | null;
+  legalName?: string | null;
+  taxNumber?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  directions?: string | null;
+  dateFormat?: string | null;
+  onlineProfiles?: Record<string, string> | null;
   checkInTime: string | null;
 };
 type StayRow = {
@@ -644,7 +652,7 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
   ): Promise<MailBrand & { checkInTime: string | null }> {
     const rows = await tx.$queryRaw<PropertyRow[]>`
       SELECT name, brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",logo_url AS "logoUrl", support_email AS "supportEmail", phone,
-        public_website_origin AS "websiteUrl", address, check_in_time AS "checkInTime"
+        public_website_origin AS "websiteUrl", address, ${emailBrandExtra}, check_in_time AS "checkInTime"
       FROM properties WHERE tenant_id = ${context.tenantId}::uuid AND id = ${context.propertyId}::uuid
     `;
     const row = rows[0]!;

@@ -33,6 +33,21 @@ export class PropertiesController {
       propertyId,
     );
   }
+  /** A personal choice on the Settings overview ("Hide for now", "Got it"); any staff member who sees it. */
+  @Patch(':propertyId/settings-summary/hidden')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  setSettingsOverviewHidden(
+    @Param('propertyId') propertyId: string,
+    @Body() body: unknown,
+    @Req() r: { tenantContext: { tenantId: string; userId: string } },
+  ) {
+    return this.properties.setSettingsOverviewHidden(
+      r.tenantContext.tenantId,
+      r.tenantContext.userId,
+      propertyId,
+      body,
+    );
+  }
   @Post()
   @TenantScoped()
   @Roles(Role.TenantOwner, Role.TenantAdmin)

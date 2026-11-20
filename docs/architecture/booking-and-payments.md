@@ -194,6 +194,8 @@ Failed, unpaid booking attention entries can be dismissed with an audit note wit
 
 New confirmation messages contain a scoped signed Manage booking link, valid through checkout plus one day. Opening it only reads a preview. Explicit confirmation rechecks the saved deadline and verified refundable payment coverage before invoking the existing cancellation/refund orchestrator. Clock multi-room bookings, unknown terms, restricted-period bookings and unsupported financial coverage use a guest-origin request instead. A request leaves inventory and money unchanged. Explicit request consent never becomes automatic cancellation; duplicate pending requests reuse the same review item. A reviewer must acknowledge unknown Clock terms before approving a guest request. Existing staff permissions, approval controls and standalone flows remain.
 
+Guest cancellation retries a financial read once when its snapshot is outdated or a concurrent booking update interrupts it. Preview reloads the booking once after a conflict and keeps polling while a healthy snapshot refers to another booking version. A persistent conflict during confirmation returns HTTP 409 and requires the guest to reload; it does not create an approval request or repeat a cancellation/refund command. Genuine financial mismatches and provider failures retain staff review.
+
 Balance-collection links reuse a matching READY session for up to fifteen minutes before another provider refresh only when local remaining debt, current connection and amount/currency still match. Clock reuse additionally requires a healthy projection no older than sixty seconds, matching booking version and local ledger totals. This optimizes retrieval of an existing link, not capture or creation of a new charge.
 
 

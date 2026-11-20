@@ -1,5 +1,7 @@
 'use client';
 
+import { formatDate } from '../../lib/hotel-format';
+
 import { HotelMoney } from './approximate-money';
 import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -86,10 +88,7 @@ const guestOf = (row: Row) =>
 const money = (amount: string, currency: string, tenantId: string, propertyId: string) => (
   <HotelMoney tenantId={tenantId} propertyId={propertyId} amount={amount} currency={currency} />
 );
-const day = (iso: string) =>
-  new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(
-    new Date(`${iso}T00:00:00`),
-  );
+const day = (iso: string) => formatDate(iso, 'medium');
 
 type Focus = 'all' | 'bookings' | 'payments' | 'urgent';
 type Sort = 'priority' | 'newest' | 'arrival';

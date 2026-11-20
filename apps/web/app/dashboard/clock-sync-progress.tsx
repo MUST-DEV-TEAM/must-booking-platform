@@ -1,5 +1,7 @@
 'use client';
 
+import { formatNumber } from '../../lib/hotel-format';
+
 import { RefreshCw } from 'lucide-react';
 
 import { Badge } from '../../components/ui/badge';
@@ -27,7 +29,7 @@ export type SyncSummary = {
   overall: { percent: number; state: SyncGroup['state']; etaSeconds: number | null };
 };
 
-const number = (value: number) => value.toLocaleString('en-GB');
+const number = (value: number) => formatNumber(value);
 
 /** "about 5 h 20 min", "about 12 min", "under a minute". Estimates are never shown more exactly than that. */
 export function formatDuration(seconds: number): string {

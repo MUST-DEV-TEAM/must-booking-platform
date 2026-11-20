@@ -17,12 +17,15 @@ export function SettingsFrame({
   propertyId,
   tab,
   onNavigate,
+  overviewBadge,
   children,
 }: {
   tenantId: string;
   propertyId: string;
   tab: SettingsTab;
   onNavigate?: (tab: SettingsTab) => void;
+  /** Shown next to "Overview" in the menu, e.g. how many things need attention. */
+  overviewBadge?: ReactNode;
   children: ReactNode;
 }) {
   const groups: SettingsNavGroup[] = settingsGroups
@@ -36,6 +39,7 @@ export function SettingsFrame({
           key: entry.key,
           label: entry.label,
           href: settingsTabHref(tenantId, propertyId, entry.key),
+          ...(entry.key === 'overview' && overviewBadge ? { badge: overviewBadge } : {}),
         })),
     }))
     .filter((group) => group.items.length > 0);

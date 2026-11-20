@@ -1,4 +1,6 @@
 'use client';
+
+import { formatDate, formatDateTime } from '../../lib/hotel-format';
 import { HotelMoney, LedgerAmount } from './approximate-money';
 import { toast } from 'sonner';
 import { MoveRoomDialog } from './move-room-dialog';
@@ -147,12 +149,8 @@ type LedgerEntry = {
   createdAt: string;
 };
 
-const longDate = (iso: string) =>
-  new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(
-    new Date(`${iso}T00:00:00`),
-  );
-const dateTime = (value: string) =>
-  new Date(value).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
+const longDate = (iso: string) => formatDate(iso, 'medium');
+const dateTime = (value: string) => formatDateTime(value, 'medium');
 
 const ACTIVITY_LABELS: Record<string, string> = {
   'booking.created': 'Reservation created',

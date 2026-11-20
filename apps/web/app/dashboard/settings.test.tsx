@@ -13,6 +13,9 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let property = {
   id: 'p',
   name: 'Grand Hotel',
+  city: 'Tirana',
+  country: 'AL',
+  propertyType: 'hotel',
   address: '1 Main Street',
   timezone: 'Europe/Tirane',
   logoUrl: null as string | null,
@@ -40,6 +43,8 @@ describe('DashboardSettings', () => {
       vi.fn(async (url: string) => {
         if (url.endsWith('/exchange-rates'))
           return Response.json({ base: 'EUR', version: '0', displayCurrencies: null, rates: [] });
+        if (url.endsWith('/settings-summary/hidden'))
+          return Response.json({ setupGuide: true, readyNotice: false });
         if (url.endsWith('/settings-summary')) {
           const step = (key: string, tab: string, label: string, status: string, note: string) => ({
             key,
@@ -87,7 +92,32 @@ describe('DashboardSettings', () => {
                 'todo',
                 'The hotel website is not connected yet.',
               ),
+              {
+                ...step(
+                  'email',
+                  'emails',
+                  'Connect your email provider',
+                  'todo',
+                  "Guest emails are sent from MUST's address.",
+                ),
+                optional: true,
+              },
             ],
+            attention: [
+              {
+                key: 'payments-test:STRIPE',
+                label: 'Stripe is in Test mode',
+                note: 'Guests cannot really pay online.',
+                link: { tab: 'payment-methods' },
+              },
+              {
+                key: 'cancellation-requests',
+                label: '2 cancellation requests wait for a decision',
+                note: 'Approve or decline them.',
+                link: { section: 'overview', extra: 'tab=needs-attention' },
+              },
+            ],
+            hidden: { setupGuide: false, readyNotice: false },
           });
         }
         return new Response(JSON.stringify([]));
@@ -130,6 +160,17 @@ describe('DashboardSettings', () => {
         ),
       ).not.toBeNull();
     expect(container.querySelector('a[href*="settingsArea=general"]')).toBeNull();
+    // The recommended email step counts in the guide but does not decide "ready".
+    expect(text).toContain('Connect your email provider (recommended)');
+    // Live problems from the server, each with the place that fixes it.
+    expect(text).toContain('Needs attention 2');
+    expect(text).toContain('Stripe is in Test mode');
+    expect(text).toContain('2 cancellation requests wait for a decision');
+    expect(
+      container.querySelector(
+        'a[href="/dashboard/t?propertyId=p&section=overview&tab=needs-attention"]',
+      ),
+    ).not.toBeNull();
     // Real status, not decoration: the demo hotel has no website yet.
     expect(text).toContain('Set up your hotel');
     expect(text).toContain('Settings at a glance');
@@ -147,7 +188,20 @@ describe('DashboardSettings', () => {
       (b) => b.textContent === 'Hide for now',
     )!;
     await act(async () => hide.click());
-    expect(container.textContent).toContain('Setup: 4 of 5');
+    // The hidden state comes back from the (mocked) server; a busy machine can take a while, so wait for it.
+    for (
+      let i = 0;
+      i < 250 && !/Setup: 4 of 6 done · Show/.test(container.textContent ?? '');
+      i += 1
+    )
+      await act(async () => void (await new Promise((resolve) => window.setTimeout(resolve, 20))));
+    // Saved for this person on the server, not in one browser.
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.find(([url]) => String(url).endsWith('/settings-summary/hidden'))?.[1],
+    ).toMatchObject({ method: 'PATCH', body: JSON.stringify({ setupGuide: true }) });
+    expect(container.textContent).toContain('Setup: 4 of 6 done · Show');
     expect(container.textContent).not.toContain('Set up your hotel');
     expect(text).toContain('The hotel website is not connected yet.');
     // Old area names from saved links land on their new tab; unknown and unbuilt ones on the overview.
@@ -220,7 +274,7 @@ describe('DashboardSettings', () => {
 
   it.each([
     ['payment-methods', 'Payment methods', 'Email branding'],
-    ['contact-brand', 'Logo and colour', 'Payment methods'],
+    ['contact-brand', 'Brand', 'Payment methods'],
   ] as const)(
     'renders the %s Settings sub-view',
     async (settingsArea, visiblePanel, hiddenPanel) => {
@@ -348,11 +402,11 @@ describe('DashboardSettings', () => {
       )?.disabled,
     ).toBe(true);
 
-    await value(container.querySelector('#settings-name')!, 'Grand Hotel Tirana');
+    await value(container.querySelector('#hotel-name')!, 'Grand Hotel Tirana');
     await saveChanges(container);
     const identityRequest = fetch.mock.calls.find(([, init]) => init?.method === 'PATCH')!;
     expect(JSON.parse(identityRequest[1]!.body as string)).toEqual({ name: 'Grand Hotel Tirana' });
-    expect((container.querySelector('#settings-name') as HTMLInputElement).value).toBe(
+    expect((container.querySelector('#hotel-name') as HTMLInputElement).value).toBe(
       'Grand Hotel Tirana',
     );
 
@@ -474,7 +528,7 @@ describe('DashboardSettings', () => {
         (b) => b.textContent === 'Save changes',
       )!.disabled,
     ).toBe(true);
-    expect(container.textContent).toContain('bad-email | +355 12');
+    expect(container.textContent).toContain('bad-email · +355 12');
     const before = new Event('beforeunload', { cancelable: true });
     window.dispatchEvent(before);
     expect(before.defaultPrevented).toBe(true);

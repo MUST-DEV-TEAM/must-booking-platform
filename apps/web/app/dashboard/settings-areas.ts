@@ -38,6 +38,29 @@ export type Property = {
   directions?: string | null;
   nearestAirportCode?: string | null;
   nearestAirportKm?: number | null;
+  logoDarkUrl?: string | null;
+  iconUrl?: string | null;
+  faviconUrl?: string | null;
+  coverUrl?: string | null;
+  accountingEmail?: string | null;
+  mainContactName?: string | null;
+  mainContactRole?: string | null;
+  mainContactPhone?: string | null;
+  mainContactEmail?: string | null;
+  registeredSameAsHotel?: boolean;
+  registeredStreet?: string | null;
+  registeredCity?: string | null;
+  registeredPostalCode?: string | null;
+  /** Active rooms from Accommodations (or the PMS import), read-only. */
+  roomCount?: number;
+  /** True once the hotel has any booking. */
+  hasBookings?: boolean;
+  /** People who can work in this hotel (from the hotels list). */
+  staffCount?: number;
+  /** Which system owns rooms and rates: MUST, or the connected PMS. */
+  pmsSource?: 'MUST' | 'CLOCK_PMS';
+  /** Providers connected and enabled for this hotel, for example STRIPE, POKPAY. */
+  connectedProviders?: string[];
   whatsappSameAsPhone?: boolean;
   whatsappNumber?: string | null;
   afterHoursPhone?: string | null;
@@ -164,13 +187,40 @@ export function isSettingsArea(value: string | null): value is SettingsArea {
 
 /** "Ready to take bookings": worked out by the server (G-65); the browser only shows it. */
 export type ReadinessStep = {
-  key: 'profile' | 'booking-rules' | 'policies' | 'payment-methods' | 'website';
-  tab: 'profile' | 'booking-rules' | 'policies' | 'payment-methods' | 'integrations';
+  key:
+    'profile' | 'contact' | 'booking-rules' | 'policies' | 'payment-methods' | 'website' | 'email';
+  tab:
+    | 'profile'
+    | 'contact-brand'
+    | 'booking-rules'
+    | 'policies'
+    | 'payment-methods'
+    | 'integrations'
+    | 'emails';
   label: string;
   status: 'done' | 'attention' | 'todo';
   note: string;
+  /** Recommended, but does not decide "ready to take bookings". */
+  optional?: boolean;
 };
 export type SettingsReadiness = { ready: boolean; steps: ReadinessStep[] };
+
+/** A live problem outside the forms (failing integration, test payments, waiting refunds...), from the server. */
+export type SettingsAttentionItem = {
+  key: string;
+  label: string;
+  note: string;
+  link:
+    | { tab: 'integrations' | 'payment-methods' | 'emails' }
+    | { section: 'overview'; extra: 'tab=needs-attention' };
+};
+/** What this person hid on the overview, saved on the server for this hotel. */
+export type SettingsOverviewHidden = { setupGuide: boolean; readyNotice: boolean };
+export type SettingsSummary = SettingsReadiness & {
+  hotel: Property;
+  attention: SettingsAttentionItem[];
+  hidden: SettingsOverviewHidden;
+};
 
 export function timeZoneOptions(current: string): string[] {
   let zones: string[] = [];
