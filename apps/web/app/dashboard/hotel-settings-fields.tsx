@@ -469,6 +469,20 @@ export const hotelSettingGroups: Record<
       ],
     },
     {
+      title: 'Terms and conditions',
+      description: 'Guests are linked to these terms in booking emails and on the booking page.',
+      fields: [
+        {
+          key: 'termsUrl',
+          label: 'Terms and conditions link',
+          max: 500,
+          span: 'full',
+          placeholder: 'https://',
+          hint: 'A full https:// address.',
+        },
+      ],
+    },
+    {
       title: 'Children and pets',
       description: 'Optional information for staff. Notes are plain text, up to 300 characters.',
       fields: [
@@ -548,6 +562,8 @@ export function useHotelSettings(
       continue;
     }
     if (typeof v === 'string') {
+      if (f.key === 'termsUrl' && v.trim() && !/^https:\/\/[^\s]+$/i.test(v.trim()))
+        errors[f.key] = 'Enter a full https:// address.';
       if (f.key === 'name' && /[<>\\\r\n]/.test(v))
         errors[f.key] = 'Use a single line without < > or \\.';
       if (f.max && v.length > f.max) errors[f.key] = `Keep this to ${f.max} characters or fewer.`;

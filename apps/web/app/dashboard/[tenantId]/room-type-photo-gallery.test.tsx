@@ -202,9 +202,7 @@ describe('RoomTypePhotoGallery', () => {
     });
     const { container, root } = await renderGallery([], fetchMock);
     await click(container, /Choose from library/);
-    await act(async () =>
-      vi.waitFor(() => expect(container.textContent).toContain('1 photo in library')),
-    );
+    await act(async () => vi.waitFor(() => expect(container.textContent).toContain('Library1')));
     const libraryButton = [...container.querySelectorAll('button')].find((button) =>
       button.getAttribute('aria-label')?.startsWith('Library photo 1'),
     );

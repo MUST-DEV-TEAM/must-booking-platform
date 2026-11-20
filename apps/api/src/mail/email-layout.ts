@@ -1,4 +1,4 @@
-import type { MailBrand } from '@must/domain-contracts';
+import { ONLINE_PROFILE_SITES, type MailBrand } from '@must/domain-contracts';
 
 export type EmailBrand = MailBrand & {
   brandColour?: string | null;
@@ -256,14 +256,25 @@ function renderFooterMeta(
   const mapsUrl = address ? mapsLink(brand, address) : null;
   const directions = extras.directions ? clean(brand.directions) : '';
   const legal = extras.legal ? legalLine(brand) : '';
+  const contact = [clean(brand.supportEmail), clean(brand.phone)].filter(Boolean);
+  const profiles = ONLINE_PROFILE_SITES.flatMap((site) => {
+    const url = safeHttpUrl(brand.onlineProfiles?.[site.key]);
+    return url
+      ? [
+          `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" style="color:#141414;text-decoration:underline;">${escapeHtml(site.label)}</a>`,
+        ]
+      : [];
+  });
   const parts = [
     name && `<p style="margin:0;font-weight:700;">${escapeHtml(name)}</p>`,
     address &&
       `<p style="margin:6px 0 0 0;"><a href="${escapeHtml(mapsUrl!)}" target="_blank" rel="noopener noreferrer" style="color:#141414;text-decoration:underline;">${escapeHtml(address)}</a></p>`,
     directions &&
       `<p style="margin:6px 0 0 0;"><strong>How to find us:</strong> ${escapeHtml(directions)}</p>`,
+    contact.length && `<p style="margin:6px 0 0 0;">${contact.map(escapeHtml).join(' · ')}</p>`,
     websiteUrl &&
       `<p style="margin:6px 0 0 0;"><a href="${escapeHtml(websiteUrl)}" target="_blank" rel="noopener noreferrer" style="color:#141414;text-decoration:underline;">${escapeHtml(displayUrl(websiteUrl))}</a></p>`,
+    profiles.length && `<p style="margin:6px 0 0 0;">Follow us: ${profiles.join(' · ')}</p>`,
     legal && `<p style="margin:10px 0 0 0;font-size:12px;color:#8a8472;">${escapeHtml(legal)}</p>`,
   ].filter(Boolean);
   return parts.length

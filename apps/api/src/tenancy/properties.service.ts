@@ -74,6 +74,22 @@ type PropertyListItem = Property & {
   readiness: SettingsReadiness;
 };
 type PropertyDeleteBlocker = { resource: string; count: number };
+/**
+ * The accounting email and main contact are for MUST and the hotel's accountant. Only the account's owners and
+ * admins receive them; front desk and other staff who can open the hotel get them blanked.
+ */
+function withoutInternalContacts<T extends object>(row: T, manager: boolean): T {
+  if (manager) return row;
+  return {
+    ...row,
+    accountingEmail: null,
+    mainContactName: null,
+    mainContactRole: null,
+    mainContactPhone: null,
+    mainContactEmail: null,
+  };
+}
+
 @Injectable()
 export class PropertiesService {
   constructor(
@@ -84,7 +100,11 @@ export class PropertiesService {
   /** The hotels this user may see, each with its "ready to take bookings" status worked out here. */
   async list(tenantId: string, userId: string): Promise<PropertyListItem[]> {
     const rows = await this.listRows(tenantId, userId);
-    return rows.map((row) => ({ ...row, readiness: settingsReadiness(row) }));
+    const manager = await this.isOwnerOrAdmin(tenantId, userId);
+    return rows.map((row) => {
+      const visible = withoutInternalContacts(row, manager);
+      return { ...visible, readiness: settingsReadiness(visible) };
+    });
   }
   /** One hotel's saved settings and its "ready to take bookings" status; refused if not visible. */
   async settingsSummary(
@@ -98,8 +118,10 @@ export class PropertiesService {
       hidden: SettingsOverviewHidden;
     }
   > {
-    const listed = (await this.listRows(tenantId, userId)).find((item) => item.id === propertyId);
-    if (!listed) throw new NotFoundException('Property not found.');
+    const manager = await this.isOwnerOrAdmin(tenantId, userId);
+    const found = (await this.listRows(tenantId, userId)).find((item) => item.id === propertyId);
+    if (!found) throw new NotFoundException('Property not found.');
+    const listed = withoutInternalContacts(found, manager);
     const { emailProviderActive, attention, hidden } = await settingsOverviewExtras(
       this.database,
       { tenantId, propertyId },
@@ -109,7 +131,6 @@ export class PropertiesService {
     const readiness = settingsReadiness({ ...listed, emailProviderActive });
     // Live problems (refunds, payments, email failures) are for the people who run Settings: the account's
     // owners and admins, as on the dashboard. Hotel staff and restaurant staff who can open this hotel get none.
-    const manager = await this.isOwnerOrAdmin(tenantId, userId);
     return {
       ...readiness,
       attention: manager ? attention : [],
@@ -163,7 +184,7 @@ export class PropertiesService {
             WHERE pic.tenant_id=p.tenant_id AND pic.property_id=p.id AND pic.enabled AND ic.status='CONNECTED'
             ORDER BY ic.provider::text) AS "connectedProviders",
           EXISTS(SELECT 1 FROM rate_rules rr WHERE rr.tenant_id=p.tenant_id AND rr.property_id=p.id UNION ALL SELECT 1 FROM pricing_daily_prices dp WHERE dp.tenant_id=p.tenant_id AND dp.property_id=p.id UNION ALL SELECT 1 FROM room_price_overrides ro WHERE ro.tenant_id=p.tenant_id AND ro.property_id=p.id UNION ALL SELECT 1 FROM property_exchange_rates fx WHERE fx.tenant_id=p.tenant_id AND fx.property_id=p.id) AS "defaultCurrencyLocked",
-          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",deduct_payment_fee_on_guest_refund AS "deductPaymentFeeOnGuestRefund",clock_cancel_refund_policy AS "clockCancelRefundPolicy",clock_payment_folio AS "clockPaymentFolio",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
+          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",deduct_payment_fee_on_guest_refund AS "deductPaymentFeeOnGuestRefund",clock_cancel_refund_policy AS "clockCancelRefundPolicy",clock_payment_folio AS "clockPaymentFolio",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", logo_dark_url AS "logoDarkUrl", icon_url AS "iconUrl", favicon_url AS "faviconUrl", cover_url AS "coverUrl", phone, support_email AS "supportEmail",
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
@@ -255,7 +276,13 @@ export class PropertiesService {
         FROM properties WHERE id = ${propertyId}::uuid
       `;
       if (!existing[0]) throw new BadRequestException('Property not found.');
-      for (const url of [input.logoUrl]) {
+      for (const url of [
+        input.logoUrl,
+        input.logoDarkUrl,
+        input.iconUrl,
+        input.faviconUrl,
+        input.coverUrl,
+      ]) {
         const ownedImage = url ? this.serverLogoKey(new URL(url)) : null;
         if (!ownedImage) continue;
         const images = await tx.$queryRaw<
@@ -303,6 +330,10 @@ export class PropertiesService {
           address = CASE WHEN ${input.address !== undefined} THEN ${input.address} ELSE address END,
           timezone = CASE WHEN ${input.timezone !== undefined} THEN ${input.timezone} ELSE timezone END,
           logo_url = CASE WHEN ${input.logoUrl !== undefined} THEN ${input.logoUrl} ELSE logo_url END,
+          logo_dark_url = CASE WHEN ${input.logoDarkUrl !== undefined} THEN ${input.logoDarkUrl} ELSE logo_dark_url END,
+          icon_url = CASE WHEN ${input.iconUrl !== undefined} THEN ${input.iconUrl} ELSE icon_url END,
+          favicon_url = CASE WHEN ${input.faviconUrl !== undefined} THEN ${input.faviconUrl} ELSE favicon_url END,
+          cover_url = CASE WHEN ${input.coverUrl !== undefined} THEN ${input.coverUrl} ELSE cover_url END,
           phone = CASE WHEN ${input.phone !== undefined} THEN ${input.phone} ELSE phone END,
           support_email = CASE WHEN ${input.supportEmail !== undefined} THEN ${input.supportEmail} ELSE support_email END,
           booking_mode = CASE WHEN ${input.bookingMode !== undefined} THEN ${input.bookingMode}::"PropertyBookingMode" ELSE booking_mode END,
@@ -564,6 +595,10 @@ export class PropertiesService {
     emailFooterText?: string | null;
     termsUrl?: string | null;
     logoUrl?: string | null;
+    logoDarkUrl?: string | null;
+    iconUrl?: string | null;
+    faviconUrl?: string | null;
+    coverUrl?: string | null;
     phone?: string | null;
     supportEmail?: string | null;
   } {
@@ -594,6 +629,10 @@ export class PropertiesService {
         'emailFooterText',
         'termsUrl',
         'logoUrl',
+        'logoDarkUrl',
+        'iconUrl',
+        'faviconUrl',
+        'coverUrl',
         'phone',
         'supportEmail',
       ]
@@ -750,6 +789,10 @@ export class PropertiesService {
       emailFooterText,
       termsUrl,
       logoUrl: this.optionalImageUrl(value, 'logoUrl', true),
+      logoDarkUrl: this.optionalImageUrl(value, 'logoDarkUrl', true),
+      iconUrl: this.optionalImageUrl(value, 'iconUrl', true),
+      faviconUrl: this.optionalImageUrl(value, 'faviconUrl', true),
+      coverUrl: this.optionalImageUrl(value, 'coverUrl', true),
       phone: this.optionalBrandText(value, 'phone', 100, true),
       supportEmail: this.optionalSupportEmail(value, true),
     };
@@ -775,7 +818,7 @@ export class PropertiesService {
   /** A brand image address: one from this hotel's photo library, or a public https PNG, JPG or WebP. */
   private optionalImageUrl(
     value: Record<string, unknown>,
-    field: 'logoUrl',
+    field: 'logoUrl' | 'logoDarkUrl' | 'iconUrl' | 'faviconUrl' | 'coverUrl',
     allowAbsent: boolean,
   ): string | null | undefined {
     if (!Object.hasOwn(value, field)) return allowAbsent ? undefined : null;
@@ -786,8 +829,13 @@ export class PropertiesService {
     try {
       const url = new URL(logoUrl.trim());
       if (this.serverLogoKey(url) && !url.username && !url.password) return url.toString();
+      // Local development serves photos from http://localhost; production only ever accepts https.
+      const localDev =
+        process.env.NODE_ENV !== 'production' &&
+        url.protocol === 'http:' &&
+        ['localhost', '127.0.0.1'].includes(url.hostname);
       if (
-        url.protocol !== 'https:' ||
+        (url.protocol !== 'https:' && !localDev) ||
         url.username ||
         url.password ||
         !/\.(png|jpe?g|webp)$/i.test(url.pathname)
