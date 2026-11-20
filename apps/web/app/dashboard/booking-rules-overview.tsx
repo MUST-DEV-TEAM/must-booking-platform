@@ -1,15 +1,30 @@
 'use client';
 
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { CheckCircle2, XCircle } from 'lucide-react';
 
-import { DateField } from '../../components/ui/date-field';
+import { CalendarPicker, type CalendarSelection } from '../../components/ui/calendar-picker';
 import { FormField } from '../../components/ui/form-field';
 import { FormSection } from '../../components/ui/form-section';
 import { NumberStepper } from '../../components/ui/number-stepper';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../components/ui/select';
 import { useBookingRulesEvaluation } from './booking-rules';
 import { describeBookingRules } from './booking-rules-summary';
 import type { Property } from './settings-areas';
+
+const ANY_ROOM = '__any__';
+const nightsBetween = (from: string, to: string) =>
+  Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000);
+/** Today on this computer, as YYYY-MM-DD (the server checks again on the hotel's own clock). */
+const localToday = () =>
+  new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
 
 /** The rules in plain words, and a box to try a booking against the saved rules. */
 export function BookingRulesOverview({
@@ -19,15 +34,40 @@ export function BookingRulesOverview({
   tenantId: string;
   property: Property;
 }) {
-  const [startsOn, setStartsOn] = useState('');
-  const [endsOn, setEndsOn] = useState('');
+  const [dates, setDates] = useState<CalendarSelection>({ start: null, end: null });
   const [adults, setAdults] = useState(2);
   const [children, setChildren] = useState(0);
+  const [roomTypeId, setRoomTypeId] = useState(ANY_ROOM);
+  const startsOn = dates.start ?? '';
+  const endsOn = dates.end ?? '';
   const ready = Boolean(startsOn && endsOn && endsOn > startsOn);
+  const nights = ready ? nightsBetween(startsOn, endsOn) : 0;
+  const roomTypes = useQuery({
+    queryKey: ['dashboard', 'booking-rules-room-types', tenantId, property.id],
+    queryFn: async () => {
+      const response = await fetch(
+        `/api/tenants/${tenantId}/properties/${property.id}/room-types`,
+        {
+          credentials: 'include',
+        },
+      );
+      if (!response.ok) return [] as Array<{ id: string; name: string }>;
+      const body: unknown = await response.json();
+      return Array.isArray(body) ? (body as Array<{ id: string; name: string }>) : [];
+    },
+    staleTime: 60_000,
+  });
   const check = useBookingRulesEvaluation(
     tenantId,
     property.id,
-    { channel: 'guest', startsOn, endsOn, adults, children },
+    {
+      channel: 'guest',
+      startsOn,
+      endsOn,
+      adults,
+      children,
+      roomTypeId: roomTypeId === ANY_ROOM ? undefined : roomTypeId,
+    },
     ready,
   );
   const result = ready ? check.data?.booking : undefined;
@@ -46,24 +86,26 @@ export function BookingRulesOverview({
         </FormSection>
         <FormSection
           title="Try a booking"
-          description="Pick dates and guests to see whether the saved rules allow it. Rooms are not checked."
+          description="Pick the stay and the guests to see whether the saved rules allow it. Choose a room type to check availability and room size too."
         >
           <div className="grid gap-4 sm:grid-cols-2">
-            <FormField label="Check-in" htmlFor="try-in">
-              <DateField
-                id="try-in"
-                value={startsOn}
-                onChange={setStartsOn}
-                aria-label="Check-in date"
-              />
-            </FormField>
-            <FormField label="Check-out" htmlFor="try-out">
-              <DateField
-                id="try-out"
-                value={endsOn}
-                min={startsOn || undefined}
-                onChange={setEndsOn}
-                aria-label="Check-out date"
+            <FormField
+              className="sm:col-span-2"
+              label="Stay dates"
+              hint={
+                nights > 0
+                  ? `${nights} night${nights === 1 ? '' : 's'}`
+                  : 'Pick check-in and check-out.'
+              }
+            >
+              <CalendarPicker
+                label="Stay dates"
+                mode="range"
+                months={2}
+                minDate={localToday()}
+                value={dates}
+                onChange={setDates}
+                className="w-full justify-between"
               />
             </FormField>
             <FormField label="Adults">
@@ -78,12 +120,25 @@ export function BookingRulesOverview({
                 onChange={setChildren}
               />
             </FormField>
+            <FormField className="sm:col-span-2" label="Room type">
+              <Select value={roomTypeId} onValueChange={setRoomTypeId}>
+                <SelectTrigger aria-label="Room type" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ANY_ROOM}>Any room type (rules only)</SelectItem>
+                  {(roomTypes.data ?? []).map((type) => (
+                    <SelectItem key={type.id} value={type.id}>
+                      {type.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FormField>
           </div>
           <div role="status" aria-live="polite" className="text-sm">
             {!ready ? (
-              <p className="m-0 text-muted-foreground">
-                Choose a check-in and a later check-out date.
-              </p>
+              <p className="m-0 text-muted-foreground">Choose a check-in and a check-out date.</p>
             ) : check.isPending ? (
               <p className="m-0 text-muted-foreground">Checking…</p>
             ) : check.isError ? (
