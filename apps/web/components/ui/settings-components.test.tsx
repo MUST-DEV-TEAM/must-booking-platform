@@ -3,6 +3,7 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { checkBookingLimit, checkBookingWindow } from '@must/domain-contracts';
 import { validateRules, validTime } from '../../app/dashboard/settings-areas';
 import { ChecklistPanel } from './checklist-panel';
 import { SaveBar } from './save-bar';
@@ -23,23 +24,15 @@ async function render(element: React.ReactElement) {
 
 describe('settings status and checks', () => {
   it('explains stay-limit mistakes in plain words', () => {
-    const base = {
-      minStayNights: '2',
-      maxStayNights: '7',
-      advanceBookingDays: '',
-      freeCancellationDaysBeforeArrival: '21',
-    };
+    const base = { freeCancellationDaysBeforeArrival: '21' };
     expect(validateRules(base)).toEqual({});
-    expect(validateRules({ ...base, minStayNights: '9' }).minStayNights).toContain(
-      'cannot be longer',
+    expect(checkBookingWindow({ minStayNights: 9, maxStayNights: 7 }).maxStayNights).toContain(
+      'cannot be shorter',
     );
-    expect(validateRules({ ...base, maxStayNights: '0' }).maxStayNights).toContain('1 or more');
-    expect(validateRules({ ...base, advanceBookingDays: '-1' }).advanceBookingDays).toContain(
-      '0 or more',
-    );
+    expect(checkBookingLimit('maxStayNights', 0)).toContain('1 to 365');
+    expect(checkBookingLimit('advanceBookingDays', -1)).toContain('1 to 730');
     expect(
-      validateRules({ ...base, freeCancellationDaysBeforeArrival: '' })
-        .freeCancellationDaysBeforeArrival,
+      validateRules({ freeCancellationDaysBeforeArrival: '' }).freeCancellationDaysBeforeArrival,
     ).toBeTruthy();
     expect(validTime('')).toBe(true);
     expect(validTime('15:00')).toBe(true);

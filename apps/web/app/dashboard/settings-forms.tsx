@@ -7,25 +7,18 @@ import { useUnsavedChanges } from '../../components/ui/unsaved-changes';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import { FormField } from '../../components/ui/form-field';
 import { FormSection } from '../../components/ui/form-section';
+import { OptionCard } from '../../components/ui/option-card';
+import { BookingRulesOverview } from './booking-rules-overview';
+import { ruleOwnerLabel } from './booking-rules-owners';
 import { Input, Textarea } from '../../components/ui/input';
 import { HotelCurrencyNote } from './hotel-currency-note';
 import { AlsoShowPrices, ExchangeRateTable } from './display-currencies-settings';
 import { SaveBar } from '../../components/ui/save-bar';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../../components/ui/select';
 import { validateRules, validTime, type BookingMode, type Property } from './settings-areas';
 
 type Save = (update: Partial<Property>) => void;
 type FormProps = { property: Property; saving: boolean; onSave: Save; canWrite?: boolean };
 type GeneralProps = FormProps & { tenantId?: string };
-
-const text = (value: number | null) => (value === null ? '' : String(value));
-const toNumber = (value: string): number | null => (value.trim() === '' ? null : Number(value));
 
 /** The Profile tab: identity, location with the map pin, legal and tax, languages, currency, formats. */
 export function GeneralSettings({
@@ -85,24 +78,32 @@ export function GeneralSettings({
 const MODES: ReadonlyArray<{ value: BookingMode; label: string; hint: string }> = [
   {
     value: 'ROOM_TYPE_ONLY',
-    label: 'Room types',
+    label: 'By room type',
     hint: 'Guests book a room type; staff assign the room.',
   },
   {
     value: 'INDIVIDUAL_ROOM_ONLY',
-    label: 'Individual rooms',
-    hint: 'Guests book a specific room.',
+    label: 'A specific room',
+    hint: 'Guests pick the exact room they want.',
   },
-  { value: 'MIXED', label: 'Both', hint: 'Guests can book either way.' },
+  {
+    value: 'MIXED',
+    label: 'Both',
+    hint: 'Guests can book either way: by room type or a specific room.',
+  },
 ];
 
 /** Stay limits, free cancellation, inventory mode and house rules. */
-export function BookingRulesSettings({ property, saving, onSave, canWrite = false }: FormProps) {
+export function BookingRulesSettings({
+  property,
+  saving,
+  onSave,
+  canWrite = false,
+  tenantId = '',
+}: GeneralProps) {
+  const connected = property.pmsSource === 'CLOCK_PMS';
   const rich = useHotelSettings(property, 'booking-rules', canWrite);
   const initial = () => ({
-    minStayNights: text(property.minStayNights),
-    maxStayNights: text(property.maxStayNights),
-    advanceBookingDays: text(property.advanceBookingDays),
     freeCancellationDaysBeforeArrival: String(property.freeCancellationDaysBeforeArrival),
     rules: property.rules ?? '',
     bookingMode: property.bookingMode,
@@ -120,12 +121,6 @@ export function BookingRulesSettings({ property, saving, onSave, canWrite = fals
   const modeChanged = draft.bookingMode !== property.bookingMode;
   const commit = () => {
     const update: Partial<Property> = { ...rich.update };
-    if (draft.minStayNights !== saved.minStayNights)
-      update.minStayNights = toNumber(draft.minStayNights);
-    if (draft.maxStayNights !== saved.maxStayNights)
-      update.maxStayNights = toNumber(draft.maxStayNights);
-    if (draft.advanceBookingDays !== saved.advanceBookingDays)
-      update.advanceBookingDays = toNumber(draft.advanceBookingDays);
     if (draft.freeCancellationDaysBeforeArrival !== saved.freeCancellationDaysBeforeArrival)
       update.freeCancellationDaysBeforeArrival = Number(draft.freeCancellationDaysBeforeArrival);
     if (draft.rules !== saved.rules) update.rules = draft.rules.trim() === '' ? null : draft.rules;
@@ -135,94 +130,60 @@ export function BookingRulesSettings({ property, saving, onSave, canWrite = fals
   const set = (patch: Partial<typeof draft>) => setDraft({ ...draft, ...patch });
   return (
     <div className="flex flex-col gap-4">
+      <BookingRulesOverview tenantId={tenantId} property={property} />
+      {rich.section(
+        'Length of stay',
+        'Booking window and season',
+        'Same-day booking',
+        'Arrival and departure days',
+        'Group size',
+        'Group requests',
+        'Guest ages',
+      )}
       <FormSection
-        title="Stay limits"
-        description="Applied to every booking, including staff bookings. Leave a limit empty for no limit."
+        title="How guests choose rooms"
+        badge={ruleOwnerLabel('How guests choose rooms', connected)}
+        description="Changing this asks for confirmation. Existing bookings are not changed."
       >
-        <div className="grid gap-4 sm:grid-cols-3">
-          <FormField label="Minimum stay (nights)" htmlFor="rules-min" error={errors.minStayNights}>
-            <Input
+        <div role="radiogroup" aria-label="How guests choose rooms" className="grid gap-3">
+          {MODES.map((mode) => (
+            <OptionCard
+              key={mode.value}
+              title={mode.label}
+              description={mode.hint}
+              selected={draft.bookingMode === mode.value}
               disabled={!canWrite}
-              id="rules-min"
-              inputMode="numeric"
-              value={draft.minStayNights}
-              onChange={(e) => set({ minStayNights: e.target.value })}
+              onSelect={() => set({ bookingMode: mode.value })}
             />
-          </FormField>
-          <FormField label="Maximum stay (nights)" htmlFor="rules-max" error={errors.maxStayNights}>
-            <Input
-              disabled={!canWrite}
-              id="rules-max"
-              inputMode="numeric"
-              value={draft.maxStayNights}
-              onChange={(e) => set({ maxStayNights: e.target.value })}
-            />
-          </FormField>
+          ))}
+        </div>
+      </FormSection>
+      {rich.section('Confirmation', 'Booking form', 'Advanced')}
+      <FormSection
+        title="Cancellation"
+        badge={ruleOwnerLabel('Cancellation', connected)}
+        description="The free-cancellation window is evaluated before arrival. Automatic refunds follow Payments settings; staff can handle a refund separately."
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
           <FormField
-            label="Booking window (days ahead)"
-            htmlFor="rules-advance"
-            hint="How far ahead guests can book."
-            error={errors.advanceBookingDays}
+            label="Free cancellation (days before arrival)"
+            htmlFor="rules-cancel"
+            hint="Whole days, 0 or more."
+            error={errors.freeCancellationDaysBeforeArrival}
           >
             <Input
               disabled={!canWrite}
-              id="rules-advance"
+              id="rules-cancel"
               inputMode="numeric"
-              value={draft.advanceBookingDays}
-              onChange={(e) => set({ advanceBookingDays: e.target.value })}
+              value={draft.freeCancellationDaysBeforeArrival}
+              onChange={(e) => set({ freeCancellationDaysBeforeArrival: e.target.value })}
             />
           </FormField>
         </div>
       </FormSection>
       <FormSection
-        title="Cancellation"
-        description="The free-cancellation window is evaluated before arrival. Automatic refunds follow Payments settings; staff can handle a refund separately."
-      >
-        <FormField
-          label="Free cancellation (days before arrival)"
-          htmlFor="rules-cancel"
-          error={errors.freeCancellationDaysBeforeArrival}
-        >
-          <Input
-            disabled={!canWrite}
-            id="rules-cancel"
-            inputMode="numeric"
-            className="sm:max-w-48"
-            value={draft.freeCancellationDaysBeforeArrival}
-            onChange={(e) => set({ freeCancellationDaysBeforeArrival: e.target.value })}
-          />
-        </FormField>
-      </FormSection>
-      <FormSection title="Inventory mode" description="How guests choose what to book.">
-        <FormField
-          label="Inventory mode"
-          htmlFor="rules-mode"
-          hint={MODES.find((m) => m.value === draft.bookingMode)?.hint}
-        >
-          <Select
-            disabled={!canWrite}
-            value={draft.bookingMode}
-            onValueChange={(value) => set({ bookingMode: value as BookingMode })}
-          >
-            <SelectTrigger
-              id="rules-mode"
-              aria-label="Inventory mode"
-              className="w-full sm:max-w-72"
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {MODES.map((mode) => (
-                <SelectItem key={mode.value} value={mode.value}>
-                  {mode.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </FormField>
-      </FormSection>
-      <FormSection
         title="House rules"
+        badge={ruleOwnerLabel('House rules', connected)}
         description="Shown on room detail pages unless a room has its own rules."
       >
         <FormField label="House rules" htmlFor="rules-text">
@@ -236,6 +197,7 @@ export function BookingRulesSettings({ property, saving, onSave, canWrite = fals
           />
         </FormField>
       </FormSection>
+      {rich.section('No-show guidance')}
       <FormSection
         title="How online checkout works"
         description="Set by the system, shown here so staff know what to expect."
@@ -246,7 +208,6 @@ export function BookingRulesSettings({ property, saving, onSave, canWrite = fals
           hold is released and the booking expires.
         </p>
       </FormSection>
-      {rich.fields}
       <SaveBar
         dirty={canWrite && combinedDirty}
         saving={saving}

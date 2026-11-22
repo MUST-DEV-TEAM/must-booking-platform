@@ -87,6 +87,9 @@ export class StaffAvailabilityService {
         );
       }),
     );
+    // Staff may search with the hotel's own booking limits overridden (a reason is then required to book).
+    const overrideRules =
+      typeof body.ruleOverrideReason === 'string' && body.ruleOverrideReason.trim().length >= 5;
     const offers: Record<string, Offer> = Object.fromEntries(
       items.map((i) => [
         i.key,
@@ -127,6 +130,7 @@ export class StaffAvailabilityService {
               ...input,
               roomTypeId: i.roomTypeId,
               roomId: i.roomId,
+              overrideRules: overrideRules ? 'true' : undefined,
             });
             if (!rules.booking.valid) {
               offers[i.key] = {
@@ -140,6 +144,7 @@ export class StaffAvailabilityService {
               scope.propertyId,
               { ...input, roomTypeId: i.roomTypeId, roomId: i.roomId, ratePlanId: i.ratePlanId },
               'staff',
+              { overrideRules },
             );
             offers[i.key] = { ok: true, total: quote.total };
           } catch (e) {

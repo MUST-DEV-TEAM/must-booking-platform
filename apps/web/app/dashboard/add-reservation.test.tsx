@@ -208,6 +208,81 @@ describe('AddReservation', () => {
     expect(container.textContent).not.toContain('Record a payment now');
     await act(async () => root.unmount());
   });
+  it('offers a reason-based override only for the hotel limits, and asks the server with it', async () => {
+    window.history.replaceState({}, '', '/?start=2027-09-14&end=2027-09-15');
+    const evaluated: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.includes('/booking-rules/evaluate')) {
+          evaluated.push(url);
+          const overridden = url.includes('overrideRules=true');
+          return json({
+            today: '2026-10-21',
+            disabledDates: [],
+            minStayNights: 2,
+            maxStayNights: null,
+            booking: overridden
+              ? {
+                  valid: true,
+                  errors: [],
+                  overridden: [
+                    { code: 'MIN_STAY', message: 'A minimum stay of 2 nights is required.' },
+                  ],
+                }
+              : {
+                  valid: false,
+                  errors: [
+                    {
+                      code: 'MIN_STAY',
+                      message: 'A minimum stay of 2 nights is required.',
+                      overridable: true,
+                    },
+                  ],
+                },
+            block: { valid: true, errors: [] },
+          });
+        }
+        if (url.endsWith('/pms-connection-status')) return json({ provider: 'LOCAL' });
+        if (url.endsWith('/room-types')) return json([{ id: 'rt', name: 'Double', roomCount: 2 }]);
+        if (url.endsWith('/rooms')) return json([]);
+        if (url.endsWith('/rate-plans'))
+          return json([{ id: 'rp', name: 'Flexible', currency: 'EUR' }]);
+        return json({ offers: {} });
+      }),
+    );
+    const { container, root } = await render(
+      createElement(
+        DashboardQueryProvider,
+        undefined,
+        createElement(AddReservation, { tenantId: 't', propertyId: 'p' }),
+      ),
+    );
+    const waitUntil = async (check: () => boolean) => {
+      for (let n = 0; n < 60; n++) {
+        await act(async () => {
+          await new Promise((r) => setTimeout(r, 50));
+        });
+        if (check()) return;
+      }
+      throw Error('The booking form did not finish loading');
+    };
+    await waitUntil(() =>
+      Boolean(container.textContent?.includes("Override the hotel's booking limits")),
+    );
+    expect(container.textContent).toContain('never availability or room size');
+    const box = container.querySelector<HTMLButtonElement>('button[role="checkbox"]')!;
+    await act(async () => box.click());
+    const reason = container.querySelector<HTMLInputElement>('#override-reason')!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      setter.call(reason, 'Regular guest, approved by the manager');
+      reason.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await waitUntil(() => evaluated.some((url) => url.includes('overrideRules=true')));
+    await waitUntil(() => Boolean(container.textContent?.includes('Overridden:')));
+    await act(async () => root.unmount());
+  });
   it.each(['EUR', 'ALL'])(
     'keeps selected type behavior and %s offer display while rules reload',
     async (currency) => {

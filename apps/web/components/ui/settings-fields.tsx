@@ -7,6 +7,8 @@ import { Switch } from './switch';
 import { MultiSelect } from './multi-select';
 import { CountrySelect } from './country-select';
 import { Combobox } from './combobox';
+import { MonthDayField } from './month-day-field';
+import { WeekdayChips } from './weekday-chips';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from './select';
 import { SegmentedControl } from './segmented-control';
 import { Checkbox } from './checkbox';
@@ -14,6 +16,7 @@ import { Badge } from './badge';
 import { Label } from './label';
 import type { ReactNode } from 'react';
 import { LocationPin } from './location-pin';
+import { OptionCard } from './option-card';
 export type SettingValue = string | boolean | string[];
 export type SettingField = {
   key: string;
@@ -40,10 +43,16 @@ export type SettingField = {
     /** Drawn by the caller: its element is passed in `extras` under this field's key. */
     | 'custom'
     /** A map pin that writes `pin.latKey` and `pin.lngKey`; the field's own key is not saved. */
-    | 'location';
+    | 'location'
+    /** A month and a day of the year (a yearly season start or end). */
+    | 'monthday'
+    /** Seven weekday chips. */
+    | 'weekdays'
+    /** The options as a column of option cards (a title and a line of help each); one can be chosen. */
+    | 'cards';
   hint?: string;
   placeholder?: string;
-  options?: readonly { value: string; label: string; group?: string }[];
+  options?: readonly { value: string; label: string; group?: string; description?: string }[];
   max?: number;
   defaultValue?: SettingValue;
   when?: { key: string; value: string };
@@ -67,6 +76,10 @@ export type SettingField = {
   boxed?: boolean;
   /** For a yes/no field: draw it as a tickbox with its label beside it. */
   checkbox?: boolean;
+  /** With a connected PMS: `locked` shows the value but cannot be changed, `hidden` leaves the field out. */
+  connectedLock?: 'locked' | 'hidden';
+  /** Shown but not editable (set by the page, for example when a connected PMS owns the value). */
+  readOnly?: boolean;
   /** Type the value in a fixed-width font (codes and numbers). */
   mono?: boolean;
   /** Help text that depends on the chosen country; `hint` is used for any other country. */
@@ -81,6 +94,10 @@ export type SettingGroup = {
   description: string;
   fields: SettingField[];
   compact?: boolean;
+  /** A short note beside the title, such as who decides this group of settings. */
+  badge?: string;
+  /** A short warning beside the title, such as a setting that is saved but not applied yet. */
+  status?: string;
 };
 /** "EUR · Euro". */
 function currencyLabel(code: string): string {
@@ -170,7 +187,13 @@ export function SettingsFields({
   return (
     <>
       {groups.map((group) => (
-        <FormSection key={group.title} title={group.title} description={group.description}>
+        <FormSection
+          key={group.title}
+          title={group.title}
+          description={group.description}
+          badge={group.badge}
+          status={group.status}
+        >
           <div className={group.compact ? 'grid gap-4 sm:grid-cols-6' : 'flex flex-col gap-4'}>
             {group.fields
               .filter(
@@ -184,7 +207,10 @@ export function SettingsFields({
               .map((f) => {
                 const id = 'hotel-' + f.key,
                   v = values[f.key] ?? '',
-                  locked = disabled || (f.kind === 'currency' && currencyLocked === true);
+                  locked =
+                    disabled ||
+                    f.readOnly === true ||
+                    (f.kind === 'currency' && currencyLocked === true);
                 if (f.boxed && f.kind === 'boolean')
                   // Laid out like the field beside it: an empty label row, then a row level with the
                   // input (title left, switch right), then the help text level with its hint.
@@ -233,6 +259,7 @@ export function SettingsFields({
                                     'region',
                                     'timezone',
                                     'static',
+                                    'monthday',
                                   ].includes(f.kind ?? '') &&
                                     !(f.kind === undefined && f.max !== undefined && f.max <= 20))
                                 ? 'sm:col-span-6'
@@ -419,6 +446,20 @@ export function SettingsFields({
                         ]}
                         onChange={(value) => onChange(f.key, value)}
                       />
+                    ) : f.kind === 'monthday' ? (
+                      <MonthDayField
+                        label={f.label}
+                        value={String(v)}
+                        disabled={locked}
+                        onChange={(value) => onChange(f.key, value)}
+                      />
+                    ) : f.kind === 'weekdays' ? (
+                      <WeekdayChips
+                        label={f.label}
+                        value={(v as string[]).map(Number)}
+                        disabled={locked}
+                        onChange={(days) => onChange(f.key, days.map(String))}
+                      />
                     ) : f.kind === 'region' &&
                       f.optionsByCountry?.[String(values.country ?? '')] ? (
                       <Combobox
@@ -434,6 +475,19 @@ export function SettingsFields({
                         ]}
                         onChange={(value) => onChange(f.key, value)}
                       />
+                    ) : f.kind === 'cards' ? (
+                      <div role="radiogroup" aria-label={f.label} className="grid gap-3">
+                        {(f.options ?? []).map((option) => (
+                          <OptionCard
+                            key={option.value}
+                            title={option.label}
+                            description={option.description}
+                            selected={String(v) === option.value}
+                            disabled={locked}
+                            onSelect={() => onChange(f.key, option.value)}
+                          />
+                        ))}
+                      </div>
                     ) : f.kind === 'choice' ? (
                       <Select
                         value={String(v) || '__none__'}
@@ -470,7 +524,8 @@ export function SettingsFields({
                       <Input
                         id={id}
                         className={
-                          f.kind === 'time' || f.kind === 'number' || f.kind === 'decimal'
+                          (f.kind === 'time' || f.kind === 'number' || f.kind === 'decimal') &&
+                          !f.span
                             ? 'sm:max-w-64'
                             : f.mono
                               ? 'font-mono text-xs'

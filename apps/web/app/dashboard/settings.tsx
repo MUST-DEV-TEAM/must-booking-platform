@@ -228,6 +228,7 @@ export function DashboardSettings({
             property={property}
             saving={saveMutation.isPending}
             onSave={(update) => void save(update)}
+            tenantId={tenantId}
           />
         </SettingsAreaPanel>
         <SettingsAreaPanel activeArea={settingsArea} area="policies">

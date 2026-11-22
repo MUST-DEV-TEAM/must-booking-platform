@@ -66,6 +66,28 @@ export type Property = {
   receptionOpen24h?: boolean;
   receptionFrom?: string | null;
   receptionTo?: string | null;
+  minNoticeHours?: number | null;
+  seasonOpenFrom?: string | null;
+  seasonOpenTo?: string | null;
+  arrivalDays?: number[];
+  departureDays?: number[];
+  groupRequestForm?: boolean;
+  groupRequestEmail?: string | null;
+  minBookingAge?: number | null;
+  childrenUpToAge?: number | null;
+  infantsUpToAge?: number | null;
+  askChildrenAges?: boolean;
+  fillGapNights?: boolean;
+  confirmationMode?: string;
+  onRequestHours?: number | null;
+  formPhone?: string;
+  formCountry?: string;
+  formAddress?: string;
+  formArrivalTime?: string;
+  formSpecialRequests?: string;
+  formGuestNamePerRoom?: string;
+  formCompany?: string;
+  formMarketing?: string;
   accentColour?: string | null;
   onlineProfiles?: Record<string, string>;
   allowSameDayBooking?: boolean;
@@ -232,32 +254,12 @@ export function timeZoneOptions(current: string): string[] {
 const wholeNumber = (value: string) => /^\d+$/.test(value.trim());
 
 export type RulesDraft = {
-  minStayNights: string;
-  maxStayNights: string;
-  advanceBookingDays: string;
   freeCancellationDaysBeforeArrival: string;
 };
 
-/** Plain-words problems with the stay limits; an empty object means they can be saved. */
+/** Plain-words problems with the cancellation window; an empty object means it can be saved. */
 export function validateRules(draft: RulesDraft): Partial<Record<keyof RulesDraft, string>> {
   const errors: Partial<Record<keyof RulesDraft, string>> = {};
-  const min = draft.minStayNights.trim();
-  const max = draft.maxStayNights.trim();
-  if (min !== '' && (!wholeNumber(min) || Number(min) < 1))
-    errors.minStayNights = 'Use a whole number of nights, 1 or more.';
-  if (max !== '' && (!wholeNumber(max) || Number(max) < 1))
-    errors.maxStayNights = 'Use a whole number of nights, 1 or more.';
-  if (
-    !errors.minStayNights &&
-    !errors.maxStayNights &&
-    min !== '' &&
-    max !== '' &&
-    Number(min) > Number(max)
-  )
-    errors.minStayNights = 'The minimum stay cannot be longer than the maximum stay.';
-  const advance = draft.advanceBookingDays.trim();
-  if (advance !== '' && !wholeNumber(advance))
-    errors.advanceBookingDays = 'Use a whole number of days, 0 or more.';
   const cancel = draft.freeCancellationDaysBeforeArrival.trim();
   if (cancel === '' || !wholeNumber(cancel))
     errors.freeCancellationDaysBeforeArrival = 'Use a whole number of days, 0 or more.';

@@ -8,6 +8,7 @@ import {
   type HotelSettings,
 } from './hotel-settings';
 import { Prisma } from '@prisma/client';
+import { isClockManagedProperty } from '../booking/clock-managed-property';
 import {
   BadRequestException,
   ConflictException,
@@ -16,7 +17,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { checkProfileField, normaliseProfileValue } from '@must/domain-contracts';
+import {
+  checkBookingLimit,
+  checkProfileField,
+  normaliseProfileValue,
+} from '@must/domain-contracts';
 import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
 import { AuditLogService } from './audit-log.service';
 import { PropertyRoleTemplatesService } from './property-role-templates.service';
@@ -293,6 +298,15 @@ export class PropertiesService {
       }
 
       checkHotelSettings({ ...existing[0], ...input }, Object.keys(input));
+      // With a connected PMS the booking is created there at once, so on-request confirmation and gap filling
+      // cannot work yet. The page locks them; the server refuses them too.
+      if (
+        (input.confirmationMode === 'on_request' || input.fillGapNights === true) &&
+        (await isClockManagedProperty(tx, tenantId, propertyId))
+      )
+        throw new BadRequestException(
+          'On-request confirmation and gap filling are not available with a connected PMS yet.',
+        );
       if (
         input.defaultCurrency !== undefined &&
         input.defaultCurrency !== existing[0].defaultCurrency
@@ -721,15 +735,9 @@ export class PropertiesService {
       if (!has(key)) return undefined;
       const number = value[key];
       if (number === null) return null;
-      if (
-        typeof number !== 'number' ||
-        !Number.isInteger(number) ||
-        (key === 'advanceBookingDays' ? number < 0 : number < 1)
-      )
-        throw new BadRequestException(
-          `${key} must be ${key === 'advanceBookingDays' ? 'a non-negative' : 'a positive'} integer or null.`,
-        );
-      return number;
+      const message = checkBookingLimit(key, number);
+      if (message) throw new BadRequestException(message);
+      return number as number | undefined;
     };
     const freeCancellationDaysBeforeArrival = (() => {
       if (!has('freeCancellationDaysBeforeArrival')) return undefined;

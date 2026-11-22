@@ -391,7 +391,7 @@ describe('Dashboard section tabs', () => {
   // Old area names come from saved links; each lands on its new tab in the settings menu.
   it.each([
     ['general', 'Profile', 'Hotel identity', 'Stay limits'],
-    ['booking-rules', 'Booking rules', 'Inventory mode', 'Hotel identity'],
+    ['booking-rules', 'Booking rules', 'How guests choose rooms', 'Hotel identity'],
     ['managed-pages', 'Integrations', 'Generate connection code', 'Hotel identity'],
     ['billing', 'Plan and usage', 'Billing account', 'Hotel identity'],
   ] as const)(
