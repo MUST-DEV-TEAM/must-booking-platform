@@ -93,10 +93,11 @@ describe('parseGroupRequest', () => {
   });
 });
 
-function service(property: Record<string, unknown> | null) {
+function service(property: Record<string, unknown> | null, recent = 0) {
   const queryRaw = vi
     .fn()
     .mockResolvedValueOnce(property ? [property] : [])
+    .mockResolvedValueOnce([{ count: recent }])
     .mockResolvedValue([{ id: 'request-1' }]);
   const database = {
     withTenantTransaction: async (_c: unknown, callback: (tx: unknown) => Promise<unknown>) =>
@@ -185,6 +186,19 @@ describe('GroupRequestsService', () => {
     expect(queryRaw).toHaveBeenCalledTimes(1);
   });
 
+  it('refuses a fourth request from the same address within a day, and stores and sends nothing', async () => {
+    const { requests, notifications, delivery, queryRaw } = service(hotel, 3);
+    await expect(requests.submit(context, valid)).rejects.toMatchObject({ status: 429 });
+    expect(queryRaw).toHaveBeenCalledTimes(2);
+    expect(notifications.recordInTransaction).not.toHaveBeenCalled();
+    expect(delivery.dispatch).not.toHaveBeenCalled();
+  });
+
+  it('still takes a third request from an address', async () => {
+    const { requests } = service(hotel, 2);
+    await expect(requests.submit(context, valid)).resolves.toEqual({ id: 'request-1' });
+  });
+
   it('does not fail the request when sending an email fails', async () => {
     const { requests, delivery } = service(hotel);
     delivery.dispatch.mockRejectedValue(new Error('mail down'));
@@ -206,10 +220,29 @@ describe('group request emails', () => {
     expect(email.html).not.toContain('<script>');
   });
 
+  it('sends the guest a fixed message that echoes nothing they typed', () => {
+    const hostile = parseGroupRequest(
+      {
+        ...valid,
+        name: 'Pay now at evil.test',
+        organisation: 'Click evil.test',
+        message: 'Your account is closed, call +000',
+      },
+      today,
+    );
+    const email = groupRequestGuestEmail(brand, hostile);
+    for (const typed of ['evil.test', 'Pay now', 'account is closed', 'Wedding party']) {
+      expect(email.text).not.toContain(typed);
+      expect(email.html).not.toContain(typed);
+      expect(email.subject).not.toContain(typed);
+    }
+    expect(email.text).toContain('Rooms: 11');
+  });
+
   it('thanks the guest and says it is not a booking yet', () => {
     const email = groupRequestGuestEmail(brand, request);
     expect(email.to).toBe('group-test@example.test');
     expect(email.text).toContain('This is not a booking yet.');
-    expect(email.text).not.toContain('group-test@example.test');
+    expect(email.text).not.toContain('Elira');
   });
 });

@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { HttpException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { MailBrand } from '@must/domain-contracts';
 
 import { emailBrandExtra } from '../mail/email-brand-columns';
@@ -13,6 +13,7 @@ import { propertyClock } from './booking-rules';
 import { parseGroupRequest } from './group-request';
 
 type Context = { tenantId: string; propertyId: string };
+const MAX_REQUESTS_PER_ADDRESS_PER_DAY = 3;
 type PropertyRow = MailBrand & {
   timezone: string | null;
   groupRequestForm: boolean;
@@ -48,6 +49,17 @@ export class GroupRequestsService {
         if (!property.groupRequestForm)
           throw new NotFoundException('This hotel does not take group requests online.');
         const parsed = parseGroupRequest(body, propertyClock(property.timezone).date);
+        // One address cannot make the hotel and a stranger's inbox the target of a stream of requests.
+        const recent = await tx.$queryRaw<Array<{ count: number }>>`
+          SELECT count(*)::int AS count FROM group_requests
+          WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+            AND guest_email = ${parsed.email} AND created_at > now() - interval '1 day'
+        `;
+        if ((recent[0]?.count ?? 0) >= MAX_REQUESTS_PER_ADDRESS_PER_DAY)
+          throw new HttpException(
+            'You have already sent several requests today. The hotel will reply to your email.',
+            429,
+          );
         const inserted = await tx.$queryRaw<Array<{ id: string }>>`
           INSERT INTO group_requests (tenant_id, property_id, guest_name, guest_email, guest_phone, organisation,
             starts_on, ends_on, adults, children, rooms, message, language)

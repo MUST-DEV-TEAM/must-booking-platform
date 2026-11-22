@@ -84,32 +84,32 @@ export function groupRequestHotelEmail(
   };
 }
 
-/** To the guest: the request arrived and the hotel will answer. */
+/**
+ * To the guest: the request arrived and the hotel will answer. The address is not verified, so this message is
+ * fixed: it echoes nothing the guest typed (name, organisation, message), only dates and counts, so the form cannot
+ * be used to send chosen text to a stranger.
+ */
 export function groupRequestGuestEmail(
   brand: MailBrand,
   request: GroupRequestInput,
 ): Omit<RenderedEmailCommand, 'idempotencyKey'> {
   const hotel = brand.name || 'the hotel';
   const subject = `We received your group request, ${hotel}`.slice(0, 200);
-  const intro = `Thank you, ${request.name}. We received your request and ${hotel} will reply to this email address with a quote. This is not a booking yet.`;
+  const intro = `We received a group request for this email address and ${hotel} will reply with a quote. This is not a booking yet. If you did not send a request, you can ignore this message.`;
+  const facts = rows(request).filter((row) => ['Stay', 'Guests', 'Rooms'].includes(row.label));
   const html = renderBrandedEmail({
     subject,
     brand,
     preheader: intro,
     heading: 'We received your request',
     content: `<p style="margin:0;">${escapeHtml(intro)}</p>`,
-    summaryRows: rows(request).filter((row) => !['Name', 'Email'].includes(row.label)),
+    summaryRows: facts,
     summaryHeading: 'Your request',
     supportStyle: 'plain',
     supportLinks: [],
     showBrandFooter: false,
   });
-  const text = [
-    intro,
-    ...rows(request)
-      .filter((row) => row.value && !['Name', 'Email'].includes(row.label))
-      .map((row) => `${row.label}: ${row.value}`),
-  ].join('\n');
+  const text = [intro, ...facts.map((row) => `${row.label}: ${row.value}`)].join('\n');
   return {
     eventType: 'guest.group_request_received',
     to: request.email,
