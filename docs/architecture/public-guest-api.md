@@ -176,12 +176,21 @@ Added 2026-11-20 with the Booking rules settings page. Read it with the rest of 
 | `season.from`, `season.to` | The yearly season as `MM-DD` (both `null` = open all year). It may run over the new year. |
 | `arrivalDays`, `departureDays` | Allowed weekdays, ISO 1 (Monday) to 7 (Sunday). |
 | `sameDay.allowed`, `sameDay.cutoffTime` | Same-day bookings. |
-| `group.maxGuests`, `group.maxRooms`, `group.requestForm` | Limits for one booking. With `requestForm` true the site shows a group request form instead of a dead end (the form and its endpoint are not built yet). The request address is never published. |
+| `group.maxGuests`, `group.maxRooms`, `group.requestForm` | Limits for one booking. With `requestForm` true the site shows a group request form instead of a dead end and sends it to `POST /group-requests` (below). The request address is never published. |
 | `ages.minimumToBook`, `ages.childrenUpTo`, `ages.infantsUpTo`, `ages.askChildrenAges` | Guest age rules. Prices by age always come from the API. |
 | `confirmation.mode`, `confirmation.answerWithinHours` | `instant` or `on_request` (not built yet: sites must treat anything but `instant` as instant until the on-request flow exists). |
 | `form.*` | `required`, `optional` or `hidden` for phone, country, address, arrivalTime, specialRequests, guestNamePerRoom, company, marketing. Email and the main guest name are always asked. |
 | `fillGapNights` | A shorter stay that exactly fills a gap is allowed (not built yet). |
 
-**Enforced today (the server refuses and the site shows the reason):** stay limits, notice, how far ahead, season, arrival and departure days, same-day cutoff, group size (guests and rooms). **Saved but not applied yet:** group request form, ages, confirmation mode, booking form fields, gap filling. A site that follows `form.*` or `ages.*` before the server applies them must still accept what the server accepts.
+**Enforced today (the server refuses and the site shows the reason):** stay limits, notice, how far ahead, season, arrival and departure days, same-day cutoff, group size (guests and rooms). **Works today:** the group request form (`POST /group-requests`). **Saved but not applied yet:** ages, confirmation mode, booking form fields, gap filling. A site that follows `form.*` or `ages.*` before the server applies them must still accept what the server accepts.
 
 **Reasons for refused stays** (display prices `reason`): `min_stay`, `max_stay`, `no_arrival`, `no_departure`, `capacity`, `same_day_closed`, `too_far_ahead`, `past_date`, plus new in 2026-11-20: `too_short_notice` (booking closed this close to arrival), `outside_season` (the hotel is closed for the season), `too_many_rooms` (more rooms than one booking allows). A site that does not know a reason shows the neutral "not available" text; the playbook table lists the messages.
+
+### Group requests (`POST /tenants/:tenantId/properties/:propertyId/group-requests`)
+
+Added 2026-11-22. A guest whose party is bigger than the booking limits asks the hotel for a quote. Show the form only when `profile.booking.group.requestForm` is true; a hotel that has not switched it on answers 404.
+
+- **Body (JSON):** `startsOn`, `endsOn` (YYYY-MM-DD, arrival not in the past, 1 to 60 nights), `adults` (1 to 500), `children` (0 to 500, optional), `rooms` (1 to 200), `name`, `email`, and optional `phone` (international, `+355...`), `organisation`, `message` (up to 2,000 characters, at most two links), `language` (`en`, `sq`, `it`).
+- **Answer:** `201 {"ok": true, "id": "..."}`. A bad value answers 400 with a plain message to show the guest. It is a public mutation: rate limited like booking creation, no session cookie needed.
+- **What happens:** the request is stored, the hotel gets a notice in its dashboard and an email (to its group request address, else its reservations address, else its support address) that it can reply to, and the guest gets a fixed acknowledgement that repeats nothing they typed (only dates and counts), because the address is not verified. One email address can send at most three requests per hotel per day (the fourth answers 429). A request is not a booking: the hotel answers with a quote by email.
+- Add a honeypot and a timing check on the site, as for the booking form.

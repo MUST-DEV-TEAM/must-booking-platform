@@ -40,6 +40,7 @@ type Row = {
   endsOn: string | null;
   needsAction: boolean | null;
   emailMessageId: string | null;
+  summary: string | null;
   manuallyResolved: boolean;
   resolvedAt: Date | null;
   resolvedByName: string | null;
@@ -71,6 +72,7 @@ export class NotificationInboxService {
   SELECT n.id,n.type,r.read_at AS "readAt",n.created_at AS "createdAt",b.id AS "bookingId",b.status::text AS "bookingStatus",b.external_reference AS reference,
    NULLIF(TRIM(CONCAT_WS(' ',${bookingContactSql.firstName},${bookingContactSql.lastName})),'') AS "guestName",b.starts_on::text AS "startsOn",b.ends_on::text AS "endsOn",
    n.payload->>'emailMessageId' AS "emailMessageId",
+   n.payload->>'summary' AS "summary",
    (nr.notification_id IS NOT NULL) AS "manuallyResolved",nr.resolved_at AS "resolvedAt",
    COALESCE(NULLIF(TRIM(CONCAT_WS(' ',ru.first_name,ru.last_name)),''),ru.email) AS "resolvedByName",nr.note AS "resolutionNote",
    CASE WHEN nr.notification_id IS NOT NULL THEN false WHEN n.type='CANCELLATION_REQUESTED' THEN EXISTS(SELECT 1 FROM booking_requests q WHERE q.tenant_id=n.tenant_id AND q.property_id=n.property_id AND q.id::text=n.payload->>'requestId' AND q.status='Pending') WHEN n.type='EMAIL_DELIVERY_FAILED' THEN true WHEN n.type<>'BOOKING_NEEDS_ATTENTION' THEN false WHEN b.id IS NULL THEN NULL ELSE
@@ -108,6 +110,8 @@ export class NotificationInboxService {
       id: row.id,
       type: row.type,
       ...registry,
+      // A group request has no reservation: the notice says who asked and for what.
+      ...(row.type === 'GROUP_REQUEST_RECEIVED' && row.summary ? { description: row.summary } : {}),
       readAt: row.readAt,
       createdAt: row.createdAt,
       needsAction: row.needsAction,
@@ -132,7 +136,9 @@ export class NotificationInboxService {
             : !href
               ? 'Related email is unavailable'
               : null
-          : row.type === 'CLOCK_RIGHT_MISSING' || row.type === 'CLOCK_ACCESS_LOST'
+          : row.type === 'CLOCK_RIGHT_MISSING' ||
+              row.type === 'CLOCK_ACCESS_LOST' ||
+              row.type === 'GROUP_REQUEST_RECEIVED'
             ? null
             : !canBooking && row.type !== 'STAFF_SEAT_CAP_REACHED'
               ? 'bookings.view'

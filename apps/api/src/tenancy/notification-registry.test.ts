@@ -12,6 +12,7 @@ describe('registered in-app alert routing', () => {
   });
   it('separates booking, payment and staff audiences', () => {
     expect(registeredNotificationTypes(['bookings.view'])).toEqual([
+      'GROUP_REQUEST_RECEIVED',
       'BOOKING_CREATED',
       'BOOKING_NEEDS_ATTENTION',
     ]);
@@ -20,7 +21,7 @@ describe('registered in-app alert routing', () => {
   });
   it('owner/admin breadth includes only registered real producers', () => {
     expect(registeredNotificationTypes([], true)).toEqual(Object.keys(NOTIFICATION_REGISTRY));
-    expect(registeredNotificationTypes([], true)).toHaveLength(8);
+    expect(registeredNotificationTypes([], true)).toHaveLength(9);
   });
   it('keeps all design categories/priorities without fabricating producers', () => {
     expect(NOTIFICATION_CATEGORIES).toHaveLength(5);

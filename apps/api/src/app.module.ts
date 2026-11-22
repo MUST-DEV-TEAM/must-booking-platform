@@ -225,6 +225,8 @@ import { QuoteService } from './booking/quote.service';
 import { BookingController } from './booking/booking.controller';
 import { StaffBookingController } from './booking/staff-booking.controller';
 import { PublicBookingController } from './booking/public-booking.controller';
+import { GroupRequestsController } from './booking/group-requests.controller';
+import { GroupRequestsService } from './booking/group-requests.service';
 import { BookingProjectionService } from './booking/booking-projection.service';
 import { CancellationLinkService } from './booking/cancellation-link.service';
 import { MultiRoomBookingService } from './booking/multi-room-booking.service';
@@ -420,6 +422,7 @@ const healthPaths = new Set(['/health', '/health/ready']);
     GuestReviewReportController,
     StaffBookingController,
     PublicBookingController,
+    GroupRequestsController,
     StripeWebhookController,
     PokPayWebhookController,
     ResendWebhookController,
@@ -538,6 +541,7 @@ const healthPaths = new Set(['/health', '/health/ready']);
     BookingProjectionService,
     CancellationLinkService,
     MultiRoomBookingService,
+    GroupRequestsService,
     QuoteService,
     StaffAvailabilityService,
     LocalPmsProvider,
