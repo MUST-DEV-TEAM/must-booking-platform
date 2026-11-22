@@ -40,7 +40,7 @@ describe('describeBookingRules', () => {
       'Guests can only arrive on Friday, Saturday.',
       'Guests can only leave on Sunday.',
       'Same-day bookings close at 18:00.',
-      'A booking can have up to 8 guests and 4 rooms.',
+      'A booking can have up to 8 guests and 4 rooms; bigger groups can send a request.',
     ]);
   });
 });
@@ -57,15 +57,14 @@ describe('ruleOwnerLabel', () => {
 
 describe('ruleStatusLabel', () => {
   it('flags the sections that are saved but not applied to bookings yet', () => {
-    for (const title of [
-      'Group requests',
-      'Guest ages',
-      'Confirmation',
-      'Booking form',
-      'Advanced',
-    ])
+    for (const title of ['Guest ages', 'Confirmation', 'Booking form', 'Advanced'])
       expect(ruleStatusLabel(title)).toContain('not applied');
-    for (const title of ['Length of stay', 'Booking window and season', 'Group size'])
+    for (const title of [
+      'Length of stay',
+      'Booking window and season',
+      'Group size',
+      'Group requests',
+    ])
       expect(ruleStatusLabel(title)).toBeUndefined();
   });
 });

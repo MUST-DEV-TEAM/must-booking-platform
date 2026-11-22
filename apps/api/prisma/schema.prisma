@@ -2483,3 +2483,25 @@ model SettingsOverviewDismissal {
   @@id([tenantId, propertyId, userId, kind])
   @@map("settings_overview_dismissals")
 }
+
+model GroupRequest {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  propertyId   String   @map("property_id") @db.Uuid
+  status       String   @default("NEW")
+  guestName    String   @map("guest_name") @db.VarChar(160)
+  guestEmail   String   @map("guest_email") @db.VarChar(254)
+  guestPhone   String?  @map("guest_phone") @db.VarChar(32)
+  organisation String?  @db.VarChar(160)
+  startsOn     DateTime @map("starts_on") @db.Date
+  endsOn       DateTime @map("ends_on") @db.Date
+  adults       Int
+  children     Int      @default(0)
+  rooms        Int
+  message      String?  @db.VarChar(2000)
+  language     String?  @db.VarChar(5)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([tenantId, propertyId, createdAt(sort: Desc)], map: "group_requests_property_created_idx")
+  @@map("group_requests")
+}
