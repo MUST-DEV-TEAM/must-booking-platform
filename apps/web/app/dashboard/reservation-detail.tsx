@@ -83,6 +83,7 @@ type Detail = {
   id: string;
   externalReference: string;
   status: string;
+  onRequestDeadlineAt?: string | null;
   paymentMethod: string;
   source: string | null;
   startsOn: string;
@@ -275,6 +276,8 @@ export function ReservationDetail({
     if (wasNew) unseen.markSeen(bookingId);
   }, [wasNew, bookingId]);
   const [refunding, setRefunding] = useState(false);
+  const [decliningRequest, setDecliningRequest] = useState(false);
+  const [decidingRequest, setDecidingRequest] = useState(false);
   const refundAttempt = useRef({ body: '', key: '' });
   const [refundOnlyPick, setRefundOnlyPick] = useState<RefundChoiceValue>({
     ...noRefund,
@@ -438,6 +441,38 @@ export function ReservationDetail({
     await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
   };
 
+  const decideRequest = async (decision: 'accept' | 'decline') => {
+    setDecidingRequest(true);
+    try {
+      const response = await fetch(`${base}/bookings/${booking.id}/request-decision`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision, expectedVersion: booking.version }),
+      });
+      const result = (await response.json().catch(() => null)) as {
+        ok?: boolean;
+        error?: { message?: string };
+        message?: string;
+      } | null;
+      if (!response.ok || result?.ok === false)
+        throw new Error(
+          result?.error?.message ?? result?.message ?? 'The request could not be decided.',
+        );
+      toast.success(
+        decision === 'accept'
+          ? 'Request accepted. The guest has been emailed a payment link.'
+          : 'Request declined. The room has been released.',
+      );
+      setDecliningRequest(false);
+      await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'The request could not be decided.');
+    } finally {
+      setDecidingRequest(false);
+    }
+  };
+
   const hasClock = booking.clockFolios.length > 0 || !!booking.externalBookingId;
   const firstCharge = ledger.data?.find((entry) => entry.kind === 'CHARGE');
   const received = Number(booking.paidAmount) - Number(booking.refundedAmount);
@@ -539,6 +574,55 @@ export function ReservationDetail({
             ) : null}
           </>
         }
+      />
+      {booking.status === 'ON_REQUEST_PENDING' ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Booking request awaiting your decision</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm">
+              The room is held until{' '}
+              {booking.onRequestDeadlineAt
+                ? dateTime(booking.onRequestDeadlineAt)
+                : 'the saved deadline'}
+              . Accept or decline before then. Payment is requested only after acceptance.
+            </p>
+            {canEditBooking ? (
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  disabled={
+                    decidingRequest ||
+                    !!(
+                      booking.onRequestDeadlineAt &&
+                      new Date(booking.onRequestDeadlineAt).getTime() <= Date.now()
+                    )
+                  }
+                  onClick={() => void decideRequest('accept')}
+                >
+                  Accept and send payment link
+                </Button>
+                <Button
+                  variant="destructive"
+                  disabled={decidingRequest}
+                  onClick={() => setDecliningRequest(true)}
+                >
+                  Decline request
+                </Button>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+      <ConfirmDialog
+        open={decliningRequest}
+        onOpenChange={setDecliningRequest}
+        title={`Decline booking request ${booking.externalReference}`}
+        description="The room will be released and the guest will be emailed the decision."
+        confirmLabel="Decline request"
+        onConfirm={async () => {
+          await decideRequest('decline');
+        }}
       />
       <CollectPaymentActions tenantId={tenantId} propertyId={propertyId} booking={booking} />
       <ReservationReview tenantId={tenantId} propertyId={propertyId} bookingId={booking.id} />

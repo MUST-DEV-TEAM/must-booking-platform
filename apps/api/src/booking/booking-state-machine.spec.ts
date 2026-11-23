@@ -13,12 +13,19 @@ describe('BookingStateMachine', () => {
       BookingStatus.EXPIRED,
     ],
     [BookingStatus.INVENTORY_REVALIDATING]: [
+      BookingStatus.ON_REQUEST_PENDING,
       BookingStatus.PAYMENT_PENDING,
       BookingStatus.PAYMENT_NOT_REQUIRED,
       BookingStatus.AVAILABILITY_FAILED,
       BookingStatus.CANCELLED,
       BookingStatus.EXPIRED,
     ],
+    [BookingStatus.ON_REQUEST_PENDING]: [
+      BookingStatus.PAYMENT_PENDING,
+      BookingStatus.PAYMENT_NOT_REQUIRED,
+      BookingStatus.DECLINED,
+    ],
+    [BookingStatus.DECLINED]: [],
     [BookingStatus.PAYMENT_PENDING]: [
       BookingStatus.PMS_CREATION_PENDING,
       BookingStatus.PAYMENT_FAILED,

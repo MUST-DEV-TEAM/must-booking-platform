@@ -28,6 +28,36 @@ const COMMON = [
 ] as const;
 
 export const EMAIL_TEMPLATES = {
+  booking_request_received: {
+    label: 'Booking request received',
+    placeholders: [...COMMON, 'decision_deadline'],
+    subject: 'Your booking request at {hotel_name} - {booking_reference}',
+    body: 'Hello {guest_name}, your request is waiting for the hotel to accept or decline it by {decision_deadline}. No payment has been taken. We will email you the decision.\n\n{hotel_contact}',
+  },
+  staff_booking_request: {
+    label: 'Booking request - staff',
+    placeholders: [...COMMON, 'decision_deadline'],
+    subject: 'Decide booking request {booking_reference}',
+    body: 'A booking request from {guest_name} needs a decision by {decision_deadline}. Open it in MUST to accept or decline it. The room is held until the deadline.',
+  },
+  booking_request_accepted: {
+    label: 'Booking request accepted - payment due',
+    placeholders: [...COMMON],
+    subject: 'Pay for your booking request at {hotel_name} - {booking_reference}',
+    body: 'Hello {guest_name}, the hotel accepted your request. Complete payment using the secure link below before it expires. Your reservation is confirmed after payment.\n\n{hotel_contact}',
+  },
+  booking_request_declined: {
+    label: 'Booking request declined',
+    placeholders: [...COMMON],
+    subject: 'Booking request declined - {booking_reference}',
+    body: 'Hello {guest_name}, your booking request was declined and the room was released. No payment was taken. Contact {hotel_contact} if you would like another stay.',
+  },
+  staff_booking_request_decided: {
+    label: 'Booking request decision - staff',
+    placeholders: [...COMMON],
+    subject: 'Booking request decision - {booking_reference}',
+    body: 'A decision was recorded for booking request {booking_reference}. Open MUST to review its status and payment.',
+  },
   booking_confirmed: {
     label: 'Booking confirmation - paid online',
     placeholders: [...COMMON, 'payment_note'],

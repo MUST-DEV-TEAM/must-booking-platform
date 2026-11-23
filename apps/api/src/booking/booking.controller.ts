@@ -37,6 +37,7 @@ import { CancellationLinkService } from './cancellation-link.service';
 import { PmsProviderRegistry } from './pms-provider-registry';
 import { MultiRoomBookingService } from './multi-room-booking.service';
 import { ARRIVAL_TIME_RE } from './guest-form-rules';
+import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator';
 
 type GuestBookingRequest = {
   tenantContext: { tenantId: string; propertyId: string };
@@ -145,6 +146,33 @@ export class BookingController {
     );
     if (!booking) throw new NotFoundException('Booking was not found.');
     return booking;
+  }
+
+  @Post(':bookingId/request-decision')
+  @HttpCode(200)
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('bookings.edit')
+  @RequiresVerifiedEmail()
+  async decideRequest(
+    @Param('bookingId') bookingId: string,
+    @Body() body: unknown,
+    @Req() request: { tenantContext: { tenantId: string; propertyId: string; userId: string } },
+  ) {
+    const input = (body ?? {}) as Record<string, unknown>;
+    if (input.decision !== 'accept' && input.decision !== 'decline')
+      throw new BadRequestException('Choose accept or decline.');
+    if (!Number.isInteger(input.expectedVersion) || (input.expectedVersion as number) < 1)
+      throw new BadRequestException('The current booking version is required.');
+    return throwIfBookingRefused(
+      await this.provider.decideOnRequest(
+        request.tenantContext,
+        bookingId,
+        request.tenantContext.userId,
+        input.expectedVersion as number,
+        input.decision,
+      ),
+    );
   }
 
   @Post()

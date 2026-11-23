@@ -89,6 +89,12 @@ Local properties also apply dated property/category/type restrictions through th
 
 ## Creation and payment lifecycle
 
+### On-request confirmation
+
+For a standalone hotel's guest booking, `confirmation_mode=on_request` holds each requested room in `ON_REQUEST_PENDING` until the saved deadline (`on_request_hours`, default 24, allowed 1-48). Staff with `bookings.edit` accept or decline through `POST /tenants/:tenantId/properties/:propertyId/bookings/:bookingId/request-decision` with `{ decision: "accept" | "decline", expectedVersion }`. Multi-room decisions cover the whole order. Decline or the minute sweep after the deadline moves the request to `DECLINED` and releases stock. Acceptance starts a new online-payment hold and emails the payment link; the existing payment confirmation path confirms the booking after a paid event. A free stay confirms on acceptance. Pay-at-hotel is refused for on-request guests. The server also refuses on-request creation and acceptance while a PMS is connected.
+
+The guest and staff messages use the existing email outbox, and decision audit events save before and after state. The booking response and guest status read expose `onRequestDeadlineAt`; sites should show a request-received state when no checkout URL is returned for `ON_REQUEST_PENDING`. Migration `20261123110000_on_request_status` adds the states and timing columns; `20261123110100_on_request_sweep` adds the scoped expiry candidate and changes payment expiry to start from `payment_pending_at`. Rollback: resolve pending requests, deploy the prior API, and restore the previous expiry functions from the migrations named in `20261123110100_on_request_sweep`; keep the additive columns and enum values until a separately reviewed type rebuild.
+
 ```mermaid
 flowchart TD
   Draft[DRAFT] --> Quoted[QUOTED]

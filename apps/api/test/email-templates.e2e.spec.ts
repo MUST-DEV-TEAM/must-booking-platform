@@ -121,6 +121,11 @@ describe('email templates (a property’s own wording for guest emails)', () => 
     const http = () => request(app!.getHttpServer());
     const list = await http().get(url()).set('Cookie', cookie).expect(200);
     expect(list.body.map((t: { key: string }) => t.key)).toEqual([
+      'booking_request_received',
+      'staff_booking_request',
+      'booking_request_accepted',
+      'booking_request_declined',
+      'staff_booking_request_decided',
       'booking_confirmed',
       'booking_cancelled',
       'cancellation_request_received',
@@ -716,6 +721,9 @@ describe('email templates (a property’s own wording for guest emails)', () => 
     const base = url().replace('/email-templates', '');
     const http = () => request(app!.getHttpServer());
     for (const key of [
+      'booking_request_received',
+      'booking_request_accepted',
+      'booking_request_declined',
       'booking_confirmed',
       'booking_confirmed_pay_at_hotel',
       'booking_cancelled',

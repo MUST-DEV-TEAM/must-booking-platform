@@ -291,7 +291,7 @@ export class AvailabilityService {
                 AND b.room_id = ${query.roomId}::uuid
                 AND b.starts_on <= month_days.stays_on AND b.ends_on > month_days.stays_on
                 AND b.status IN (
-                  'PAYMENT_PENDING'::"BookingStatus", 'PAYMENT_NOT_REQUIRED'::"BookingStatus",
+                  'ON_REQUEST_PENDING'::"BookingStatus", 'PAYMENT_PENDING'::"BookingStatus", 'PAYMENT_NOT_REQUIRED'::"BookingStatus",
                   'PMS_CREATION_PENDING'::"BookingStatus", 'PMS_CONFIRMATION_PENDING'::"BookingStatus",
                   'CONFIRMED'::"BookingStatus", 'PAYMENT_FAILED'::"BookingStatus",
                   'PMS_UNKNOWN_RESULT'::"BookingStatus", 'PMS_REJECTED'::"BookingStatus",
@@ -573,7 +573,7 @@ export class AvailabilityService {
         LEFT JOIN rooms r ON r.tenant_id = b.tenant_id AND r.id = b.room_id
         WHERE b.tenant_id = ${tenantId}::uuid AND b.property_id = ${propertyId}::uuid
           AND b.starts_on < ${input.endsOn}::date AND b.ends_on > ${input.startsOn}::date
-          AND b.status NOT IN ('CANCELLED', 'EXPIRED', 'DRAFT', 'QUOTED')
+          AND b.status NOT IN ('CANCELLED', 'EXPIRED', 'DECLINED', 'DRAFT', 'QUOTED')
           AND (
             ${input.all}
             OR b.room_type_id = ANY(${input.roomTypeIds}::uuid[])
@@ -1022,6 +1022,7 @@ export class AvailabilityService {
             AND starts_on < ${input.endsOn}::date
             AND ends_on > ${input.startsOn}::date
             AND status IN (
+              'ON_REQUEST_PENDING'::"BookingStatus",
               'PAYMENT_PENDING'::"BookingStatus",
               'PAYMENT_NOT_REQUIRED'::"BookingStatus",
               'PMS_CREATION_PENDING'::"BookingStatus",

@@ -4,6 +4,13 @@ export type AuditSource =
 type Definition = { title: string; result?: AuditResult; source?: AuditSource; routine?: boolean };
 /** Reviewed producer meanings. Defaults apply at INSERT only, never to historical reads. */
 export const AUDIT_EVENTS: Record<string, Definition> = {
+  'booking.requested': { title: 'Booking requested', result: 'pending', source: 'GUEST' },
+  'booking.request_accepted': {
+    title: 'Booking request accepted',
+    result: 'completed',
+    source: 'MUST_STAFF',
+  },
+  'booking.request_declined': { title: 'Booking request declined', result: 'completed' },
   'rates.pair_changed': { title: 'Rate comparison changed', result: 'completed' },
   'rates.website_visibility_changed': {
     title: 'Rate switched on or off for the website',

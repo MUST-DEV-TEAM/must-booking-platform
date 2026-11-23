@@ -111,6 +111,8 @@ describe('notification settings (who receives which email)', () => {
     let settings = await request(app!.getHttpServer()).get(url).set('Cookie', cookie).expect(200);
     expect(settings.body.topics.map((entry: TopicBody) => entry.topic)).toEqual([
       'new_booking',
+      'booking_request',
+      'booking_request_decision',
       'booking_cancelled',
       'cancellation_request_received',
       'refund_processed',

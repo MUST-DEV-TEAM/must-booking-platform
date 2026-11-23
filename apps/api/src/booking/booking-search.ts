@@ -54,6 +54,7 @@ export type BookingSearchQuery = {
 
 /** Statuses that hold or use a room (the same set as the overview's occupying statuses). */
 export const LIVE_STATUSES = [
+  BookingStatus.ON_REQUEST_PENDING,
   BookingStatus.PAYMENT_PENDING,
   BookingStatus.PAYMENT_NOT_REQUIRED,
   BookingStatus.PMS_CREATION_PENDING,
@@ -168,7 +169,7 @@ export const VIEW_SQL: Record<BookingView, string> = {
   upcoming: `${LIVE_SQL} AND x.starts_on > x.today`,
   needs_attention: `x.attention_open AND x.status IN (${quoted(ATTENTION_STATUSES)})`,
   unpaid: `${LIVE_SQL} AND x.payment_state IN ('unpaid', 'deposit')`,
-  cancelled: `x.status IN ('CANCELLED', 'EXPIRED')`,
+  cancelled: `x.status IN ('CANCELLED', 'EXPIRED', 'DECLINED')`,
 };
 
 export type BuiltSearch = { where: string; orderBy: string; params: unknown[] };

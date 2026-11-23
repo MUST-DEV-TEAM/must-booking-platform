@@ -92,7 +92,7 @@ export async function evaluatePropertyBookingRules(
         SELECT starts_on::text AS "startsOn", ends_on::text AS "endsOn", 'booking'::text AS kind
         FROM bookings WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
           AND starts_on < ${endsOn}::date AND ends_on > ${startsOn}::date
-          AND status NOT IN ('CANCELLED', 'EXPIRED', 'DRAFT', 'QUOTED')
+          AND status NOT IN ('CANCELLED', 'EXPIRED', 'DECLINED', 'DRAFT', 'QUOTED')
           AND ((${roomId || null}::uuid IS NOT NULL AND room_id = ${roomId || null}::uuid)
             OR (${roomId || null}::uuid IS NULL AND room_type_id = ${roomTypeId}::uuid))
       `;

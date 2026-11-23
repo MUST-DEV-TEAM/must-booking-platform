@@ -1,6 +1,8 @@
 /** Plain words for the booking status a guest sees on the Manage booking page. */
 const LABELS: Record<string, string> = {
   CONFIRMED: 'Confirmed',
+  ON_REQUEST_PENDING: 'Waiting for the hotel to decide',
+  DECLINED: 'Request declined',
   CANCELLED: 'Cancelled',
   PAYMENT_PENDING: 'Waiting for payment',
   PAYMENT_NOT_REQUIRED: 'Reserved, pay at the hotel',
