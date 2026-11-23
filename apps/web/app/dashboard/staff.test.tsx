@@ -596,6 +596,25 @@ describe('Staff', () => {
     await unmount(root);
   });
 
+  it('inside Settings adds Invitations and Security tabs that are marked coming soon', async () => {
+    mock({ staffSeats: 1, maxStaffSeats: 2 });
+    const { container, root } = await mount('p', true);
+    await clickTab('Invitations');
+    expect(container.textContent).toContain('Coming soon');
+    expect(container.textContent).toContain('Send an invitation again, or withdraw it.');
+    await clickTab('Security');
+    expect(container.textContent).toContain('Two-step sign-in');
+    expect(container.textContent).toContain('Ownership');
+    await unmount(root);
+  });
+
+  it('outside Settings has no Invitations or Security tab', async () => {
+    mock({ staffSeats: 1, maxStaffSeats: 2 });
+    const { container, root } = await mount();
+    expect(container.textContent).not.toContain('Invitations');
+    await unmount(root);
+  });
+
   it('shows the shared table controls, status and last active, row quick peek and selection', async () => {
     mock({ staffSeats: 1, maxStaffSeats: 2 });
     const { container, root } = await mount();

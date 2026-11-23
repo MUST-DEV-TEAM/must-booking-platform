@@ -9,6 +9,7 @@ import {
   CardTitle,
 } from '../../components/ui/card';
 import { Progress } from '../../components/ui/progress';
+import { PlanChangeSoon } from './coming-soon-settings';
 
 /** What `GET /tenants/:id/plan-usage` returns. */
 export type PlanUsageData = {
@@ -196,6 +197,7 @@ export function PlanUsageSettings({
           </dl>
         </CardContent>
       </Card>
+      <PlanChangeSoon />
     </div>
   );
 }

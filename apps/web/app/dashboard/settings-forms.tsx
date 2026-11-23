@@ -1,5 +1,6 @@
 'use client';
 
+import { CancellationPoliciesSoon } from './coming-soon-settings';
 import { useEffect, useState } from 'react';
 
 import { useHotelSettings } from './hotel-settings-fields';
@@ -326,6 +327,7 @@ export function CheckInOutSettings({ property, saving, onSave, canWrite = false 
           <p className="m-0 text-sm text-muted-foreground">No policies set yet.</p>
         )}
       </FormSection>
+      <CancellationPoliciesSoon freeDays={property.freeCancellationDaysBeforeArrival} />
       <SaveBar
         dirty={canWrite && dirty}
         saving={saving}

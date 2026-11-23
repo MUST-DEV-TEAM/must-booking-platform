@@ -191,6 +191,7 @@ it('groups arrival and policies, validates paired hours and saves notes without 
       'House rules',
       'Damage deposit',
       'Guests will read',
+      'Cancellation and prepayment policies',
     ])
       expect(m.host.textContent).toContain(title);
     await pickTime('hotel-quietHoursFrom', '22:00');

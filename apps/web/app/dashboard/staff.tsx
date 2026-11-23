@@ -68,6 +68,7 @@ import { useTablePreferences } from '../../lib/use-table-preferences';
 import { cn } from '../../lib/utils';
 import { settingsTabHref } from './settings-registry';
 import { StaffDetail, staffHref, staffListHref } from './staff-detail';
+import { InvitationsSoon, SecuritySoon } from './coming-soon-settings';
 import { StaffSheet } from './staff-sheet';
 import { type StaffMember, type StaffTemplate } from './staff-stats';
 import { RestaurantStaffProfile } from './restaurant-staff-profile';
@@ -136,7 +137,7 @@ export function DashboardStaff({
   const base = `/api/tenants/${tenantId}`;
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
-  const [screen, setScreen] = useState<'staff' | 'roles'>('staff');
+  const [screen, setScreen] = useState<'staff' | 'roles' | 'invitations' | 'security'>('staff');
   const [view, setView] = useState<StaffView>('all');
   const [sort, setSort] = useState<{ key: SortKey; direction: 'asc' | 'desc' }>({
     key: 'member',
@@ -578,20 +579,38 @@ export function DashboardStaff({
     );
   }
 
+  const sectionTabs = (
+    <TabBar
+      tabs={[
+        { id: 'staff', label: 'People', count: staff.length },
+        ...(templates.length || venues.length
+          ? [{ id: 'roles', label: 'Roles', count: templates.length + (venues.length ? 2 : 0) }]
+          : []),
+        ...(embedded
+          ? [
+              { id: 'invitations', label: 'Invitations' },
+              { id: 'security', label: 'Security' },
+            ]
+          : []),
+      ]}
+      current={screen}
+      onSelect={(value) => setScreen(value as 'staff' | 'roles' | 'invitations' | 'security')}
+      label="Staff sections"
+    />
+  );
+
+  if (embedded && (screen === 'invitations' || screen === 'security'))
+    return (
+      <div className="space-y-5">
+        {sectionTabs}
+        {screen === 'invitations' ? <InvitationsSoon /> : <SecuritySoon />}
+      </div>
+    );
+
   if (screen === 'roles')
     return (
       <div className="space-y-5">
-        <TabBar
-          tabs={[
-            { id: 'staff', label: 'People', count: staff.length },
-            ...(templates.length || venues.length
-              ? [{ id: 'roles', label: 'Roles', count: templates.length + (venues.length ? 2 : 0) }]
-              : []),
-          ]}
-          current={screen}
-          onSelect={(value) => setScreen(value as 'staff' | 'roles')}
-          label="Staff sections"
-        />
+        {sectionTabs}
         <RoleManagement
           restaurantRoles={venues.length ? restaurantRoleRows(staff) : []}
           tenantId={tenantId}
@@ -648,17 +667,7 @@ export function DashboardStaff({
         );
       })()}
 
-      <TabBar
-        tabs={[
-          { id: 'staff', label: 'People', count: staff.length },
-          ...(templates.length || venues.length
-            ? [{ id: 'roles', label: 'Roles', count: templates.length + (venues.length ? 2 : 0) }]
-            : []),
-        ]}
-        current={screen}
-        onSelect={(value) => setScreen(value as 'staff' | 'roles')}
-        label="Staff sections"
-      />
+      {sectionTabs}
 
       {capped ? (
         <p
