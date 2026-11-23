@@ -392,8 +392,8 @@ describe('Dashboard section tabs', () => {
   it.each([
     ['general', 'Profile', 'Hotel identity', 'Stay limits'],
     ['booking-rules', 'Booking rules', 'How guests choose rooms', 'Hotel identity'],
-    ['managed-pages', 'Integrations', 'Generate connection code', 'Hotel identity'],
-    ['billing', 'Plan and usage', 'Billing account', 'Hotel identity'],
+    ['managed-pages', 'Integrations', 'Need another integration?', 'Hotel identity'],
+    ['billing', 'Plan and usage', 'Your plan', 'Hotel identity'],
   ] as const)(
     'restores the %s Settings link on its tab with the settings menu',
     async (settingsArea, activeTab, visiblePanel, hiddenPanel) => {
@@ -499,7 +499,7 @@ describe('Dashboard section tabs', () => {
       expect(content).not.toContain(hiddenPanel);
       expect(content).not.toContain('Email branding');
       if (settingsArea === 'billing') {
-        expect(content).toContain('Platform billing is not available yet');
+        expect(content).toContain('invoices are not available yet');
         expect(content).not.toContain('Milestone 13');
       }
 

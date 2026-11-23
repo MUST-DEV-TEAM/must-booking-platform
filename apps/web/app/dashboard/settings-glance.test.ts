@@ -72,8 +72,9 @@ it('draws eleven cards with real values, a status pill each, and a dash where no
   expect(value('policies', 'No-show')).toBe('First night charged');
   expect(value('team', 'Staff')).toBe('8 active');
   expect(value('plan-usage', 'Rooms')).toBe('42');
-  // Not built yet: the card is there, the value is empty (drawn as a dash).
-  expect(value('taxes-fees', 'City tax')).toBeNull();
+  // Nothing read from the other pages yet: the card is there, the value is empty (drawn as a dash).
+  expect(value('taxes-fees', 'Taxes and fees')).toBeNull();
+  expect(value('plan-usage', 'Plan')).toBeNull();
   expect(value('audit-log', 'Last change')).toBeNull();
   expect(cards.find((card) => card.tab === 'profile')!.badge).toEqual({
     label: 'Complete',
@@ -96,4 +97,44 @@ it('flags payments in test mode and emails that failed, from the live problems',
     tone: 'warning',
   });
   expect(cards.find((card) => card.tab === 'emails')!.badge.tone).toBe('warning');
+});
+
+it('fills the taxes, team, plan and audit cards from what the other pages know', () => {
+  const cards = settingsGlance(property, [], [], {
+    taxes: { names: ['VAT', 'City tax', 'Service', 'Resort fee'], clock: false },
+    team: { active: 5, suspended: 1 },
+    plan: {
+      plan: {
+        name: 'Basic',
+        maxProperties: 2,
+        maxStaffSeats: 8,
+        pmsEnabled: true,
+        maxPmsConnectionsPerProperty: 1,
+        readOnly: false,
+        diningEnabled: false,
+        maxVenues: null,
+      },
+      usage: { properties: 1, staffSeats: 5, venues: 0 },
+    },
+    audit: { title: 'Policies saved', actor: 'Ana Hotel', at: '2026-11-23T10:00:00Z' },
+  });
+  const card = (tab: string) => cards.find((c) => c.tab === tab)!;
+  const value = (tab: string, label: string) =>
+    card(tab).items.find((item) => item.label === label)?.value;
+  expect(card('taxes-fees').badge).toEqual({ label: '4 active', tone: 'success' });
+  expect(value('taxes-fees', 'Taxes and fees')).toBe('VAT, City tax, Service and 1 more');
+  expect(value('team', 'Staff')).toBe('5 active');
+  expect(value('team', 'Suspended')).toBe('1');
+  expect(card('plan-usage').badge).toEqual({ label: 'Active', tone: 'success' });
+  expect(value('plan-usage', 'Plan')).toBe('Basic');
+  expect(value('plan-usage', 'Staff accounts')).toBe('5 of 8');
+  expect(value('audit-log', 'Last change')).toBe('Policies saved');
+  expect(value('audit-log', 'By')).toBe('Ana Hotel');
+});
+
+it('says taxes are calculated in Clock for a Clock hotel', () => {
+  const cards = settingsGlance(property, [], [], { taxes: { names: [], clock: true } });
+  const tax = cards.find((c) => c.tab === 'taxes-fees')!;
+  expect(tax.badge.label).toBe('In Clock');
+  expect(tax.items.find((i) => i.label === 'Taxes and fees')?.value).toBe('Calculated in Clock');
 });

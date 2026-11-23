@@ -221,7 +221,7 @@ describe('Staff', () => {
     expect(document.body.textContent).toContain('Restaurant Manager');
     expect(document.body.textContent).toContain('Waiter');
     expect(document.body.textContent).toContain('Hotel roles belong to this hotel');
-    await clickTab('Staff');
+    await clickTab('People');
     await clickButton('Add staff');
     await openSelect('Create staff role');
     await chooseOption('Waiter');
@@ -582,6 +582,39 @@ describe('Staff', () => {
     await unmount(root);
   });
 
+  it('inside Settings has no second title, links to the Settings audit log and has no dead export buttons', async () => {
+    mock({ staffSeats: 1, maxStaffSeats: 2 });
+    const { container, root } = await mount('p', true);
+    expect(container.querySelector('h1, h2')).toBeNull();
+    expect(container.textContent).toContain('Everyone who can sign in to this hotel');
+    expect(
+      container.querySelector(
+        'a[href="/dashboard/t?propertyId=p&section=settings&settingsArea=audit-log"]',
+      )?.textContent,
+    ).toBe('Audit log');
+    expect(container.textContent).not.toContain('Export');
+    await unmount(root);
+  });
+
+  it('inside Settings adds Invitations and Security tabs that are marked coming soon', async () => {
+    mock({ staffSeats: 1, maxStaffSeats: 2 });
+    const { container, root } = await mount('p', true);
+    await clickTab('Invitations');
+    expect(container.textContent).toContain('Coming soon');
+    expect(container.textContent).toContain('Send an invitation again, or withdraw it.');
+    await clickTab('Security');
+    expect(container.textContent).toContain('Two-step sign-in');
+    expect(container.textContent).toContain('Ownership');
+    await unmount(root);
+  });
+
+  it('outside Settings has no Invitations or Security tab', async () => {
+    mock({ staffSeats: 1, maxStaffSeats: 2 });
+    const { container, root } = await mount();
+    expect(container.textContent).not.toContain('Invitations');
+    await unmount(root);
+  });
+
   it('shows the shared table controls, status and last active, row quick peek and selection', async () => {
     mock({ staffSeats: 1, maxStaffSeats: 2 });
     const { container, root } = await mount();
@@ -597,8 +630,8 @@ describe('Staff', () => {
     expect(container.textContent).not.toContain('Hotel scope');
     expect(container.textContent).not.toContain('Role template');
     expect(container.textContent).not.toContain('Create role template');
-    expect(container.textContent).toContain('Export CSV');
-    expect((buttonWithText('Export CSV') as HTMLButtonElement).disabled).toBe(true);
+    expect(container.textContent).not.toContain('Export CSV');
+    expect(container.textContent).not.toContain('Export selected');
 
     await act(async () => {
       container.querySelector<HTMLButtonElement>('[aria-label="Select staff@test"]')!.click();
@@ -934,7 +967,7 @@ function responseFor(url: string, usage = { staffSeats: 1, maxStaffSeats: 2 }) {
   );
 }
 
-async function mount(propertyId = 'p') {
+async function mount(propertyId = 'p', embedded = false) {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -943,7 +976,7 @@ async function mount(propertyId = 'p') {
       createElement(
         DashboardQueryProvider,
         undefined,
-        createElement(DashboardStaff, { tenantId: 't', propertyId }),
+        createElement(DashboardStaff, { tenantId: 't', propertyId, embedded }),
       ),
     );
   });

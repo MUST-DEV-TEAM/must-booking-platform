@@ -80,5 +80,37 @@ export async function enforceGuestForm(
   if (problem) throw new BadRequestException(problem);
 }
 
+/**
+ * "Ask children's ages" (Settings, Booking rules, Guest ages): when the hotel switched it on, a guest booking that
+ * includes children must say how old each child is, so rates that price by age are charged correctly. Off by default,
+ * so existing callers are unaffected. The ages themselves are checked by the occupancy rules (whole years, one per child).
+ */
+export function missingChildrenAges(
+  askChildrenAges: boolean | null | undefined,
+  occupancy: { children: number },
+  childrenAges: number[] | undefined,
+): string | null {
+  if (askChildrenAges !== true || occupancy.children < 1) return null;
+  if (!childrenAges || childrenAges.length !== occupancy.children)
+    return "Please tell us each child's age.";
+  return null;
+}
+
+/** Rechecked inside the booking's own transaction, like the booking form. */
+export async function enforceChildrenAges(
+  tx: TenantTransaction,
+  c: { tenantId: string; propertyId: string },
+  occupancy: { children: number },
+  childrenAges: number[] | undefined,
+): Promise<void> {
+  if (occupancy.children < 1) return;
+  const rows = await tx.$queryRaw<
+    { ask: boolean | null }[]
+  >`SELECT ask_children_ages AS ask FROM properties WHERE tenant_id=${c.tenantId}::uuid AND id=${c.propertyId}::uuid`;
+  if (!rows[0]) throw new NotFoundException('Property not found.');
+  const problem = missingChildrenAges(rows[0].ask, occupancy, childrenAges);
+  if (problem) throw new BadRequestException(problem);
+}
+
 /** An arrival time is HH:MM on a 24-hour clock; anything else is dropped by the caller. */
 export const ARRIVAL_TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;

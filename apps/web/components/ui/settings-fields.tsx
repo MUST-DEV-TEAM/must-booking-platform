@@ -11,6 +11,7 @@ import { MonthDayField } from './month-day-field';
 import { WeekdayChips } from './weekday-chips';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from './select';
 import { SegmentedControl } from './segmented-control';
+import { TimeField } from './time-field';
 import { Checkbox } from './checkbox';
 import { Badge } from './badge';
 import { Label } from './label';
@@ -18,6 +19,21 @@ import type { ReactNode } from 'react';
 import { LocationPin } from './location-pin';
 import { OptionCard } from './option-card';
 export type SettingValue = string | boolean | string[];
+export type SettingCondition = { key: string; value: string | readonly string[] };
+const conditionHolds = (c: SettingCondition, values: Record<string, SettingValue>) => {
+  const current = values[c.key];
+  return typeof c.value === 'string' ? current === c.value : c.value.includes(String(current));
+};
+/** Whether a field's `when` conditions hold for the current values. */
+export function whenHolds(
+  when: SettingField['when'],
+  values: Record<string, SettingValue>,
+): boolean {
+  if (!when) return true;
+  return (
+    Array.isArray(when) ? (when as readonly SettingCondition[]) : [when as SettingCondition]
+  ).every((c) => conditionHolds(c, values));
+}
 export type SettingField = {
   key: string;
   label: string;
@@ -55,7 +71,8 @@ export type SettingField = {
   options?: readonly { value: string; label: string; group?: string; description?: string }[];
   max?: number;
   defaultValue?: SettingValue;
-  when?: { key: string; value: string };
+  /** Show only while the other field has this value (or one of these values). A list means every condition must hold. */
+  when?: SettingCondition | readonly SettingCondition[];
   /** For a region field: the choices per country code; other countries type the region. */
   optionsByCountry?: Record<string, readonly string[]>;
   /** Show only while another field has any value. */
@@ -198,7 +215,7 @@ export function SettingsFields({
             {group.fields
               .filter(
                 (f) =>
-                  (!f.when || values[f.when.key] === f.when.value) &&
+                  whenHolds(f.when, values) &&
                   (!f.whenSet || Boolean(values[f.whenSet])) &&
                   (!f.whenOff || values[f.whenOff] === false) &&
                   !f.inlineWith &&
@@ -510,6 +527,16 @@ export function SettingsFields({
                           ))}
                         </SelectContent>
                       </Select>
+                    ) : f.kind === 'time' ? (
+                      <div className={f.span ? undefined : 'sm:max-w-64'}>
+                        <TimeField
+                          id={id}
+                          label={f.label}
+                          value={String(v)}
+                          disabled={locked}
+                          onChange={(time) => onChange(f.key, time)}
+                        />
+                      </div>
                     ) : f.kind === 'textarea' ? (
                       <Textarea
                         id={id}
@@ -524,14 +551,13 @@ export function SettingsFields({
                       <Input
                         id={id}
                         className={
-                          (f.kind === 'time' || f.kind === 'number' || f.kind === 'decimal') &&
-                          !f.span
+                          (f.kind === 'number' || f.kind === 'decimal') && !f.span
                             ? 'sm:max-w-64'
                             : f.mono
                               ? 'font-mono text-xs'
                               : undefined
                         }
-                        type={f.kind === 'time' ? 'time' : 'text'}
+                        type="text"
                         inputMode={
                           f.kind === 'number'
                             ? 'numeric'

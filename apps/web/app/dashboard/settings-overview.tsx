@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CircleAlert } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
@@ -10,6 +10,11 @@ import { Button } from '../../components/ui/button';
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { SetupGuide, type SetupGuideStep } from '../../components/ui/setup-guide';
 import { SearchInput } from '../../components/ui/search-input';
+import { auditPage, auditRequest } from '../../lib/activity-audit';
+import { formatDateTime } from '../../lib/hotel-format';
+import { inventoryRequest } from './inventory-api';
+import type { PlanUsageData } from './plan-usage-settings';
+import type { PricingWorkspace } from './pricing-types';
 import { ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
 import type {
   Property,
@@ -18,7 +23,12 @@ import type {
   SettingsOverviewHidden,
   SettingsSummary,
 } from './settings-areas';
-import { settingsTab, settingsTabHref, type SettingsTab } from './settings-registry';
+import {
+  settingsGroups,
+  settingsTab,
+  settingsTabHref,
+  type SettingsTab,
+} from './settings-registry';
 import { findSettings } from './settings-search';
 import { settingsSummaryKey as summaryKey, useSettingsSummary } from './settings-summary';
 
@@ -32,6 +42,18 @@ const stay = (min: number | null, max: number | null) =>
   min === null && max === null
     ? 'No limits'
     : `${min ?? 1} to ${max === null ? 'any number of' : max} nights`;
+
+/**
+ * Values the overview reads from the other pages' data (each is null or missing when the viewer may
+ * not see it, which the card draws as a dash).
+ */
+export type GlanceExtra = {
+  /** Active taxes and fees; `clock` when the hotel's taxes are calculated in Clock. */
+  taxes?: { names: string[]; clock: boolean } | null;
+  plan?: PlanUsageData | null;
+  team?: { active: number; suspended: number } | null;
+  audit?: { title: string; actor: string; at: string } | null;
+};
 
 type GlanceTone = 'success' | 'warning' | 'secondary';
 type GlanceCard = {
@@ -68,6 +90,7 @@ export function settingsGlance(
   property: Property,
   steps: readonly ReadinessStep[],
   attention: readonly SettingsAttentionItem[] = [],
+  extra: GlanceExtra = {},
 ): GlanceCard[] {
   const status = (key: ReadinessStep['key']) => steps.find((step) => step.key === key)?.status;
   const ready = (key: ReadinessStep['key']): GlanceCard['badge'] =>
@@ -165,10 +188,27 @@ export function settingsGlance(
     },
     {
       tab: 'taxes-fees',
-      badge: { label: 'Not set', tone: 'secondary' },
+      badge: !extra.taxes
+        ? { label: 'Not set', tone: 'secondary' }
+        : extra.taxes.clock
+          ? { label: 'In Clock', tone: 'secondary' }
+          : extra.taxes.names.length
+            ? { label: `${extra.taxes.names.length} active`, tone: 'success' }
+            : { label: 'None yet', tone: 'secondary' },
       items: [
         { label: 'VAT', value: property.vatRegistered ? 'Registered' : null },
-        { label: 'City tax', value: null },
+        {
+          label: 'Taxes and fees',
+          value: !extra.taxes
+            ? null
+            : extra.taxes.clock
+              ? 'Calculated in Clock'
+              : extra.taxes.names.length
+                ? extra.taxes.names.slice(0, 3).join(', ') +
+                  (extra.taxes.names.length > 3 ? ` and ${extra.taxes.names.length - 3} more` : '')
+                : 'None',
+        },
+        { label: 'Guests see', value: 'One total with taxes' },
       ],
     },
     {
@@ -223,23 +263,38 @@ export function settingsGlance(
     {
       tab: 'team',
       badge:
-        property.staffCount === undefined
+        (extra.team?.active ?? property.staffCount) === undefined
           ? { label: 'Team', tone: 'secondary' }
-          : { label: `${property.staffCount} staff`, tone: 'secondary' },
+          : { label: `${extra.team?.active ?? property.staffCount} staff`, tone: 'secondary' },
       items: [
         {
           label: 'Staff',
-          value: property.staffCount === undefined ? null : `${property.staffCount} active`,
+          value:
+            (extra.team?.active ?? property.staffCount) === undefined
+              ? null
+              : `${extra.team?.active ?? property.staffCount} active`,
         },
-        { label: 'Roles', value: null },
-        { label: 'Extra permissions', value: null },
+        { label: 'Suspended', value: extra.team ? String(extra.team.suspended) : null },
       ],
     },
     {
       tab: 'plan-usage',
-      badge: { label: 'Plan', tone: 'secondary' },
+      badge: extra.plan
+        ? extra.plan.plan.readOnly
+          ? { label: 'Read-only', tone: 'warning' }
+          : { label: 'Active', tone: 'success' }
+        : { label: 'Plan', tone: 'secondary' },
       items: [
-        { label: 'Staff accounts', value: null },
+        { label: 'Plan', value: extra.plan?.plan.name ?? null },
+        {
+          label: 'Staff accounts',
+          value: !extra.plan
+            ? null
+            : typeof extra.plan.plan.maxStaffSeats !== 'number' ||
+                extra.plan.plan.maxStaffSeats >= 1000
+              ? `${extra.plan.usage?.staffSeats ?? 0} · No limit`
+              : `${extra.plan.usage?.staffSeats ?? 0} of ${extra.plan.plan.maxStaffSeats}`,
+        },
         {
           label: 'Rooms',
           value: property.roomCount === undefined ? null : String(property.roomCount),
@@ -250,9 +305,9 @@ export function settingsGlance(
       tab: 'audit-log',
       badge: { label: 'History', tone: 'secondary' },
       items: [
-        { label: 'Last change', value: null },
-        { label: 'By', value: null },
-        { label: 'When', value: null },
+        { label: 'Last change', value: extra.audit?.title ?? null },
+        { label: 'By', value: extra.audit?.actor ?? null },
+        { label: 'When', value: extra.audit ? formatDateTime(extra.audit.at) : null },
       ],
     },
   ];
@@ -316,6 +371,72 @@ export function SettingsOverview({
     hide.mutate({ readyNotice: true });
   }, [readyFirstTime]);
   const [search, setSearch] = useState('');
+  const root = `/api/tenants/${tenantId}`;
+  const options = { retry: false, staleTime: 60_000 } as const;
+  const taxesQuery = useQuery({
+    ...options,
+    queryKey: ['dashboard', 'pricing', tenantId, propertyId],
+    queryFn: () => inventoryRequest<PricingWorkspace>(`${root}/properties/${propertyId}/pricing`),
+  });
+  const planQuery = useQuery({
+    ...options,
+    queryKey: ['dashboard', 'plan-usage-overview', tenantId],
+    queryFn: () => inventoryRequest<PlanUsageData>(`${root}/plan-usage`),
+  });
+  const teamQuery = useQuery({
+    ...options,
+    queryKey: ['dashboard', 'team-overview', tenantId, propertyId],
+    queryFn: () =>
+      inventoryRequest<Array<{ userId: string; status: string }>>(
+        `${root}/properties/${propertyId}/staff`,
+      ),
+  });
+  const auditQuery = useQuery({
+    ...options,
+    queryKey: ['dashboard', 'audit-overview', tenantId, propertyId],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        page: '1',
+        pageSize: '1',
+        search: '',
+        family: '',
+        actor: '',
+        target: '',
+        result: '',
+        view: 'business',
+        source: '',
+      });
+      const page = auditPage(
+        await auditRequest<unknown>(`${root}/properties/${propertyId}/activity-audit?${params}`),
+      );
+      const last = page.items[0];
+      return last
+        ? { title: last.title ?? last.action, actor: last.actor, at: last.createdAt }
+        : null;
+    },
+  });
+  const extra: GlanceExtra = {
+    taxes: Array.isArray(taxesQuery.data?.charges)
+      ? {
+          clock: taxesQuery.data!.readOnly === true,
+          names: taxesQuery
+            .data!.charges.filter((c) => c.lifecycle === 'Active')
+            .map((c) => c.name),
+        }
+      : null,
+    plan: planQuery.data?.plan ? planQuery.data : null,
+    team: Array.isArray(teamQuery.data)
+      ? (() => {
+          const people = new Map(teamQuery.data.map((member) => [member.userId, member.status]));
+          const all = [...people.values()];
+          return {
+            active: all.filter((status) => status === 'ACTIVE').length,
+            suspended: all.filter((status) => status === 'SUSPENDED').length,
+          };
+        })()
+      : null,
+    audit: auditQuery.data ?? null,
+  };
 
   if (query.isPending) return <ListSkeleton rows={4} />;
   if (query.isError)
@@ -368,7 +489,7 @@ export function SettingsOverview({
       <section aria-label="Find a setting" className="flex flex-col gap-2">
         <SearchInput
           aria-label="Find a setting"
-          placeholder="Find a setting, for example check-in, NUIS, webhook"
+          placeholder="Find a setting, for example check-in, tax number, payment link"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
@@ -461,13 +582,18 @@ export function SettingsOverview({
             Read-only summary. Edit opens the tab.
           </p>
         </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {settingsGlance(property, steps, query.data.attention ?? []).map((card) => {
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 [&>*]:h-full">
+          {settingsGlance(property, steps, query.data.attention ?? [], extra).map((card) => {
             const tab = settingsTab(card.tab);
             return (
               <Card key={card.tab} className="gap-3">
                 <CardHeader>
-                  <CardTitle className="text-base">{tab.label}</CardTitle>
+                  <div className="flex flex-col gap-0.5">
+                    <p className="m-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {settingsGroups.find((group) => group.key === tab.group)?.label}
+                    </p>
+                    <CardTitle className="text-base">{tab.label}</CardTitle>
+                  </div>
                   <CardAction>
                     <Badge variant={card.badge.tone}>{card.badge.label}</Badge>
                   </CardAction>
@@ -487,20 +613,9 @@ export function SettingsOverview({
                     ))}
                   </dl>
                   <div className="mt-auto">
-                    {tab.available ? (
-                      <Button asChild size="sm" variant="outline">
-                        <a href={link(card.tab)}>{canWrite ? 'Edit' : 'View'}</a>
-                      </Button>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled
-                        title="This page is not built yet"
-                      >
-                        Edit
-                      </Button>
-                    )}
+                    <Button asChild size="sm" variant="outline">
+                      <a href={link(card.tab)}>{canWrite ? 'Edit' : 'View'}</a>
+                    </Button>
                   </div>
                 </CardContent>
               </Card>

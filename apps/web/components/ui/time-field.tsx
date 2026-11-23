@@ -111,6 +111,7 @@ export function TimeField({
   defaultValue,
   defaultLabel = 'Use default',
   min,
+  disabled = false,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -120,6 +121,8 @@ export function TimeField({
   defaultValue?: string;
   defaultLabel?: string;
   min?: string;
+  /** Show the time but do not let it be changed (a viewer without edit rights). */
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const pick = (next: string) => onChange(min && next && next < min ? min : next);
@@ -140,6 +143,7 @@ export function TimeField({
           id={id}
           variant="outline"
           aria-label={label}
+          disabled={disabled}
           className="w-full justify-between font-normal"
         >
           <span className={value ? '' : 'text-muted-foreground'}>{value || placeholder}</span>

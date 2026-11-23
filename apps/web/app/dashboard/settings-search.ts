@@ -77,9 +77,21 @@ export const settingsSearchEntries: ReadonlyArray<{
   { label: 'Website connection', tab: 'integrations', keywords: 'wordpress plugin managed pages' },
   { label: 'Email provider', tab: 'emails', keywords: 'smtp brevo resend sending domain' },
   { label: 'Guest and staff emails', tab: 'emails', keywords: 'templates confirmation' },
+  {
+    label: 'Taxes and fees',
+    tab: 'taxes-fees',
+    keywords: 'vat city tax tourist tax service charge fee price total included',
+  },
+  { label: 'Example price with taxes', tab: 'taxes-fees', keywords: 'preview total breakdown' },
   { label: 'Staff and roles', tab: 'team', keywords: 'users invite permissions access' },
-  { label: 'Plan and usage', tab: 'plan-usage', keywords: 'billing subscription limits' },
-  { label: 'Audit log', tab: 'audit-log', keywords: 'history changes who changed' },
+  { label: 'Add a staff member', tab: 'team', keywords: 'invite create account password suspend' },
+  { label: 'Custom roles', tab: 'team', keywords: 'permissions extra access role' },
+  {
+    label: 'Plan and usage',
+    tab: 'plan-usage',
+    keywords: 'billing subscription limits seats hotels',
+  },
+  { label: 'Audit log', tab: 'audit-log', keywords: 'history changes who changed export csv' },
 ];
 
 /** The settings that match what was typed; every word must appear in the name or its keywords. */

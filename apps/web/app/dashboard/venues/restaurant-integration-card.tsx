@@ -7,7 +7,14 @@ import { toast } from 'sonner';
 
 import { Badge } from '../../../components/ui/badge';
 import { Button } from '../../../components/ui/button';
-import { Card, CardContent, CardHeader } from '../../../components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from '../../../components/ui/dialog';
+import { IntegrationCard } from '../../../components/ui/integration-card';
+import { StatusLine } from '../integration-catalog';
 import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
 import { venueApi } from './venue-api';
 
@@ -26,6 +33,7 @@ export function RestaurantIntegrationCard({
 }) {
   const client = useQueryClient();
   const [confirmingOff, setConfirmingOff] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const status = useQuery({
     queryKey: ['dashboard', 'restaurant-integration', tenantId, propertyId],
     queryFn: () => venueApi.getRestaurantIntegration(tenantId, propertyId),
@@ -45,66 +53,100 @@ export function RestaurantIntegrationCard({
   const on = venue?.active === true;
   const available = status.data?.available === true;
 
+  const main =
+    canWrite && available ? (
+      on ? (
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={change.isPending}
+          onClick={() => setConfirmingOff(true)}
+        >
+          Deactivate
+        </Button>
+      ) : (
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={change.isPending || status.isPending}
+          onClick={() => change.mutate(true)}
+        >
+          Activate
+        </Button>
+      )
+    ) : null;
+
   return (
-    <Card className="overflow-hidden">
-      <CardHeader className="flex h-36 items-center justify-center bg-muted/30">
-        <UtensilsCrossed aria-hidden="true" className="size-14 text-muted-foreground" />
-      </CardHeader>
-      <CardContent className="space-y-3 pt-4">
-        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-          <span className="font-semibold text-foreground">Restaurant</span>
+    <>
+      <IntegrationCard
+        header={<UtensilsCrossed aria-hidden="true" className="size-14 text-muted-foreground" />}
+        title="Restaurant"
+        badges={
           <Badge variant={on ? 'success' : 'secondary'}>
             {status.isPending ? 'Checking…' : status.isError ? 'Unavailable' : on ? 'On' : 'Off'}
           </Badge>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Take table bookings for your hotel's restaurant: tables, floor map, reservations and
-          online booking.
-        </p>
-        {status.isError ? (
-          <p className="text-xs text-destructive">{status.error.message}</p>
-        ) : on && !venue?.setupCompletedAt ? (
-          <p className="text-xs text-muted-foreground">
-            Open Restaurants in the menu to finish the setup.
-          </p>
-        ) : null}
-        {canWrite && available ? (
-          on ? (
-            <Button
-              className="w-full"
-              size="sm"
-              variant="outline"
-              disabled={change.isPending}
-              onClick={() => setConfirmingOff(true)}
-            >
-              Deactivate
-            </Button>
+        }
+        role="Restaurants"
+        owns="table bookings, the floor map and reservations"
+        health={
+          status.isError ? (
+            <StatusLine tone="failed">{status.error.message}</StatusLine>
+          ) : on ? (
+            <StatusLine tone="ok">
+              {venue?.setupCompletedAt
+                ? 'Set up and taking table bookings'
+                : 'Open Restaurants in the menu to finish the setup'}
+            </StatusLine>
           ) : (
+            <StatusLine tone="idle">{status.isPending ? 'Checking…' : 'Switched off'}</StatusLine>
+          )
+        }
+        footer={
+          <>
             <Button
-              className="w-full"
               size="sm"
               variant="outline"
-              disabled={change.isPending || status.isPending}
-              onClick={() => change.mutate(true)}
+              className={main ? undefined : 'col-span-2'}
+              onClick={() => setDetailsOpen(true)}
             >
-              Activate
+              Details
             </Button>
-          )
-        ) : null}
-        {confirmingOff ? (
-          <ConfirmDialog
-            open
-            onOpenChange={(open) => !open && setConfirmingOff(false)}
-            title="Switch off the restaurant?"
-            description="Restaurants disappears from the menu and online table booking stops. Everything you set up is kept, and you can switch it back on at any time."
-            confirmLabel="Switch off"
-            destructive
-            onConfirm={async () => {
-              await change.mutateAsync(false);
-            }}
-          />
-        ) : null}
-      </CardContent>
-    </Card>
+            {main}
+          </>
+        }
+      />
+      <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogTitle>Restaurant</DialogTitle>
+          <DialogDescription>
+            Restaurants · owns table bookings, the floor map and reservations
+          </DialogDescription>
+          <p className="m-0 text-sm">
+            Take table bookings for your hotel's restaurant: tables, floor map, reservations and
+            online booking.
+          </p>
+          <p className="m-0 text-sm text-muted-foreground">
+            {on
+              ? venue?.setupCompletedAt
+                ? 'It is on and set up. Manage tables and reservations under Restaurants in the menu.'
+                : 'It is on. Open Restaurants in the menu to finish the setup.'
+              : 'It is off. Switching it on adds Restaurants to the menu. Switching it off again hides it and keeps everything you set up.'}
+          </p>
+        </DialogContent>
+      </Dialog>
+      {confirmingOff ? (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => !open && setConfirmingOff(false)}
+          title="Switch off the restaurant?"
+          description="Restaurants disappears from the menu and online table booking stops. Everything you set up is kept, and you can switch it back on at any time."
+          confirmLabel="Switch off"
+          destructive
+          onConfirm={async () => {
+            await change.mutateAsync(false);
+          }}
+        />
+      ) : null}
+    </>
   );
 }

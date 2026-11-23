@@ -204,7 +204,7 @@ describe('DashboardSettings', () => {
     expect(container.textContent).toContain('Setup: 4 of 6 done · Show');
     expect(container.textContent).not.toContain('Set up your hotel');
     expect(text).toContain('The hotel website is not connected yet.');
-    // Old area names from saved links land on their new tab; unknown and unbuilt ones on the overview.
+    // Old area names from saved links land on their new tab; unknown ones on the overview.
     expect(resolveSettingsTab('general')).toBe('profile');
     expect(resolveSettingsTab('check-in-out')).toBe('policies');
     expect(resolveSettingsTab('payments')).toBe('payment-methods');
@@ -212,7 +212,7 @@ describe('DashboardSettings', () => {
     expect(resolveSettingsTab('billing')).toBe('plan-usage');
     expect(resolveSettingsTab('email')).toBe('emails');
     expect(resolveSettingsTab('booking-mode')).toBe('overview');
-    expect(resolveSettingsTab('taxes-fees')).toBe('overview');
+    expect(resolveSettingsTab('taxes-fees')).toBe('taxes-fees');
     expect(resolveSettingsTab(null)).toBe('overview');
     await act(async () => root.unmount());
     container.remove();
@@ -273,7 +273,7 @@ describe('DashboardSettings', () => {
   });
 
   it.each([
-    ['payment-methods', 'Payment methods', 'Email branding'],
+    ['payment-methods', 'Checkout methods', 'Email branding'],
     ['contact-brand', 'Brand', 'Payment methods'],
   ] as const)(
     'renders the %s Settings sub-view',
@@ -295,7 +295,7 @@ describe('DashboardSettings', () => {
       expect(container.textContent).toContain(visiblePanel);
       expect(container.textContent).not.toContain(hiddenPanel);
       if (settingsArea === 'payment-methods') {
-        expect(container.textContent).toContain('Open payment operations');
+        expect(container.textContent).toContain('done in Payments');
         expect(
           container.querySelector('a[href="/dashboard/t?propertyId=p&section=payments"]'),
         ).not.toBeNull();
@@ -335,9 +335,12 @@ describe('DashboardSettings', () => {
     );
     const { container, root } = await mount('integrations');
 
-    expect(container.textContent).toContain('Website connection');
-    expect(container.textContent).toContain('Public website origin');
-    expect(container.textContent).toContain('Generate connection code');
+    expect(container.textContent).toContain('Owns: the booking pages');
+    expect(container.textContent).not.toContain('Public website origin');
+    await openWebsiteDialog(container);
+    expect(document.body.textContent).toContain('Website connection');
+    expect(document.body.textContent).toContain('Public website origin');
+    expect(document.body.textContent).toContain('Generate connection code');
     expect(container.textContent).not.toContain('Hotel identity');
     expect(container.textContent).not.toContain('Payment methods');
 
@@ -359,9 +362,11 @@ describe('DashboardSettings', () => {
     );
     const { container, root } = await mount('plan-usage');
 
-    expect(container.textContent).toContain('Billing account');
-    expect(container.textContent).toContain('Current plan: Free');
-    expect(container.textContent).toContain('Platform billing is not available yet');
+    expect(container.textContent).toContain('Your plan');
+    expect(container.textContent).toContain('Free');
+    expect(container.textContent).toContain(
+      'Online plan changes and invoices are not available yet',
+    );
     expect(container.textContent).not.toContain('Milestone 13');
     expect(container.textContent).not.toContain('Payment methods');
 
@@ -392,15 +397,15 @@ describe('DashboardSettings', () => {
     vi.stubGlobal('fetch', fetch);
     const { container, root } = await mount();
 
-    expect(container.textContent).toContain('Current plan: Free');
+    expect(container.textContent).toContain('Your plan');
     expect(container.textContent).toContain('do not block or validate bookings');
     expect(container.textContent).not.toContain('Manage properties');
     expect(container.textContent).not.toContain('Add property');
     expect(
-      [...container.querySelectorAll<HTMLButtonElement>('button')].find((button) =>
-        button.textContent?.includes('Platform billing is not available yet'),
-      )?.disabled,
-    ).toBe(true);
+      [...container.querySelectorAll<HTMLButtonElement>('button')].some((button) =>
+        button.textContent?.includes('Platform billing'),
+      ),
+    ).toBe(false);
 
     await value(container.querySelector('#hotel-name')!, 'Grand Hotel Tirana');
     await saveChanges(container);
@@ -429,7 +434,7 @@ describe('DashboardSettings', () => {
     const rulesRequest = fetch.mock.calls.filter(([, init]) => init?.method === 'PATCH')[3];
     expect(JSON.parse(rulesRequest[1]!.body as string)).toEqual({ rules: 'Adults only.' });
 
-    await value(container.querySelector('#times-in')!, '14:00');
+    await pickTime(container, 'times-in', '14:00');
     await saveChanges(container);
     const timesRequest = fetch.mock.calls.filter(([, init]) => init?.method === 'PATCH')[4];
     expect(JSON.parse(timesRequest[1]!.body as string)).toEqual({ checkInTime: '14:00' });
@@ -450,7 +455,8 @@ describe('DashboardSettings', () => {
       deductPaymentFeeOnGuestRefund: true,
     });
 
-    const generateCodeButton = Array.from(container.querySelectorAll('button')).find(
+    await openWebsiteDialog(container);
+    const generateCodeButton = Array.from(document.querySelectorAll('button')).find(
       (button) => button.textContent === 'Generate connection code',
     )!;
     await act(async () => {
@@ -465,10 +471,10 @@ describe('DashboardSettings', () => {
         ([url, init]) => init?.method === 'POST' && url.endsWith('/wordpress-pairing'),
       ),
     ).toBe(true);
-    expect((container.querySelector('#website-code') as HTMLInputElement).value).toBe(
+    expect((document.querySelector('#website-code') as HTMLInputElement).value).toBe(
       'MUST-GRANDHOTEL-ABCD-1234',
     );
-    expect(container.textContent).toContain('Expires in 30 minutes');
+    expect(document.body.textContent).toContain('Expires in 30 minutes');
 
     await act(async () => root.unmount());
   });
@@ -492,9 +498,16 @@ describe('DashboardSettings', () => {
         ),
       );
       const { container, root } = await mount(area, false);
-      expect(
-        container.querySelectorAll('input:disabled, button[role="switch"]:disabled').length,
-      ).toBeGreaterThan(0);
+      // The integrations page is made of cards: a viewer sees them but has nothing to activate or connect.
+      if (area === 'integrations') {
+        const labels = [...container.querySelectorAll('button')].map((b) => b.textContent);
+        expect(labels).not.toContain('Activate');
+        expect(labels).not.toContain('Connect');
+        expect(labels).toContain('Details');
+      } else
+        expect(
+          container.querySelectorAll('input:disabled, button[role="switch"]:disabled').length,
+        ).toBeGreaterThan(0);
       expect(container.textContent).not.toContain('Save changes');
       expect(container.textContent).not.toContain('Generate connection code');
       await act(async () => root.unmount());
@@ -673,23 +686,23 @@ describe('DashboardSettings', () => {
     property = { ...property, wordpressConnectedAt: '2026-10-01T12:00:00Z' };
     vi.stubGlobal('fetch', fetch);
     const { container, root } = await mount('integrations');
-    expect(container.textContent).toContain('managed in Clock');
-    await value(container.querySelector('#website-origin')!, 'https://hotel.test/path');
-    expect(container.textContent).toContain('without a path');
+    await openWebsiteDialog(container);
+    expect(document.body.textContent).toContain('managed in Clock');
+    await value(document.querySelector('#website-origin')!, 'https://hotel.test/path');
+    expect(document.body.textContent).toContain('without a path');
     expect(
-      Array.from(container.querySelectorAll('button')).find(
-        (b) => b.textContent === 'Save changes',
-      )!.disabled,
+      Array.from(document.querySelectorAll('button')).find((b) => b.textContent === 'Save changes')!
+        .disabled,
     ).toBe(true);
-    await value(container.querySelector('#website-origin')!, 'https://hotel.test');
-    await saveChanges(container);
+    await value(document.querySelector('#website-origin')!, 'https://hotel.test');
+    await saveChanges(document.body);
     const patch = fetch.mock.calls.find(([, init]) => init?.method === 'PATCH')!;
     expect(patch[0]).toContain('/public-website-origin');
     expect(JSON.parse(patch[1]!.body as string)).toEqual({
       publicWebsiteOrigin: 'https://hotel.test',
     });
-    expect(container.textContent).toContain('WordPress paired');
-    expect(container.querySelector('[aria-label="Unsaved changes"]')).toBeNull();
+    expect(document.body.textContent).toContain('WordPress paired');
+    expect(document.querySelector('[aria-label="Unsaved changes"]')).toBeNull();
     await act(async () => root.unmount());
   });
 
@@ -814,12 +827,47 @@ async function mount(settingsArea?: SettingsTab, canWrite = true) {
   return { container, root };
 }
 
+// jsdom has no layout: the time wheels scroll to the chosen row, so give them something to call.
+HTMLElement.prototype.scrollTo = vi.fn();
+
 async function value(element: Element, next: string) {
   await act(async () => {
     const input = element as HTMLInputElement;
     Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')!.set!.call(input, next);
     input.dispatchEvent(new Event('change', { bubbles: true }));
     await Promise.resolve();
+  });
+}
+
+/** Pick a time on the designed wheel picker: open it, choose the hour and the minute, press Done. */
+async function pickTime(container: HTMLElement, id: string, time: string) {
+  const [hour, minute] = time.split(':') as [string, string];
+  const option = (list: string, text: string) =>
+    [
+      ...document.querySelectorAll<HTMLButtonElement>(
+        `[role="listbox"][aria-label="${list}"] button`,
+      ),
+    ].find((b) => b.textContent === text)!;
+  await act(async () => container.querySelector<HTMLButtonElement>('#' + id)!.click());
+  await act(async () => option('Hours', hour).click());
+  await act(async () => option('Minutes', minute).click());
+  await act(async () =>
+    [...document.querySelectorAll<HTMLButtonElement>('button')]
+      .find((b) => b.textContent === 'Done')!
+      .click(),
+  );
+}
+
+/** The website form is inside the Website card: press its Connect or Manage button and wait for the dialog. */
+async function openWebsiteDialog(container: HTMLElement) {
+  const websiteCard = [...container.querySelectorAll('[data-slot="card"]')].find((c) =>
+    c.textContent?.includes('Owns: the booking pages'),
+  )!;
+  await act(async () => {
+    [...websiteCard.querySelectorAll('button')]
+      .find((b) => b.textContent === 'Connect' || b.textContent === 'Manage')!
+      .click();
+    await new Promise((resolve) => window.setTimeout(resolve, 50));
   });
 }
 

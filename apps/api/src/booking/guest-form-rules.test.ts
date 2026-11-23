@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ARRIVAL_TIME_RE,
+  missingChildrenAges,
   missingRequiredGuestField,
   type GuestFormPolicy,
 } from './guest-form-rules';
@@ -91,5 +92,20 @@ describe('ARRIVAL_TIME_RE', () => {
       expect(ARRIVAL_TIME_RE.test(ok)).toBe(true);
     for (const bad of ['24:00', '9:05', '15:60', '15.30', '', '15:30:00', 'noon'])
       expect(ARRIVAL_TIME_RE.test(bad)).toBe(false);
+  });
+});
+
+describe('missingChildrenAges', () => {
+  it('asks for nothing while the hotel has not switched it on', () => {
+    expect(missingChildrenAges(false, { children: 2 }, undefined)).toBeNull();
+    expect(missingChildrenAges(null, { children: 2 }, undefined)).toBeNull();
+  });
+  it('asks for nothing when there are no children', () => {
+    expect(missingChildrenAges(true, { children: 0 }, undefined)).toBeNull();
+  });
+  it('requires one age per child when switched on', () => {
+    expect(missingChildrenAges(true, { children: 2 }, undefined)).not.toBeNull();
+    expect(missingChildrenAges(true, { children: 2 }, [5])).not.toBeNull();
+    expect(missingChildrenAges(true, { children: 2 }, [5, 9])).toBeNull();
   });
 });

@@ -115,18 +115,18 @@ export function EmailDomainSetup({
         <span className="text-sm font-semibold">Sending-domain DNS</span>
         <Badge variant="outline">
           {status === 'verified'
-            ? 'Provider verified'
+            ? 'Verified'
             : status === 'pending'
-              ? 'DNS pending'
+              ? 'Waiting for DNS records'
               : status === 'not_found'
                 ? 'Domain not found'
-                : 'No current verified evidence'}
+                : 'Not verified yet'}
         </Badge>
       </div>
       <p className="m-0 text-sm text-muted-foreground">
         {mode === 'DEFAULT'
-          ? 'Reads the shared MUST sender domain only. Hotel staff cannot register it or change its provider settings.'
-          : 'Publish the exact records from Resend in your domain’s DNS. Checking asks Resend to verify them; it does not activate custom sending.'}
+          ? "This is MUST's own sending domain. You can see its status here, but only MUST can change it."
+          : 'Add the records from Resend to the DNS settings of your domain, then check them here. Checking does not switch your own sending on.'}
       </p>
       {observed?.domain || currentDmarc?.name ? (
         <p className="m-0 text-sm">
@@ -238,10 +238,14 @@ export function EmailDomainSetup({
                   !validEmailDnsRecords(response.records) ||
                   (response.dmarc !== undefined && !validEmailDmarc(response.dmarc))
                 )
-                  throw Error('Invalid domain evidence. Reload before continuing.');
+                  throw Error(
+                    'The domain check result is not valid. Reload the page and try again.',
+                  );
                 onResult(response);
               } catch (caught) {
-                setError(caught instanceof Error ? caught.message : 'Domain evidence unavailable.');
+                setError(
+                  caught instanceof Error ? caught.message : 'The domain check is not available.',
+                );
               } finally {
                 setBusy(false);
               }
@@ -295,10 +299,10 @@ export function EmailDomainSetup({
         }
         description={
           approval === 'register'
-            ? 'Creates this exact domain in your connected Resend account in the EU region, with receiving and tracking disabled. Current delivery stays unchanged.'
+            ? 'Adds this domain to your Resend account (EU region), with receiving and open tracking switched off. Your emails keep going out as they do now.'
             : mode === 'DEFAULT'
-              ? 'Reads shared MUST provider evidence. No domain or sending settings are changed.'
-              : 'Reads the saved domain and asks Resend to recheck DNS. Current delivery stays unchanged.'
+              ? "Reads the status of MUST's sending domain. Nothing is changed."
+              : 'Asks Resend to check your DNS records again. Your emails keep going out as they do now.'
         }
         confirmLabel={approval === 'register' ? 'Register domain' : 'Check domain'}
         cancelLabel="Cancel"
@@ -318,7 +322,7 @@ export function EmailDomainSetup({
               !validEmailDnsRecords(response.records) ||
               (response.dmarc !== undefined && !validEmailDmarc(response.dmarc))
             )
-              throw Error('Invalid domain evidence. Reload before continuing.');
+              throw Error('The domain check result is not valid. Reload the page and try again.');
             onResult(response);
             await refresh();
           } finally {

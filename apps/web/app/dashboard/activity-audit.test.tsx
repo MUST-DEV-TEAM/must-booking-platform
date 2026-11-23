@@ -151,7 +151,7 @@ describe('property audit evidence workspace', () => {
     for (const title of ['Before (recorded)', 'After (recorded)', 'Request context (recorded)'])
       expect(document.querySelector(`pre[aria-label="${title}"]`)).toBeNull();
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
-      'No field-by-field change was saved',
+      'No field-by-field changes were saved',
     );
   });
   it('confirms a server-audited filtered export with the exact version/cutoff and downloads BOM CSV', async () => {
@@ -161,9 +161,9 @@ describe('property audit evidence workspace', () => {
     Object.defineProperty(URL, 'revokeObjectURL', { value: vi.fn(), configurable: true });
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
     await mount();
-    await click(button('Export filtered CSV'));
+    await click(button('Export CSV'));
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain('5,000');
-    await click(button('Create audited CSV'));
+    await click(button('Create CSV'));
     const write = fetch.mock.calls.find(([, init]) => init?.method === 'POST')!;
     expect(write[0]).toBe('/api/tenants/t/properties/p/activity-audit/export');
     expect(JSON.parse(write[1]!.body as string)).toEqual({
@@ -190,22 +190,22 @@ describe('property audit evidence workspace', () => {
         '[aria-label="Select inventory_units.bulk_change"]',
       )!,
     );
-    await click(button('Export selected CSV'));
-    await click(button('Create audited CSV'));
+    await click(button('Export selected'));
+    await click(button('Create CSV'));
     const write = fetch.mock.calls.find(([, init]) => init?.method === 'POST')!;
     expect(JSON.parse(write[1]!.body as string).ids).toEqual(['e-1']);
   });
   it('keeps view access but disables all export commands for an unverified account', async () => {
     fixture({ canExport: false });
     await mount();
-    expect(document.body.textContent).toContain('Verify your email');
-    expect(button('Export filtered CSV').disabled).toBe(true);
+    expect(document.body.textContent).toContain('exporting needs a verified email');
+    expect(button('Export CSV').disabled).toBe(true);
     await click(
       document.querySelector<HTMLButtonElement>(
         '[aria-label="Select inventory_units.bulk_change"]',
       )!,
     );
-    expect(button('Export selected CSV').disabled).toBe(true);
+    expect(button('Export selected').disabled).toBe(true);
   });
   it('shows limited actor context and sends server-wide search rather than filtering another page locally', async () => {
     const fetch = fixture({
@@ -215,8 +215,8 @@ describe('property audit evidence workspace', () => {
     });
     await mount();
     expect(document.body.textContent).not.toContain('Recorded Operator');
-    expect(document.body.textContent).toContain('Required permission: staff.view');
-    expect(document.querySelector('[aria-label="Actor"]')).toBeNull();
+    expect(document.body.textContent).toContain('You need the staff permission');
+    expect(document.querySelector('[aria-label="Who"]')).toBeNull();
     const input = document.querySelector<HTMLInputElement>('[aria-label="Search audit log"]')!;
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
@@ -246,7 +246,7 @@ describe('property audit evidence workspace', () => {
     });
     expect(document.body.textContent).toContain('Audit access denied');
     expect(document.body.textContent).toContain('audit-ref');
-    expect(button('Export filtered CSV').disabled).toBe(true);
+    expect(button('Export CSV').disabled).toBe(true);
   });
   it('hides a cached detail when current audit access is revoked', async () => {
     fixture();
@@ -288,8 +288,8 @@ it('shows readable outcomes, saved field changes and an explicitly linked operat
   fixture({ items: [detailed] }, detailed);
   await mount();
   expect(document.body.textContent).toContain('Outcome not specified');
-  expect(document.body.textContent).toContain('Staff in MUST');
   await click(button('Stay changed'));
+  expect(document.body.textContent).toContain('Staff in MUST');
   expect(document.querySelector('table[aria-label="Recorded changes"]')?.textContent).toContain(
     'Check-out',
   );
@@ -307,8 +307,17 @@ it('requests separate business and routine system views without losing the serve
   const fetcher = fixture();
   await mount();
   expect(String(fetcher.mock.calls[0][0])).toContain('view=business');
-  await click(button('Routine system activity'));
+  await click(button('System activity'));
   expect(fetcher.mock.calls.some(([url]) => String(url).includes('view=system'))).toBe(true);
-  await click(button('All activity'));
+  await click(button('Everything'));
   expect(fetcher.mock.calls.some(([url]) => String(url).includes('view=all'))).toBe(true);
+});
+
+it('offers quick date ranges, a More filters fold and plain view names', async () => {
+  fixture();
+  await mount();
+  expect(document.body.textContent).toContain('Quick range');
+  expect(document.body.textContent).toContain('More filters');
+  expect(document.body.textContent).toContain('Business activity');
+  expect(document.body.textContent).toContain('People active');
 });

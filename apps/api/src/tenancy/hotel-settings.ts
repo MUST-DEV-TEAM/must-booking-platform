@@ -17,6 +17,20 @@ import {
   checkProfileField,
   normaliseProfileValue,
   type ProfileFieldKey,
+  LATE_ARRIVAL_MAX,
+  OTHER_HOUSE_RULES_MAX,
+  POLICY_CHOICES,
+  type PolicyChoiceKey,
+  type PolicyValues,
+  checkIdDocuments,
+  checkAcceptedAtHotel,
+  checkPaymentOrder,
+  checkPaymentSettings,
+  type PaymentValues,
+  checkMoneyAmount,
+  checkPolicies,
+  normaliseMoney,
+  staleDependents,
 } from '@must/domain-contracts';
 export type HotelSettings = {
   dateFormat?: string;
@@ -101,7 +115,32 @@ export type HotelSettings = {
   lateCheckOutPolicy?: string | null;
   lateCheckOutUntil?: string | null;
   lateCheckOutNote?: string | null;
-  idRequiredAtArrival?: boolean;
+  checkInUntil?: string | null;
+  checkOutFrom?: string | null;
+  lateArrivalInstructions?: string | null;
+  cotsPolicy?: string;
+  cotsFee?: string | null;
+  cotsMax?: number | null;
+  extraBedsPolicy?: string;
+  extraBedsFee?: string | null;
+  extraBedsMax?: number | null;
+  petsFeeType?: string | null;
+  petsFee?: string | null;
+  petsMax?: number | null;
+  smokingPolicy?: string | null;
+  partiesPolicy?: string | null;
+  idAtArrival?: string;
+  idDocuments?: string[];
+  damageDepositAmount?: string | null;
+  damageDepositMethod?: string | null;
+  damageDepositRefundDays?: number | null;
+  otherHouseRules?: string | null;
+  paymentMethodOrder?: string[];
+  paymentDefaultMethod?: string | null;
+  acceptedAtHotel?: string[];
+  paymentLinkValidDays?: number;
+  paymentSecondReminderDays?: number | null;
+  paymentLinkExpiryAction?: string;
   quietHoursFrom?: string | null;
   quietHoursTo?: string | null;
   childrenPolicy?: string | null;
@@ -195,7 +234,42 @@ export const hotelFields = [
   { key: 'lateCheckOutPolicy', column: 'late_check_out_policy', kind: 'arrival', max: 0 },
   { key: 'lateCheckOutUntil', column: 'late_check_out_until', kind: 'time', max: 5 },
   { key: 'lateCheckOutNote', column: 'late_check_out_note', kind: 'text', max: 300 },
-  { key: 'idRequiredAtArrival', column: 'id_required_at_arrival', kind: 'boolean', max: 0 },
+  { key: 'checkInUntil', column: 'check_in_until', kind: 'time', max: 5 },
+  { key: 'checkOutFrom', column: 'check_out_from', kind: 'time', max: 5 },
+  {
+    key: 'lateArrivalInstructions',
+    column: 'late_arrival_instructions',
+    kind: 'text',
+    max: LATE_ARRIVAL_MAX,
+  },
+  { key: 'cotsPolicy', column: 'cots_policy', kind: 'pchoice', max: 0 },
+  { key: 'cotsFee', column: 'cots_fee', kind: 'pmoney', max: 0 },
+  { key: 'cotsMax', column: 'cots_max', kind: 'limit', max: 0 },
+  { key: 'extraBedsPolicy', column: 'extra_beds_policy', kind: 'pchoice', max: 0 },
+  { key: 'extraBedsFee', column: 'extra_beds_fee', kind: 'pmoney', max: 0 },
+  { key: 'extraBedsMax', column: 'extra_beds_max', kind: 'limit', max: 0 },
+  { key: 'petsFeeType', column: 'pets_fee_type', kind: 'pchoice', max: 0 },
+  { key: 'petsFee', column: 'pets_fee', kind: 'pmoney', max: 0 },
+  { key: 'petsMax', column: 'pets_max', kind: 'limit', max: 0 },
+  { key: 'smokingPolicy', column: 'smoking_policy', kind: 'pchoice', max: 0 },
+  { key: 'partiesPolicy', column: 'parties_policy', kind: 'pchoice', max: 0 },
+  { key: 'idAtArrival', column: 'id_at_arrival', kind: 'pchoice', max: 0 },
+  { key: 'idDocuments', column: 'id_documents', kind: 'pmulti', max: 0 },
+  { key: 'damageDepositAmount', column: 'damage_deposit_amount', kind: 'pmoney', max: 0 },
+  { key: 'damageDepositMethod', column: 'damage_deposit_method', kind: 'pchoice', max: 0 },
+  { key: 'damageDepositRefundDays', column: 'damage_deposit_refund_days', kind: 'limit', max: 0 },
+  { key: 'otherHouseRules', column: 'other_house_rules', kind: 'text', max: OTHER_HOUSE_RULES_MAX },
+  { key: 'paymentMethodOrder', column: 'payment_method_order', kind: 'pmulti', max: 0 },
+  { key: 'paymentDefaultMethod', column: 'payment_default_method', kind: 'pchoice', max: 0 },
+  { key: 'acceptedAtHotel', column: 'accepted_at_hotel', kind: 'pmulti', max: 0 },
+  { key: 'paymentLinkValidDays', column: 'payment_link_valid_days', kind: 'limit', max: 0 },
+  {
+    key: 'paymentSecondReminderDays',
+    column: 'payment_second_reminder_days',
+    kind: 'limit',
+    max: 0,
+  },
+  { key: 'paymentLinkExpiryAction', column: 'payment_link_expiry_action', kind: 'pchoice', max: 0 },
   { key: 'quietHoursFrom', column: 'quiet_hours_from', kind: 'time', max: 5 },
   { key: 'quietHoursTo', column: 'quiet_hours_to', kind: 'time', max: 5 },
   { key: 'childrenPolicy', column: 'children_policy', kind: 'policy', max: 0 },
@@ -215,6 +289,12 @@ const REQUIRED_HOTEL_FIELDS: Record<string, string> = {
   city: 'City',
   country: 'Country',
 };
+const NON_NULL_POLICY_CHOICES: readonly string[] = [
+  'cotsPolicy',
+  'extraBedsPolicy',
+  'idAtArrival',
+  'paymentLinkExpiryAction',
+];
 export function hotelInput(raw: Record<string, unknown>): HotelSettings {
   const out: Record<string, unknown> = {};
   for (const f of hotelFields) {
@@ -257,6 +337,21 @@ export function hotelInput(raw: Record<string, unknown>): HotelSettings {
           key === 'registeredSameAsHotel')
       )
         bad('Choose yes or no.');
+    } else if (f.kind === 'pmoney') {
+      const money = normaliseMoney(v);
+      const message = checkMoneyAmount(v);
+      if (message) bad(message);
+      v = money;
+    } else if (f.kind === 'pmulti') {
+      const message =
+        f.key === 'paymentMethodOrder'
+          ? checkPaymentOrder(v)
+          : f.key === 'acceptedAtHotel'
+            ? checkAcceptedAtHotel(v)
+            : checkIdDocuments(v);
+      if (message) bad(message);
+      // The checkout order is the order the owner chose; the other lists are kept sorted.
+      if (f.key !== 'paymentMethodOrder') v = [...(v as string[])].sort();
     } else if (f.kind === 'boolean') {
       if (typeof v !== 'boolean') bad('Choose yes or no.');
     } else if (f.kind === 'languages') {
@@ -313,15 +408,17 @@ export function hotelInput(raw: Record<string, unknown>): HotelSettings {
               ? ['required', 'optional', 'hidden']
               : f.kind === 'arrival'
                 ? ['not_offered', 'on_request', 'free_until']
-                : f.kind === 'policy'
-                  ? ['allowed', 'on_request', 'not_allowed']
-                  : f.kind === 'format'
-                    ? ((f.key === 'timeFormat'
-                        ? TIME_FORMATS
-                        : f.key === 'weekStart'
-                          ? WEEK_STARTS
-                          : NUMBER_FORMATS) as readonly string[])
-                    : null;
+                : f.kind === 'pchoice'
+                  ? [...POLICY_CHOICES[f.key as PolicyChoiceKey]]
+                  : f.kind === 'policy'
+                    ? ['allowed', 'on_request', 'not_allowed']
+                    : f.kind === 'format'
+                      ? ((f.key === 'timeFormat'
+                          ? TIME_FORMATS
+                          : f.key === 'weekStart'
+                            ? WEEK_STARTS
+                            : NUMBER_FORMATS) as readonly string[])
+                      : null;
       if (choices && v && !choices.includes(v as string)) bad('Choose a policy from the list.');
     }
     if (
@@ -330,6 +427,7 @@ export function hotelInput(raw: Record<string, unknown>): HotelSettings {
         f.kind === 'formfield' ||
         f.kind === 'no_show' ||
         f.kind === 'arrival' ||
+        (f.kind === 'pchoice' && NON_NULL_POLICY_CHOICES.includes(f.key)) ||
         f.kind === 'boolean' ||
         f.kind === 'format')
     )
@@ -389,6 +487,72 @@ export function checkHotelSettings(value: HotelSettings, changed: readonly strin
     throw new BadRequestException(checkBookingWindow(value).infantsUpToAge);
   if (Boolean(value.quietHoursFrom) !== Boolean(value.quietHoursTo))
     throw new BadRequestException('Enter both quiet-hours times, or leave both empty.');
+  if (POLICY_KEYS.some((key) => changed.includes(key))) {
+    const problem = Object.values(checkPolicies(value as PolicyValues))[0];
+    if (problem) throw new BadRequestException(problem);
+  }
+}
+/** Which saved fields make each payment rule run (a hotel that never set a field can still save the others). */
+const PAYMENT_RULE_TRIGGERS: Record<string, readonly string[]> = {
+  methods: ['paymentGateways'],
+  paymentDefaultMethod: ['paymentDefaultMethod', 'paymentGateways'],
+  acceptedAtHotel: ['acceptedAtHotel', 'paymentGateways'],
+  paymentLinkValidDays: ['paymentLinkValidDays'],
+  paymentSecondReminderDays: ['paymentSecondReminderDays', 'paymentLinkValidDays'],
+};
+/**
+ * The first payment-method rule the change breaks, or null. `merged` is the saved hotel with the change applied;
+ * `firstReminderDays` is the first payment reminder set in Emails (null when none is saved).
+ */
+/** The saved fields that make a payment rule run; a save touching none of them skips the payment checks. */
+export const PAYMENT_TRIGGER_KEYS = [...new Set(Object.values(PAYMENT_RULE_TRIGGERS).flat())];
+export function paymentChangeProblem(
+  merged: HotelSettings & { paymentGateways?: PaymentValues['enabled'] },
+  changed: readonly string[],
+  firstReminderDays: number | null,
+): string | null {
+  const problems = checkPaymentSettings({
+    enabled: merged.paymentGateways,
+    paymentDefaultMethod: merged.paymentDefaultMethod,
+    acceptedAtHotel: merged.acceptedAtHotel,
+    paymentLinkValidDays: merged.paymentLinkValidDays,
+    paymentSecondReminderDays: merged.paymentSecondReminderDays,
+    firstReminderDays,
+  });
+  for (const [field, message] of Object.entries(problems))
+    if (PAYMENT_RULE_TRIGGERS[field]?.some((key) => changed.includes(key))) return message;
+  return null;
+}
+/** Policies keys whose change makes the cross-field rules run (and the stale dependents be cleared). */
+const POLICY_KEYS = [
+  'checkInUntil',
+  'checkOutFrom',
+  'cotsPolicy',
+  'cotsFee',
+  'cotsMax',
+  'extraBedsPolicy',
+  'extraBedsFee',
+  'extraBedsMax',
+  'petsPolicy',
+  'petsFeeType',
+  'petsFee',
+  'petsMax',
+  'idAtArrival',
+  'idDocuments',
+  'damageDepositAmount',
+  'damageDepositMethod',
+  'damageDepositRefundDays',
+];
+/**
+ * The values that stop applying once a policy changes (a price on a cot that is now free, the documents when no ID is
+ * asked for). Returned for the caller to save with the change, so nothing stale is shown to guests later.
+ */
+export function policyCleanup(merged: HotelSettings, changed: readonly string[]): HotelSettings {
+  if (!POLICY_KEYS.some((key) => changed.includes(key))) return {};
+  const stale = staleDependents(merged as PolicyValues);
+  return Object.fromEntries(
+    Object.entries(stale).filter(([key]) => !changed.includes(key)),
+  ) as HotelSettings;
 }
 export function hotelUpdates(input: HotelSettings) {
   return Prisma.join(
@@ -396,7 +560,7 @@ export function hotelUpdates(input: HotelSettings) {
       .filter((f) => Object.hasOwn(input, f.key))
       .map(
         (f) =>
-          Prisma.sql`${Prisma.raw(f.column)}=${f.kind === 'weekdays' ? Prisma.sql`ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(input[f.key])}::jsonb)::smallint)` : f.kind === 'languages' ? Prisma.sql`ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(input[f.key])}::jsonb))` : f.kind === 'profiles' ? Prisma.sql`${JSON.stringify(input[f.key])}::jsonb` : input[f.key]}`,
+          Prisma.sql`${Prisma.raw(f.column)}=${f.kind === 'weekdays' ? Prisma.sql`ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(input[f.key])}::jsonb)::smallint)` : f.kind === 'pmoney' ? Prisma.sql`${input[f.key]}::numeric` : f.kind === 'pmulti' ? Prisma.sql`ARRAY(SELECT item FROM jsonb_array_elements_text(${JSON.stringify(input[f.key])}::jsonb) WITH ORDINALITY AS t(item, position) ORDER BY position)` : f.kind === 'languages' ? Prisma.sql`ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(input[f.key])}::jsonb))` : f.kind === 'profiles' ? Prisma.sql`${JSON.stringify(input[f.key])}::jsonb` : input[f.key]}`,
       ),
   );
 }

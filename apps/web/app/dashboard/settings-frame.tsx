@@ -32,7 +32,6 @@ export function SettingsFrame({
     .map((group) => ({
       key: group.key,
       label: group.label,
-      note: 'note' in group ? group.note : undefined,
       items: settingsTabs
         .filter((entry) => entry.group === group.key && entry.available)
         .map((entry) => ({

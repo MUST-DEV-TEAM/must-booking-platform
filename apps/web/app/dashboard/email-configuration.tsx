@@ -1,16 +1,10 @@
 'use client';
 
 import { formatDateTime } from '../../lib/hotel-format';
-import type {
-  NotificationSettingsResponse,
-  NotificationTopicSettings,
-  NotificationRecipientRule,
-} from '@must/domain-contracts';
 import { useQuery } from '@tanstack/react-query';
-import { useRef, useState } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { Alert, AlertDescription } from '../../components/ui/alert';
 import { Button } from '../../components/ui/button';
-import { Badge } from '../../components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { SettingToggle as Toggle } from '../../components/ui/setting-toggle';
 import { Combobox } from '../../components/ui/combobox';
@@ -19,11 +13,11 @@ import { RecordDirectory } from '../../components/ui/record-directory';
 import { DetailList } from '../../components/ui/detail-list';
 import { FormField } from '../../components/ui/form-field';
 import { Input } from '../../components/ui/input';
-import { MultiSelect } from '../../components/ui/multi-select';
 import { ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
 import { emailRequest, createEmailWriter } from '../../lib/email-workspace';
-import { EmailSendingSetup } from './email-sending-profile';
+import { EmailStaffNotifications } from './email-staff-notifications';
 
+export type EmailConfigurationData = Configuration;
 type Configuration = {
   version: number;
   senderName: string | null;
@@ -35,93 +29,46 @@ type Preferences = {
   muteOptionalEmails: boolean;
   optionalEmails: { topic: string; label: string }[];
 };
-export function EmailConfiguration({
+export function EmailConfiguration<T extends { key: string; label: string }>({
   tenantId,
   base,
   canWrite,
+  templates,
+  renderEditor,
 }: {
   tenantId: string;
   base: string;
   canWrite: boolean;
+  templates: T[];
+  renderEditor: (template: T, onClose: () => void) => ReactNode;
 }) {
-  const config = useQuery({
-    queryKey: ['emails', base, 'configuration'],
-    queryFn: () => emailRequest<Configuration>(`${base}/email-configuration`),
-  });
-  const topics = useQuery({
-    queryKey: ['emails', base, 'topics'],
-    queryFn: () => emailRequest<NotificationSettingsResponse>(`${base}/notification-settings`),
-  });
-  const sender = useQuery({
-    queryKey: ['emails', base, 'sender'],
-    queryFn: () =>
-      emailRequest<{ fromAddress: string | null; replyTo: string | null; hotelName: string }>(
-        `${base}/email-sender`,
-      ),
-  });
   const preferences = useQuery({
     queryKey: ['emails', tenantId, 'preferences'],
     queryFn: () => emailRequest<Preferences>(`/api/tenants/${tenantId}/my-email-preferences`),
   });
-  const error = config.error ?? topics.error ?? sender.error ?? preferences.error;
-  const refresh = () => {
-    void config.refetch();
-    void topics.refetch();
-    void sender.refetch();
-    void preferences.refetch();
-  };
-  if (error)
-    return (
-      <ErrorPanel
-        title="Email configuration unavailable"
-        description={error.message}
-        onRetry={refresh}
-      />
-    );
-  if (!config.data || !topics.data || !sender.data || !preferences.data) return <ListSkeleton />;
   return (
-    <div className="flex flex-col gap-5">
-      <EmailSendingSetup base={base} canWrite={canWrite} />
-      <SenderEditor
-        key={`sender/${config.data.version}`}
-        base={base}
-        config={config.data}
-        sender={sender.data}
-        canWrite={canWrite}
-        refresh={refresh}
-      />
-      <Alert>
-        <AlertDescription>
-          Custom To/CC/BCC choices send one staff email. To and CC are visible to its recipients;
-          BCC stays hidden. Existing lists keep separate private copies until To/CC/BCC choices are
-          saved. Duplicate addresses are sent once. Staff copies never contain private guest booking
-          links. Optional personal mute never silences urgent alerts. Clock hotels use these same
-          MUST email settings.
-        </AlertDescription>
-      </Alert>
-      {topics.data.topics.map((topic) => (
-        <TopicEditor
-          key={`${topic.topic}/${config.data!.version}`}
-          topic={topic}
-          options={topics.data!.options}
-          base={base}
-          version={config.data!.version}
-          canWrite={canWrite}
-          refresh={refresh}
-        />
-      ))}
-      <ReviewLinksMoved />
-      <SuppressionList base={base} canWrite={canWrite} />
-      <PersonalPreference
-        base={base}
-        data={preferences.data}
-        canWrite={canWrite}
-        refresh={refresh}
-      />
-    </div>
+    <EmailStaffNotifications
+      base={base}
+      canWrite={canWrite}
+      templates={templates}
+      renderEditor={renderEditor}
+      footer={
+        <div className="grid gap-4 lg:grid-cols-2 [&>*]:h-full">
+          <ReviewLinksMoved />
+          {preferences.data ? (
+            <PersonalPreference
+              base={base}
+              data={preferences.data}
+              canWrite={canWrite}
+              refresh={() => void preferences.refetch()}
+            />
+          ) : null}
+        </div>
+      }
+    />
   );
 }
-function SenderEditor({
+export function SenderEditor({
   base,
   config,
   sender,
@@ -228,370 +175,6 @@ function SenderEditor({
     </Card>
   );
 }
-function ruleKey(rule: NotificationRecipientRule): string {
-  switch (rule.target) {
-    case 'MEMBERSHIP_ROLE':
-      return 'role:' + rule.membershipRole;
-    case 'ROLE_TEMPLATE':
-      return 'template:' + rule.roleTemplateId;
-    case 'STAFF_USER':
-      return 'user:' + rule.userId;
-    case 'EMAIL':
-      return 'email:' + rule.email;
-  }
-}
-function fromRuleKey(value: string): NotificationRecipientRule {
-  if (value === 'role:OWNER' || value === 'role:ADMIN')
-    return {
-      target: 'MEMBERSHIP_ROLE',
-      membershipRole: value === 'role:OWNER' ? 'OWNER' : 'ADMIN',
-    };
-  if (value.startsWith('template:'))
-    return { target: 'ROLE_TEMPLATE', roleTemplateId: value.slice(9) };
-  if (value.startsWith('user:')) return { target: 'STAFF_USER', userId: value.slice(5) };
-  return { target: 'EMAIL', email: value.slice(6) };
-}
-export function TopicEditor({
-  topic,
-  options,
-  base,
-  version,
-  canWrite,
-  refresh,
-}: {
-  topic: NotificationTopicSettings;
-  options: NotificationSettingsResponse['options'];
-  base: string;
-  version: number;
-  canWrite: boolean;
-  refresh: () => void;
-}) {
-  const [guest, setGuest] = useState(topic.guestEnabled),
-    [staff, setStaff] = useState(topic.staffEnabled),
-    [custom, setCustom] = useState(topic.customStaffRecipients),
-    [rules, setRules] = useState(
-      topic.rules.map((rule) => `${rule.channel ?? 'TO'}|${ruleKey(rule)}`),
-    ),
-    [address, setAddress] = useState(''),
-    [addressChannel, setAddressChannel] = useState('TO'),
-    [days, setDays] = useState(topic.daysOffset?.value ?? 0),
-    [busy, setBusy] = useState(false),
-    [error, setError] = useState('');
-  const [preview, setPreview] = useState<{
-    input: string;
-    guest: boolean;
-    staff: { email: string; channel?: 'TO' | 'CC' | 'BCC' }[];
-    suppressed?: { email: string; reason: string }[];
-  } | null>(null);
-  const writer = useRef(createEmailWriter()).current;
-  const draft = {
-    guestEnabled: guest,
-    ...(topic.hasStaffEmail ? { staffEnabled: staff } : {}),
-    customStaffRecipients: custom,
-    rules: custom
-      ? rules.map((value) => {
-          const [channel, ...key] = value.split('|');
-          return { ...fromRuleKey(key.join('|')), channel: channel as 'TO' | 'CC' | 'BCC' };
-        })
-      : [],
-    ...(topic.daysOffset ? { daysOffset: days } : {}),
-  };
-  const draftKey = JSON.stringify(draft);
-  const currentPreview = preview?.input === draftKey ? preview : null;
-  const choices = [
-    { value: 'role:OWNER', label: 'All owners', group: 'Account roles' },
-    { value: 'role:ADMIN', label: 'All admins', group: 'Account roles' },
-    ...options.roleTemplates.map((role) => ({
-      value: 'template:' + role.id,
-      label: role.name,
-      group: 'Property roles',
-    })),
-    ...options.staff.map((member) => ({
-      value: 'user:' + member.userId,
-      label: member.name || member.email,
-      description: member.email,
-      group: 'Staff',
-    })),
-    ...[...new Set(rules.map((value) => value.slice(value.indexOf('|') + 1)))]
-      .filter((value) => value.startsWith('email:'))
-      .map((value) => ({ value, label: value.slice(6), group: 'Extra addresses' })),
-  ];
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{topic.label}</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        {topic.hasGuestEmail ? (
-          <>
-            <Badge variant="outline">Guest (booking email)</Badge>
-            <p className="text-sm text-muted-foreground">
-              The guest address comes from the booking and cannot be replaced here.
-            </p>
-            <Toggle
-              label="Send guest email"
-              checked={guest}
-              disabled={!canWrite || busy}
-              onChange={setGuest}
-            />
-          </>
-        ) : null}
-        {topic.hasStaffEmail ? (
-          <>
-            <Toggle
-              label="Send staff email"
-              checked={staff}
-              disabled={!canWrite || busy}
-              onChange={setStaff}
-            />
-            <Toggle
-              label="Use custom staff recipients"
-              checked={custom}
-              disabled={!canWrite || busy}
-              onChange={setCustom}
-            />
-            {custom ? (
-              <>
-                <p className="text-sm text-muted-foreground">
-                  To, CC and BCC apply to the separate staff version. Private guest booking links
-                  are not included.
-                </p>
-                {(['TO', 'CC', 'BCC'] as const).map((channel) => (
-                  <FormField
-                    key={channel}
-                    label={channel === 'TO' ? 'To' : channel}
-                    hint={
-                      channel === 'BCC'
-                        ? 'Hidden from the other recipients.'
-                        : channel === 'TO'
-                          ? 'At least one available To recipient is required.'
-                          : 'Visible to all To and CC recipients.'
-                    }
-                  >
-                    <MultiSelect
-                      label={`${topic.label} ${channel} recipients`}
-                      options={choices}
-                      value={rules
-                        .filter((value) => value.startsWith(channel + '|'))
-                        .map((value) => value.slice(channel.length + 1))}
-                      onChange={(values) =>
-                        setRules((current) => [
-                          ...current.filter((value) => !value.startsWith(channel + '|')),
-                          ...values.map((value) => channel + '|' + value),
-                        ])
-                      }
-                      disabled={!canWrite || busy}
-                      placeholder={`Choose ${channel === 'TO' ? 'To' : channel} recipients`}
-                    />
-                  </FormField>
-                ))}
-                <div className="flex flex-wrap gap-2">
-                  <Combobox
-                    label={`${topic.label} extra address channel`}
-                    value={addressChannel}
-                    onChange={setAddressChannel}
-                    options={['TO', 'CC', 'BCC'].map((value) => ({
-                      value,
-                      label: value === 'TO' ? 'To' : value,
-                    }))}
-                    disabled={!canWrite || busy}
-                  />
-                  <Input
-                    aria-label={`${topic.label} extra email`}
-                    type="email"
-                    value={address}
-                    disabled={!canWrite || busy}
-                    placeholder="Extra email address"
-                    onChange={(e) => setAddress(e.target.value)}
-                  />
-                  <Button
-                    variant="outline"
-                    disabled={!canWrite || busy || !address.trim()}
-                    onClick={() => {
-                      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address.trim())) {
-                        setError('Enter a valid email address.');
-                        return;
-                      }
-                      setRules((current) => [
-                        ...new Set([
-                          ...current,
-                          addressChannel + '|email:' + address.trim().toLowerCase(),
-                        ]),
-                      ]);
-                      setAddress('');
-                      setError('');
-                    }}
-                  >
-                    Add address
-                  </Button>
-                </div>
-              </>
-            ) : null}
-            <DetailList
-              stackOnMobile
-              items={[
-                ...(topic.staffDeliveryMode
-                  ? [
-                      {
-                        label: 'Saved delivery',
-                        value:
-                          topic.staffDeliveryMode === 'HEADERS'
-                            ? 'One staff email with To/CC/BCC headers'
-                            : 'Separate private copies',
-                      },
-                    ]
-                  : []),
-                {
-                  label: 'Saved recipients',
-                  value:
-                    topic.staffRecipients
-                      .map((row) => `${row.channel ?? 'TO'}: ${row.email}`)
-                      .join(', ') || 'No recipients',
-                },
-              ]}
-            />
-          </>
-        ) : null}
-        {topic.daysOffset ? (
-          <FormField label={topic.daysOffset.label}>
-            <Input
-              aria-label={`${topic.label} days`}
-              type="number"
-              min={topic.daysOffset.min}
-              max={topic.daysOffset.max}
-              value={days}
-              disabled={!canWrite || busy}
-              onChange={(e) => setDays(Number(e.target.value))}
-            />
-          </FormField>
-        ) : null}
-        <Button
-          variant="outline"
-          disabled={busy}
-          onClick={async () => {
-            setBusy(true);
-            setError('');
-            try {
-              const result = await emailRequest<{
-                guest: boolean;
-                staff: { email: string; channel?: 'TO' | 'CC' | 'BCC' }[];
-                suppressed?: { email: string; reason: string }[];
-              }>(`${base}/notification-settings/${topic.topic}/preview`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: draftKey,
-              });
-              setPreview({ ...result, input: draftKey });
-            } catch (e) {
-              setPreview(null);
-              setError(e instanceof Error ? e.message : 'Recipient preview failed.');
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          Preview recipients
-        </Button>
-        {currentPreview ? (
-          <div role="status" className="flex flex-col gap-2">
-            <DetailList
-              stackOnMobile
-              items={[
-                ...(topic.hasGuestEmail
-                  ? [
-                      {
-                        label: 'Guest',
-                        value: currentPreview.guest
-                          ? 'Guest (booking email)'
-                          : 'Guest email switched off',
-                      },
-                    ]
-                  : []),
-                ...(topic.hasStaffEmail
-                  ? [
-                      {
-                        label: 'Staff recipients for these choices',
-                        value:
-                          currentPreview.staff
-                            .map((row) => `${row.channel ?? 'TO'}: ${row.email}`)
-                            .join(', ') || 'No recipients',
-                      },
-                    ]
-                  : []),
-              ]}
-            />
-            {topic.hasStaffEmail && staff && !currentPreview.staff.length ? (
-              <Alert variant="warning">
-                <AlertDescription>
-                  No staff will receive this email. Choose recipients or restore the default list.
-                </AlertDescription>
-              </Alert>
-            ) : null}
-            {custom &&
-            staff &&
-            currentPreview.staff.length > 0 &&
-            !currentPreview.staff.some((row) => !row.channel || row.channel === 'TO') ? (
-              <Alert variant="warning">
-                <AlertDescription>
-                  No available To recipient. Add one before saving or sending this staff email.
-                </AlertDescription>
-              </Alert>
-            ) : null}
-            {currentPreview.suppressed?.length ? (
-              <Alert variant="warning">
-                <AlertDescription>
-                  Suppressed addresses will not receive this email:{' '}
-                  {currentPreview.suppressed
-                    .map(({ email, reason }) => `${email} (${reason})`)
-                    .join(', ')}
-                  . Review suppressed recipients below after resolving the delivery problem or
-                  confirming consent.
-                </AlertDescription>
-              </Alert>
-            ) : null}
-            <p className="text-sm text-muted-foreground">
-              Preview only. Nothing was saved or sent. Membership and personal optional-email
-              preferences are checked again when sending.
-            </p>
-          </div>
-        ) : preview ? (
-          <p className="text-sm text-muted-foreground">
-            Choices changed. Preview recipients again.
-          </p>
-        ) : null}
-        {error ? (
-          <Alert variant="destructive">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        ) : null}
-        <Button
-          disabled={!canWrite || busy}
-          onClick={async () => {
-            setBusy(true);
-            setError('');
-            try {
-              await writer(
-                `${base}/email-configuration/topics/${topic.topic}`,
-                {
-                  version,
-                  ...draft,
-                },
-                'PUT',
-              );
-              refresh();
-            } catch (e) {
-              setError(e instanceof Error ? e.message : 'Save failed.');
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          Save {topic.label.toLowerCase()}
-        </Button>
-      </CardContent>
-    </Card>
-  );
-}
 function ReviewLinksMoved() {
   return (
     <Card>
@@ -673,7 +256,7 @@ function PersonalPreference({
 }
 
 type Suppression = { recipient: string; reason: string; version: number; updatedAt: string };
-function SuppressionList({ base, canWrite }: { base: string; canWrite: boolean }) {
+export function SuppressionList({ base, canWrite }: { base: string; canWrite: boolean }) {
   const query = useQuery({
     queryKey: ['emails', base, 'suppressions'],
     queryFn: () => emailRequest<Suppression[]>(base + '/email-suppressions'),
@@ -683,14 +266,14 @@ function SuppressionList({ base, canWrite }: { base: string; canWrite: boolean }
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Suppressed recipients</CardTitle>
+        <CardTitle>Blocked addresses</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <Alert>
           <AlertDescription>
-            Permanent bounces and spam complaints block future MUST messages to this address at this
-            hotel. Clear only after resolving the delivery problem or confirming consent. An old
-            webhook replay cannot reinstate a cleared suppression.
+            When an address bounces for good or marks an email as spam, we stop sending to it.
+            Unblock an address only after the problem is fixed or the guest has agreed to receive
+            emails again.
           </AlertDescription>
         </Alert>
         {query.error ? (
@@ -710,11 +293,11 @@ function SuppressionList({ base, canWrite }: { base: string; canWrite: boolean }
                 value: (row) => formatDateTime(row.updatedAt),
               },
             ]}
-            emptyTitle="No suppressed recipients"
+            emptyTitle="No blocked addresses"
             onRow={setSelected}
             actions={
               canWrite
-                ? (row) => [{ label: 'Clear suppression', onSelect: () => setSelected(row) }]
+                ? (row) => [{ label: 'Unblock', onSelect: () => setSelected(row) }]
                 : undefined
             }
           />
@@ -724,17 +307,17 @@ function SuppressionList({ base, canWrite }: { base: string; canWrite: boolean }
           onOpenChange={(open) => {
             if (!open) setSelected(null);
           }}
-          title="Clear suppression"
+          title="Unblock address"
           description={
             selected
-              ? `Allow future messages to ${selected.recipient}. Previous suppressed messages are not automatically resent.`
+              ? `Allow future messages to ${selected.recipient}. Emails that were blocked earlier are not sent again.`
               : ''
           }
           reasonLabel="Reason for clearing"
           reasonRequired
           reasonPlaceholder="Recorded with this email action"
           confirmDisabled={!canWrite}
-          confirmLabel="Clear suppression"
+          confirmLabel="Unblock"
           onConfirm={async (reason) => {
             if (!selected) return;
             await writer(base + '/email-suppressions/clear', {
