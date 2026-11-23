@@ -78,9 +78,9 @@ it('opens exact rolling windows, failing topic, message and sender/suppression f
     expect(host.textContent).toContain('33.33%');
     expect(host.textContent).toContain('No attempts in this period');
     expect(host.textContent).not.toContain('Delivery health');
-    expect(host.textContent).toContain('Saved custom domain (not active): provider verified');
+    expect(host.textContent).toContain('Saved custom domain (not active): verified');
     expect(host.textContent).toContain('TXT published; alignment not checked');
-    expect(host.textContent).not.toContain('No provider domain check has been recorded');
+    expect(host.textContent).not.toContain('The sending domain has not been checked yet');
   } finally {
     await act(async () => root.unmount());
     host.remove();

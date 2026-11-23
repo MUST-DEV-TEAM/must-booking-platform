@@ -590,7 +590,7 @@ function DeliveryDirectory({
         description="Uses the original recipients and approved wording. Every selected message must still be eligible; otherwise none are changed. Maximum 50."
         reasonRequired
         reasonLabel="Reason for bulk retry"
-        reasonPlaceholder="Recorded with this email action"
+        reasonPlaceholder="Saved in the history of this change"
         confirmLabel="Retry selected"
         onConfirm={async (reason) => {
           await writer(`${base}/email-activity/bulk-retry`, {
@@ -611,7 +611,7 @@ function DeliveryDirectory({
         confirmLabel="Export CSV"
         reasonRequired
         reasonLabel="Reason for export"
-        reasonPlaceholder="Recorded with this email action"
+        reasonPlaceholder="Saved in the history of this change"
         onConfirm={async (reason) => {
           if (!exportIntent) return;
           const file = await writer<{
@@ -973,7 +973,7 @@ function TemplateDraft({
                   disabled={!canWrite || busy || !subject || !body}
                   onClick={() => setTest(true)}
                 >
-                  Send controlled test
+                  Send a test email
                 </Button>
               }
             </div>
@@ -1062,11 +1062,11 @@ function TemplateDraft({
       <ConfirmDialog
         open={test}
         onOpenChange={setTest}
-        title="Send controlled test email"
-        description="Only your verified account email is allowed. Example data is used; guests cannot be selected. Maximum five tests per hotel per hour."
+        title="Send a test email"
+        description="The test goes only to your own account email and uses example data, never a real guest. You can send up to five tests per hour."
         reasonLabel="Reason for test"
         reasonRequired
-        reasonPlaceholder="Recorded with this email action"
+        reasonPlaceholder="Saved in the history of this change"
         confirmLabel="Send test to my address"
         onConfirm={async (reason) => {
           const result = await writer<{ sentTo: string }>(
@@ -1120,7 +1120,7 @@ function EmailDeliveryDetail({
       open
       onClose={onClose}
       title="Email delivery"
-      description="Recorded message evidence and recovery."
+      description="What happened to this message, and what you can do about it."
     >
       {query.error ? (
         <ErrorPanel
@@ -1186,7 +1186,10 @@ function EmailDeliveryDetail({
           <DetailList
             items={[
               { label: 'Provider', value: query.data.provider ?? 'Not recorded' },
-              { label: 'Provider receipt', value: query.data.providerMessageId ?? 'Not recorded' },
+              {
+                label: 'Provider reference',
+                value: query.data.providerMessageId ?? 'Not recorded',
+              },
             ]}
           />
           {query.data.bookingHref ? (
@@ -1196,7 +1199,7 @@ function EmailDeliveryDetail({
           ) : null}
           <Card>
             <CardHeader>
-              <CardTitle>Observed delivery timeline</CardTitle>
+              <CardTitle>What happened to this message</CardTitle>
             </CardHeader>
             <CardContent>
               {!query.data.timelineHasCreation ? (
@@ -1265,7 +1268,7 @@ function EmailDeliveryDetail({
             >
               {query.data.transportBlocked || query.data.eventType === 'sender.test'
                 ? 'Review sender setup'
-                : 'Review suppression'}
+                : 'See blocked addresses'}
             </Button>
           ) : null}
           {query.data.canSendCopy === true ? (
@@ -1307,7 +1310,7 @@ function EmailDeliveryDetail({
             confirmLabel="Send copy"
             reasonRequired
             reasonLabel="Reason for another copy"
-            reasonPlaceholder="Recorded with this email action"
+            reasonPlaceholder="Saved in the history of this change"
             onConfirm={async (reason) => {
               if (copyVersion === undefined) throw new Error('Reload the source delivery first.');
               const result = await writer<{ messageId: string }>(
@@ -1390,7 +1393,7 @@ function EmailDeliveryDetail({
             confirmLabel="Retry"
             reasonLabel="Reason for retry"
             reasonRequired
-            reasonPlaceholder="Recorded with this email action"
+            reasonPlaceholder="Saved in the history of this change"
             onConfirm={async (reason) => {
               if (retryVersion === undefined) throw new Error('Reload the source delivery first.');
               await writer(`${base}/email-activity/${id}/retry`, {

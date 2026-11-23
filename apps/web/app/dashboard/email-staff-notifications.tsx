@@ -452,7 +452,7 @@ export function StaffNotificationPanel({
                 {currentPreview.suppressed?.length ? (
                   <Alert variant="warning">
                     <AlertDescription>
-                      Suppressed addresses will not receive this email:{' '}
+                      These blocked addresses will not receive this email:{' '}
                       {currentPreview.suppressed
                         .map(({ email, reason }) => `${email} (${reason})`)
                         .join(', ')}

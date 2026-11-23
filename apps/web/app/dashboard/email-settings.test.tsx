@@ -310,7 +310,7 @@ describe('Emails workspace and legacy links', () => {
     mockFetch();
     const host = await mount(undefined, true, true);
     expect(host.textContent).toContain('Sent, last 24 hours');
-    expect(host.textContent).toContain('Controlled tests are excluded');
+    expect(host.textContent).toContain('Test emails are not counted');
     expect(host.textContent).toContain('Booking MH-1');
   });
   it('shows individual staff outcomes and confirms all To/CC/BCC recipients for a deliberate copy', async () => {
@@ -392,7 +392,7 @@ describe('Emails workspace and legacy links', () => {
     const calls = mockFetch();
     await mount('templates');
     await click(button('Pre-arrival reminder'));
-    await click(button('Send controlled test'));
+    await click(button('Send a test email'));
     expect(button('Send test to my address').disabled).toBe(true);
     expect(document.querySelector('input[type="email"]')).toBeNull();
     await fill(
@@ -548,7 +548,7 @@ describe('Emails workspace and legacy links', () => {
     );
     await mount('activity');
     await click(button('Booking confirmed (guest)'));
-    expect(document.body.textContent).toContain('Observed delivery timeline');
+    expect(document.body.textContent).toContain('What happened to this message');
     expect(document.body.textContent).toContain('Attempt 1 / resend');
     expect(document.body.textContent).toContain('mock-receipt');
     expect(document.body.textContent).not.toContain('Earlier steps were not recorded');

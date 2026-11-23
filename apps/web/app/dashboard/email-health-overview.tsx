@@ -42,13 +42,13 @@ export function EmailHealthOverview({
         <StatTile
           label="Bounce rate, 7 days"
           value={rate(data.bounceRate)}
-          note="Bounced messages / attempted messages"
+          note="Share of emails that could not be delivered"
           onClick={() => onDelivery('bounced', undefined, 168)}
         />
         <StatTile
           label="Complaint rate, 7 days"
           value={rate(data.complaintRate)}
-          note="Complained messages / attempted messages"
+          note="Share of emails reported as spam"
           onClick={() => onDelivery('complained', undefined, 168)}
         />
         <StatTile
@@ -145,10 +145,10 @@ export function EmailHealthOverview({
                 {
                   label: 'Domain checks',
                   value: domain?.checkedAt
-                    ? `${domain.setupMode === 'RESEND' && domain.activeMode !== 'RESEND' ? 'Saved custom domain (not active): ' : ''}${domain.status === 'verified' ? 'provider verified' : domain.status === 'pending' ? 'DNS pending' : domain.status === 'not_found' ? 'domain not found' : 'check needs attention'}`
+                    ? `${domain.setupMode === 'RESEND' && domain.activeMode !== 'RESEND' ? 'Saved custom domain (not active): ' : ''}${domain.status === 'verified' ? 'verified' : domain.status === 'pending' ? 'waiting for DNS records' : domain.status === 'not_found' ? 'domain not found' : 'check needs attention'}`
                     : domain?.setupMode === 'SMTP' || domain?.setupMode === 'BREVO'
                       ? 'Use the connection and mailbox checks under Sending.'
-                      : 'No provider domain check has been recorded for this hotel.',
+                      : 'The sending domain has not been checked yet.',
                 },
                 ...(domain?.checkedAt
                   ? [
@@ -170,7 +170,7 @@ export function EmailHealthOverview({
         </Card>
       </div>
       <p className="m-0 text-xs text-muted-foreground">
-        Controlled tests are excluded. Rates use each message's current stored outcome.
+        Test emails are not counted. Rates use the latest result of each message.
       </p>
     </div>
   );

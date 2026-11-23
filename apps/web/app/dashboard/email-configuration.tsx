@@ -266,14 +266,14 @@ export function SuppressionList({ base, canWrite }: { base: string; canWrite: bo
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Suppressed recipients</CardTitle>
+        <CardTitle>Blocked addresses</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <Alert>
           <AlertDescription>
-            Permanent bounces and spam complaints block future MUST messages to this address at this
-            hotel. Clear only after resolving the delivery problem or confirming consent. An old
-            webhook replay cannot reinstate a cleared suppression.
+            When an address bounces for good or marks an email as spam, we stop sending to it.
+            Unblock an address only after the problem is fixed or the guest has agreed to receive
+            emails again.
           </AlertDescription>
         </Alert>
         {query.error ? (
@@ -293,11 +293,11 @@ export function SuppressionList({ base, canWrite }: { base: string; canWrite: bo
                 value: (row) => formatDateTime(row.updatedAt),
               },
             ]}
-            emptyTitle="No suppressed recipients"
+            emptyTitle="No blocked addresses"
             onRow={setSelected}
             actions={
               canWrite
-                ? (row) => [{ label: 'Clear suppression', onSelect: () => setSelected(row) }]
+                ? (row) => [{ label: 'Unblock', onSelect: () => setSelected(row) }]
                 : undefined
             }
           />
@@ -307,17 +307,17 @@ export function SuppressionList({ base, canWrite }: { base: string; canWrite: bo
           onOpenChange={(open) => {
             if (!open) setSelected(null);
           }}
-          title="Clear suppression"
+          title="Unblock address"
           description={
             selected
-              ? `Allow future messages to ${selected.recipient}. Previous suppressed messages are not automatically resent.`
+              ? `Allow future messages to ${selected.recipient}. Emails that were blocked earlier are not sent again.`
               : ''
           }
           reasonLabel="Reason for clearing"
           reasonRequired
           reasonPlaceholder="Recorded with this email action"
           confirmDisabled={!canWrite}
-          confirmLabel="Clear suppression"
+          confirmLabel="Unblock"
           onConfirm={async (reason) => {
             if (!selected) return;
             await writer(base + '/email-suppressions/clear', {
