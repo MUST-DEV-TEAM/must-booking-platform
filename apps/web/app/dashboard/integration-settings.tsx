@@ -660,8 +660,8 @@ export function IntegrationSettings({
           <DialogTitle>{edit?.id ? 'Connection credentials' : 'Activate integration'}</DialogTitle>
           <DialogDescription>
             {edit?.id
-              ? 'Applies to every hotel using this connection. New credentials are verified before replacing the working credentials. To change provider accounts, create a separate connection.'
-              : 'A new connection is tested before assignment. Only one Clock connection can be enabled for a hotel.'}
+              ? 'This change applies to every hotel that uses this connection. New details are tested before they replace the working ones. To use a different account, add a separate connection.'
+              : 'A new connection is tested before it is used. A hotel can have only one Clock connection switched on.'}
           </DialogDescription>
           {!edit?.id && edit ? (
             <ol className="m-0 list-decimal space-y-1 pl-5 text-xs text-muted-foreground">
@@ -762,7 +762,7 @@ export function IntegrationSettings({
                     </span>
                   </>
                 ) : (
-                  'After the keys are saved, this connection gets its own webhook address to add in the Stripe Dashboard, and you paste the signing secret here.'
+                  'After you save the keys, you get an address to add in your Stripe Dashboard. Stripe then gives you a signing secret, which you paste here.'
                 )}
               </p>
             ) : null}

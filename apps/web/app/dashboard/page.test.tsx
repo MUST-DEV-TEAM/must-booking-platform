@@ -39,9 +39,7 @@ describe('Tenant dashboard shell', () => {
       'Guests',
       'Accommodations',
       'Rates &amp; Pricing',
-      'Staff',
       'Reports',
-      'Audit log',
       'Settings',
     ];
     for (const label of labels) expect(markup).toContain(label);
@@ -250,23 +248,31 @@ describe('Tenant dashboard shell', () => {
   });
 
   it.each(['OWNER', 'ADMIN', 'STAFF'] as const)(
-    'requires loaded settings.manage before showing Emails to %s',
+    'no longer lists Emails, Staff or Audit log in the main menu for %s (they are in Settings)',
     (role) => {
-      expect(
-        dashboardNavigation('tenant-1', 'property-1', role, 'overview', []).some(
-          (item) => item.label === 'Emails',
-        ),
-      ).toBe(false);
-      expect(
-        dashboardNavigation('tenant-1', 'property-1', role, 'overview', ['settings.manage']),
-      ).toContainEqual(
-        expect.objectContaining({
-          label: 'Emails',
-          href: '/dashboard/tenant-1?propertyId=property-1&section=emails',
-        }),
-      );
+      const labels = dashboardNavigation('tenant-1', 'property-1', role, 'overview', [
+        'settings.manage',
+        'staff.view',
+        'reports.view',
+      ]).map((item) => item.label);
+      for (const moved of ['Emails', 'Staff', 'Audit log']) expect(labels).not.toContain(moved);
     },
   );
+
+  it('keeps Staff in the menu only for restaurant staff', () => {
+    const labels = dashboardNavigation(
+      'tenant-1',
+      'property-1',
+      'STAFF',
+      'overview',
+      [],
+      {},
+      true,
+      true,
+      true,
+    ).map((item) => item.label);
+    expect(labels).toContain('Staff');
+  });
 
   it('uses the designed navigation order and preserves the bookings route key', () => {
     const ownerItems = dashboardNavigation('tenant-1', 'property-1', 'OWNER');
@@ -280,9 +286,7 @@ describe('Tenant dashboard shell', () => {
       'Guests',
       'Accommodations',
       'Rates & Pricing',
-      'Staff',
       'Reports',
-      'Audit log',
       'Settings',
     ]);
     expect(ownerItems.find((item) => item.label === 'Bookings')?.href).toBe(
@@ -303,7 +307,6 @@ describe('Tenant dashboard shell', () => {
       'Inventory',
       'Payments',
       'Guests',
-      'Audit log',
     ]);
   });
 
@@ -365,19 +368,17 @@ describe('Tenant dashboard shell', () => {
       ),
     );
 
-    for (const label of ['Accommodations', 'Rates &amp; Pricing', 'Staff', 'Inventory'])
+    for (const label of ['Accommodations', 'Rates &amp; Pricing', 'Inventory'])
       expect(markup).toContain(`aria-label="${label}"`);
-    for (const label of ['Settings']) expect(markup).not.toContain(`aria-label="${label}"`);
+    for (const label of ['Staff', 'Emails', 'Audit log', 'Settings'])
+      expect(markup).not.toContain(`aria-label="${label}"`);
   });
 });
 
-it('shows Audit log only for a permitted staff event family, with owner/admin property access', () => {
+it('never lists Audit log in the main menu: it lives in Settings for owners and admins', () => {
   const sections = (role: 'OWNER' | 'ADMIN' | 'STAFF', capabilities: string[]) =>
     dashboardNavigation('t', 'p', role, 'overview', capabilities).map((item) => item.label);
-  expect(sections('OWNER', [])).toContain('Audit log');
-  expect(sections('ADMIN', [])).toContain('Audit log');
-  expect(sections('STAFF', ['reports.view'])).toContain('Audit log');
-  expect(sections('STAFF', ['staff.view'])).toContain('Audit log');
-  expect(sections('STAFF', [])).not.toContain('Audit log');
-  expect(sections('STAFF', ['bookings.create'])).not.toContain('Audit log');
+  for (const role of ['OWNER', 'ADMIN'] as const)
+    expect(sections(role, [])).not.toContain('Audit log');
+  expect(sections('STAFF', ['reports.view', 'staff.view'])).not.toContain('Audit log');
 });

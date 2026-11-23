@@ -324,9 +324,9 @@ function SendingEditor({
       )}
       <Alert>
         <AlertDescription>
-          Saving does not activate a sender. Changing credentials, endpoint or From address pauses
-          new custom delivery and requires verification again. Already frozen attempts keep their
-          original sender.
+          Saving does not switch your sender on. If you change the login, the server or the From
+          address, your own sending pauses and the address must be verified again. Emails already
+          waiting keep their original sender.
         </AlertDescription>
       </Alert>
       <FormField label="Sending option">
@@ -1078,8 +1078,8 @@ function SendingEditor({
           title={approval?.kind === 'check' ? 'Check saved connection?' : 'Save sending setup?'}
           description={
             approval?.kind === 'check'
-              ? 'Checks DNS, encrypted connection and authentication only. No email is sent and the selected sender is unchanged.'
-              : 'Saving does not activate a sender. Changing credentials, endpoint or From address pauses new custom sending and clears verification. Cosmetic edits preserve activation. Frozen attempts keep their original sender. Credentials are encrypted and never included here.'
+              ? 'Checks the DNS records, the secure connection and the login. No email is sent and your sender stays as it is.'
+              : 'Saving does not switch your sender on. If you change the login, the server or the From address, your own sending pauses and the address must be verified again. Small edits keep it on. Emails already waiting keep their original sender. Login details are stored encrypted.'
           }
           confirmLabel={approval?.kind === 'check' ? 'Check connection' : 'Save setup'}
           reasonLabel="Reason"

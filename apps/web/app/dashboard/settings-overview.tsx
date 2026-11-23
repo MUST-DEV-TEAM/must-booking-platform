@@ -368,7 +368,7 @@ export function SettingsOverview({
       <section aria-label="Find a setting" className="flex flex-col gap-2">
         <SearchInput
           aria-label="Find a setting"
-          placeholder="Find a setting, for example check-in, NUIS, webhook"
+          placeholder="Find a setting, for example check-in, tax number, payment link"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />

@@ -585,7 +585,7 @@ export function ActivityAudit({
           if (!open) setExportIds(undefined);
         }}
         title="Export the audit log"
-        description={`Create an audited CSV for ${exportIds ? exportIds.length + ' selected events' : 'the authorized filtered result'} through ${data?.through ?? 'the observed time'}. Maximum 5,000 events and 2 MB. Recorded snapshots may contain sensitive business information.`}
+        description={`Creates a CSV file of ${exportIds ? exportIds.length + ' selected events' : 'every event that matches your filters'}, up to ${data?.through ?? 'now'}. At most 5,000 events and 2 MB. The file can contain sensitive business information, and the export itself is recorded in this log.`}
         confirmLabel="Create CSV"
         cancelLabel="Cancel"
         confirmDisabled={!canExport}
