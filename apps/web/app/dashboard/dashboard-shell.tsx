@@ -882,7 +882,7 @@ export function DashboardShell({
                 canWrite={user?.emailVerified === true && canChange('rates.manage')}
               />
             ) : settingsArea === 'team' ? (
-              <DashboardStaff tenantId={tenantId} propertyId={selectedProperty.id} />
+              <DashboardStaff tenantId={tenantId} propertyId={selectedProperty.id} embedded />
             ) : settingsArea === 'audit-log' ? (
               <ActivityAudit
                 tenantId={tenantId}
