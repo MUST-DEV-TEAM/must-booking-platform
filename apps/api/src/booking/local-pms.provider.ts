@@ -4,7 +4,7 @@ import type {
 } from '@must/domain-contracts';
 import type { MoveBookingRoomCommand } from '@must/domain-contracts';
 import { enforcePropertyBookingLimits } from './property-booking-limits';
-import { enforceGuestForm } from './guest-form-rules';
+import { enforceChildrenAges, enforceGuestForm } from './guest-form-rules';
 import { resolveBillingRatePlan } from './billing-rate-plan';
 import { BadRequestException, HttpException, Inject, Injectable, Logger } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
@@ -397,7 +397,10 @@ export class LocalPmsProvider implements PmsProvider {
                   );
               // A guest booking must carry every field the hotel marked Required in its Booking form.
               // Staff bookings are not held to the form.
-              if (!command.staffActorId) await enforceGuestForm(tx, context, command.guest);
+              if (!command.staffActorId) {
+                await enforceGuestForm(tx, context, command.guest);
+                await enforceChildrenAges(tx, context, occupancy, command.childrenAges);
+              }
               const catalog = await this.validateCatalog(
                 tx,
                 context,
