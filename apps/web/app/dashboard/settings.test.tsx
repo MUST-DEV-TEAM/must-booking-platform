@@ -429,7 +429,7 @@ describe('DashboardSettings', () => {
     const rulesRequest = fetch.mock.calls.filter(([, init]) => init?.method === 'PATCH')[3];
     expect(JSON.parse(rulesRequest[1]!.body as string)).toEqual({ rules: 'Adults only.' });
 
-    await value(container.querySelector('#times-in')!, '14:00');
+    await pickTime(container, 'times-in', '14:00');
     await saveChanges(container);
     const timesRequest = fetch.mock.calls.filter(([, init]) => init?.method === 'PATCH')[4];
     expect(JSON.parse(timesRequest[1]!.body as string)).toEqual({ checkInTime: '14:00' });
@@ -814,6 +814,9 @@ async function mount(settingsArea?: SettingsTab, canWrite = true) {
   return { container, root };
 }
 
+// jsdom has no layout: the time wheels scroll to the chosen row, so give them something to call.
+HTMLElement.prototype.scrollTo = vi.fn();
+
 async function value(element: Element, next: string) {
   await act(async () => {
     const input = element as HTMLInputElement;
@@ -821,6 +824,25 @@ async function value(element: Element, next: string) {
     input.dispatchEvent(new Event('change', { bubbles: true }));
     await Promise.resolve();
   });
+}
+
+/** Pick a time on the designed wheel picker: open it, choose the hour and the minute, press Done. */
+async function pickTime(container: HTMLElement, id: string, time: string) {
+  const [hour, minute] = time.split(':') as [string, string];
+  const option = (list: string, text: string) =>
+    [
+      ...document.querySelectorAll<HTMLButtonElement>(
+        `[role="listbox"][aria-label="${list}"] button`,
+      ),
+    ].find((b) => b.textContent === text)!;
+  await act(async () => container.querySelector<HTMLButtonElement>('#' + id)!.click());
+  await act(async () => option('Hours', hour).click());
+  await act(async () => option('Minutes', minute).click());
+  await act(async () =>
+    [...document.querySelectorAll<HTMLButtonElement>('button')]
+      .find((b) => b.textContent === 'Done')!
+      .click(),
+  );
 }
 
 async function saveChanges(container: HTMLElement) {

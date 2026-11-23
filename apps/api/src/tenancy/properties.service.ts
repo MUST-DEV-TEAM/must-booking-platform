@@ -5,6 +5,7 @@ import {
   hotelInput,
   hotelUpdates,
   checkHotelSettings,
+  policyCleanup,
   type HotelSettings,
 } from './hotel-settings';
 import { Prisma } from '@prisma/client';
@@ -298,6 +299,8 @@ export class PropertiesService {
       }
 
       checkHotelSettings({ ...existing[0], ...input }, Object.keys(input));
+      // Policies that stop applying (a price on a cot that is now free) are cleared in the same save.
+      Object.assign(input, policyCleanup({ ...existing[0], ...input }, Object.keys(input)));
       // With a connected PMS the booking is created there at once, so on-request confirmation and gap filling
       // cannot work yet. The page locks them; the server refuses them too.
       if (

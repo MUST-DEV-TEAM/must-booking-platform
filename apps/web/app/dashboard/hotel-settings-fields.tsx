@@ -14,6 +14,10 @@ import {
   DESCRIPTION_MAX,
   PROFILE_FIELD_KEYS,
   PROPERTY_TYPES,
+  ID_DOCUMENT_CHOICES,
+  checkMoneyAmount,
+  checkPolicies,
+  type PolicyValues,
   SUMMARY_MAX,
   checkProfileCombination,
   checkProfileField,
@@ -24,6 +28,7 @@ import {
   SettingsFields,
   type SettingValue,
   type SettingGroup,
+  whenHolds,
 } from '../../components/ui/settings-fields';
 import { ruleOwnerLabel, ruleStatusLabel } from './booking-rules-owners';
 import { timeZoneOptions, type Property } from './settings-areas';
@@ -68,6 +73,37 @@ const policy = options([
   ['on_request', 'On request'],
   ['not_allowed', 'Not allowed'],
 ]);
+const bedOptions = options([
+  ['not_available', 'Not available'],
+  ['free', 'Free'],
+  ['paid', 'Paid'],
+]);
+const petFeeOptions = options([
+  ['free', 'Free'],
+  ['per_night', 'Per night'],
+  ['per_stay', 'Per stay'],
+]);
+const smokingOptions = options([
+  ['not_allowed', 'Not allowed'],
+  ['designated_areas', 'Designated areas only'],
+  ['allowed', 'Allowed'],
+]);
+const partiesOptions = options([
+  ['not_allowed', 'Not allowed'],
+  ['on_request', 'On request'],
+  ['allowed', 'Allowed'],
+]);
+const idOptions = options([
+  ['not_required', 'Not asked for'],
+  ['main_guest', 'Main guest'],
+  ['all_adults', 'All adults'],
+]);
+const depositMethodOptions = options([
+  ['cash', 'Cash'],
+  ['card', 'Card'],
+]);
+/** Saved and checked, but no guest page or email shows these yet (gap G-55). */
+const NOT_SHOWN = 'Saved · not shown to guests yet';
 export const hotelSettingGroups: Record<
   'general' | 'booking-rules' | 'check-in-out',
   SettingGroup[]
@@ -723,14 +759,34 @@ export const hotelSettingGroups: Record<
   ],
   'check-in-out': [
     {
-      title: 'Early check-in and late check-out',
+      title: 'Check-in and check-out windows',
       description:
-        'Informational policies. Staff must agree any special arrangements with the guest.',
+        'The standard times are above. Leave "until" or "from" empty when guests can arrive or leave at any time.',
+      status: NOT_SHOWN,
+      fields: [
+        { key: 'checkInUntil', label: 'Check-in until', kind: 'time', span: 'half' },
+        { key: 'checkOutFrom', label: 'Check-out from', kind: 'time', span: 'half' },
+        {
+          key: 'lateArrivalInstructions',
+          label: 'Late arrival instructions',
+          kind: 'textarea',
+          max: 500,
+          counter: true,
+          span: 'full',
+          hint: 'For example how to collect the key after the reception closes.',
+        },
+      ],
+    },
+    {
+      title: 'Early check-in',
+      description: 'Informational. Staff must agree any special arrangement with the guest.',
+      status: NOT_SHOWN,
       fields: [
         {
           key: 'earlyCheckInPolicy',
           label: 'Early check-in',
           kind: 'choice',
+          span: 'half',
           defaultValue: 'not_offered',
           options: arrival,
         },
@@ -738,13 +794,28 @@ export const hotelSettingGroups: Record<
           key: 'earlyCheckInUntil',
           label: 'Free early check-in until',
           kind: 'time',
+          span: 'half',
           when: { key: 'earlyCheckInPolicy', value: 'free_until' },
         },
-        { key: 'earlyCheckInNote', label: 'Early check-in note', max: 300 },
+        {
+          key: 'earlyCheckInNote',
+          label: 'Note for guests',
+          max: 300,
+          span: 'full',
+          hint: 'Up to 300 characters.',
+        },
+      ],
+    },
+    {
+      title: 'Late check-out',
+      description: 'Informational. Staff must agree any special arrangement with the guest.',
+      status: NOT_SHOWN,
+      fields: [
         {
           key: 'lateCheckOutPolicy',
           label: 'Late check-out',
           kind: 'choice',
+          span: 'half',
           defaultValue: 'not_offered',
           options: arrival,
         },
@@ -752,23 +823,221 @@ export const hotelSettingGroups: Record<
           key: 'lateCheckOutUntil',
           label: 'Free late check-out until',
           kind: 'time',
+          span: 'half',
           when: { key: 'lateCheckOutPolicy', value: 'free_until' },
         },
-        { key: 'lateCheckOutNote', label: 'Late check-out note', max: 300 },
+        {
+          key: 'lateCheckOutNote',
+          label: 'Note for guests',
+          max: 300,
+          span: 'full',
+          hint: 'Up to 300 characters.',
+        },
       ],
     },
     {
-      title: 'Arrival',
-      description: 'Times are local to the hotel. Quiet hours can continue overnight.',
+      title: 'Cots and extra beds',
+      description: 'Per room. Prices are per night, in the hotel currency.',
+      status: NOT_SHOWN,
       fields: [
         {
-          key: 'idRequiredAtArrival',
-          label: 'ID required at arrival',
-          kind: 'boolean',
-          defaultValue: false,
+          key: 'cotsPolicy',
+          label: 'Cots',
+          kind: 'choice',
+          span: 'half',
+          defaultValue: 'not_available',
+          options: bedOptions,
         },
-        { key: 'quietHoursFrom', label: 'Quiet hours from', kind: 'time' },
-        { key: 'quietHoursTo', label: 'Quiet hours until', kind: 'time' },
+        {
+          key: 'cotsFee',
+          label: 'Cot price per night',
+          kind: 'decimal',
+          span: 'half',
+          when: { key: 'cotsPolicy', value: 'paid' },
+          placeholder: '0.00',
+        },
+        {
+          key: 'cotsMax',
+          label: 'Cots per room',
+          kind: 'number',
+          span: 'half',
+          when: { key: 'cotsPolicy', value: ['free', 'paid'] },
+          hint: 'From 1 to 3.',
+        },
+        {
+          key: 'extraBedsPolicy',
+          label: 'Extra beds',
+          kind: 'choice',
+          span: 'half',
+          defaultValue: 'not_available',
+          options: bedOptions,
+        },
+        {
+          key: 'extraBedsFee',
+          label: 'Extra bed price per night',
+          kind: 'decimal',
+          span: 'half',
+          when: { key: 'extraBedsPolicy', value: 'paid' },
+          placeholder: '0.00',
+        },
+        {
+          key: 'extraBedsMax',
+          label: 'Extra beds per room',
+          kind: 'number',
+          span: 'half',
+          when: { key: 'extraBedsPolicy', value: ['free', 'paid'] },
+          hint: 'From 1 to 3.',
+        },
+      ],
+    },
+    {
+      title: 'Children',
+      description:
+        'Optional information for guests. The ages that count as children and infants are set in Booking rules.',
+      status: NOT_SHOWN,
+      fields: [
+        {
+          key: 'childrenPolicy',
+          label: 'Children',
+          kind: 'choice',
+          span: 'half',
+          options: policy,
+        },
+        {
+          key: 'childrenPolicyNote',
+          label: 'Note for guests',
+          max: 300,
+          span: 'full',
+          hint: 'Up to 300 characters.',
+        },
+      ],
+    },
+    {
+      title: 'Pets',
+      description: 'Assistance animals are always welcome, whatever you choose here.',
+      status: NOT_SHOWN,
+      fields: [
+        {
+          key: 'petsPolicy',
+          label: 'Pets',
+          kind: 'choice',
+          span: 'half',
+          options: policy,
+        },
+        {
+          key: 'petsMax',
+          label: 'Pets per room',
+          kind: 'number',
+          span: 'half',
+          when: { key: 'petsPolicy', value: ['allowed', 'on_request'] },
+          hint: 'From 1 to 5, or leave empty.',
+        },
+        {
+          key: 'petsFeeType',
+          label: 'Pet fee',
+          kind: 'choice',
+          span: 'half',
+          when: { key: 'petsPolicy', value: ['allowed', 'on_request'] },
+          options: petFeeOptions,
+        },
+        {
+          key: 'petsFee',
+          label: 'Pet fee amount',
+          kind: 'decimal',
+          span: 'half',
+          when: [
+            { key: 'petsPolicy', value: ['allowed', 'on_request'] },
+            { key: 'petsFeeType', value: ['per_night', 'per_stay'] },
+          ],
+          placeholder: '0.00',
+        },
+        {
+          key: 'petsPolicyNote',
+          label: 'Note for guests',
+          max: 300,
+          span: 'full',
+          hint: 'Up to 300 characters.',
+        },
+      ],
+    },
+    {
+      title: 'House rules',
+      description: 'Times are local to the hotel. Quiet hours can continue overnight.',
+      status: NOT_SHOWN,
+      fields: [
+        {
+          key: 'smokingPolicy',
+          label: 'Smoking',
+          kind: 'choice',
+          span: 'half',
+          options: smokingOptions,
+        },
+        {
+          key: 'partiesPolicy',
+          label: 'Parties and events',
+          kind: 'choice',
+          span: 'half',
+          options: partiesOptions,
+        },
+        { key: 'quietHoursFrom', label: 'Quiet hours from', kind: 'time', span: 'half' },
+        { key: 'quietHoursTo', label: 'Quiet hours until', kind: 'time', span: 'half' },
+        {
+          key: 'idAtArrival',
+          label: 'ID at arrival',
+          kind: 'choice',
+          span: 'half',
+          defaultValue: 'not_required',
+          options: idOptions,
+        },
+        {
+          key: 'idDocuments',
+          label: 'Accepted documents',
+          kind: 'multi',
+          span: 'half',
+          when: { key: 'idAtArrival', value: ['main_guest', 'all_adults'] },
+          options: ID_DOCUMENT_CHOICES.map(({ value, label }) => ({ value, label })),
+        },
+        {
+          key: 'otherHouseRules',
+          label: 'Other house rules',
+          kind: 'textarea',
+          max: 1000,
+          counter: true,
+          span: 'full',
+          hint: 'Plain text, up to 1000 characters.',
+        },
+      ],
+    },
+    {
+      title: 'Damage deposit',
+      description:
+        'Leave the amount empty when you do not take a deposit. It is taken at the hotel; MUST does not charge it.',
+      status: NOT_SHOWN,
+      fields: [
+        {
+          key: 'damageDepositAmount',
+          label: 'Deposit amount',
+          kind: 'decimal',
+          span: 'third',
+          placeholder: '0.00',
+          hint: 'In the hotel currency.',
+        },
+        {
+          key: 'damageDepositMethod',
+          label: 'Taken by',
+          kind: 'choice',
+          span: 'third',
+          whenSet: 'damageDepositAmount',
+          options: depositMethodOptions,
+        },
+        {
+          key: 'damageDepositRefundDays',
+          label: 'Refunded within (days)',
+          kind: 'number',
+          span: 'third',
+          whenSet: 'damageDepositAmount',
+          hint: 'From 1 to 30.',
+        },
       ],
     },
     {
@@ -785,16 +1054,6 @@ export const hotelSettingGroups: Record<
         },
       ],
     },
-    {
-      title: 'Children and pets',
-      description: 'Optional information for staff. Notes are plain text, up to 300 characters.',
-      fields: [
-        { key: 'childrenPolicy', label: 'Children policy', kind: 'choice', options: policy },
-        { key: 'childrenPolicyNote', label: 'Children policy note', max: 300 },
-        { key: 'petsPolicy', label: 'Pets policy', kind: 'choice', options: policy },
-        { key: 'petsPolicyNote', label: 'Pets policy note', max: 300 },
-      ],
-    },
   ],
 };
 export function useHotelSettings(
@@ -802,6 +1061,8 @@ export function useHotelSettings(
   area: keyof typeof hotelSettingGroups,
   canWrite: boolean,
   extras?: Record<string, ReactNode>,
+  /** Values kept outside the form that its rules need (the standard check-in and check-out times). */
+  context?: PolicyValues,
 ) {
   const savedLanguages = Array.isArray(property.languages) ? property.languages : [];
   const connected = property.pmsSource === 'CLOCK_PMS';
@@ -814,7 +1075,7 @@ export function useHotelSettings(
     .map((group) => ({
       ...group,
       badge: area === 'booking-rules' ? ruleOwnerLabel(group.title, connected) : undefined,
-      status: area === 'booking-rules' ? ruleStatusLabel(group.title) : undefined,
+      status: area === 'booking-rules' ? ruleStatusLabel(group.title) : group.status,
       fields: group.fields
         .map((f) => (connected && f.connectedLock === 'locked' ? { ...f, readOnly: true } : f))
         .map((f) =>
@@ -868,7 +1129,7 @@ export function useHotelSettings(
     const v = values[f.key];
     // A hidden field (its switch or choice says it does not apply) is never required.
     const shown =
-      (!f.when || values[f.when.key] === f.when.value) &&
+      whenHolds(f.when, values) &&
       (!f.whenSet || Boolean(values[f.whenSet])) &&
       (!f.whenOff || values[f.whenOff] === false);
     if (f.required && shown && typeof v === 'string' && !v.trim()) {
@@ -989,6 +1250,42 @@ export function useHotelSettings(
       errors[prefix + 'Until'] = 'Enter the free-until time.';
   if (Boolean(values.quietHoursFrom) !== Boolean(values.quietHoursTo))
     errors.quietHoursTo = 'Enter both quiet-hours times, or leave both empty.';
+  if ('cotsPolicy' in values) {
+    const visible = (key: string) => {
+      const f = fields.find((x) => x.key === key);
+      return !!f && whenHolds(f.when, values) && (!f.whenSet || Boolean(values[f.whenSet]));
+    };
+    const whole = (key: string) =>
+      /^\d+$/.test(String(values[key] ?? '')) ? Number(values[key]) : null;
+    const text = (key: string) => String(values[key] ?? '').trim() || null;
+    for (const key of ['cotsFee', 'extraBedsFee', 'petsFee', 'damageDepositAmount'])
+      if (visible(key) && text(key)) {
+        const message = checkMoneyAmount(text(key));
+        if (message) errors[key] = message;
+      }
+    const problems = checkPolicies({
+      ...context,
+      checkInUntil: text('checkInUntil'),
+      checkOutFrom: text('checkOutFrom'),
+      cotsPolicy: text('cotsPolicy'),
+      cotsFee: text('cotsFee'),
+      cotsMax: whole('cotsMax'),
+      extraBedsPolicy: text('extraBedsPolicy'),
+      extraBedsFee: text('extraBedsFee'),
+      extraBedsMax: whole('extraBedsMax'),
+      petsPolicy: text('petsPolicy'),
+      petsFeeType: text('petsFeeType'),
+      petsFee: text('petsFee'),
+      idAtArrival: text('idAtArrival'),
+      idDocuments: Array.isArray(values.idDocuments) ? values.idDocuments : [],
+      damageDepositAmount: text('damageDepositAmount'),
+      damageDepositMethod: text('damageDepositMethod'),
+      damageDepositRefundDays: whole('damageDepositRefundDays'),
+    } satisfies PolicyValues);
+    for (const [key, message] of Object.entries(problems))
+      if (!errors[key] && (key === 'checkInUntil' || key === 'checkOutFrom' || visible(key)))
+        errors[key] = message;
+  }
   const update: Partial<Property> = {};
   for (const f of saveable)
     if (JSON.stringify(values[f.key]) !== JSON.stringify(saved[f.key])) {
@@ -1012,6 +1309,7 @@ export function useHotelSettings(
     dirty,
     errors,
     update,
+    values,
     discard: () => setValues(initial()),
     /** The same form, restricted to the groups with these titles (so a page can interleave its own sections). */
     section: (...titles: string[]) => (

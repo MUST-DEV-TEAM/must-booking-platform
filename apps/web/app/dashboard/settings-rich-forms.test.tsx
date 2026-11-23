@@ -7,6 +7,8 @@ import { GeneralSettings, BookingRulesSettings, CheckInOutSettings } from './set
 import { UnsavedChangesBoundary } from '../../components/ui/unsaved-changes';
 import type { Property } from './settings-areas';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+// jsdom has no layout: the time wheels scroll to the chosen row, so give them something to call.
+HTMLElement.prototype.scrollTo = vi.fn();
 const property: Property = {
   id: 'p',
   name: 'Hotel',
@@ -59,6 +61,20 @@ async function value(id: string, v: string) {
 }
 const button = (text: string) =>
   [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === text)!;
+/** Pick a time on the designed wheel picker: open it, choose the hour and the minute, press Done. */
+async function pickTime(id: string, time: string) {
+  const [hour, minute] = time.split(':') as [string, string];
+  await act(async () => document.querySelector<HTMLButtonElement>('#' + id)!.click());
+  const option = (list: string, text: string) =>
+    [
+      ...document.querySelectorAll<HTMLButtonElement>(
+        `[role="listbox"][aria-label="${list}"] button`,
+      ),
+    ].find((b) => b.textContent === text)!;
+  await act(async () => option('Hours', hour).click());
+  await act(async () => option('Minutes', minute).click());
+  await act(async () => button('Done').click());
+}
 it('groups General, validates business/about fields, locks a priced currency and saves only changed values', async () => {
   const save = vi.fn(),
     m = await mount(
@@ -145,7 +161,7 @@ it('groups same-day, limits and no-show guidance, validates whole numbers and sa
     expect(button('Save changes').disabled).toBe(true);
     await value('hotel-maxGuestsPerBooking', '4');
     await value('hotel-maxRoomsPerBooking', '2');
-    await value('hotel-sameDayCutoffTime', '18:00');
+    await pickTime('hotel-sameDayCutoffTime', '18:00');
     await act(async () => {
       (document.querySelector('#hotel-allowSameDayBooking') as HTMLButtonElement).click();
     });
@@ -166,22 +182,64 @@ it('groups arrival and policies, validates paired hours and saves notes without 
       <CheckInOutSettings property={property} saving={false} canWrite onSave={save} />,
     );
   try {
-    expect(m.host.textContent).toContain('Early check-in and late check-out');
-    expect(m.host.textContent).toContain('Children and pets');
-    await value('hotel-quietHoursFrom', '22:00');
+    expect(m.host.textContent).toContain('Early check-in');
+    expect(m.host.textContent).toContain('Late check-out');
+    for (const title of [
+      'Cots and extra beds',
+      'Children',
+      'Pets',
+      'House rules',
+      'Damage deposit',
+      'Guests will read',
+    ])
+      expect(m.host.textContent).toContain(title);
+    await pickTime('hotel-quietHoursFrom', '22:00');
     expect(button('Save changes').disabled).toBe(true);
-    await value('hotel-quietHoursTo', '07:00');
+    await pickTime('hotel-quietHoursTo', '07:00');
     await value('hotel-earlyCheckInNote', 'Ask reception.');
-    await act(async () => {
-      (document.querySelector('#hotel-idRequiredAtArrival') as HTMLButtonElement).click();
-    });
+    await value('hotel-otherHouseRules', 'No loud music after 23:00.');
     await act(async () => button('Save changes').click());
     expect(save).toHaveBeenCalledWith({
       quietHoursFrom: '22:00',
       quietHoursTo: '07:00',
       earlyCheckInNote: 'Ask reception.',
-      idRequiredAtArrival: true,
+      otherHouseRules: 'No loud music after 23:00.',
     });
+  } finally {
+    await m.close();
+  }
+});
+it('holds the policies to the shared rules before saving', async () => {
+  const save = vi.fn(),
+    m = await mount(
+      <CheckInOutSettings
+        property={{
+          ...property,
+          checkInTime: '15:00',
+          checkOutTime: '11:00',
+          cotsPolicy: 'paid',
+          idAtArrival: 'all_adults',
+          idDocuments: [],
+          damageDepositAmount: '100.00',
+        }}
+        saving={false}
+        canWrite
+        onSave={save}
+      />,
+    );
+  try {
+    await pickTime('hotel-quietHoursFrom', '22:00');
+    await pickTime('hotel-quietHoursTo', '07:00');
+    expect(m.host.textContent).toContain('Enter the price per night.');
+    expect(m.host.textContent).toContain('Enter how many per room, from 1 to 3.');
+    expect(m.host.textContent).toContain('Choose at least one accepted document.');
+    expect(m.host.textContent).toContain('Choose how the deposit is taken.');
+    expect(button('Save changes').disabled).toBe(true);
+    await pickTime('hotel-checkInUntil', '10:00');
+    expect(m.host.textContent).toContain('Check-in until must be later than check-in from.');
+    await pickTime('hotel-checkInUntil', '23:00');
+    expect(m.host.textContent).not.toContain('Check-in until must be later');
+    expect(save).not.toHaveBeenCalled();
   } finally {
     await m.close();
   }

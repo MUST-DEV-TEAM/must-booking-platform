@@ -286,6 +286,26 @@ model Property {
   childrenPolicyNote                String?                         @map("children_policy_note") @db.VarChar(300)
   petsPolicy                        String?                         @map("pets_policy") @db.VarChar(30)
   petsPolicyNote                    String?                         @map("pets_policy_note") @db.VarChar(300)
+  checkInUntil                      String?                         @map("check_in_until") @db.VarChar(5)
+  checkOutFrom                      String?                         @map("check_out_from") @db.VarChar(5)
+  lateArrivalInstructions           String?                         @map("late_arrival_instructions") @db.VarChar(500)
+  cotsPolicy                        String                          @default("not_available") @map("cots_policy") @db.VarChar(20)
+  cotsFee                           Decimal?                        @map("cots_fee") @db.Decimal(7, 2)
+  cotsMax                           Int?                            @map("cots_max") @db.SmallInt
+  extraBedsPolicy                   String                          @default("not_available") @map("extra_beds_policy") @db.VarChar(20)
+  extraBedsFee                      Decimal?                        @map("extra_beds_fee") @db.Decimal(7, 2)
+  extraBedsMax                      Int?                            @map("extra_beds_max") @db.SmallInt
+  petsFeeType                       String?                         @map("pets_fee_type") @db.VarChar(10)
+  petsFee                           Decimal?                        @map("pets_fee") @db.Decimal(7, 2)
+  petsMax                           Int?                            @map("pets_max") @db.SmallInt
+  smokingPolicy                     String?                         @map("smoking_policy") @db.VarChar(20)
+  partiesPolicy                     String?                         @map("parties_policy") @db.VarChar(20)
+  idAtArrival                       String                          @default("not_required") @map("id_at_arrival") @db.VarChar(20)
+  idDocuments                       String[]                        @default([]) @map("id_documents")
+  damageDepositAmount               Decimal?                        @map("damage_deposit_amount") @db.Decimal(7, 2)
+  damageDepositMethod               String?                         @map("damage_deposit_method") @db.VarChar(10)
+  damageDepositRefundDays           Int?                            @map("damage_deposit_refund_days") @db.SmallInt
+  otherHouseRules                   String?                         @map("other_house_rules") @db.VarChar(1000)
   onlinePaymentHoldMinutes          Int                             @default(30) @map("online_payment_hold_minutes")
   autoRefundOnFreeCancellation      Boolean                         @default(true) @map("auto_refund_on_free_cancellation")
   clockCancelRefundPolicy           String                          @default("NEVER") @map("clock_cancel_refund_policy") @db.VarChar(20)

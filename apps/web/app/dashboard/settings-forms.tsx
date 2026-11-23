@@ -14,6 +14,9 @@ import { Input, Textarea } from '../../components/ui/input';
 import { HotelCurrencyNote } from './hotel-currency-note';
 import { AlsoShowPrices, ExchangeRateTable } from './display-currencies-settings';
 import { SaveBar } from '../../components/ui/save-bar';
+import { SegmentedControl } from '../../components/ui/segmented-control';
+import { TimeField } from '../../components/ui/time-field';
+import { policyPreviewLines, type PolicyPreviewLanguage } from './policy-preview';
 import { validateRules, validTime, type BookingMode, type Property } from './settings-areas';
 
 type Save = (update: Partial<Property>) => void;
@@ -236,12 +239,16 @@ export function BookingRulesSettings({
 
 /** Check-in and check-out times shown to guests. */
 export function CheckInOutSettings({ property, saving, onSave, canWrite = false }: FormProps) {
-  const rich = useHotelSettings(property, 'check-in-out', canWrite);
   const initial = {
     checkInTime: property.checkInTime ?? '',
     checkOutTime: property.checkOutTime ?? '',
   };
   const [draft, setDraft] = useState(initial);
+  const [previewLanguage, setPreviewLanguage] = useState<PolicyPreviewLanguage>('en');
+  const rich = useHotelSettings(property, 'check-in-out', canWrite, undefined, {
+    checkInTime: draft.checkInTime || null,
+    checkOutTime: draft.checkOutTime || null,
+  });
   useEffect(() => setDraft(initial), [property.checkInTime, property.checkOutTime]);
   const errors = {
     checkInTime: validTime(draft.checkInTime) ? null : 'Use a time like 15:00.',
@@ -258,6 +265,12 @@ export function CheckInOutSettings({ property, saving, onSave, canWrite = false 
   ]
     .filter(Boolean)
     .join(' · ');
+  const policyLines = policyPreviewLines(
+    rich.values,
+    { checkInTime: draft.checkInTime, checkOutTime: draft.checkOutTime },
+    property.defaultCurrency ?? 'EUR',
+    previewLanguage,
+  );
   return (
     <div className="flex flex-col gap-4">
       <FormSection
@@ -266,21 +279,21 @@ export function CheckInOutSettings({ property, saving, onSave, canWrite = false 
       >
         <div className="grid gap-4 sm:grid-cols-2">
           <FormField label="Check-in from" htmlFor="times-in" error={errors.checkInTime}>
-            <Input
-              disabled={!canWrite}
+            <TimeField
               id="times-in"
-              type="time"
+              label="Check-in from"
+              disabled={!canWrite}
               value={draft.checkInTime}
-              onChange={(e) => setDraft({ ...draft, checkInTime: e.target.value })}
+              onChange={(checkInTime) => setDraft({ ...draft, checkInTime })}
             />
           </FormField>
           <FormField label="Check-out by" htmlFor="times-out" error={errors.checkOutTime}>
-            <Input
-              disabled={!canWrite}
+            <TimeField
               id="times-out"
-              type="time"
+              label="Check-out by"
+              disabled={!canWrite}
               value={draft.checkOutTime}
-              onChange={(e) => setDraft({ ...draft, checkOutTime: e.target.value })}
+              onChange={(checkOutTime) => setDraft({ ...draft, checkOutTime })}
             />
           </FormField>
         </div>
@@ -290,6 +303,29 @@ export function CheckInOutSettings({ property, saving, onSave, canWrite = false 
         </p>
       </FormSection>
       {rich.fields}
+      <FormSection
+        title="Guests will read"
+        description="A preview of the policies as guests will read them. Nothing is shown to guests yet."
+      >
+        <SegmentedControl
+          label="Preview language"
+          value={previewLanguage}
+          onChange={setPreviewLanguage}
+          options={[
+            { value: 'en', label: 'English' },
+            { value: 'sq', label: 'Shqip' },
+          ]}
+        />
+        {policyLines.length ? (
+          <ul className="m-0 flex list-disc flex-col gap-1.5 pl-5 text-sm">
+            {policyLines.map((line, index) => (
+              <li key={index}>{line}</li>
+            ))}
+          </ul>
+        ) : (
+          <p className="m-0 text-sm text-muted-foreground">No policies set yet.</p>
+        )}
+      </FormSection>
       <SaveBar
         dirty={canWrite && dirty}
         saving={saving}
