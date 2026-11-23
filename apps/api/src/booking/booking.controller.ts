@@ -36,6 +36,7 @@ import { parseBookingSearchQuery } from './booking-search';
 import { CancellationLinkService } from './cancellation-link.service';
 import { PmsProviderRegistry } from './pms-provider-registry';
 import { MultiRoomBookingService } from './multi-room-booking.service';
+import { ARRIVAL_TIME_RE } from './guest-form-rules';
 
 type GuestBookingRequest = {
   tenantContext: { tenantId: string; propertyId: string };
@@ -285,6 +286,10 @@ export class BookingController {
         postcode: this.optionalNullableString(guest.postcode),
         countryCode: this.country(guest.countryCode),
         specialRequests: this.optionalSpecialRequests(guest.specialRequests),
+        arrivalTime: this.optionalArrivalTime(guest.arrivalTime),
+        companyName: this.optionalOneLine(guest.companyName, 160, 'Company name'),
+        taxNumber: this.optionalOneLine(guest.taxNumber, 40, 'Tax number'),
+        marketingConsent: guest.marketingConsent === true,
       },
       total: this.money(value.total) ?? { amount: '', currency: '' },
       adults: typeof value.adults === 'number' ? value.adults : undefined,
@@ -372,6 +377,23 @@ export class BookingController {
       throw new BadRequestException('Special requests must be 2,000 characters or fewer.');
     const specialRequests = value.trim();
     return specialRequests || null;
+  }
+
+  private optionalArrivalTime(value: unknown): string | null | undefined {
+    if (value === null || value === '') return null;
+    if (typeof value !== 'string') return undefined;
+    if (!ARRIVAL_TIME_RE.test(value.trim()))
+      throw new BadRequestException('Arrival time must be a time such as 15:30.');
+    return value.trim();
+  }
+
+  private optionalOneLine(value: unknown, max: number, label: string): string | null | undefined {
+    if (value === null) return null;
+    if (typeof value !== 'string') return undefined;
+    const text = value.replace(/[\r\n]+/g, ' ').trim();
+    if (text.length > max)
+      throw new BadRequestException(`${label} must be ${max} characters or fewer.`);
+    return text || null;
   }
 
   private money(value: unknown): { amount: string; currency: string } | undefined {
