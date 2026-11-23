@@ -321,6 +321,7 @@ Each step includes its backend: additive, re-runnable migrations with rollback n
 | S10 | Team and roles: saved invitations, Reservations role, new permissions, last sign-in, ownership transfer, two-step sign-in with the account setting | G-85, G-87, G-88, G-89, G-90 |
 | S10a | Team and roles, page only (built 2026-11-23, frontend): one title, readable table, tabs People and Roles, extra permissions shown by name ("+ Refund"), dead export buttons removed, Audit log link into Settings. The rest of S10 stays open | G-85, G-87, G-88, G-89, G-90 |
 | S11 | Plan and usage (works with the single unlimited plan of #543) | |
+| S11a | Plan and usage, page only (built 2026-11-23, frontend): plan name and status in plain words, limits, usage meters (amber at 80 %, what is blocked at 100 % and that nothing is deleted), what this hotel uses. Owner decision: applies to the hotel being edited, plan itself account-wide and read-only. "Ask to change plan" and billing stay open until #543 | G-91, G-92 |
 | S12 | Audit log: Account tab, links, append-only, coverage test, before and after, support visibility | G-93 |
 | S13 | Wording pass (the `design:ux-copy` checklist), sidebar clean-up, old links verified | |
 

@@ -204,7 +204,7 @@ describe('DashboardSettings', () => {
     expect(container.textContent).toContain('Setup: 4 of 6 done · Show');
     expect(container.textContent).not.toContain('Set up your hotel');
     expect(text).toContain('The hotel website is not connected yet.');
-    // Old area names from saved links land on their new tab; unknown and unbuilt ones on the overview.
+    // Old area names from saved links land on their new tab; unknown ones on the overview.
     expect(resolveSettingsTab('general')).toBe('profile');
     expect(resolveSettingsTab('check-in-out')).toBe('policies');
     expect(resolveSettingsTab('payments')).toBe('payment-methods');
@@ -212,7 +212,7 @@ describe('DashboardSettings', () => {
     expect(resolveSettingsTab('billing')).toBe('plan-usage');
     expect(resolveSettingsTab('email')).toBe('emails');
     expect(resolveSettingsTab('booking-mode')).toBe('overview');
-    expect(resolveSettingsTab('taxes-fees')).toBe('overview');
+    expect(resolveSettingsTab('taxes-fees')).toBe('taxes-fees');
     expect(resolveSettingsTab(null)).toBe('overview');
     await act(async () => root.unmount());
     container.remove();
@@ -362,9 +362,11 @@ describe('DashboardSettings', () => {
     );
     const { container, root } = await mount('plan-usage');
 
-    expect(container.textContent).toContain('Billing account');
-    expect(container.textContent).toContain('Current plan: Free');
-    expect(container.textContent).toContain('Platform billing is not available yet');
+    expect(container.textContent).toContain('Your plan');
+    expect(container.textContent).toContain('Free');
+    expect(container.textContent).toContain(
+      'Online plan changes and invoices are not available yet',
+    );
     expect(container.textContent).not.toContain('Milestone 13');
     expect(container.textContent).not.toContain('Payment methods');
 
@@ -395,15 +397,15 @@ describe('DashboardSettings', () => {
     vi.stubGlobal('fetch', fetch);
     const { container, root } = await mount();
 
-    expect(container.textContent).toContain('Current plan: Free');
+    expect(container.textContent).toContain('Your plan');
     expect(container.textContent).toContain('do not block or validate bookings');
     expect(container.textContent).not.toContain('Manage properties');
     expect(container.textContent).not.toContain('Add property');
     expect(
-      [...container.querySelectorAll<HTMLButtonElement>('button')].find((button) =>
-        button.textContent?.includes('Platform billing is not available yet'),
-      )?.disabled,
-    ).toBe(true);
+      [...container.querySelectorAll<HTMLButtonElement>('button')].some((button) =>
+        button.textContent?.includes('Platform billing'),
+      ),
+    ).toBe(false);
 
     await value(container.querySelector('#hotel-name')!, 'Grand Hotel Tirana');
     await saveChanges(container);
