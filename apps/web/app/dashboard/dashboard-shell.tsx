@@ -58,8 +58,14 @@ import { ReservationDetail } from './reservation-detail';
 import { ReservationsPage } from './reservations-page';
 import { EmailSettings, isEmailTab, type EmailTab } from './email-settings';
 import { SettingsAttentionBadge } from './settings-summary';
+import { TaxesFeesSettings } from './taxes-fees';
 import { DashboardSettings, SettingsFrame, SettingsOverview } from './settings';
-import { resolveSettingsTab, settingsTabHref, type SettingsTab } from './settings-registry';
+import {
+  movedToSettings,
+  resolveSettingsTab,
+  settingsTabHref,
+  type SettingsTab,
+} from './settings-registry';
 import { DashboardNotifications, NotificationsInbox } from './notifications';
 import { EmailsWorkspace } from './emails';
 import { DashboardReports } from './reports';
@@ -336,6 +342,8 @@ export function dashboardNavigation(
 ): AppNavigationItem[] {
   const items = dashboardSections.filter(
     (item) =>
+      // Emails, Staff and Audit log now live in Settings; restaurant staff keep their Staff page.
+      (!(item.section in movedToSettings) || (item.section === 'staff' && restaurantStaff)) &&
       (canAccessSection(role, capabilities, item.section) ||
         (item.section === 'staff' && restaurantStaff)) &&
       (item.section !== 'restaurants' || diningEnabled) &&
@@ -421,10 +429,19 @@ export function DashboardShell({
         setProperties(propertyList);
         const params = new URLSearchParams(window.location.search);
         const requestedPropertyId = params.get('propertyId');
-        setSection(params.get('section') ?? 'overview');
+        const requestedSection = params.get('section') ?? 'overview';
+        const memberRole = memberships.memberships.find(
+          (membership) => membership.tenantId === tenantId,
+        )?.role;
+        // An old link to Emails, Staff or Audit log opens its tab in Settings (owners and admins).
+        const moved =
+          memberRole && memberRole !== 'STAFF'
+            ? movedToSettings[requestedSection as keyof typeof movedToSettings]
+            : undefined;
+        setSection(moved ? 'settings' : requestedSection);
         const requestedTab = params.get('tab');
         setTab(isDashboardTab(requestedTab) ? requestedTab : 'overview');
-        setSettingsArea(resolveSettingsTab(params.get('settingsArea')));
+        setSettingsArea(moved ?? resolveSettingsTab(params.get('settingsArea')));
         const requestedEmailTab = params.get('emailTab');
         setEmailTab(isEmailTab(requestedEmailTab) ? requestedEmailTab : undefined);
         setSelectedPropertyId(
@@ -856,6 +873,13 @@ export function DashboardShell({
                 propertyId={selectedProperty.id}
                 initialTab={emailTab}
                 canWrite={user?.emailVerified === true && canChange('settings.manage')}
+              />
+            ) : settingsArea === 'taxes-fees' ? (
+              <TaxesFeesSettings
+                key={selectedProperty.id}
+                tenantId={tenantId}
+                propertyId={selectedProperty.id}
+                canWrite={user?.emailVerified === true && canChange('rates.manage')}
               />
             ) : settingsArea === 'team' ? (
               <DashboardStaff tenantId={tenantId} propertyId={selectedProperty.id} />

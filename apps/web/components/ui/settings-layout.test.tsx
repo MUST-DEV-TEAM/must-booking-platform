@@ -33,15 +33,15 @@ describe('Settings menu', () => {
       'Payments',
       'Connections',
       'Communication',
-      'Account',
-      'Applies to all your hotels',
+      'Administration',
       'Profile',
       'Contact and brand',
       'Team and roles',
       'Audit log',
     ])
       expect(text).toContain(label);
-    expect(text).not.toContain('Taxes and fees');
+    expect(text).not.toContain('Applies to all your hotels');
+    expect(text).toContain('Taxes and fees');
     expect(menu.querySelector('a[aria-current="page"]')?.textContent).toBe('Policies');
     expect(
       menu.querySelector('a[href="/dashboard/t?propertyId=p&section=settings&settingsArea=team"]'),

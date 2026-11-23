@@ -9,8 +9,18 @@ export const settingsGroups = [
   { key: 'payments', label: 'Payments' },
   { key: 'connections', label: 'Connections' },
   { key: 'communication', label: 'Communication' },
-  { key: 'account', label: 'Account', note: 'Applies to all your hotels' },
+  { key: 'account', label: 'Administration' },
 ] as const;
+
+/**
+ * Main-menu pages that now live inside Settings (owner and admin only): an old link to one of
+ * them opens its Settings tab instead.
+ */
+export const movedToSettings = {
+  emails: 'emails',
+  staff: 'team',
+  audit: 'audit-log',
+} as const satisfies Record<string, string>;
 
 export type SettingsGroup = (typeof settingsGroups)[number]['key'];
 
@@ -64,7 +74,7 @@ export const settingsTabs = [
     group: 'booking',
     label: 'Taxes and fees',
     description: 'VAT, city tax and fees, and how prices are shown to guests.',
-    available: false,
+    available: true,
   },
   {
     key: 'payment-methods',

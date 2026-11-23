@@ -189,10 +189,10 @@ describe('Rates workspace', () => {
     expect(c.textContent).toContain('Rates access required');
     expect(f.mock.calls.every(([u]) => u.endsWith('/capabilities/mine'))).toBe(true);
   });
-  it('renders six tabs, a complete directory, quick peek and rich detail', async () => {
+  it('renders six sections, a complete directory, quick peek and rich detail', async () => {
     fixture();
     const c = await mount();
-    expect(c.querySelectorAll('[role="tab"]')).toHaveLength(7);
+    expect(c.querySelectorAll('[role="tab"]')).toHaveLength(6);
     expect(c.textContent).toContain('100%');
     await click('Rate plans1');
     expect(c.textContent).toContain('Export CSV');

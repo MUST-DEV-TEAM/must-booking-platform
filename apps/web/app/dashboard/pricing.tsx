@@ -38,7 +38,7 @@ import {
   type PricingIssue,
 } from './pricing-types';
 import { DateField } from '../../components/ui/date-field';
-const titles = { plans: 'Rate plans', rules: 'Pricing rules', charges: 'Taxes & fees' };
+const titles = { plans: 'Rate plans', rules: 'Pricing rules', charges: 'Taxes and fees' };
 /** Property-scoped rates workspace using the saved pricing contract and shared dashboard components. */
 export function PricingSection({
   tenantId,
@@ -145,7 +145,7 @@ export function PricingSection({
   if (!query.data) return <ListSkeleton />;
   const data = query.data,
     canWrite = !data.readOnly && emailVerified,
-    kind = tab === 'plans' || tab === 'rules' || tab === 'charges' ? tab : null;
+    kind = tab === 'plans' || tab === 'rules' ? tab : null;
   const record = peek
     ? (data[peek.kind].find((r) => r.id === peek.record.id) ?? peek.record)
     : null;
@@ -277,7 +277,7 @@ export function PricingSection({
     <div className="flex flex-col gap-5">
       <PageHeader
         title={detail && record ? record.name : 'Rates & Pricing'}
-        description="Manage plans, nightly prices, seasons and mandatory charges."
+        description="Manage plans, nightly prices and seasons. Taxes and fees are in Settings."
         actions={
           canWrite && kind && !detail ? (
             <Button onClick={() => setEditor({ kind })}>
@@ -396,11 +396,6 @@ export function PricingSection({
                 id: 'plans',
                 label: 'Rate plans',
                 count: data.readOnly ? undefined : data.plans.length,
-              },
-              {
-                id: 'charges',
-                label: 'Taxes & fees',
-                count: data.readOnly ? undefined : data.charges.length,
               },
               { id: 'promo', label: 'Promo codes' },
               {
