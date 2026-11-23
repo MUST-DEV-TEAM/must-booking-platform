@@ -164,10 +164,10 @@ it('has none of the later steps: they are on the Emails page, with a link to it'
   ])
     expect(maybeButton(label), label).toBeUndefined();
   expect(document.querySelector('ol[aria-label="Setup progress"]')).toBeNull();
-  expect(text()).toContain('Finish on the Emails page');
+  expect(text()).toContain('Finish under Emails, Sending');
   expect(
     document.querySelector<HTMLAnchorElement>('a[href="' + emailsHref + '"]')?.textContent,
-  ).toBe('Open Emails');
+  ).toBe('Open Sending');
 });
 
 it('asks for the From address while none is saved', async () => {

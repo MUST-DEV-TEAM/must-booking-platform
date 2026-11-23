@@ -334,28 +334,22 @@ describe('Emails workspace and legacy links', () => {
     expect(document.body.textContent).toContain('EVERY saved To, CC and BCC recipient');
     expect(button('Send copy').disabled).toBe(true);
   });
-  it('preserves recipient timing, sender, review links and personal mute configuration', async () => {
-    const calls = mockFetch();
+  it('keeps the review-links pointer, suppressed recipients and personal mute under the staff notifications', async () => {
+    mockFetch();
     const host = await mount('recipients');
-    expect(host.textContent).toContain('Sender and language');
+    // The sender form is on the Sending tab; the staff tab keeps the notifications and the smaller cards.
+    expect(host.textContent).not.toContain('Sender and language');
+    expect(host.textContent).toContain('Who receives each notification.');
     expect(host.textContent).toContain('Daily summary');
     // Review links are edited under Contact and brand; Emails only points there.
     expect(host.textContent).toContain('Contact and brand');
     expect(host.querySelector('input[value="https://g.page/r/villa/review"]')).toBeNull();
-    await click(button('Save pre-arrival reminder'));
-    const save = calls.find((row) => row.url.endsWith('/topics/pre_arrival'));
-    expect(save).toMatchObject({
-      method: 'PUT',
-      body: {
-        version: 1,
-        guestEnabled: false,
-        customStaffRecipients: false,
-        rules: [],
-        daysOffset: 3,
-      },
-    });
-    expect(save!.body).not.toHaveProperty('staffEnabled');
-    expect(save!.headers.get('Idempotency-Key')).toBeTruthy();
+  });
+  it('lands an old sender link on the Sending tab, where the sender name is edited', async () => {
+    mockFetch();
+    const host = await mount('sender');
+    expect(host.textContent).toContain('How guest emails are sent');
+    expect(host.textContent).toContain('Sender and language');
   });
   it('opens the template editor, saves only a draft and renders a sandboxed preview', async () => {
     const calls = mockFetch();

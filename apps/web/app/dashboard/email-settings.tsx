@@ -32,10 +32,12 @@ export function EmailSettings({
       canWrite={canWrite}
       initialTab={
         initialTab === 'templates'
-          ? 'templates'
+          ? 'guest'
           : initialTab === 'activity'
             ? 'delivery'
-            : 'configuration'
+            : initialTab === 'sender'
+              ? 'sending'
+              : 'staff'
       }
     />
   );

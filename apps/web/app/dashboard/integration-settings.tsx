@@ -37,7 +37,7 @@ import {
   sendingOptionLabels,
   useEmailSendingProfile,
 } from './email-sending-profile';
-import { settingsAreaHref } from './settings-hub';
+import { emailsSendingHref } from './settings-hub';
 import { onBrevo } from './brevo-setup';
 import { IntegrationRequestDialog } from './integration-request';
 import { ClockSyncStatus } from './clock-sync';
@@ -320,7 +320,7 @@ export function IntegrationSettings({
     : null;
   const brevo = brevoState(sending.data, !!sending.error, sendingOptionLabels);
   const brevoConnected = !!sending.data && onBrevo(sending.data);
-  const emailsHref = settingsAreaHref(tenantId, propertyId, 'emails');
+  const emailsHref = emailsSendingHref(tenantId, propertyId);
   const needle = search.trim().toLowerCase();
   const matches = (...parts: Array<string | null | undefined>) =>
     !needle || parts.some((part) => part?.toLowerCase().includes(needle));

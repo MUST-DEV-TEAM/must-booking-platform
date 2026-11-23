@@ -462,7 +462,7 @@ describe('the Brevo card', () => {
     ])
       expect(dialog.textContent).toContain(text);
     expect(dialog.textContent).toContain('Guest emails go out through Brevo.');
-    expect(button('Open Emails', dialog) ?? dialog.querySelector('a')).toBeTruthy();
+    expect(button('Open Sending', dialog) ?? dialog.querySelector('a')).toBeTruthy();
   });
 
   it('lists the saved credentials like the others: details in full, the key only as saved and hidden', async () => {

@@ -415,7 +415,7 @@ export function BrevoDetail({
                 <li>A From address: a sender you have added in your Brevo account</li>
               </ul>
               <p className="m-0 text-xs text-muted-foreground">
-                Saving does not switch guest emails over; that is finished on the Emails page.
+                Saving does not switch guest emails over; that is finished under Emails, Sending.
               </p>
             </div>
           )}
@@ -434,14 +434,14 @@ export function BrevoDetail({
             <div className="flex flex-wrap items-center gap-3">
               <p className="m-0 text-sm text-muted-foreground">
                 {active
-                  ? 'Guest emails go out through Brevo. Manage sending on the Emails page.'
+                  ? 'Guest emails go out through Brevo. Manage sending under Emails, Sending.'
                   : failed
-                    ? 'After fixing it, check the connection again on the Emails page.'
-                    : 'Finish on the Emails page: check the connection, verify the From address, then switch it on.'}
+                    ? 'After fixing it, check the connection again under Emails, Sending.'
+                    : 'Finish under Emails, Sending: check the connection, verify the From address, then switch it on.'}
               </p>
               {canWrite ? (
                 <Button asChild size="sm" variant="outline">
-                  <a href={emailsHref}>Open Emails</a>
+                  <a href={emailsHref}>Open Sending</a>
                 </Button>
               ) : null}
             </div>

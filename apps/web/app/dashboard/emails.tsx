@@ -13,6 +13,9 @@ import { ActivityFeed } from '../../components/ui/activity-feed';
 import { TextComparison } from '../../components/ui/text-comparison';
 import { EmailHealthOverview } from './email-health-overview';
 import { EmailConfiguration } from './email-configuration';
+import { EmailGuestEmails } from './email-guest-emails';
+import { EmailSendingTab } from './email-sending-tab';
+import { settingsAreaHref } from './settings-hub';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, AlertDescription } from '../../components/ui/alert';
@@ -46,9 +49,10 @@ import { DateField } from '../../components/ui/date-field';
 
 const tabs = [
   { id: 'overview', label: 'Overview' },
-  { id: 'templates', label: 'Templates' },
+  { id: 'guest', label: 'Guest emails' },
+  { id: 'staff', label: 'Staff notifications' },
+  { id: 'sending', label: 'Sending' },
   { id: 'delivery', label: 'Delivery' },
-  { id: 'configuration', label: 'Configuration' },
 ];
 export function EmailsWorkspace(props: Parameters<typeof EmailsWorkspaceContent>[0]) {
   return (
@@ -75,7 +79,6 @@ function EmailsWorkspaceContent({
 }) {
   const { request: navigate } = useUnsavedNavigation();
   const [tab, setTab] = useState(initialTab);
-  const [template, setTemplate] = useState<EmailTemplate | null>(null);
   const [messageId, setMessageId] = useState<string | null>(null);
   useEffect(() => {
     const value = new URLSearchParams(window.location.search).get('emailMessageId');
@@ -140,6 +143,16 @@ function EmailsWorkspaceContent({
     queryFn: () => emailRequest<EmailOverview>(`${base}/email-activity/overview`),
   });
   const error = templates.error ?? overview.error ?? (tab === 'delivery' ? null : deliveries.error);
+  /** The editor for one email's wording, shared by Guest emails and Staff notifications. */
+  const renderWording = (template: EmailTemplate, onClose: () => void) => (
+    <TemplateEditor
+      key={`${base}/${template.key}`}
+      base={base}
+      template={template}
+      canWrite={canWrite}
+      onClose={onClose}
+    />
+  );
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -160,7 +173,6 @@ function EmailsWorkspaceContent({
         onSelect={(id) => {
           navigate(() => {
             setTab(id);
-            setTemplate(null);
           });
         }}
       />
@@ -196,7 +208,8 @@ function EmailsWorkspaceContent({
                   setDeliveryPage(1);
                   setTab('delivery');
                 }}
-                onConfiguration={() => setTab('configuration')}
+                onConfiguration={() => setTab('staff')}
+                onSending={() => setTab('sending')}
                 onMessage={setMessageId}
               />
               <PageHeader
@@ -208,50 +221,6 @@ function EmailsWorkspaceContent({
                 onRow={(row) => setMessageId(row.id)}
               />
             </>
-          ) : null}
-          {tab === 'templates' ? (
-            template ? (
-              <TemplateEditor
-                key={`${base}/${template.key}`}
-                base={base}
-                template={template}
-                canWrite={canWrite}
-                onClose={() => setTemplate(null)}
-              />
-            ) : (
-              <RecordDirectory
-                storageKey="must.email-templates.table"
-                rows={templates.data.map((row) => ({ ...row, id: row.key }))}
-                columns={[
-                  { id: 'label', label: 'Template', value: (row) => row.label },
-                  { id: 'key', label: 'Trigger key', value: (row) => row.key },
-                  { id: 'audience', label: 'Audience', value: (row) => row.audience ?? 'Guest' },
-                  {
-                    id: 'draft',
-                    label: 'State',
-                    value: (row) =>
-                      row.triggerAvailable === false
-                        ? 'Wording only'
-                        : row.enabled === false
-                          ? 'Disabled'
-                          : row.hasDraft
-                            ? 'Draft + live'
-                            : 'Live',
-                  },
-                  {
-                    id: 'locales',
-                    label: 'Published locales',
-                    value: (row) => (row.locales ?? ['en']).join(' / ').toUpperCase(),
-                  },
-                  {
-                    id: 'wording',
-                    label: 'Live wording',
-                    value: (row) => (row.custom ? 'Hotel override' : 'Built-in English'),
-                  },
-                ]}
-                onRow={setTemplate}
-              />
-            )
           ) : null}
           {tab === 'delivery' ? (
             <>
@@ -433,8 +402,29 @@ function EmailsWorkspaceContent({
               )}
             </>
           ) : null}
-          {tab === 'configuration' ? (
-            <EmailConfiguration tenantId={tenantId} base={base} canWrite={canWrite} />
+          {tab === 'sending' ? (
+            <EmailSendingTab
+              base={base}
+              canWrite={canWrite}
+              integrationsHref={settingsAreaHref(tenantId, propertyId, 'integrations')}
+            />
+          ) : null}
+          {tab === 'guest' ? (
+            <EmailGuestEmails
+              base={base}
+              canWrite={canWrite}
+              templates={templates.data}
+              renderEditor={renderWording}
+            />
+          ) : null}
+          {tab === 'staff' ? (
+            <EmailConfiguration
+              tenantId={tenantId}
+              base={base}
+              canWrite={canWrite}
+              templates={templates.data}
+              renderEditor={renderWording}
+            />
           ) : null}
         </>
       )}
@@ -446,9 +436,9 @@ function EmailsWorkspaceContent({
           onClose={() => setMessageId(null)}
           canWrite={canWrite}
           onMessage={setMessageId}
-          onConfiguration={() => {
+          onConfiguration={(area) => {
             setMessageId(null);
-            setTab('configuration');
+            setTab(area);
           }}
         />
       ) : null}
@@ -1104,7 +1094,7 @@ function EmailDeliveryDetail({
   onClose: () => void;
   canWrite: boolean;
   onMessage: (id: string) => void;
-  onConfiguration: () => void;
+  onConfiguration: (area: 'sending' | 'staff') => void;
 }) {
   const query = useQuery({
     queryKey: ['emails', base, 'detail', id],
@@ -1256,7 +1246,16 @@ function EmailDeliveryDetail({
             </Alert>
           ) : null}
           {query.data.retryUnavailableReason ? (
-            <Button variant="outline" onClick={onConfiguration}>
+            <Button
+              variant="outline"
+              onClick={() =>
+                onConfiguration(
+                  query.data.transportBlocked || query.data.eventType === 'sender.test'
+                    ? 'sending'
+                    : 'staff',
+                )
+              }
+            >
               {query.data.transportBlocked || query.data.eventType === 'sender.test'
                 ? 'Review sender setup'
                 : 'Review suppression'}

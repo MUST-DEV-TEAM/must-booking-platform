@@ -10,11 +10,14 @@ export function EmailHealthOverview({
   data,
   onDelivery,
   onConfiguration,
+  onSending,
   onMessage,
 }: {
   data: EmailOverview;
   onDelivery: (filter: string, topic?: string, hours?: number) => void;
   onConfiguration: () => void;
+  /** Where a sender problem is fixed; defaults to the configuration. */
+  onSending?: () => void;
   onMessage: (id: string) => void;
 }) {
   const rate = (v: number | null) =>
@@ -90,7 +93,7 @@ export function EmailHealthOverview({
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {row.lastError?.startsWith('Email sending is not configured.') ? (
-                      <Button variant="outline" onClick={onConfiguration}>
+                      <Button variant="outline" onClick={onSending ?? onConfiguration}>
                         Set up sending
                       </Button>
                     ) : null}
@@ -148,7 +151,7 @@ export function EmailHealthOverview({
                   : []),
               ]}
             />
-            <Button variant="outline" onClick={onConfiguration}>
+            <Button variant="outline" onClick={onSending ?? onConfiguration}>
               Set up sending and DNS records
             </Button>
           </CardContent>
