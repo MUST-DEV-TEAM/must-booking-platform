@@ -161,7 +161,9 @@ describe('Stripe in Settings > Integrations', () => {
     const labels = [...document.querySelectorAll('input')].map((i) => i.getAttribute('aria-label'));
     expect(labels).toContain('Secret key');
     expect(labels).not.toContain('Webhook secret');
-    expect(document.body.textContent).toContain('you get an address to add in your Stripe Dashboard');
+    expect(document.body.textContent).toContain(
+      'you get an address to add in your Stripe Dashboard',
+    );
   });
 
   it('confirms before switching Stripe from test to live and back', async () => {

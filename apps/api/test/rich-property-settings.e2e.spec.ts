@@ -271,7 +271,8 @@ it('round-trips the grouped settings, refuses invalid policies/currency changes 
     quietHoursTo: '07:00',
     childrenPolicy: 'allowed',
     petsPolicy: 'on_request',
-    idRequiredAtArrival: true,
+    idAtArrival: 'all_adults',
+    idDocuments: ['passport'],
   };
   const saved = await patch(values);
   expect(saved.status, saved.text).toBe(200);

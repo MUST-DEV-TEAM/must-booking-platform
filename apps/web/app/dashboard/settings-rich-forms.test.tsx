@@ -62,9 +62,21 @@ async function value(id: string, v: string) {
 const button = (text: string) =>
   [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === text)!;
 /** Pick a time on the designed wheel picker: open it, choose the hour and the minute, press Done. */
+async function until(condition: () => boolean) {
+  for (let attempt = 0; attempt < 50 && !condition(); attempt += 1)
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+}
 async function pickTime(id: string, time: string) {
   const [hour, minute] = time.split(':') as [string, string];
-  await act(async () => document.querySelector<HTMLButtonElement>('#' + id)!.click());
+  const hoursOpen = () => !!document.querySelector('[role="listbox"][aria-label="Hours"]');
+  // A picker that is still closing from the last pick can pull focus back and close this one, so
+  // wait for it to settle, and open again if the first click was lost.
+  await until(() => !document.querySelector('[role="listbox"]'));
+  for (let attempt = 0; attempt < 3 && !hoursOpen(); attempt += 1) {
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 60)));
+    await act(async () => document.querySelector<HTMLButtonElement>('#' + id)!.click());
+    await until(hoursOpen);
+  }
   const option = (list: string, text: string) =>
     [
       ...document.querySelectorAll<HTMLButtonElement>(
@@ -74,6 +86,7 @@ async function pickTime(id: string, time: string) {
   await act(async () => option('Hours', hour).click());
   await act(async () => option('Minutes', minute).click());
   await act(async () => button('Done').click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 60)));
 }
 it('groups General, validates business/about fields, locks a priced currency and saves only changed values', async () => {
   const save = vi.fn(),
