@@ -75,7 +75,7 @@ export function describeBookingRules(property: Property): string[] {
     );
   }
 
-  // Confirmation mode, guest ages, the booking form and gap filling are saved but not applied to bookings yet
-  // (see NOT_APPLIED_YET), so they are not described here.
+  // Confirmation mode, guest ages and gap filling are saved but not applied to bookings yet; the booking form is shown in the table
+  // (see NOT_APPLIED_YET), so they are not described here. The booking form has its own label.
   return lines;
 }

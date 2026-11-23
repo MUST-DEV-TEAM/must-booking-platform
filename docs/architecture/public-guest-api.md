@@ -115,10 +115,11 @@ No price: 400 `Clock has no available price for the requested stay.` (or the loc
   "adults":2, "children":0, "paymentMethod":"pokpay",
   "clockRateId":"(optional)", "promoCode":"(optional)", "returnUrl":"https://site.example/booking/confirmation",
   "guest":{"firstName":"","lastName":"","email":"","countryCode":"AL","phone":null,
-           "streetAddress":null,"addressLine2":null,"city":null,"county":null,"postcode":null,"specialRequests":null}
+           "streetAddress":null,"addressLine2":null,"city":null,"county":null,"postcode":null,"specialRequests":null,
+           "arrivalTime":null,"companyName":null,"taxNumber":null,"marketingConsent":false}
 }
 ```
-`guest.countryCode` must be an assigned ISO code (400 otherwise); `specialRequests` max 2000 characters. Success: `{"ok":true,"value":{...Booking, "cancellationToken":"...", "checkoutUrl":"...", "checkoutOrderId":"..."}}`. `checkoutUrl` is present only for card methods. Legacy fields `payAtHotel` and `guestCount` exist; send `paymentMethod`, `adults`, `children`.
+`guest.countryCode` must be an assigned ISO code (400 otherwise); `specialRequests` max 2000 characters. `arrivalTime` is `HH:MM` (24-hour); `companyName` max 160 and `taxNumber` max 40 characters; `marketingConsent` is only ever `true` when the guest ticked it (stored with the time it was given, never assumed). Booking form: when the hotel sets `form.address`, `form.arrivalTime`, `form.specialRequests` or `form.company` to `required`, a guest booking without it is refused with 400 and a message for the guest (address means street, city and postcode); phone and country are not enforced here (every website asks for them, and callers have always been able to omit them); marketing consent is never required; staff bookings are not held to the form; the multi-room order does not carry these fields yet. Success: `{"ok":true,"value":{...Booking, "cancellationToken":"...", "checkoutUrl":"...", "checkoutOrderId":"..."}}`. `checkoutUrl` is present only for card methods. Legacy fields `payAtHotel` and `guestCount` exist; send `paymentMethod`, `adults`, `children`.
 
 **POST `/bookings/orders`** multi-room: `{startsOn, endsOn, paymentMethod, guest:{firstName,lastName,email,phone}, rooms:[{roomTypeId, roomId?, ratePlanId, total, guestCount, quoteToken, guest?}]}`. Not used by the plugin; treat as unproven.
 
@@ -182,7 +183,7 @@ Added 2026-11-20 with the Booking rules settings page. Read it with the rest of 
 | `form.*` | `required`, `optional` or `hidden` for phone, country, address, arrivalTime, specialRequests, guestNamePerRoom, company, marketing. Email and the main guest name are always asked. |
 | `fillGapNights` | A shorter stay that exactly fills a gap is allowed (not built yet). |
 
-**Enforced today (the server refuses and the site shows the reason):** stay limits, notice, how far ahead, season, arrival and departure days, same-day cutoff, group size (guests and rooms). **Works today:** the group request form (`POST /group-requests`). **Saved but not applied yet:** ages, confirmation mode, booking form fields, gap filling. A site that follows `form.*` or `ages.*` before the server applies them must still accept what the server accepts.
+**Enforced today (the server refuses and the site shows the reason):** stay limits, notice, how far ahead, season, arrival and departure days, same-day cutoff, group size (guests and rooms). **Works today:** the group request form (`POST /group-requests`). **Saved but not applied yet:** ages, confirmation mode, gap filling. **Booking form fields:** the server enforces `required` for address, arrival time, special requests and company (see `POST /bookings`); a hotel website must ask for a field before the hotel marks it required. A site that follows `form.*` or `ages.*` before the server applies them must still accept what the server accepts.
 
 **Reasons for refused stays** (display prices `reason`): `min_stay`, `max_stay`, `no_arrival`, `no_departure`, `capacity`, `same_day_closed`, `too_far_ahead`, `past_date`, plus new in 2026-11-20: `too_short_notice` (booking closed this close to arrival), `outside_season` (the hotel is closed for the season), `too_many_rooms` (more rooms than one booking allows). A site that does not know a reason shows the neutral "not available" text; the playbook table lists the messages.
 

@@ -57,8 +57,9 @@ describe('ruleOwnerLabel', () => {
 
 describe('ruleStatusLabel', () => {
   it('flags the sections that are saved but not applied to bookings yet', () => {
-    for (const title of ['Guest ages', 'Confirmation', 'Booking form', 'Advanced'])
+    for (const title of ['Guest ages', 'Confirmation', 'Advanced'])
       expect(ruleStatusLabel(title)).toContain('not applied');
+    expect(ruleStatusLabel('Booking form')).toContain('enforced by the booking system');
     for (const title of [
       'Length of stay',
       'Booking window and season',
