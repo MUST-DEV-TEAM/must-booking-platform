@@ -68,6 +68,37 @@ const sandbox: Stripe = {
 };
 const live: Stripe = { id: 'live', name: 'Stripe Live', mode: 'LIVE', webhookPublicId: 'w2' };
 
+/** The card of one integration, found by its logo. */
+const card = (alt: string) =>
+  [...document.querySelectorAll('[data-slot="card"]')].find((c) =>
+    c.querySelector(`img[alt="${alt}"]`),
+  )!;
+/** Radix tabs switch on mouse down, not on click. */
+const selectTab = async (dialog: Element, label: string) => {
+  await act(async () => {
+    [...dialog.querySelectorAll('[role="tab"]')]
+      .find((t) => t.textContent === label)!
+      .dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
+    await wait();
+  });
+};
+/** Opens an integration's Details, goes to Credentials and presses Change credentials. */
+async function openCredentialsEditor(alt: string) {
+  await act(async () => {
+    [...card(alt).querySelectorAll('button')].find((b) => b.textContent === 'Details')!.click();
+    await wait();
+  });
+  const dialog = document.querySelector('[role="dialog"]')!;
+  await selectTab(dialog, 'Credentials');
+  await act(async () => {
+    [...dialog.querySelectorAll('button')]
+      .find((b) => b.textContent === 'Change credentials')!
+      .click();
+    await wait();
+  });
+  // The edit dialog then loads the saved values; wait for them as the earlier tests did.
+  await act(wait);
+}
 describe('Stripe in Settings > Integrations', () => {
   it('is no longer "coming soon": a hotel without Stripe can activate it', async () => {
     await mount([]);
@@ -80,16 +111,30 @@ describe('Stripe in Settings > Integrations', () => {
 
   it('labels test and live keys and explains that test payments are not real money', async () => {
     await mount([sandbox, live], 'sandbox');
-    expect(document.body.textContent).toContain(
-      'Stripe test keys (sandbox): payments are not real money.',
+    const badges = [...document.querySelectorAll('[data-slot="badge"]')].map((x) => x.textContent);
+    expect(badges).toEqual(expect.arrayContaining(['Test', 'Live']));
+    const open = async (name: string) => {
+      const target = [...document.querySelectorAll('[data-slot="card"]')].find((c) =>
+        c.textContent?.includes(name),
+      )!;
+      await act(async () => {
+        [...target.querySelectorAll('button')].find((b) => b.textContent === 'Details')!.click();
+        await wait();
+      });
+    };
+    await open('Stripe Sandbox');
+    expect(document.querySelector('[role="dialog"]')!.textContent).toContain(
+      'Test account: payments are not real money.',
     );
-    expect(document.body.textContent).toContain('Stripe live keys: real payments.');
-    expect(button('Add another Stripe account (test or live)')).toBeTruthy();
+    await act(async () => {
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await wait();
+    });
   });
 
   it("shows the connection's own webhook address and asks for the signing secret", async () => {
     await mount([sandbox], 'sandbox');
-    await click('Credentials');
+    await openCredentialsEditor('Stripe');
     await act(wait);
     expect(document.body.textContent).toContain('https://x.test/api/webhooks/stripe/w1');
     expect(document.body.textContent).toContain('checkout.session.completed');
@@ -99,7 +144,20 @@ describe('Stripe in Settings > Integrations', () => {
 
   it('asks only for the key when adding an account (the webhook address comes after saving)', async () => {
     await mount([sandbox], 'sandbox');
-    await click('Add another Stripe account (test or live)');
+    await act(async () => {
+      [...card('Stripe').querySelectorAll('button')]
+        .find((b) => b.textContent === 'Details')!
+        .click();
+      await wait();
+    });
+    const dialog = document.querySelector('[role="dialog"]')!;
+    await selectTab(dialog, 'Credentials');
+    await act(async () => {
+      [...dialog.querySelectorAll('button')]
+        .find((b) => b.textContent === 'Add another Stripe account (test or live)')!
+        .click();
+      await wait();
+    });
     const labels = [...document.querySelectorAll('input')].map((i) => i.getAttribute('aria-label'));
     expect(labels).toContain('Secret key');
     expect(labels).not.toContain('Webhook secret');

@@ -250,7 +250,28 @@ export function DashboardSettings({
           />
         </SettingsAreaPanel>
         <SettingsAreaPanel activeArea={settingsArea} area="integrations">
-          <IntegrationSettings tenantId={tenantId} propertyId={propertyId} canWrite={canWrite} />
+          <IntegrationSettings
+            tenantId={tenantId}
+            propertyId={propertyId}
+            canWrite={canWrite}
+            website={{
+              origin: property.publicWebsiteOrigin ?? null,
+              pairedAt: property.wordpressConnectedAt ?? null,
+              form: (
+                <WebsiteSettings
+                  property={property}
+                  canWrite={canWrite}
+                  saving={publicWebsiteOriginMutation.isPending}
+                  clockManaged={clockManaged}
+                  onSave={(origin) => publicWebsiteOriginMutation.mutate(origin)}
+                  pairingCode={pairingCode}
+                  pairing={wordpressPairingMutation.isPending}
+                  onPair={() => wordpressPairingMutation.mutate()}
+                  onCopy={() => void copyPairingCode()}
+                />
+              ),
+            }}
+          />
         </SettingsAreaPanel>
         <SettingsAreaPanel activeArea={settingsArea} area="payment-methods">
           <PaymentSettings
@@ -271,19 +292,6 @@ export function DashboardSettings({
                 ),
             )}
             operationsHref={dashboardSectionHref(tenantId, propertyId, 'payments')}
-          />
-        </SettingsAreaPanel>
-        <SettingsAreaPanel activeArea={settingsArea} area="integrations">
-          <WebsiteSettings
-            property={property}
-            canWrite={canWrite}
-            saving={publicWebsiteOriginMutation.isPending}
-            clockManaged={clockManaged}
-            onSave={(origin) => publicWebsiteOriginMutation.mutate(origin)}
-            pairingCode={pairingCode}
-            pairing={wordpressPairingMutation.isPending}
-            onPair={() => wordpressPairingMutation.mutate()}
-            onCopy={() => void copyPairingCode()}
           />
         </SettingsAreaPanel>
 

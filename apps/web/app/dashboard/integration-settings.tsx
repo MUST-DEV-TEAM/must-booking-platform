@@ -1,8 +1,7 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Card, CardHeader, CardContent } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
 import { PaymentModeBadge } from '../../components/ui/payment-mode-badge';
@@ -19,28 +18,41 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from '../../com
 import { ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
 import { credentialFieldsByProvider } from './integration-credential-fields';
 import { Tabs, TabsList, TabsTrigger } from '../../components/ui/tabs';
+import { formatDateTime } from '../../lib/hotel-format';
+import { IntegrationCard } from '../../components/ui/integration-card';
+import {
+  CATEGORIES,
+  HealthLine,
+  StatusLine,
+  brevoState,
+  INTEGRATIONS,
+  type CatalogItem,
+  type Connection,
+  type ConnectionProvider,
+} from './integration-catalog';
+import { BrevoDetail, BrevoLogo, IntegrationDetail, WebsiteDetail } from './integration-detail';
+import {
+  EmailSendingSetup,
+  sendingConnectionLabels,
+  sendingOptionLabels,
+  useEmailSendingProfile,
+} from './email-sending-profile';
+import { settingsAreaHref } from './settings-hub';
+import { onBrevo } from './brevo-setup';
+import { IntegrationRequestDialog } from './integration-request';
 import { ClockSyncStatus } from './clock-sync';
 import { RestaurantIntegrationCard } from './venues/restaurant-integration-card';
-type Connection = {
-  id: string;
-  provider: 'CLOCK_PMS' | 'POKPAY' | 'STRIPE';
-  name: string;
-  status: string;
-  /** TEST or LIVE for a payment account; null for Clock. */
-  mode?: 'TEST' | 'LIVE' | null;
-  /** Random id in this connection's public webhook address (Stripe). */
-  webhookPublicId?: string;
-  lastTestedAt: string | null;
-  lastTestResult: string | null;
-};
 export function IntegrationSettings({
   tenantId,
   propertyId,
   canWrite,
+  website,
 }: {
   tenantId: string;
   propertyId: string;
   canWrite: boolean;
+  /** The hotel website's state and the form that connects it; shown as the Website card. */
+  website?: { origin: string | null; pairedAt: string | null; form: ReactNode };
 }) {
   const base = `/api/tenants/${tenantId}`;
   const client = useQueryClient();
@@ -54,7 +66,14 @@ export function IntegrationSettings({
     Record<string, { id?: string; credentials: Record<string, string>; name: string }>
   >({});
   const [category, setCategory] = useState('All');
-  const [syncOpen, setSyncOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [detail, setDetail] = useState<{ provider: string; connectionId?: string } | null>(null);
+  const [websiteDialog, setWebsiteDialog] = useState<'overview' | 'connection' | null>(null);
+  const [brevoDetailOpen, setBrevoDetailOpen] = useState(false);
+  const [brevoFormOpen, setBrevoFormOpen] = useState(false);
+  const [requestOpen, setRequestOpen] = useState(false);
+  const emailBase = `/api/tenants/${tenantId}/properties/${propertyId}`;
+  const sending = useEmailSendingProfile(emailBase);
   const [switchConfirm, setSwitchConfirm] = useState<{
     /** Which payment provider is being switched, for the wording. */
     provider: 'POKPAY' | 'STRIPE';
@@ -242,190 +261,229 @@ export function IntegrationSettings({
     query.data!.connections.find(
       (c) => c.provider === provider && c.id !== exceptId && assigned(c.id),
     );
+  const startActivation = (item: CatalogItem) => {
+    setEdit({ provider: item.provider as ConnectionProvider });
+    setCredentials(item.provider === 'POKPAY' ? { baseUrl: 'https://api-staging.pokpay.io' } : {});
+    setName(item.name);
+  };
+  /** The main button of a card: activate, or switch the connection on or off for this hotel. */
+  const mainAction = (item: CatalogItem, connection: Connection | null) => {
+    if (!canWrite || !item.available) return null;
+    if (!connection)
+      return (
+        <Button size="sm" variant="outline" onClick={() => startActivation(item)}>
+          Activate
+        </Button>
+      );
+    const paymentProvider =
+      connection.provider === 'POKPAY' || connection.provider === 'STRIPE'
+        ? connection.provider
+        : null;
+    const replacing = paymentProvider ? otherEnabled(paymentProvider, connection.id) : undefined;
+    return (
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={
+          action.isPending || (!assigned(connection.id) && connection.status !== 'CONNECTED')
+        }
+        onClick={() => {
+          const run = () =>
+            action.mutate({
+              path: `/properties/${propertyId}/integration-connections/${connection.id}`,
+              method: 'PATCH',
+              body: { enabled: !assigned(connection.id) },
+            });
+          if (paymentProvider && !assigned(connection.id) && replacing)
+            setSwitchConfirm({
+              provider: paymentProvider,
+              replacing: replacing.name,
+              toMode: connection.mode ?? 'LIVE',
+              run,
+            });
+          else run();
+        }}
+      >
+        {assigned(connection.id)
+          ? 'Disable'
+          : replacing
+            ? connection.mode === 'TEST'
+              ? 'Switch to test'
+              : 'Switch to live'
+            : 'Enable'}
+      </Button>
+    );
+  };
+  const detailItem = detail ? INTEGRATIONS.find((i) => i.provider === detail.provider) : undefined;
+  const detailConnection = detail?.connectionId
+    ? (query.data!.connections.find((c) => c.id === detail.connectionId) ?? null)
+    : null;
+  const brevo = brevoState(sending.data, !!sending.error, sendingOptionLabels);
+  const brevoConnected = !!sending.data && onBrevo(sending.data);
+  const emailsHref = settingsAreaHref(tenantId, propertyId, 'emails');
+  const needle = search.trim().toLowerCase();
+  const matches = (...parts: Array<string | null | undefined>) =>
+    !needle || parts.some((part) => part?.toLowerCase().includes(needle));
+  const inCategory = (value: string) => category === 'All' || category === value;
+  const comingSoon = INTEGRATIONS.filter(
+    (item) =>
+      !item.available && inCategory(item.category) && matches(item.name, item.role, item.owns),
+  );
   return (
     <div className="space-y-5">
       <p className="text-sm text-muted-foreground">
         Connect this hotel's own accounts. Credentials are encrypted. Secret values are shown only
         by their last four characters. Use sandbox or staging accounts for testing.
       </p>
-      <Tabs value={category} onValueChange={setCategory}>
-        <TabsList className="h-auto max-w-full flex-wrap justify-start">
-          {['All', 'Property systems', 'Payments', 'Channels', 'Email', 'Services'].map((value) => (
-            <TabsTrigger key={value} value={value}>
-              {value}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Tabs value={category} onValueChange={setCategory}>
+          <TabsList className="h-auto max-w-full flex-wrap justify-start">
+            {CATEGORIES.map((value) => (
+              <TabsTrigger key={value} value={value}>
+                {value}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+        <Input
+          type="search"
+          aria-label="Search integrations"
+          placeholder="Search integrations"
+          className="w-full sm:w-64"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
+      </div>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {INTEGRATIONS.filter((item) => category === 'All' || item.category === category).flatMap(
-          (item) => {
-            const connections = query.data!.connections.filter((c) => c.provider === item.provider);
-            return (connections.length ? connections : [null]).map((connection) => (
-              <Card key={connection?.id ?? item.provider} className="overflow-hidden">
-                <CardHeader
-                  className={`flex h-36 items-center justify-center ${item.provider === 'POKPAY' ? 'bg-[#151c2c]' : 'bg-muted/30'}`}
-                >
+        {INTEGRATIONS.filter(
+          (item) =>
+            item.available &&
+            inCategory(item.category) &&
+            matches(item.name, item.role, item.owns, item.category),
+        ).flatMap((item) => {
+          const connections = query.data!.connections.filter((c) => c.provider === item.provider);
+          return (connections.length ? connections : [null]).map((connection) => {
+            const enabled = !!connection && assigned(connection.id);
+            const main = mainAction(item, connection);
+            return (
+              <IntegrationCard
+                key={connection?.id ?? item.provider}
+                headerClassName={item.provider === 'POKPAY' ? 'bg-[#151c2c]' : undefined}
+                header={
                   <img
-                    src={`/integrations/${item.provider.toLowerCase()}.${item.provider === 'PAYPAL' ? 'jpg' : 'svg'}`}
+                    src={`/integrations/${item.provider.toLowerCase()}.svg`}
                     width={190}
                     height={64}
                     alt={item.name}
                     className="max-h-16 max-w-[190px] object-contain"
                   />
-                </CardHeader>
-                <CardContent className="space-y-3 pt-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                    <span className="flex flex-wrap items-center gap-2 text-muted-foreground">
-                      {connection?.name || item.category}
-                      {connection?.mode ? <PaymentModeBadge mode={connection.mode} /> : null}
-                    </span>
-                    <Badge
-                      variant={connection && assigned(connection.id) ? 'success' : 'secondary'}
-                    >
-                      {!item.available
-                        ? 'Coming soon'
-                        : connection
-                          ? assigned(connection.id)
-                            ? 'Enabled for this hotel'
-                            : connection.status === 'CONNECTED'
-                              ? 'Disabled'
-                              : connection.status
-                          : 'Not connected'}
+                }
+                title={connection?.name ?? item.name}
+                badges={
+                  <>
+                    {connection?.mode ? <PaymentModeBadge mode={connection.mode} /> : null}
+                    <Badge variant={enabled ? 'success' : 'secondary'}>
+                      {connection
+                        ? enabled
+                          ? 'Enabled for this hotel'
+                          : connection.status === 'CONNECTED'
+                            ? 'Disabled'
+                            : connection.status
+                        : 'Not connected'}
                     </Badge>
-                  </div>
-                  {connection?.provider === 'POKPAY' ? (
-                    <p className="text-xs text-muted-foreground">
-                      {connection.mode === 'TEST'
-                        ? 'PokPay test account (staging): payments are not real money.'
-                        : 'PokPay live account (production): real payments.'}
-                    </p>
-                  ) : null}
-                  {connection?.provider === 'STRIPE' ? (
-                    <p className="text-xs text-muted-foreground">
-                      {connection.mode === 'TEST'
-                        ? 'Stripe test keys (sandbox): payments are not real money.'
-                        : 'Stripe live keys: real payments.'}
-                    </p>
-                  ) : null}
-                  {connection?.lastTestResult ? (
-                    <p className="text-xs text-muted-foreground">{connection.lastTestResult}</p>
-                  ) : null}
-                  {canWrite && item.available ? (
-                    connection ? (
-                      <>
-                        <div
-                          className={`grid gap-2 ${item.provider === 'CLOCK_PMS' ? 'grid-cols-3' : 'grid-cols-2'}`}
-                        >
-                          {item.provider === 'CLOCK_PMS' ? (
-                            <Button size="sm" variant="outline" onClick={() => setSyncOpen(true)}>
-                              Synchronization
-                            </Button>
-                          ) : null}
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              setEdit({
-                                provider: item.provider as 'CLOCK_PMS' | 'POKPAY' | 'STRIPE',
-                                id: connection.id,
-                              });
-                              setCredentials({});
-                              setName(connection.name);
-                              setEnvironmentDrafts({});
-                            }}
-                          >
-                            Credentials
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={
-                              action.isPending ||
-                              (!assigned(connection.id) && connection.status !== 'CONNECTED')
-                            }
-                            onClick={() => {
-                              const run = () =>
-                                action.mutate({
-                                  path: `/properties/${propertyId}/integration-connections/${connection.id}`,
-                                  method: 'PATCH',
-                                  body: { enabled: !assigned(connection.id) },
-                                });
-                              const replacing =
-                                connection.provider === 'POKPAY' || connection.provider === 'STRIPE'
-                                  ? otherEnabled(connection.provider, connection.id)
-                                  : undefined;
-                              if (
-                                (connection.provider === 'POKPAY' ||
-                                  connection.provider === 'STRIPE') &&
-                                !assigned(connection.id) &&
-                                replacing
-                              )
-                                setSwitchConfirm({
-                                  provider: connection.provider,
-                                  replacing: replacing.name,
-                                  toMode: connection.mode ?? 'LIVE',
-                                  run,
-                                });
-                              else run();
-                            }}
-                          >
-                            {assigned(connection.id)
-                              ? 'Disable'
-                              : (connection.provider === 'POKPAY' ||
-                                    connection.provider === 'STRIPE') &&
-                                  otherEnabled(connection.provider, connection.id)
-                                ? connection.mode === 'TEST'
-                                  ? 'Switch to test'
-                                  : 'Switch to live'
-                                : 'Enable'}
-                          </Button>
-                        </div>
-                        {item.provider === 'STRIPE' &&
-                        connection.id === connections[connections.length - 1]!.id ? (
-                          <Button
-                            className="w-full"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                              setEdit({ provider: 'STRIPE' });
-                              setCredentials({});
-                              setName('Stripe');
-                              setEnvironmentDrafts({});
-                            }}
-                          >
-                            Add another Stripe account (test or live)
-                          </Button>
-                        ) : null}
-                      </>
-                    ) : (
-                      <Button
-                        className="w-full"
-                        variant="outline"
-                        onClick={() => {
-                          setEdit({ provider: item.provider as 'CLOCK_PMS' | 'POKPAY' | 'STRIPE' });
-                          setCredentials(
-                            item.provider === 'POKPAY'
-                              ? { baseUrl: 'https://api-staging.pokpay.io' }
-                              : {},
-                          );
-                          setName(item.name);
-                        }}
-                      >
-                        Activate
-                      </Button>
-                    )
-                  ) : !item.available ? (
-                    <p className="text-xs text-muted-foreground">
-                      Not available for activation yet.
-                    </p>
-                  ) : null}
-                </CardContent>
-              </Card>
-            ));
-          },
-        )}
-        {category === 'All' || category === 'Services' ? (
+                  </>
+                }
+                role={item.role}
+                owns={item.owns}
+                health={<HealthLine connection={connection} />}
+                footer={
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className={main ? undefined : 'col-span-2'}
+                      onClick={() =>
+                        setDetail({ provider: item.provider, connectionId: connection?.id })
+                      }
+                    >
+                      Details
+                    </Button>
+                    {main}
+                  </>
+                }
+              />
+            );
+          });
+        })}
+        {website && inCategory('Website') && matches('website', 'booking pages', 'widget') ? (
+          <IntegrationCard
+            header={<span className="text-2xl font-semibold">Website</span>}
+            title="Website"
+            badges={
+              <Badge variant={website.pairedAt ? 'success' : 'secondary'}>
+                {website.pairedAt ? 'Connected' : 'Not connected'}
+              </Badge>
+            }
+            role="Website"
+            owns="the booking pages and the link to your hotel website"
+            health={<WebsiteHealth origin={website.origin} pairedAt={website.pairedAt} />}
+            footer={
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className={canWrite ? undefined : 'col-span-2'}
+                  onClick={() => setWebsiteDialog('overview')}
+                >
+                  Details
+                </Button>
+                {canWrite ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setWebsiteDialog('connection')}
+                  >
+                    {website.pairedAt ? 'Manage' : 'Connect'}
+                  </Button>
+                ) : null}
+              </>
+            }
+          />
+        ) : null}
+        {inCategory('Email') && matches('brevo', 'email', 'guest emails', 'sending') ? (
+          <IntegrationCard
+            header={<BrevoLogo />}
+            title="Brevo"
+            badges={<Badge variant={brevo.active ? 'success' : 'secondary'}>{brevo.badge}</Badge>}
+            role="Email"
+            owns="the hotel's own guest emails (confirmations, reminders, receipts)"
+            health={<StatusLine tone={brevo.tone}>{brevo.text}</StatusLine>}
+            footer={
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className={canWrite ? undefined : 'col-span-2'}
+                  onClick={() => setBrevoDetailOpen(true)}
+                >
+                  Details
+                </Button>
+                {canWrite ? (
+                  brevoConnected ? (
+                    <Button asChild size="sm" variant="outline">
+                      <a href={emailsHref}>Manage in Emails</a>
+                    </Button>
+                  ) : (
+                    <Button size="sm" variant="outline" onClick={() => setBrevoFormOpen(true)}>
+                      Connect
+                    </Button>
+                  )
+                ) : null}
+              </>
+            }
+          />
+        ) : null}
+        {inCategory('Restaurants') && matches('restaurants', 'restaurant', 'venues', 'tables') ? (
           <RestaurantIntegrationCard
             tenantId={tenantId}
             propertyId={propertyId}
@@ -433,17 +491,128 @@ export function IntegrationSettings({
           />
         ) : null}
       </div>
-      <ClockSyncStatus tenantId={tenantId} propertyId={propertyId} />
-      <Dialog open={syncOpen} onOpenChange={setSyncOpen}>
+      <section
+        aria-label={comingSoon.length ? 'Coming soon' : 'More integrations'}
+        className="space-y-3"
+      >
+        <h3 className="m-0 text-sm font-semibold">
+          {comingSoon.length ? 'Coming soon' : 'More integrations'}
+        </h3>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {comingSoon.map((item) => (
+            <div
+              key={item.provider}
+              className="flex items-center justify-between gap-2 rounded-lg border border-dashed bg-muted/30 p-3"
+            >
+              <div className="min-w-0">
+                <p className="m-0 truncate text-sm font-semibold">{item.name}</p>
+                <p className="m-0 truncate text-xs text-muted-foreground">{item.role}</p>
+              </div>
+              <Badge variant="muted">Soon</Badge>
+            </div>
+          ))}
+          <div className="flex items-center justify-between gap-2 rounded-lg border p-3">
+            <div className="min-w-0">
+              <p className="m-0 text-sm font-semibold">Need another integration?</p>
+              <p className="m-0 text-xs text-muted-foreground">Tell us which system you use.</p>
+            </div>
+            <Button size="sm" variant="outline" onClick={() => setRequestOpen(true)}>
+              Request
+            </Button>
+          </div>
+        </div>
+      </section>
+      <Dialog open={!!detail} onOpenChange={(open) => !open && setDetail(null)}>
         <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
-          <DialogTitle>Clock synchronization</DialogTitle>
-          <DialogDescription>
-            What is being brought in from Clock PMS+, how much there is, how much is left and about
-            how long it will take. You can keep working meanwhile.
-          </DialogDescription>
-          <ClockSyncStatus tenantId={tenantId} propertyId={propertyId} details />
+          {detail && detailItem ? (
+            <IntegrationDetail
+              key={detail.connectionId ?? detail.provider}
+              tenantId={tenantId}
+              propertyId={propertyId}
+              item={detailItem}
+              connection={detailConnection}
+              assigned={!!detailConnection && assigned(detailConnection.id)}
+              canWrite={canWrite}
+              request={(path, method) => request(path, method)}
+              checking={action.isPending}
+              onCheckNow={() =>
+                detailConnection &&
+                action.mutate({
+                  path: `/integration-connections/${detailConnection.id}/test`,
+                  method: 'POST',
+                })
+              }
+              onChangeCredentials={() => {
+                if (!detailConnection) return;
+                setEdit({ provider: detailConnection.provider, id: detailConnection.id });
+                setCredentials({});
+                setName(detailConnection.name);
+                setEnvironmentDrafts({});
+                setDetail(null);
+              }}
+              onAddStripeAccount={() => {
+                setEdit({ provider: 'STRIPE' });
+                setCredentials({});
+                setName('Stripe');
+                setEnvironmentDrafts({});
+                setDetail(null);
+              }}
+              onActivate={() => {
+                startActivation(detailItem);
+                setDetail(null);
+              }}
+            />
+          ) : null}
         </DialogContent>
       </Dialog>
+      {website ? (
+        <Dialog open={!!websiteDialog} onOpenChange={(open) => !open && setWebsiteDialog(null)}>
+          <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
+            {websiteDialog ? (
+              <WebsiteDetail
+                key={websiteDialog}
+                origin={website.origin}
+                pairedAt={website.pairedAt}
+                form={website.form}
+                initialTab={websiteDialog}
+              />
+            ) : null}
+          </DialogContent>
+        </Dialog>
+      ) : null}
+      <Dialog open={brevoDetailOpen} onOpenChange={setBrevoDetailOpen}>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
+          {brevoDetailOpen ? (
+            <BrevoDetail
+              profile={sending.data}
+              state={brevo}
+              optionLabels={sendingOptionLabels}
+              connectionLabels={sendingConnectionLabels}
+              emailsHref={emailsHref}
+              canWrite={canWrite}
+              onConnect={() => {
+                setBrevoDetailOpen(false);
+                setBrevoFormOpen(true);
+              }}
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={brevoFormOpen} onOpenChange={setBrevoFormOpen}>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
+          <DialogTitle>{brevoConnected ? 'Brevo credentials' : 'Connect Brevo'}</DialogTitle>
+          <DialogDescription>
+            Enter what Brevo provides. Keys and logins are encrypted and never shown again.
+          </DialogDescription>
+          {brevoFormOpen ? (
+            <EmailSendingSetup base={emailBase} canWrite={canWrite} brevo emailsHref={emailsHref} />
+          ) : null}
+        </DialogContent>
+      </Dialog>
+      {requestOpen ? (
+        <IntegrationRequestDialog open onOpenChange={(open) => !open && setRequestOpen(false)} />
+      ) : null}
+      <ClockSyncStatus tenantId={tenantId} propertyId={propertyId} />
       <Dialog open={!!switchConfirm} onOpenChange={(open) => !open && setSwitchConfirm(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogTitle>
@@ -494,6 +663,21 @@ export function IntegrationSettings({
               ? 'Applies to every hotel using this connection. New credentials are verified before replacing the working credentials. To change provider accounts, create a separate connection.'
               : 'A new connection is tested before assignment. Only one Clock connection can be enabled for a hotel.'}
           </DialogDescription>
+          {!edit?.id && edit ? (
+            <ol className="m-0 list-decimal space-y-1 pl-5 text-xs text-muted-foreground">
+              <li>Enter the account details below.</li>
+              <li>
+                We check them with {INTEGRATIONS.find((i) => i.provider === edit.provider)?.name}.
+                Nothing is saved if the check fails.
+              </li>
+              <li>
+                If they work, it is switched on for this hotel.
+                {edit.provider === 'STRIPE' || edit.provider === 'POKPAY'
+                  ? ' Test accounts stay in test mode, so no real money moves.'
+                  : ''}
+              </li>
+            </ol>
+          ) : null}
           <form
             className="space-y-4"
             onSubmit={(e) => {
@@ -717,21 +901,29 @@ export function IntegrationSettings({
   );
 }
 
-const INTEGRATIONS = [
-  { provider: 'CLOCK_PMS', name: 'Clock PMS+', category: 'Property systems', available: true },
-  { provider: 'POKPAY', name: 'PokPay', category: 'Payments', available: true },
-  { provider: 'STRIPE', name: 'Stripe', category: 'Payments', available: true },
-  { provider: 'PAYPAL', name: 'PayPal', category: 'Payments', available: false },
-  { provider: 'BOOKING', name: 'Booking.com', category: 'Channels', available: false },
-  { provider: 'AIRBNB', name: 'Airbnb', category: 'Channels', available: false },
-  { provider: 'SMTP', name: 'SMTP email', category: 'Email', available: false },
-];
-
 /** The credential fields that can be replaced on a saved connection (the account itself cannot). */
 function editableKeys(provider: 'CLOCK_PMS' | 'POKPAY' | 'STRIPE'): string[] {
   if (provider === 'CLOCK_PMS') return ['apiUser', 'apiKey'];
   if (provider === 'STRIPE') return ['secretKey', 'webhookSecret', 'publishableKey'];
   return ['keyId', 'keySecret'];
+}
+
+/** Where the hotel website stands: connected, address saved but not connected, or nothing yet. */
+function WebsiteHealth({ origin, pairedAt }: { origin: string | null; pairedAt: string | null }) {
+  const text = pairedAt
+    ? `Connected ${formatDateTime(pairedAt)}`
+    : origin
+      ? 'Address saved, not connected yet'
+      : 'Website address not set';
+  return (
+    <p className="m-0 flex items-start gap-2 text-xs text-muted-foreground">
+      <span
+        aria-hidden="true"
+        className={`mt-1 size-2 shrink-0 rounded-full ${pairedAt ? 'bg-success' : 'bg-muted-foreground/40'}`}
+      />
+      <span>{text}</span>
+    </p>
+  );
 }
 
 function providerLabel(provider: 'POKPAY' | 'STRIPE' | undefined): string {

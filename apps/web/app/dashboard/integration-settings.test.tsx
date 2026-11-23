@@ -85,6 +85,38 @@ async function mount(canWrite: boolean, provider = 'CLOCK_PMS') {
     },
   };
 }
+
+/** The card of one integration, found by its logo. */
+const card = (alt: string) =>
+  [...document.querySelectorAll('[data-slot="card"]')].find((c) =>
+    c.querySelector(`img[alt="${alt}"]`),
+  )!;
+/** Radix tabs switch on mouse down, not on click. */
+const selectTab = async (dialog: Element, label: string) => {
+  await act(async () => {
+    [...dialog.querySelectorAll('[role="tab"]')]
+      .find((t) => t.textContent === label)!
+      .dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
+    await wait();
+  });
+};
+/** Opens an integration's Details, goes to Credentials and presses Change credentials. */
+async function openCredentialsEditor(alt: string) {
+  await act(async () => {
+    [...card(alt).querySelectorAll('button')].find((b) => b.textContent === 'Details')!.click();
+    await wait();
+  });
+  const dialog = document.querySelector('[role="dialog"]')!;
+  await selectTab(dialog, 'Credentials');
+  await act(async () => {
+    [...dialog.querySelectorAll('button')]
+      .find((b) => b.textContent === 'Change credentials')!
+      .click();
+    await wait();
+  });
+  // The edit dialog then loads the saved values; wait for them as the earlier tests did.
+  await act(wait);
+}
 describe('integration settings', () => {
   it('shows assignment and hides credential actions for a read-only viewer', async () => {
     const v = await mount(false);
@@ -94,12 +126,7 @@ describe('integration settings', () => {
   });
   it('keeps staging separate when opening a blank production configuration', async () => {
     const v = await mount(true, 'POKPAY');
-    await act(async () =>
-      [...document.querySelectorAll('button')]
-        .find((b) => b.textContent === 'Credentials')!
-        .click(),
-    );
-    await act(wait);
+    await openCredentialsEditor('PokPay');
     const env = document.querySelector<HTMLButtonElement>('[aria-label="PokPay environment"]')!;
     expect(env.disabled).toBe(false);
     expect(document.querySelector<HTMLInputElement>('[aria-label="Key ID"]')!.value).toBe(
@@ -133,12 +160,7 @@ describe('integration settings', () => {
   });
   it('never preloads a secret and retains a working connection on replacement failure', async () => {
     const v = await mount(true);
-    await act(async () =>
-      [...document.querySelectorAll('button')]
-        .find((b) => b.textContent === 'Credentials')!
-        .click(),
-    );
-    await act(wait);
+    await openCredentialsEditor('Clock PMS+');
     expect(document.body.textContent).toContain('***cret');
     expect(document.querySelector<HTMLInputElement>('input[value="fixture-user"]')).not.toBeNull();
     const password = document.querySelector<HTMLInputElement>('input[type="password"]')!;
@@ -165,44 +187,54 @@ describe('integration settings', () => {
     expect(document.body.textContent).toContain('Enabled for this hotel');
     await v.close();
   });
-  it('opens the synchronization progress in a popup from the Clock card', async () => {
+  it("shows the synchronization in the Clock card's details, as its own tab", async () => {
     const v = await mount(true);
-    expect(document.body.textContent).not.toContain('Clock synchronization');
-    await act(async () =>
-      [...document.querySelectorAll('button')]
-        .find((b) => b.textContent === 'Synchronization')!
-        .click(),
-    );
-    await act(wait);
-    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
-      'Clock synchronization',
-    );
-    await v.close();
-  });
-  it('has no Synchronization button on the PokPay card', async () => {
-    const v = await mount(true, 'POKPAY');
+    expect(document.body.textContent).not.toContain('What is being brought in from Clock');
     expect(
       [...document.querySelectorAll('button')].some((b) => b.textContent === 'Synchronization'),
     ).toBe(false);
+    await act(async () => {
+      [...card('Clock PMS+').querySelectorAll('button')]
+        .find((b) => b.textContent === 'Details')!
+        .click();
+      await wait();
+    });
+    const dialog = document.querySelector('[role="dialog"]')!;
+    await selectTab(dialog, 'Synchronization');
+    expect(dialog.textContent).toContain('What is being brought in from Clock PMS+');
     await v.close();
   });
-  it('tests the saved connection from inside the credentials popup, not from the card', async () => {
+  it('has no Synchronization tab on the PokPay card', async () => {
+    const v = await mount(true, 'POKPAY');
+    await act(async () => {
+      [...card('PokPay').querySelectorAll('button')]
+        .find((b) => b.textContent === 'Details')!
+        .click();
+      await wait();
+    });
+    const tabs = [...document.querySelectorAll('[role="dialog"] [role="tab"]')].map(
+      (t) => t.textContent,
+    );
+    expect(tabs).toEqual(['Overview', 'Credentials', 'Activity']);
+    await v.close();
+  });
+  it('tests the saved connection from the Overview of its details, not from the card', async () => {
     const v = await mount(true);
     expect([...document.querySelectorAll('button')].some((b) => b.textContent === 'Test')).toBe(
       false,
     );
-    await act(async () =>
+    await act(async () => {
+      [...card('Clock PMS+').querySelectorAll('button')]
+        .find((b) => b.textContent === 'Details')!
+        .click();
+      await wait();
+    });
+    await act(async () => {
       [...document.querySelectorAll('button')]
-        .find((b) => b.textContent === 'Credentials')!
-        .click(),
-    );
-    await act(wait);
-    await act(async () =>
-      [...document.querySelectorAll('button')]
-        .find((b) => b.textContent === 'Test connection')!
-        .click(),
-    );
-    await act(wait);
+        .find((b) => b.textContent === 'Check connection now')!
+        .click();
+      await wait();
+    });
     expect(
       v.calls.some(
         (c) => c.path.endsWith('/integration-connections/c/test') && c.init?.method === 'POST',
