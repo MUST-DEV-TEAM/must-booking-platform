@@ -888,6 +888,7 @@ export function DashboardShell({
                 tenantId={tenantId}
                 propertyId={selectedProperty.id}
                 userId={user?.id}
+                embedded
               />
             ) : (
               <DashboardSettings

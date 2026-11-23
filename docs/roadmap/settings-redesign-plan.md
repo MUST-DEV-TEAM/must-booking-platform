@@ -323,6 +323,7 @@ Each step includes its backend: additive, re-runnable migrations with rollback n
 | S11 | Plan and usage (works with the single unlimited plan of #543) | |
 | S11a | Plan and usage, page only (built 2026-11-23, frontend): plan name and status in plain words, limits, usage meters (amber at 80 %, what is blocked at 100 % and that nothing is deleted), what this hotel uses. Owner decision: applies to the hotel being edited, plan itself account-wide and read-only. "Ask to change plan" and billing stay open until #543 | G-91, G-92 |
 | S12 | Audit log: Account tab, links, append-only, coverage test, before and after, support visibility | G-93 |
+| S12a | Audit log, page only (built 2026-11-23, frontend): one header, view tabs (Business, System, Everything), three equal tiles, four main filters with quick date ranges and a More filters fold, plain column and detail wording. Open: All hotels filter, links from other pages, append-only in the database, coverage test, `audit.view`, MUST support visibility | G-93 |
 | S13 | Wording pass (the `design:ux-copy` checklist), sidebar clean-up, old links verified | |
 
 Gaps not listed above (G-44, G-45, G-47, G-50, G-72, G-75, G-76 and the rest) are fixed one by one **after the redesign is live**, the High ones first (G-46, G-44, G-45, G-52), per the owner's decision of 2026-11-17.
