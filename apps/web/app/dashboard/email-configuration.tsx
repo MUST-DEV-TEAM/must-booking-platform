@@ -53,9 +53,8 @@ export function EmailConfiguration<T extends { key: string; label: string }>({
       templates={templates}
       renderEditor={renderEditor}
       footer={
-        <div className="grid gap-4 lg:grid-cols-3 [&>*]:h-full">
+        <div className="grid gap-4 lg:grid-cols-2 [&>*]:h-full">
           <ReviewLinksMoved />
-          <SuppressionList base={base} canWrite={canWrite} />
           {preferences.data ? (
             <PersonalPreference
               base={base}
@@ -257,7 +256,7 @@ function PersonalPreference({
 }
 
 type Suppression = { recipient: string; reason: string; version: number; updatedAt: string };
-function SuppressionList({ base, canWrite }: { base: string; canWrite: boolean }) {
+export function SuppressionList({ base, canWrite }: { base: string; canWrite: boolean }) {
   const query = useQuery({
     queryKey: ['emails', base, 'suppressions'],
     queryFn: () => emailRequest<Suppression[]>(base + '/email-suppressions'),

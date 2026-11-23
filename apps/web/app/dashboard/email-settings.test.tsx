@@ -309,7 +309,7 @@ describe('Emails workspace and legacy links', () => {
     expect(isEmailTab('bad')).toBe(false);
     mockFetch();
     const host = await mount(undefined, true, true);
-    expect(host.textContent).toContain('Volume - last 24 hours');
+    expect(host.textContent).toContain('Sent, last 24 hours');
     expect(host.textContent).toContain('Controlled tests are excluded');
     expect(host.textContent).toContain('Booking MH-1');
   });
