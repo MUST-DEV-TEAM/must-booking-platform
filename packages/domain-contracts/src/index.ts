@@ -254,6 +254,11 @@ export interface GuestDetails {
   postcode?: string | null;
   countryCode?: string | null;
   specialRequests?: string | null;
+  /** Booking form fields a hotel may ask for (Settings, Booking rules). Stored on the booking. */
+  arrivalTime?: string | null;
+  companyName?: string | null;
+  taxNumber?: string | null;
+  marketingConsent?: boolean;
 }
 
 export interface Booking {

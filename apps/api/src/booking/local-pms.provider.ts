@@ -4,6 +4,7 @@ import type {
 } from '@must/domain-contracts';
 import type { MoveBookingRoomCommand } from '@must/domain-contracts';
 import { enforcePropertyBookingLimits } from './property-booking-limits';
+import { enforceGuestForm } from './guest-form-rules';
 import { resolveBillingRatePlan } from './billing-rate-plan';
 import { BadRequestException, HttpException, Inject, Injectable, Logger } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
@@ -394,6 +395,9 @@ export class LocalPmsProvider implements PmsProvider {
                     },
                     command.staffActorId ? command.ruleOverrideReason : undefined,
                   );
+              // A guest booking must carry every field the hotel marked Required in its Booking form.
+              // Staff bookings are not held to the form.
+              if (!command.staffActorId) await enforceGuestForm(tx, context, command.guest);
               const catalog = await this.validateCatalog(
                 tx,
                 context,
@@ -433,7 +437,8 @@ export class LocalPmsProvider implements PmsProvider {
           tenant_id, property_id, room_type_id, room_id, guest_id, external_reference,
           guest_session_id, special_requests, status, payment_method, starts_on, ends_on, rate_plan_id, total_amount,
           adults, children, children_ages, guest_count, source, clock_rate_id,
-          promo_code, promo_discount_amount, original_total_amount
+          promo_code, promo_discount_amount, original_total_amount,
+          estimated_arrival_time, company_name, tax_number, marketing_consent, marketing_consent_at
         ) VALUES (
           ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${command.roomTypeId}::uuid,
           ${command.roomId ?? null}::uuid, ${guestId}::uuid, ${externalReference},
@@ -444,7 +449,10 @@ export class LocalPmsProvider implements PmsProvider {
           ${command.startsOn}::date, ${command.endsOn}::date, ${billingRatePlanId}::uuid,
           ${command.total.amount}::numeric, ${occupancy.adults}, ${occupancy.children}, ${command.childrenAges === undefined ? null : JSON.stringify(command.childrenAges)}::jsonb,
           ${occupancy.guestCount}, ${command.staffActorId ? 'DIRECT' : 'WEBSITE'}, ${command.clockRateId ?? null},
-          ${promo?.code ?? null}, ${promo?.discount.amount ?? null}::numeric, ${promo?.originalTotal.amount ?? null}::numeric
+          ${promo?.code ?? null}, ${promo?.discount.amount ?? null}::numeric, ${promo?.originalTotal.amount ?? null}::numeric,
+          ${command.guest.arrivalTime ?? null}, ${command.guest.companyName ?? null}, ${command.guest.taxNumber ?? null},
+          ${command.guest.marketingConsent === true},
+          ${command.guest.marketingConsent === true ? new Date() : null}::timestamptz
         )
         RETURNING id
       `;

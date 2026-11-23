@@ -36,11 +36,20 @@ export function ruleOwnerLabel(title: string, connected: boolean): string | unde
  * Sections that are saved and published to websites but not yet applied to real bookings. Remove a title
  * from this list in the same change that makes the booking check or the booking pages use it.
  */
-const NOT_APPLIED_YET = new Set(['Guest ages', 'Confirmation', 'Booking form', 'Advanced']);
+const NOT_APPLIED_YET = new Set(['Guest ages', 'Confirmation', 'Advanced']);
 
 export const NOT_APPLIED_LABEL = 'Saved · not applied to bookings yet';
 
+/**
+ * The booking form is enforced by the booking system for address, arrival time, special requests and company
+ * (a guest booking without a Required one is refused), but a hotel website has to ask for the field first. Phone and
+ * country are asked by every website already and are not enforced by the system.
+ */
+export const BOOKING_FORM_LABEL =
+  'Required fields are enforced by the booking system · your website must ask for them';
+
 /** A warning for a section whose settings are saved but do not change bookings yet. */
 export function ruleStatusLabel(title: string): string | undefined {
+  if (title === 'Booking form') return BOOKING_FORM_LABEL;
   return NOT_APPLIED_YET.has(title) ? NOT_APPLIED_LABEL : undefined;
 }
