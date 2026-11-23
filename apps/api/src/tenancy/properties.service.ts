@@ -6,6 +6,8 @@ import {
   hotelUpdates,
   checkHotelSettings,
   policyCleanup,
+  paymentChangeProblem,
+  PAYMENT_TRIGGER_KEYS,
   type HotelSettings,
 } from './hotel-settings';
 import { Prisma } from '@prisma/client';
@@ -299,6 +301,25 @@ export class PropertiesService {
       }
 
       checkHotelSettings({ ...existing[0], ...input }, Object.keys(input));
+      // Only keys that carry a value count as changed (the parsed input lists absent ones as undefined).
+      const changedKeys = Object.keys(input).filter(
+        (key) => (input as Record<string, unknown>)[key] !== undefined,
+      );
+      if (PAYMENT_TRIGGER_KEYS.some((key) => changedKeys.includes(key))) {
+        const reminder = await tx.$queryRaw<
+          Array<{ days: number }>
+        >`SELECT days_offset AS days FROM notification_topic_settings WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND topic='payment_reminder'`;
+        const problem = paymentChangeProblem(
+          {
+            ...existing[0],
+            ...input,
+            paymentGateways: { ...existing[0].paymentGateways, ...input.paymentGateways },
+          },
+          changedKeys,
+          reminder[0]?.days ?? 3,
+        );
+        if (problem) throw new BadRequestException(problem);
+      }
       // Policies that stop applying (a price on a cot that is now free) are cleared in the same save.
       Object.assign(input, policyCleanup({ ...existing[0], ...input }, Object.keys(input)));
       // With a connected PMS the booking is created there at once, so on-request confirmation and gap filling

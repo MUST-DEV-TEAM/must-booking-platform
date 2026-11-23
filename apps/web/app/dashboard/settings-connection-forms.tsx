@@ -3,17 +3,25 @@
 import { formatDateTime } from '../../lib/hotel-format';
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowUpRight, Plug, Settings2 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
 import { FormField } from '../../components/ui/form-field';
 import { FormSection } from '../../components/ui/form-section';
 import { HotelLogoPicker } from '../../components/ui/hotel-logo-picker';
-import {
-  PokpayConnectionPanel,
-  type PokpayConnection,
-} from '../../components/ui/pokpay-connection-panel';
+import type { PokpayConnection } from '../../components/ui/pokpay-connection-panel';
 import { Input, Textarea } from '../../components/ui/input';
 import { Checkbox } from '../../components/ui/checkbox';
+import { CheckoutMethods } from '../../components/ui/checkout-methods';
+import { PaymentModeBadge } from '../../components/ui/payment-mode-badge';
+import { ToggleChips } from '../../components/ui/toggle-chips';
+import {
+  ACCEPTED_AT_HOTEL,
+  CHECKOUT_METHODS,
+  PAYMENT_LINK_VALID_DAYS,
+  checkBookingLimit,
+  checkPaymentSettings,
+} from '@must/domain-contracts';
 import { ColourField } from '../../components/ui/colour-field';
 import { Switch } from '../../components/ui/switch';
 import { TimeField } from '../../components/ui/time-field';
@@ -672,6 +680,16 @@ export function BrandingSettings({
     </div>
   );
 }
+/** Saved but nothing in the booking system reads it yet (settings plan S7b). */
+const NOT_APPLIED = 'Saved · not applied to bookings yet';
+/** The saved checkout order with any method it does not list added at the end; empty means the standard order. */
+function completeCheckoutOrder(saved?: readonly string[]): string[] {
+  const standard = CHECKOUT_METHODS.map((m) => m.key as string);
+  const chosen = (saved ?? []).filter((key) => standard.includes(key));
+  return [...chosen, ...standard.filter((key) => !chosen.includes(key))];
+}
+const draftGatewayKey = (key: string): keyof PaymentGateways =>
+  key === 'pay_at_hotel' ? 'payAtHotel' : (key as keyof PaymentGateways);
 export function PaymentSettings({
   property,
   saving,
@@ -682,7 +700,6 @@ export function PaymentSettings({
   tenantId,
   onPropertySave,
   connection,
-  assigned = false,
 }: Common & {
   connectedProviders: Set<string>;
   clockConnected?: boolean;
@@ -690,10 +707,32 @@ export function PaymentSettings({
   tenantId: string;
   onPropertySave: (update: Partial<Property>, gateways: PaymentGateways) => void;
   connection?: PokpayConnection;
-  assigned?: boolean;
 }) {
   const [draft, setDraft] = useState(property.paymentGateways);
   useEffect(() => setDraft(property.paymentGateways), [property.paymentGateways]);
+  const savedOrder = completeCheckoutOrder(property.paymentMethodOrder);
+  const savedAccepted = property.acceptedAtHotel ?? [];
+  const savedDefault = property.paymentDefaultMethod ?? null;
+  const savedLinkDays = String(property.paymentLinkValidDays ?? PAYMENT_LINK_VALID_DAYS.default);
+  const savedSecond =
+    property.paymentSecondReminderDays == null ? '' : String(property.paymentSecondReminderDays);
+  const savedExpiry = property.paymentLinkExpiryAction ?? 'notify_staff';
+  const [order, setOrder] = useState(savedOrder),
+    [defaultKey, setDefaultKey] = useState<string | null>(savedDefault),
+    [accepted, setAccepted] = useState<string[]>(savedAccepted),
+    [linkDays, setLinkDays] = useState(savedLinkDays),
+    [secondReminder, setSecondReminder] = useState(savedSecond),
+    [expiryAction, setExpiryAction] = useState(savedExpiry);
+  const savedOrderText = savedOrder.join(','),
+    savedAcceptedText = savedAccepted.join(',');
+  useEffect(() => {
+    setOrder(savedOrderText.split(','));
+    setDefaultKey(savedDefault);
+    setAccepted(savedAcceptedText ? savedAcceptedText.split(',') : []);
+    setLinkDays(savedLinkDays);
+    setSecondReminder(savedSecond);
+    setExpiryAction(savedExpiry);
+  }, [savedOrderText, savedDefault, savedAcceptedText, savedLinkDays, savedSecond, savedExpiry]);
   const [hold, setHold] = useState(String(property.onlinePaymentHoldMinutes ?? 30)),
     [autoRefund, setAutoRefund] = useState(property.autoRefundOnFreeCancellation ?? true),
     [keepFee, setKeepFee] = useState(property.deductPaymentFeeOnGuestRefund ?? true),
@@ -720,8 +759,43 @@ export function PaymentSettings({
     !/^\d+$/.test(hold) || Number(hold) < 5 || Number(hold) > 1440
       ? 'Choose a hold between 5 and 1440 minutes.'
       : null;
+  const isOn = (key: string) => draft[draftGatewayKey(key)];
+  // The default is what the owner picked while that method is on; otherwise the first method that is on.
+  const pickedDefault = defaultKey && isOn(defaultKey) ? defaultKey : null;
+  const shownDefault = pickedDefault ?? order.find(isOn) ?? null;
+  const whole = (value: string) => (/^\d+$/.test(value) ? Number(value) : NaN);
+  const linkDaysError = checkBookingLimit('paymentLinkValidDays', whole(linkDays));
+  const secondError = secondReminder
+    ? checkBookingLimit('paymentSecondReminderDays', whole(secondReminder))
+    : null;
+  const rules = checkPaymentSettings({
+    enabled: draft,
+    paymentDefaultMethod: pickedDefault,
+    acceptedAtHotel: accepted,
+    paymentLinkValidDays: linkDaysError ? null : whole(linkDays),
+    paymentSecondReminderDays: secondReminder && !secondError ? whole(secondReminder) : null,
+  });
+  const acceptedChanged = accepted.join(',') !== savedAcceptedText;
+  const payAtHotelChanged = draft.payAtHotel !== property.paymentGateways.payAtHotel;
+  // A hotel that has never chosen is not blocked from saving something else; the choice is asked for when it
+  // switches Pay at the hotel on or changes the list.
+  const acceptedError =
+    rules.acceptedAtHotel && (acceptedChanged || payAtHotelChanged) ? rules.acceptedAtHotel : null;
+  const rulesBlocking = Boolean(
+    rules.paymentDefaultMethod ||
+    acceptedError ||
+    rules.paymentLinkValidDays ||
+    rules.paymentSecondReminderDays,
+  );
+  const orderChanged = order.join(',') !== savedOrderText;
   const dirty =
     JSON.stringify(draft) !== JSON.stringify(property.paymentGateways) ||
+    orderChanged ||
+    pickedDefault !== savedDefault ||
+    acceptedChanged ||
+    linkDays !== savedLinkDays ||
+    secondReminder !== savedSecond ||
+    expiryAction !== savedExpiry ||
     hold !== String(property.onlinePaymentHoldMinutes ?? 30) ||
     autoRefund !== (property.autoRefundOnFreeCancellation ?? true) ||
     keepFee !== (property.deductPaymentFeeOnGuestRefund ?? true) ||
@@ -732,48 +806,133 @@ export function PaymentSettings({
   const error = !(draft.payAtHotel || draft.pokpay || draft.stripe)
     ? 'Keep at least one payment method on so guests can complete an online booking.'
     : null;
+  const move = (key: string, direction: -1 | 1) =>
+    setOrder((current) => {
+      const index = current.indexOf(key),
+        target = index + direction;
+      if (index < 0 || target < 0 || target >= current.length) return current;
+      const next = [...current];
+      [next[index], next[target]] = [next[target]!, next[index]!];
+      return next;
+    });
+  const rows = order.map((key) => {
+    const method = CHECKOUT_METHODS.find((m) => m.key === key)!;
+    const provider = method.kind === 'provider';
+    const connected = connectedProviders.has(key === 'stripe' ? 'STRIPE' : 'POKPAY');
+    return {
+      key,
+      label: method.label,
+      description:
+        key === 'stripe'
+          ? 'Guests pay online. Cards, and Apple Pay or Google Pay where Stripe supports them.'
+          : key === 'pokpay'
+            ? 'Guests pay online through PokPay, which accepts cards.'
+            : 'Guests pay the hotel directly when they arrive.',
+      enabled: isOn(key),
+      switchId: `payment-${draftGatewayKey(key)}`,
+      action:
+        provider && canWrite ? (
+          <Button asChild size="sm" variant="outline">
+            <a
+              href={settingsAreaHref(tenantId, property.id, 'integrations')}
+              aria-label={`${connected ? 'Manage' : 'Connect'} ${method.label} in Integrations`}
+            >
+              {connected ? <Settings2 aria-hidden="true" /> : <Plug aria-hidden="true" />}
+              {connected ? 'Manage' : `Connect ${method.label}`}
+              <ArrowUpRight aria-hidden="true" />
+            </a>
+          </Button>
+        ) : undefined,
+      details:
+        key === 'pay_at_hotel' && isOn(key) ? (
+          <div className="flex flex-col gap-2">
+            <p className="m-0 text-sm font-semibold">At the reception we accept</p>
+            <ToggleChips
+              label="Accepted at the hotel"
+              options={ACCEPTED_AT_HOTEL}
+              value={accepted}
+              disabled={!canWrite}
+              onChange={setAccepted}
+            />
+            <p className="m-0 text-sm text-muted-foreground">
+              Shown on the booking page and in the confirmation, so guests know what to bring.
+            </p>
+            {acceptedError ? (
+              <p role="alert" className="m-0 text-sm text-destructive">
+                {acceptedError}
+              </p>
+            ) : null}
+          </div>
+        ) : undefined,
+      badges: provider ? (
+        <>
+          <Badge variant="outline">
+            {connected ? 'Connected to this hotel' : 'Not connected - unavailable to guests'}
+          </Badge>
+          {key === 'pokpay' && connection?.mode ? (
+            <PaymentModeBadge mode={connection.mode} />
+          ) : null}
+        </>
+      ) : undefined,
+    };
+  });
+  const discard = () => {
+    setDraft(property.paymentGateways);
+    setOrder(savedOrder);
+    setDefaultKey(savedDefault);
+    setAccepted(savedAccepted);
+    setLinkDays(savedLinkDays);
+    setSecondReminder(savedSecond);
+    setExpiryAction(savedExpiry);
+    setHold(String(property.onlinePaymentHoldMinutes ?? 30));
+    setAutoRefund(property.autoRefundOnFreeCancellation ?? true);
+    setKeepFee(property.deductPaymentFeeOnGuestRefund ?? true);
+    setClockRefund(property.clockCancelRefundPolicy ?? 'NEVER');
+    setClockFolio(property.clockPaymentFolio ?? 'DEPOSIT');
+  };
   return (
     <div className="flex flex-col gap-4">
       <FormSection
-        title="Payment methods"
-        description="Choose how guests can pay for bookings at this hotel."
+        title="Checkout methods"
+        description={`Guests see the methods that are switched on and working, in this order. The default is pre-selected.${
+          property.defaultCurrency
+            ? ` Guests pay in ${property.defaultCurrency}; the currency is set in Profile.`
+            : ''
+        }`}
+        status={NOT_APPLIED}
       >
-        {(['stripe', 'pokpay', 'payAtHotel'] as const).map((key) => (
-          <FormField
-            key={key}
-            layout="toggle"
-            htmlFor={`payment-${key}`}
-            label={
-              { payAtHotel: 'Pay at hotel', stripe: 'Stripe', pokpay: 'Pay online in full' }[key]
-            }
-            hint={
-              {
-                payAtHotel: 'Guests pay the hotel directly when they arrive.',
-                stripe: 'Guests pay online by card through Stripe.',
-                pokpay: 'Guests pay online through PokPay.',
-              }[key]
-            }
-          >
-            <Switch
-              id={`payment-${key}`}
-              checked={draft[key]}
-              disabled={!canWrite}
-              onCheckedChange={(checked) => setDraft({ ...draft, [key]: checked })}
-            />
-            {key !== 'payAtHotel' ? (
-              <Badge variant="outline">
-                {connectedProviders.has(key === 'stripe' ? 'STRIPE' : 'POKPAY')
-                  ? 'Connected to this hotel'
-                  : 'Not connected - unavailable to guests'}
-              </Badge>
-            ) : null}
-          </FormField>
-        ))}
+        <CheckoutMethods
+          rows={rows}
+          defaultKey={shownDefault}
+          disabled={!canWrite}
+          onToggle={(key, enabled) => setDraft({ ...draft, [draftGatewayKey(key)]: enabled })}
+          onMove={move}
+          onDefault={setDefaultKey}
+          soon={[
+            {
+              key: 'bank_transfer',
+              label: 'Bank transfer',
+              description:
+                'Guests pay by transfer to your bank account within a set number of days.',
+            },
+          ]}
+        />
         {error ? (
           <p role="alert" className="m-0 text-sm text-destructive">
             {error}
           </p>
         ) : null}
+        {rules.paymentDefaultMethod ? (
+          <p role="alert" className="m-0 text-sm text-destructive">
+            {rules.paymentDefaultMethod}
+          </p>
+        ) : null}
+      </FormSection>
+      <FormSection
+        title="Timing"
+        description="How long a room is held while a guest pays online, and how long a payment link works."
+        status="The hold is live; the rest is saved, not applied yet"
+      >
         <FormField
           label="Unpaid online booking hold (minutes)"
           htmlFor="payment-hold"
@@ -789,6 +948,61 @@ export function PaymentSettings({
             onChange={(e) => setHold(e.target.value)}
           />
         </FormField>
+        <FormField
+          label="Payment links stay valid (days)"
+          htmlFor="payment-link-days"
+          hint="From 1 to 14. A link you send for a balance stops working after this."
+          error={linkDaysError ?? rules.paymentLinkValidDays ?? null}
+        >
+          <Input
+            id="payment-link-days"
+            inputMode="numeric"
+            value={linkDays}
+            disabled={!canWrite}
+            onChange={(e) => setLinkDays(e.target.value)}
+          />
+        </FormField>
+        <FormField
+          label="Second reminder after (days)"
+          htmlFor="payment-second-reminder"
+          hint="Optional. The first reminder is set in Emails (day 3 unless changed). Leave empty for one reminder."
+          error={secondError ?? rules.paymentSecondReminderDays ?? null}
+        >
+          <Input
+            id="payment-second-reminder"
+            inputMode="numeric"
+            value={secondReminder}
+            disabled={!canWrite}
+            onChange={(e) => setSecondReminder(e.target.value)}
+          />
+        </FormField>
+        <FormField label="When a payment link expires unpaid" htmlFor="payment-expiry-action">
+          <Select value={expiryAction} disabled={!canWrite} onValueChange={setExpiryAction}>
+            <SelectTrigger id="payment-expiry-action">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="notify_staff">Tell the staff</SelectItem>
+              <SelectItem value="cancel_release">
+                Cancel the booking and release the room
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </FormField>
+      </FormSection>
+      <FormSection
+        title="Refunds"
+        description={
+          <>
+            What happens to a guest's online payment when a booking is cancelled. Refunds made by
+            hand are done in{' '}
+            <a className="underline" href={operationsHref}>
+              Payments
+            </a>
+            .
+          </>
+        }
+      >
         <FormField
           layout="toggle"
           label="Automatically refund free cancellations"
@@ -860,28 +1074,13 @@ export function PaymentSettings({
             </Select>
           </FormField>
         ) : null}
-        <Button variant="outline" asChild>
-          <a href={operationsHref}>Open payment operations</a>
-        </Button>
       </FormSection>
-      <PokpayConnectionPanel
-        connection={connection}
-        assigned={assigned}
-        manageHref={canWrite ? settingsAreaHref(tenantId, property.id, 'integrations') : undefined}
-      />
       {canWrite ? (
         <SaveBar
           dirty={dirty}
           saving={saving}
-          canSave={!error && !holdError}
-          onDiscard={() => {
-            setDraft(property.paymentGateways);
-            setHold(String(property.onlinePaymentHoldMinutes ?? 30));
-            setAutoRefund(property.autoRefundOnFreeCancellation ?? true);
-            setKeepFee(property.deductPaymentFeeOnGuestRefund ?? true);
-            setClockRefund(property.clockCancelRefundPolicy ?? 'NEVER');
-            setClockFolio(property.clockPaymentFolio ?? 'DEPOSIT');
-          }}
+          canSave={!error && !holdError && !linkDaysError && !secondError && !rulesBlocking}
+          onDiscard={discard}
           onSave={() =>
             onPropertySave(
               {
@@ -891,6 +1090,16 @@ export function PaymentSettings({
                 ...(clockConnected
                   ? { clockCancelRefundPolicy: clockRefund, clockPaymentFolio: clockFolio }
                   : {}),
+                ...(orderChanged ? { paymentMethodOrder: order } : {}),
+                ...(pickedDefault !== savedDefault ? { paymentDefaultMethod: pickedDefault } : {}),
+                ...(acceptedChanged ? { acceptedAtHotel: accepted } : {}),
+                ...(linkDays !== savedLinkDays ? { paymentLinkValidDays: Number(linkDays) } : {}),
+                ...(secondReminder !== savedSecond
+                  ? {
+                      paymentSecondReminderDays: secondReminder ? Number(secondReminder) : null,
+                    }
+                  : {}),
+                ...(expiryAction !== savedExpiry ? { paymentLinkExpiryAction: expiryAction } : {}),
               },
               draft,
             )

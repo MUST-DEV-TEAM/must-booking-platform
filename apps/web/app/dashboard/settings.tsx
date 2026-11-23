@@ -270,18 +270,6 @@ export function DashboardSettings({
                   (a) => a.connectionId === c.id && a.enabled,
                 ),
             )}
-            assigned={settingsQuery.data?.propertyConnections.some(
-              (a) =>
-                a.enabled &&
-                a.connectionId ===
-                  settingsQuery.data?.connections.find(
-                    (c) =>
-                      c.provider === 'POKPAY' &&
-                      settingsQuery.data?.propertyConnections.some(
-                        (a) => a.connectionId === c.id && a.enabled,
-                      ),
-                  )?.id,
-            )}
             operationsHref={dashboardSectionHref(tenantId, propertyId, 'payments')}
           />
         </SettingsAreaPanel>

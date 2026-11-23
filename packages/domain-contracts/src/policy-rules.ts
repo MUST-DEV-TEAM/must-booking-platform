@@ -11,6 +11,8 @@ export const POLICY_CHOICES = {
   partiesPolicy: ['not_allowed', 'on_request', 'allowed'],
   idAtArrival: ['not_required', 'main_guest', 'all_adults'],
   damageDepositMethod: ['cash', 'card'],
+  paymentDefaultMethod: ['stripe', 'pokpay', 'pay_at_hotel'],
+  paymentLinkExpiryAction: ['notify_staff', 'cancel_release'],
 } as const;
 export type PolicyChoiceKey = keyof typeof POLICY_CHOICES;
 

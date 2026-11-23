@@ -23,6 +23,10 @@ import {
   type PolicyChoiceKey,
   type PolicyValues,
   checkIdDocuments,
+  checkAcceptedAtHotel,
+  checkPaymentOrder,
+  checkPaymentSettings,
+  type PaymentValues,
   checkMoneyAmount,
   checkPolicies,
   normaliseMoney,
@@ -131,6 +135,12 @@ export type HotelSettings = {
   damageDepositMethod?: string | null;
   damageDepositRefundDays?: number | null;
   otherHouseRules?: string | null;
+  paymentMethodOrder?: string[];
+  paymentDefaultMethod?: string | null;
+  acceptedAtHotel?: string[];
+  paymentLinkValidDays?: number;
+  paymentSecondReminderDays?: number | null;
+  paymentLinkExpiryAction?: string;
   quietHoursFrom?: string | null;
   quietHoursTo?: string | null;
   childrenPolicy?: string | null;
@@ -249,6 +259,17 @@ export const hotelFields = [
   { key: 'damageDepositMethod', column: 'damage_deposit_method', kind: 'pchoice', max: 0 },
   { key: 'damageDepositRefundDays', column: 'damage_deposit_refund_days', kind: 'limit', max: 0 },
   { key: 'otherHouseRules', column: 'other_house_rules', kind: 'text', max: OTHER_HOUSE_RULES_MAX },
+  { key: 'paymentMethodOrder', column: 'payment_method_order', kind: 'pmulti', max: 0 },
+  { key: 'paymentDefaultMethod', column: 'payment_default_method', kind: 'pchoice', max: 0 },
+  { key: 'acceptedAtHotel', column: 'accepted_at_hotel', kind: 'pmulti', max: 0 },
+  { key: 'paymentLinkValidDays', column: 'payment_link_valid_days', kind: 'limit', max: 0 },
+  {
+    key: 'paymentSecondReminderDays',
+    column: 'payment_second_reminder_days',
+    kind: 'limit',
+    max: 0,
+  },
+  { key: 'paymentLinkExpiryAction', column: 'payment_link_expiry_action', kind: 'pchoice', max: 0 },
   { key: 'quietHoursFrom', column: 'quiet_hours_from', kind: 'time', max: 5 },
   { key: 'quietHoursTo', column: 'quiet_hours_to', kind: 'time', max: 5 },
   { key: 'childrenPolicy', column: 'children_policy', kind: 'policy', max: 0 },
@@ -268,7 +289,12 @@ const REQUIRED_HOTEL_FIELDS: Record<string, string> = {
   city: 'City',
   country: 'Country',
 };
-const NON_NULL_POLICY_CHOICES: readonly string[] = ['cotsPolicy', 'extraBedsPolicy', 'idAtArrival'];
+const NON_NULL_POLICY_CHOICES: readonly string[] = [
+  'cotsPolicy',
+  'extraBedsPolicy',
+  'idAtArrival',
+  'paymentLinkExpiryAction',
+];
 export function hotelInput(raw: Record<string, unknown>): HotelSettings {
   const out: Record<string, unknown> = {};
   for (const f of hotelFields) {
@@ -317,9 +343,15 @@ export function hotelInput(raw: Record<string, unknown>): HotelSettings {
       if (message) bad(message);
       v = money;
     } else if (f.kind === 'pmulti') {
-      const message = checkIdDocuments(v);
+      const message =
+        f.key === 'paymentMethodOrder'
+          ? checkPaymentOrder(v)
+          : f.key === 'acceptedAtHotel'
+            ? checkAcceptedAtHotel(v)
+            : checkIdDocuments(v);
       if (message) bad(message);
-      v = [...(v as string[])].sort();
+      // The checkout order is the order the owner chose; the other lists are kept sorted.
+      if (f.key !== 'paymentMethodOrder') v = [...(v as string[])].sort();
     } else if (f.kind === 'boolean') {
       if (typeof v !== 'boolean') bad('Choose yes or no.');
     } else if (f.kind === 'languages') {
@@ -460,6 +492,37 @@ export function checkHotelSettings(value: HotelSettings, changed: readonly strin
     if (problem) throw new BadRequestException(problem);
   }
 }
+/** Which saved fields make each payment rule run (a hotel that never set a field can still save the others). */
+const PAYMENT_RULE_TRIGGERS: Record<string, readonly string[]> = {
+  methods: ['paymentGateways'],
+  paymentDefaultMethod: ['paymentDefaultMethod', 'paymentGateways'],
+  acceptedAtHotel: ['acceptedAtHotel', 'paymentGateways'],
+  paymentLinkValidDays: ['paymentLinkValidDays'],
+  paymentSecondReminderDays: ['paymentSecondReminderDays', 'paymentLinkValidDays'],
+};
+/**
+ * The first payment-method rule the change breaks, or null. `merged` is the saved hotel with the change applied;
+ * `firstReminderDays` is the first payment reminder set in Emails (null when none is saved).
+ */
+/** The saved fields that make a payment rule run; a save touching none of them skips the payment checks. */
+export const PAYMENT_TRIGGER_KEYS = [...new Set(Object.values(PAYMENT_RULE_TRIGGERS).flat())];
+export function paymentChangeProblem(
+  merged: HotelSettings & { paymentGateways?: PaymentValues['enabled'] },
+  changed: readonly string[],
+  firstReminderDays: number | null,
+): string | null {
+  const problems = checkPaymentSettings({
+    enabled: merged.paymentGateways,
+    paymentDefaultMethod: merged.paymentDefaultMethod,
+    acceptedAtHotel: merged.acceptedAtHotel,
+    paymentLinkValidDays: merged.paymentLinkValidDays,
+    paymentSecondReminderDays: merged.paymentSecondReminderDays,
+    firstReminderDays,
+  });
+  for (const [field, message] of Object.entries(problems))
+    if (PAYMENT_RULE_TRIGGERS[field]?.some((key) => changed.includes(key))) return message;
+  return null;
+}
 /** Policies keys whose change makes the cross-field rules run (and the stale dependents be cleared). */
 const POLICY_KEYS = [
   'checkInUntil',
@@ -497,7 +560,7 @@ export function hotelUpdates(input: HotelSettings) {
       .filter((f) => Object.hasOwn(input, f.key))
       .map(
         (f) =>
-          Prisma.sql`${Prisma.raw(f.column)}=${f.kind === 'weekdays' ? Prisma.sql`ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(input[f.key])}::jsonb)::smallint)` : f.kind === 'pmoney' ? Prisma.sql`${input[f.key]}::numeric` : f.kind === 'pmulti' || f.kind === 'languages' ? Prisma.sql`ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(input[f.key])}::jsonb))` : f.kind === 'profiles' ? Prisma.sql`${JSON.stringify(input[f.key])}::jsonb` : input[f.key]}`,
+          Prisma.sql`${Prisma.raw(f.column)}=${f.kind === 'weekdays' ? Prisma.sql`ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(input[f.key])}::jsonb)::smallint)` : f.kind === 'pmoney' ? Prisma.sql`${input[f.key]}::numeric` : f.kind === 'pmulti' ? Prisma.sql`ARRAY(SELECT item FROM jsonb_array_elements_text(${JSON.stringify(input[f.key])}::jsonb) WITH ORDINALITY AS t(item, position) ORDER BY position)` : f.kind === 'languages' ? Prisma.sql`ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(input[f.key])}::jsonb))` : f.kind === 'profiles' ? Prisma.sql`${JSON.stringify(input[f.key])}::jsonb` : input[f.key]}`,
       ),
   );
 }

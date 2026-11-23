@@ -273,7 +273,7 @@ describe('DashboardSettings', () => {
   });
 
   it.each([
-    ['payment-methods', 'Payment methods', 'Email branding'],
+    ['payment-methods', 'Checkout methods', 'Email branding'],
     ['contact-brand', 'Brand', 'Payment methods'],
   ] as const)(
     'renders the %s Settings sub-view',
@@ -295,7 +295,7 @@ describe('DashboardSettings', () => {
       expect(container.textContent).toContain(visiblePanel);
       expect(container.textContent).not.toContain(hiddenPanel);
       if (settingsArea === 'payment-methods') {
-        expect(container.textContent).toContain('Open payment operations');
+        expect(container.textContent).toContain('done in Payments');
         expect(
           container.querySelector('a[href="/dashboard/t?propertyId=p&section=payments"]'),
         ).not.toBeNull();

@@ -306,6 +306,12 @@ model Property {
   damageDepositMethod               String?                         @map("damage_deposit_method") @db.VarChar(10)
   damageDepositRefundDays           Int?                            @map("damage_deposit_refund_days") @db.SmallInt
   otherHouseRules                   String?                         @map("other_house_rules") @db.VarChar(1000)
+  paymentMethodOrder                String[]                        @default([]) @map("payment_method_order")
+  paymentDefaultMethod              String?                         @map("payment_default_method") @db.VarChar(30)
+  acceptedAtHotel                   String[]                        @default([]) @map("accepted_at_hotel")
+  paymentLinkValidDays              Int                             @default(7) @map("payment_link_valid_days") @db.SmallInt
+  paymentSecondReminderDays         Int?                            @map("payment_second_reminder_days") @db.SmallInt
+  paymentLinkExpiryAction           String                          @default("notify_staff") @map("payment_link_expiry_action") @db.VarChar(20)
   onlinePaymentHoldMinutes          Int                             @default(30) @map("online_payment_hold_minutes")
   autoRefundOnFreeCancellation      Boolean                         @default(true) @map("auto_refund_on_free_cancellation")
   clockCancelRefundPolicy           String                          @default("NEVER") @map("clock_cancel_refund_policy") @db.VarChar(20)

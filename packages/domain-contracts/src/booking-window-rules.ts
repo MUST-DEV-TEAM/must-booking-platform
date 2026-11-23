@@ -26,7 +26,9 @@ export type BookingLimitKey =
   | 'cotsMax'
   | 'extraBedsMax'
   | 'petsMax'
-  | 'damageDepositRefundDays';
+  | 'damageDepositRefundDays'
+  | 'paymentLinkValidDays'
+  | 'paymentSecondReminderDays';
 
 /** Allowed whole-number ranges. A field left empty means "no limit". */
 export const BOOKING_LIMIT_RANGES: Record<
@@ -47,6 +49,8 @@ export const BOOKING_LIMIT_RANGES: Record<
   extraBedsMax: { min: 0, max: 3, unit: 'per room' },
   petsMax: { min: 1, max: 5, unit: 'per room' },
   damageDepositRefundDays: { min: 1, max: 30, unit: 'days' },
+  paymentLinkValidDays: { min: 1, max: 14, unit: 'days' },
+  paymentSecondReminderDays: { min: 2, max: 13, unit: 'days' },
 };
 
 export function checkBookingLimit(key: BookingLimitKey, value: unknown): string | null {

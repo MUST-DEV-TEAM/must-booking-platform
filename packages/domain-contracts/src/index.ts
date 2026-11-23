@@ -624,3 +624,4 @@ export * from './capture';
 export * from './hotel-profile-rules';
 export * from './booking-window-rules';
 export * from './policy-rules';
+export * from './payment-rules';

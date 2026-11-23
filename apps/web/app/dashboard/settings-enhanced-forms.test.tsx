@@ -74,7 +74,7 @@ it('shows the three payment methods, validates hold bounds and saves the setting
   const m = await mount(<PaymentSettings {...props} />);
   try {
     expect(document.querySelector('#payment-stripe')).not.toBeNull();
-    expect(document.body.textContent).toContain('Pay online in full');
+    expect(document.body.textContent).toContain('PokPay');
     expect(document.body.textContent).toContain('A guest who cancels pays the payment fee');
     // With Stripe, PokPay and pay-at-hotel all off there is no way to book online: the form says so.
     for (const id of ['payment-payAtHotel', 'payment-stripe'])
@@ -103,6 +103,86 @@ it('shows the three payment methods, validates hold bounds and saves the setting
       [...document.querySelectorAll('button')].some((b) => b.textContent === 'Save changes'),
     ).toBe(false);
     expect(document.body.textContent).not.toContain('Save credentials');
+  } finally {
+    await m.close();
+  }
+});
+const byLabel = (label: string) =>
+  document.querySelector<HTMLElement>(`[aria-label="${label}"]`) as HTMLButtonElement;
+it('orders the checkout methods, picks the default, asks what is accepted at the hotel and checks the link timing', async () => {
+  const save = vi.fn(),
+    props = {
+      tenantId: 't',
+      property: { ...property, paymentGateways: { stripe: true, pokpay: true, payAtHotel: true } },
+      saving: false,
+      canWrite: true,
+      connectedProviders: new Set<string>(['STRIPE', 'POKPAY']),
+      operationsHref: '#',
+      onPropertySave: save,
+    };
+  const m = await mount(<PaymentSettings {...props} />);
+  try {
+    expect(document.body.textContent).toContain('Bank transfer');
+    expect(document.body.textContent).toContain('Soon');
+    expect(byLabel('Move Stripe up').disabled).toBe(true);
+    expect(byLabel('Move Pay at the hotel down').disabled).toBe(true);
+    await act(async () => byLabel('Move PokPay up').click());
+    await act(async () => byLabel('Make Stripe the default').click());
+    // Nothing is accepted at the hotel yet, but a hotel that never chose can still save other changes.
+    expect(document.body.textContent).not.toContain('Choose at least one way');
+    await act(async () => byLabel('Accepted at the hotel').querySelectorAll('button')[0]!.click());
+    await act(async () => byLabel('Accepted at the hotel').querySelectorAll('button')[1]!.click());
+    await value('payment-link-days', '2');
+    await value('payment-second-reminder', '5');
+    expect(document.body.textContent).toContain('before the link expires');
+    expect(
+      [...document.querySelectorAll('button')].some((b) => b.textContent === 'Save changes'),
+    ).toBe(true);
+    await value('payment-link-days', '99');
+    expect(document.body.textContent).toContain('from 1 to 14');
+    await value('payment-link-days', '10');
+    await click('Save changes');
+    expect(save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        paymentMethodOrder: ['pokpay', 'stripe', 'pay_at_hotel'],
+        paymentDefaultMethod: 'stripe',
+        acceptedAtHotel: ['cash', 'visa'],
+        paymentLinkValidDays: 10,
+        paymentSecondReminderDays: 5,
+      }),
+      { stripe: true, pokpay: true, payAtHotel: true },
+    );
+  } finally {
+    await m.close();
+  }
+});
+it('does not block a hotel that never chose what it accepts from saving another change, and asks when it switches Pay at the hotel on', async () => {
+  const save = vi.fn(),
+    props = {
+      tenantId: 't',
+      property: {
+        ...property,
+        paymentGateways: { stripe: true, pokpay: false, payAtHotel: false },
+      },
+      saving: false,
+      canWrite: true,
+      connectedProviders: new Set<string>(['STRIPE']),
+      operationsHref: '#',
+      onPropertySave: save,
+    };
+  const m = await mount(<PaymentSettings {...props} />);
+  try {
+    await value('payment-hold', '45');
+    await click('Save changes');
+    expect(save).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      (document.querySelector('#payment-payAtHotel') as HTMLButtonElement).click();
+    });
+    expect(document.body.textContent).toContain(
+      'Choose at least one way guests can pay at the hotel',
+    );
+    await act(async () => byLabel('Accepted at the hotel').querySelectorAll('button')[0]!.click());
+    expect(document.body.textContent).not.toContain('Choose at least one way');
   } finally {
     await m.close();
   }

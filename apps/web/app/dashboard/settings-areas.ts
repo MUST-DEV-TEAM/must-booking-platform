@@ -121,6 +121,12 @@ export type Property = {
   damageDepositMethod?: string | null;
   damageDepositRefundDays?: number | null;
   otherHouseRules?: string | null;
+  paymentMethodOrder?: string[];
+  paymentDefaultMethod?: string | null;
+  acceptedAtHotel?: string[];
+  paymentLinkValidDays?: number;
+  paymentSecondReminderDays?: number | null;
+  paymentLinkExpiryAction?: string;
   quietHoursFrom?: string | null;
   quietHoursTo?: string | null;
   childrenPolicy?: string | null;
