@@ -1,3 +1,4 @@
+import { connectPaymentProviders } from './helpers/payment-connections';
 import * as crypto from 'node:crypto';
 import { CredentialCipherService } from '../src/integrations/credential-cipher';
 import { randomUUID } from 'node:crypto';
@@ -300,6 +301,7 @@ describe('LocalPmsProvider', () => {
       .expect(201);
     tenantId = signup.body.organization.id;
     propertyId = signup.body.property.id;
+    await connectPaymentProviders(admin, tenantId, propertyId);
     userId = signup.body.user.id;
     cookie = signup.headers['set-cookie'][0];
     const propertyUrl = `/tenants/${tenantId}/properties/${propertyId}`;

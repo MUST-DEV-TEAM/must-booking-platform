@@ -1,3 +1,4 @@
+import { connectPaymentProviders } from './helpers/payment-connections';
 import { withoutExternalWorkers } from './helpers/without-external-workers';
 import * as crypto from 'node:crypto';
 import { randomUUID } from 'node:crypto';
@@ -147,6 +148,7 @@ describe('staff-bookings: payment method selection', () => {
       .expect(201);
     tenantId = signup.body.organization.id;
     propertyId = signup.body.property.id;
+    await connectPaymentProviders(admin, tenantId, propertyId);
     userId = signup.body.user.id;
     cookie = signup.headers['set-cookie'][0];
     await request(app.getHttpServer())

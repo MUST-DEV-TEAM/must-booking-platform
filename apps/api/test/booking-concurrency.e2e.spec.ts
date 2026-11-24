@@ -1,3 +1,4 @@
+import { connectPaymentProviders } from './helpers/payment-connections';
 import * as crypto from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 import { INestApplication } from '@nestjs/common';
@@ -103,6 +104,7 @@ describe('LocalPmsProvider concurrent booking creation', () => {
       .expect(201);
     tenantId = signup.body.organization.id;
     propertyId = signup.body.property.id;
+    await connectPaymentProviders(admin, tenantId, propertyId);
     userId = signup.body.user.id;
     const cookie = signup.headers['set-cookie'][0];
     const propertyUrl = `/tenants/${tenantId}/properties/${propertyId}`;

@@ -1,3 +1,4 @@
+import { connectPaymentProviders } from './helpers/payment-connections';
 import * as crypto from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 import { INestApplication } from '@nestjs/common';
@@ -215,6 +216,7 @@ describe('Multi-room booking orders', () => {
       .expect(201);
     tenantId = signup.body.organization.id;
     propertyId = signup.body.property.id;
+    await connectPaymentProviders(admin, tenantId, propertyId);
     userId = signup.body.user.id;
     const cookie = signup.headers['set-cookie'][0];
     const propertyUrl = `/tenants/${tenantId}/properties/${propertyId}`;
@@ -1014,6 +1016,7 @@ describe('Multi-room booking orders', () => {
     const checkTenantId: string = signup.body.organization.id;
     const checkPropertyId: string = signup.body.property.id;
     clockCheckTenantId = checkTenantId;
+    await connectPaymentProviders(admin, checkTenantId, checkPropertyId, ['STRIPE']);
     clockCheckUserId = signup.body.user.id;
     const cookie = signup.headers['set-cookie'][0];
     const propertyUrl = `/tenants/${checkTenantId}/properties/${checkPropertyId}`;

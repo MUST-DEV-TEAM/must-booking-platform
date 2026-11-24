@@ -8,7 +8,7 @@ Log hygiene: some ids are used twice (G-30 to G-39 appear in both the money sect
 
 | Gap | In plain words |
 | --- | --- |
-| G-46 | A payment method shows as available from a switch alone, not a working connection. A guest can pick Stripe on a hotel whose Stripe is not set up. |
+| G-46 | **Fixed 2026-11-24.** A payment method showed as available from a switch alone, not a working connection. A guest can pick Stripe on a hotel whose Stripe is not set up. |
 | G-45 | Guest checkout always charges the full total; deposit or "first night now" cannot work. |
 | G-44 | Staff "pay your balance" links work only with PokPay, not Stripe. |
 | G-47 | Multi-room orders cannot get a payment link. |
