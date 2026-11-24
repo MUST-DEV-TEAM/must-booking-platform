@@ -315,13 +315,22 @@ export class PaymentRefundService {
     bookingId: string,
     idempotencyKey: string,
     note: string,
-  ): Promise<{ result: Result<Payment | null>; confirmation: RefundConfirmation | null }> {
+  ): Promise<{
+    result: Result<Payment | null>;
+    confirmation: RefundConfirmation | null;
+    /** Money paid in person that only staff can give back; null when there is none. */
+    returnByHand: Money | null;
+  }> {
     await this.lockBooking(tx, context, bookingId);
-    const charge = await this.chargeForBooking(tx, context, bookingId, ['PAID']);
-    if (!charge) return { result: { ok: true, value: null }, confirmation: null };
+    // Only the online charge can be refunded at the gateway. Money paid in person (cash, POS, bank transfer)
+    // is reported as `returnByHand`, the same split a staff cancellation makes (D5).
+    const returnByHand = await this.inPersonBalance(tx, context, bookingId);
+    const charge = await this.chargeForBooking(tx, context, bookingId, ['PAID'], true);
+    if (!charge) return { result: { ok: true, value: null }, confirmation: null, returnByHand };
     const remaining =
-      this.minorUnits(charge.amount) - (await this.refundedAmount(tx, context, bookingId));
-    if (remaining <= 0n) return { result: { ok: true, value: null }, confirmation: null };
+      this.minorUnits(charge.amount) - (await this.refundedAmount(tx, context, bookingId, true));
+    if (remaining <= 0n)
+      return { result: { ok: true, value: null }, confirmation: null, returnByHand };
     const outcome = await this.refundCharge(tx, context, bookingId, charge, {
       amount: { amount: this.money(remaining), currency: charge.currency },
       idempotencyKey,
@@ -329,7 +338,27 @@ export class PaymentRefundService {
       reasonCode: 'hotel_cancellation',
     });
     await this.mirrorCancellationRefundToClock(tx, context, bookingId, outcome);
-    return { result: outcome.result, confirmation: outcome.confirmation };
+    return { result: outcome.result, confirmation: outcome.confirmation, returnByHand };
+  }
+
+  /** What was paid in person (manual charges) and not yet given back; null when nothing is left or currencies mix. */
+  private async inPersonBalance(
+    tx: TenantTransaction,
+    context: PaymentProviderContext,
+    bookingId: string,
+  ): Promise<Money | null> {
+    const rows = await tx.$queryRaw<Array<{ currency: string; paid: string; refunded: string }>>`
+      SELECT currency,
+        COALESCE(SUM(amount) FILTER (WHERE kind = 'CHARGE'::"PaymentKind"
+          AND status IN ('PAID', 'LATE_AFTER_EXPIRY', 'succeeded')), 0)::text AS paid,
+        COALESCE(SUM(amount) FILTER (WHERE kind = 'REFUND'::"PaymentKind" AND status = 'REFUNDED'), 0)::text AS refunded
+      FROM payments
+      WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+        AND booking_id = ${bookingId}::uuid AND provider = 'manual'
+      GROUP BY currency`;
+    if (rows.length !== 1) return null;
+    const left = this.minorUnits(rows[0]!.paid) - this.minorUnits(rows[0]!.refunded);
+    return left > 0n ? { amount: this.money(left), currency: rows[0]!.currency } : null;
   }
 
   /**

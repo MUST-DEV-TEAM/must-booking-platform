@@ -135,6 +135,23 @@ describe('HotelCancellationRefundService', () => {
     );
   });
 
+  it('leaves a review item for money paid in person that only staff can return', async () => {
+    const { service, refunds, manualReview } = setup({ policy: 'ALWAYS' });
+    refunds.refundRemainingChargeForBooking.mockResolvedValue({
+      result: { ok: true, value: { id: 'refund-1' } },
+      confirmation,
+      returnByHand: { amount: '100.00', currency: 'EUR' },
+    });
+    await service.refundAfterHotelCancellation(context, 'booking-1');
+    expect(manualReview.recordInTransaction).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        message: expect.stringContaining('100.00 EUR was paid in person'),
+        context: expect.objectContaining({ kind: 'CANCELLATION_RETURN_BY_HAND' }),
+      }),
+    );
+  });
+
   it('does not refund a cancellation made after the free window', async () => {
     const { service, refunds } = setup({
       policy: 'FREE_WINDOW',
