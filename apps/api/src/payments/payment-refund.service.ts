@@ -221,7 +221,14 @@ export class PaymentRefundService {
         : null;
     if (!fee) {
       const read = await provider.getPaymentFee(context, charge.externalPaymentId);
-      if (!read.ok || !read.value) return null;
+      if (!read.ok) {
+        // G-33: the guest is refunded in full (ADR-0042); leave a trace so the hotel's absorbed fee is findable.
+        this.logger.warn(
+          `Provider fee of booking ${bookingId} could not be read from ${charge.provider}; the guest was refunded without keeping a fee back.`,
+        );
+        return null;
+      }
+      if (!read.value) return null;
       fee = read.value;
       await tx.$executeRaw`
         UPDATE payment_provider_sessions
