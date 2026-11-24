@@ -6,6 +6,7 @@ import {
   Inject,
   Injectable,
   Logger,
+  NotFoundException,
   OnModuleDestroy,
 } from '@nestjs/common';
 import { randomBytes, randomUUID, createHash } from 'node:crypto';
@@ -19,6 +20,19 @@ import { MailDeliveryService } from '../mail/mail-delivery.service';
 import { renderBrandedEmail } from '../mail/email-layout';
 import { loadVenuePlan, requireDining } from './venue-plan';
 
+/** One row of the invitations list (G-85). */
+export interface InvitationSummary {
+  id: string;
+  email: string;
+  status: 'PENDING' | 'ACCEPTED' | 'WITHDRAWN' | 'EXPIRED';
+  invitedByEmail: string | null;
+  createdAt: string;
+  expiresAt: string;
+  resentAt: string | null;
+  resolvedAt: string | null;
+  propertyIds: string[];
+}
+
 export interface StaffInvite {
   tenantId: string;
   email: string;
@@ -27,6 +41,9 @@ export interface StaffInvite {
   /** Hotel membership the invitee receives. Defaults to STAFF; the platform console invites owners. */
   membershipRole?: 'OWNER' | 'STAFF';
 }
+
+/** How long an invitation link works. */
+const INVITATION_LIFETIME_SECONDS = 604800;
 
 const INVITED_EMAIL_REQUIRED = 'Use the email address this invitation was sent to.';
 
@@ -74,8 +91,11 @@ export class StaffInviteService implements OnModuleDestroy {
     }
     const token = randomBytes(32).toString('base64url');
     await this.client().then((redis) =>
-      redis.set(`auth:staff-invite:${this.hash(token)}`, JSON.stringify(command), { EX: 604800 }),
+      redis.set(`auth:staff-invite:${this.hash(token)}`, JSON.stringify(command), {
+        EX: INVITATION_LIFETIME_SECONDS,
+      }),
     );
+    await this.recordInvitation(command, actorUserId, token);
     await this.auditLogs.record({
       tenantId: command.tenantId,
       actorUserId,
@@ -354,6 +374,7 @@ Sign in: ${signInLink}`,
       await this.assignInvitation(tx, invite, userId);
       // Used up only once every check passed (task 39-10b), still inside the transaction so a race rolls back.
       await this.consumeInvite(token);
+      await this.markInvitation(tx, invite.tenantId, token, 'ACCEPTED');
     });
   }
 
@@ -374,6 +395,7 @@ Sign in: ${signInLink}`,
         await this.createActiveStaffInTransaction(tx, userId, invite.email, password, false);
         await this.assignInvitation(tx, invite, userId);
         await this.consumeInvite(token);
+        await this.markInvitation(tx, invite.tenantId, token, 'ACCEPTED');
       });
     } catch (error: unknown) {
       if (this.isUniqueEmailViolation(error)) {
@@ -381,6 +403,140 @@ Sign in: ${signInLink}`,
       }
       throw error;
     }
+  }
+
+  /** The invitations of one hotel group, newest first, for the team page (G-85). Never includes the secret link. */
+  async list(tenantId: string): Promise<InvitationSummary[]> {
+    return this.database.withTenantTransaction({ tenantId }, async (tx) => {
+      const rows = await tx.$queryRaw<
+        Array<{
+          id: string;
+          email: string;
+          status: 'PENDING' | 'ACCEPTED' | 'WITHDRAWN';
+          expiresAt: Date;
+          createdAt: Date;
+          resentAt: Date | null;
+          resolvedAt: Date | null;
+          invitedByEmail: string | null;
+          command: StaffInvite;
+        }>
+      >`
+        SELECT i.id::text, i.email, i.status, i.expires_at AS "expiresAt", i.created_at AS "createdAt",
+          i.resent_at AS "resentAt", i.resolved_at AS "resolvedAt", u.email AS "invitedByEmail", i.command
+        FROM staff_invitations i
+        LEFT JOIN users u ON u.id = i.invited_by_user_id
+        WHERE i.tenant_id = ${tenantId}::uuid
+        ORDER BY i.created_at DESC
+        LIMIT 200`;
+      const now = Date.now();
+      return rows.map((row) => ({
+        id: row.id,
+        email: row.email,
+        status:
+          row.status === 'PENDING' && row.expiresAt.getTime() <= now
+            ? ('EXPIRED' as const)
+            : row.status,
+        invitedByEmail: row.invitedByEmail,
+        createdAt: row.createdAt.toISOString(),
+        expiresAt: row.expiresAt.toISOString(),
+        resentAt: row.resentAt?.toISOString() ?? null,
+        resolvedAt: row.resolvedAt?.toISOString() ?? null,
+        propertyIds: [...new Set((row.command.assignments ?? []).map((a) => a.propertyId))],
+      }));
+    });
+  }
+
+  /** Cancels a pending (or expired) invitation: its link stops working at once. */
+  async withdraw(tenantId: string, invitationId: string, actorUserId: string): Promise<void> {
+    const row = await this.database.withTenantTransaction({ tenantId }, async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ email: string; tokenHash: string }>>`
+        UPDATE staff_invitations SET status = 'WITHDRAWN', resolved_at = now()
+        WHERE tenant_id = ${tenantId}::uuid AND id = ${invitationId}::uuid AND status = 'PENDING'
+        RETURNING email, token_hash AS "tokenHash"`;
+      return rows[0];
+    });
+    if (!row) throw new NotFoundException('This invitation is not waiting for an answer.');
+    await this.client().then((redis) => redis.del(`auth:staff-invite:${row.tokenHash}`));
+    await this.auditLogs.record({
+      tenantId,
+      actorUserId,
+      action: 'staff.invite_withdrawn',
+      targetType: 'staff_invitation',
+      targetId: row.email.toLowerCase(),
+      details: { invitationId },
+    });
+  }
+
+  /** Sends a fresh link to the same address; the old link stops working. Works for expired ones too. */
+  async resend(tenantId: string, invitationId: string, actorUserId: string): Promise<void> {
+    const found = await this.database.withTenantTransaction({ tenantId }, async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ command: StaffInvite; tokenHash: string }>>`
+        SELECT command, token_hash AS "tokenHash" FROM staff_invitations
+        WHERE tenant_id = ${tenantId}::uuid AND id = ${invitationId}::uuid AND status = 'PENDING'
+        FOR UPDATE`;
+      const row = rows[0];
+      if (!row) return null;
+      await this.ensureStaffSeatAvailable(tx, tenantId, { email: row.command.email });
+      return row;
+    });
+    if (!found) throw new NotFoundException('This invitation is not waiting for an answer.');
+    const token = randomBytes(32).toString('base64url');
+    const redis = await this.client();
+    await redis.del(`auth:staff-invite:${found.tokenHash}`);
+    await redis.set(`auth:staff-invite:${this.hash(token)}`, JSON.stringify(found.command), {
+      EX: INVITATION_LIFETIME_SECONDS,
+    });
+    await this.database.withTenantTransaction({ tenantId }, async (tx) => {
+      await tx.$executeRaw`
+        UPDATE staff_invitations
+        SET token_hash = ${this.hash(token)},
+          expires_at = now() + (${INVITATION_LIFETIME_SECONDS} * interval '1 second'),
+          resent_at = now()
+        WHERE tenant_id = ${tenantId}::uuid AND id = ${invitationId}::uuid`;
+    });
+    await this.auditLogs.record({
+      tenantId,
+      actorUserId,
+      action: 'staff.invite_resent',
+      targetType: 'staff_invitation',
+      targetId: found.command.email.toLowerCase(),
+      details: { invitationId },
+    });
+    await this.sendInvitationEmailSafely(found.command, actorUserId, token);
+  }
+
+  private async recordInvitation(
+    command: StaffInvite,
+    actorUserId: string,
+    token: string,
+  ): Promise<void> {
+    try {
+      await this.database.withTenantTransaction({ tenantId: command.tenantId }, async (tx) => {
+        await tx.$executeRaw`
+          INSERT INTO staff_invitations (tenant_id, email, token_hash, command, invited_by_user_id, expires_at)
+          VALUES (${command.tenantId}::uuid, ${command.email.trim().toLowerCase()}, ${this.hash(token)},
+            ${JSON.stringify(command)}::jsonb,
+            (SELECT id FROM users WHERE id = ${actorUserId}::uuid),
+            now() + (${INVITATION_LIFETIME_SECONDS} * interval '1 second'))`;
+      });
+    } catch (error) {
+      // The invitation itself works without its record; losing the list entry must not lose the invitation.
+      this.logger.error(
+        'Could not record the staff invitation for the invitations list.',
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+  }
+
+  private async markInvitation(
+    tx: TenantTransaction,
+    tenantId: string,
+    token: string,
+    status: 'ACCEPTED',
+  ): Promise<void> {
+    await tx.$executeRaw`
+      UPDATE staff_invitations SET status = ${status}, resolved_at = now()
+      WHERE tenant_id = ${tenantId}::uuid AND token_hash = ${this.hash(token)} AND status = 'PENDING'`;
   }
 
   async onModuleDestroy(): Promise<void> {
