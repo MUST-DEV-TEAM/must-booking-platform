@@ -180,7 +180,7 @@ export class PokPayPaymentService {
         return { ok: true, value: { duplicate: false } };
       },
       // continueAfterPayment can attach a real Clock reservation and post a
-      // real deposit folio + credit_item inside this transaction â€” several
+      // real deposit folio + credit_item inside this transaction — several
       // real outbound Clock calls, same reasoning as
       // ClockBookingService.createBooking's own extended timeout.
       { timeoutMs: 45_000 },
