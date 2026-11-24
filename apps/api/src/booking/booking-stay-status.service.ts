@@ -1,9 +1,15 @@
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 
+import { ManualReviewService } from '../integrations/manual-review.service';
 import { LifecycleEmailService } from '../mail/lifecycle-email.service';
 import { AuditLogService } from '../tenancy/audit-log.service';
-import { TenantDatabaseService } from '../tenancy/tenant-database.service';
-import { isStayStatus, stayStatusProblem, type StayStatus } from './booking-stay-status';
+import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant-database.service';
+import {
+  isStayStatus,
+  noShowFollowUp,
+  stayStatusProblem,
+  type StayStatus,
+} from './booking-stay-status';
 
 type Context = { tenantId: string; propertyId: string; userId: string };
 
@@ -17,6 +23,7 @@ export class BookingStayStatusService {
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
     @Inject(AuditLogService) private readonly audit: AuditLogService,
     @Inject(LifecycleEmailService) private readonly lifecycle: LifecycleEmailService,
+    @Inject(ManualReviewService) private readonly manualReview: ManualReviewService,
   ) {}
 
   async set(context: Context, bookingId: string, to: StayStatus, expectedFrom?: unknown) {
@@ -65,6 +72,7 @@ export class BookingStayStatusService {
         targetId: bookingId,
         details: { from, to },
       });
+      if (to === 'no_show') await this.raiseNoShowFollowUp(tx, context, bookingId);
       return { from, to };
     });
     // Told after the change is saved; an email problem never undoes it.
@@ -78,5 +86,44 @@ export class BookingStayStatusService {
         heading: 'We missed you',
       });
     return { stayStatus: result.to };
+  }
+
+  /** The hotel's no-show rule as a task for staff (G-54). Part of the same transaction as the status change. */
+  private async raiseNoShowFollowUp(
+    tx: TenantTransaction,
+    context: Context,
+    bookingId: string,
+  ): Promise<void> {
+    const rows = await tx.$queryRaw<
+      Array<{
+        rule: string | null;
+        currency: string | null;
+        startsOn: string;
+        nightlyRates: Array<{ date?: string; amount?: string }> | null;
+      }>
+    >`
+      SELECT p.no_show_rule AS rule, COALESCE(b.currency, p.default_currency) AS currency,
+        b.starts_on::text AS "startsOn", b.nightly_rates AS "nightlyRates"
+      FROM bookings b JOIN properties p ON p.tenant_id = b.tenant_id AND p.id = b.property_id
+      WHERE b.tenant_id = ${context.tenantId}::uuid AND b.property_id = ${context.propertyId}::uuid
+        AND b.id = ${bookingId}::uuid
+    `;
+    const row = rows[0];
+    if (!row) return;
+    const rates = Array.isArray(row.nightlyRates) ? row.nightlyRates : [];
+    const first = rates.find((rate) => rate.date === row.startsOn) ?? rates[0];
+    const firstNight =
+      first?.amount && row.currency ? { amount: String(first.amount), currency: row.currency } : null;
+    const message = noShowFollowUp(row.rule, firstNight);
+    if (!message) return;
+    await this.manualReview.recordInTransaction(tx, {
+      tenantId: context.tenantId,
+      propertyId: context.propertyId,
+      category: 'PAYMENT_BOOKING_MISMATCH',
+      referenceType: 'booking',
+      referenceId: bookingId,
+      message,
+      context: { kind: 'NO_SHOW_FOLLOW_UP', noShowRule: row.rule },
+    });
   }
 }
