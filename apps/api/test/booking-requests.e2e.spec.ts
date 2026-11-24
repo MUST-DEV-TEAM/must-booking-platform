@@ -433,6 +433,37 @@ describe('B1 risky cancellation paths', () => {
       notifyGuest: false,
     });
   });
+  it('keeps a committed cancellation as a success when the refund step fails unexpectedly', async () => {
+    const c = { ...context, userId: reviewer },
+      id = await fixture(),
+      e = await service.preview(c, id);
+    const spy = vi
+      .spyOn(refunds, 'cancellationRefund')
+      .mockRejectedValue(new Error('database went away'));
+    try {
+      const result = await service.submit(c, id, {
+        expectedVersion: e.version,
+        previewHash: e.previewHash,
+        reasonCategory: 'other',
+        details: 'Refund step fails',
+        notifyGuest: false,
+      });
+      expect(result).toMatchObject({
+        refundOutcome: { status: 'not_made', errorCode: 'REFUND_STEP_FAILED' },
+      });
+    } finally {
+      spy.mockRestore();
+    }
+    const [booking] = await admin.$queryRaw<
+      { status: string }[]
+    >`SELECT status::text AS status FROM bookings WHERE id=${id}::uuid`;
+    expect(booking?.status).toBe('CANCELLED');
+    const items = await admin.$queryRaw<
+      { count: bigint }[]
+    >`SELECT count(*) AS count FROM manual_review_items
+      WHERE reference_id=${id} AND message LIKE '%unexpected error%'`;
+    expect(Number(items[0]?.count)).toBe(1);
+  });
   it('recovers a decision-commit failure with the same intent and no second refund', async () => {
     const id = await fixture(),
       q = await request(id, 'custom');
