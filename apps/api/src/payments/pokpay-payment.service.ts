@@ -159,6 +159,7 @@ export class PokPayPaymentService {
               message:
                 'A PokPay payment arrived after this booking stopped awaiting payment. The money is recorded; the booking was not confirmed. Refund the payment or rebook the guest.',
               context: {
+                kind: 'LATE_PAYMENT_AFTER_EXPIRY',
                 orderId,
                 bookingStatus: booking.status,
                 amount: payment.amount.amount,

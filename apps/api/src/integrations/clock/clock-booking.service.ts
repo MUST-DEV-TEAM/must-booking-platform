@@ -476,6 +476,7 @@ export class ClockBookingService {
                 referenceId: bookingId,
                 message: `Booking creation timed out and could not be confirmed against Clock: ${response.error.message}`,
                 context: {
+                  kind: 'CLOCK_CREATE_UNCONFIRMED',
                   externalReference,
                   errorCode: response.error.code,
                 },
@@ -507,7 +508,11 @@ export class ClockBookingService {
               referenceId: bookingId,
               message:
                 'Clock returned a 2xx booking-create response that did not match the expected shape.',
-              context: { externalReference, response: response.value },
+              context: {
+                kind: 'CLOCK_CREATE_SHAPE_MISMATCH',
+                externalReference,
+                response: response.value,
+              },
             });
             return this.failure(
               'clock_schema_mismatch',
@@ -805,7 +810,11 @@ export class ClockBookingService {
         referenceType: 'booking',
         referenceId: bookingId,
         message: `Payment was confirmed but the Clock reservation could not be created: ${response.error.message}`,
-        context: { externalReference: row.externalReference, errorCode: response.error.code },
+        context: {
+          kind: 'CLOCK_CREATE_FAILED_AFTER_PAYMENT',
+          externalReference: row.externalReference,
+          errorCode: response.error.code,
+        },
       });
       return this.failure(response.error.code, response.error.message, response.error.retryable);
     }
@@ -826,7 +835,11 @@ export class ClockBookingService {
         referenceId: bookingId,
         message:
           'Clock returned a 2xx booking-create response that did not match the expected shape.',
-        context: { externalReference: row.externalReference, response: response.value },
+        context: {
+          kind: 'CLOCK_CREATE_SHAPE_MISMATCH_AFTER_PAYMENT',
+          externalReference: row.externalReference,
+          response: response.value,
+        },
       });
       return this.failure(
         'clock_schema_mismatch',
@@ -965,7 +978,11 @@ export class ClockBookingService {
         referenceType: 'booking',
         referenceId: bookingId,
         message: `Booking is confirmed at Clock but no folio could take the payment: ${folio.error.message}`,
-        context: { externalBookingId, errorCode: folio.error.code },
+        context: {
+          kind: 'CLOCK_NO_FOLIO_FOR_PAYMENT',
+          externalBookingId,
+          errorCode: folio.error.code,
+        },
       });
       // ManualReviewService's own alert only reaches anyone if SENTRY_DSN is
       // configured (silently a no-op otherwise, confirmed 2026-09-04 — this
@@ -1065,6 +1082,7 @@ export class ClockBookingService {
         referenceId: bookingId,
         message: `Booking is confirmed at Clock but the deposit could not be posted: ${creditItem.error.message}`,
         context: {
+          kind: 'CLOCK_DEPOSIT_NOT_POSTED',
           externalBookingId: row.externalBookingId,
           folioId: target.id,
           errorCode: creditItem.error.code,
@@ -1535,7 +1553,7 @@ export class ClockBookingService {
       referenceType: 'booking',
       referenceId: bookingId,
       message: details.message,
-      context: details,
+      context: { kind: 'CLOCK_REFUND_SYNC_PROBLEM', ...details },
     });
     await this.notifications.recordInTransaction(tx, {
       tenantId: context.tenantId,
@@ -1612,7 +1630,7 @@ export class ClockBookingService {
       referenceType: 'booking',
       referenceId: bookingId,
       message: `The promo discount could not be posted on the Clock bill: ${message}`,
-      context: { externalBookingId, code, discount },
+      context: { kind: 'CLOCK_PROMO_NOT_POSTED', externalBookingId, code, discount },
     });
     await this.notifications.recordInTransaction(tx, {
       tenantId: context.tenantId,
@@ -1852,7 +1870,7 @@ export class ClockBookingService {
           referenceType: 'booking',
           referenceId: command.bookingId,
           message: 'Room move needs provider confirmation. Do not repeat the move.',
-          context: { operationKey: key, roomId: command.roomId },
+          context: { kind: 'ROOM_MOVE_UNCONFIRMED', operationKey: key, roomId: command.roomId },
         });
         await this.audit.recordInTransaction(tx, {
           ...context,
@@ -2673,7 +2691,10 @@ export class ClockBookingService {
       referenceType: 'booking',
       referenceId: bookingId,
       message: details.message,
-      context: details.context,
+      context: {
+        kind: `CLOCK_${details.category}`,
+        ...(details.context as Record<string, unknown> | undefined),
+      },
     });
     if (details.notify === false) return;
     await this.notifications.recordInTransaction(tx, {

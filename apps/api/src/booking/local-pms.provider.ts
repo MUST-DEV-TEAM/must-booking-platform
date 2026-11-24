@@ -244,7 +244,11 @@ export class LocalPmsProvider implements PmsProvider {
       referenceType: 'booking',
       referenceId: bookingId,
       message: `The booking was cancelled, but its room charges could not be cleared in Clock: ${cleared.error.message} Void the room folio in Clock by hand.`,
-      context: { externalBookingId, errorCode: cleared.error.code },
+      context: {
+        kind: 'CANCEL_ROOM_CHARGES_NOT_CLEARED',
+        externalBookingId,
+        errorCode: cleared.error.code,
+      },
     });
   }
 
@@ -2182,6 +2186,7 @@ export class LocalPmsProvider implements PmsProvider {
             referenceId: child.row.id,
             message: `Clock cancellation could not be confirmed for this room: ${cancelledAtClock.error.message}`,
             context: {
+              kind: 'ORDER_ROOM_CLOCK_CANCEL_UNCONFIRMED',
               orderReference,
               externalBookingId: child.row.externalBookingId,
               errorCode: cancelledAtClock.error.code,
@@ -2354,6 +2359,7 @@ export class LocalPmsProvider implements PmsProvider {
       referenceId: bookingId,
       message: `Automatic cancellation refund needs manual action: ${error.message}`,
       context: {
+        kind: 'CANCELLATION_REFUND_NEEDS_ACTION',
         automaticRefund: true,
         errorCode: error.code,
         retryable: error.retryable,

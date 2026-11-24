@@ -93,6 +93,7 @@ export class HotelCancellationRefundService {
               referenceId: bookingId,
               message: `The hotel cancelled this booking in Clock, but the automatic refund needs manual action: ${refunded.result.error.message}`,
               context: {
+                kind: 'CLOCK_CANCEL_REFUND_NEEDS_ACTION',
                 automaticRefund: true,
                 hotelCancellation: true,
                 errorCode: refunded.result.error.code,
@@ -144,7 +145,11 @@ export class HotelCancellationRefundService {
       referenceType: 'booking',
       referenceId: bookingId,
       message: `The hotel cancelled this booking in Clock, but its room charges could not be cleared: ${cleared.error.message} Void the room folio in Clock by hand.`,
-      context: { externalBookingId, errorCode: cleared.error.code },
+      context: {
+        kind: 'CLOCK_CANCEL_CHARGES_NOT_CLEARED',
+        externalBookingId,
+        errorCode: cleared.error.code,
+      },
     });
   }
 

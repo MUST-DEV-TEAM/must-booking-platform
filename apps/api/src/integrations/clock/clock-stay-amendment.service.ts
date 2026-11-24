@@ -415,7 +415,7 @@ export class ClockStayAmendmentService {
         referenceType: 'booking',
         referenceId: intent.row.id,
         message: 'Date amendment needs provider confirmation. Do not send another amendment.',
-        context: { operationKey: key },
+        context: { kind: 'DATE_AMENDMENT_UNCONFIRMED', operationKey: key },
       });
       await this.audit.recordInTransaction(tx, {
         ...c,
