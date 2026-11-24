@@ -1,3 +1,4 @@
+import { houseRuleLines } from './house-rules';
 import { pricingFacts } from './pricing.repository';
 import { evaluatePricing } from '../booking/pricing-evaluator';
 import { propertyClock } from '../booking/booking-rules';
@@ -133,6 +134,8 @@ export class PublicCatalogService {
       return {
         ...row,
         profile: publicHotelProfile(profileRows[0]!),
+        /** Check-in/out times and house rules as sentences, ready to show next to a booking (G-55). */
+        policyLines: await houseRuleLines(tx, { tenantId, propertyId }),
         cancellationText:
           days && days > 0
             ? `Free cancellation up to ${days} days before arrival. Inside ${days} days, contact the hotel.`

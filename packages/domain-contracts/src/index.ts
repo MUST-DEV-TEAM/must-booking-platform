@@ -54,6 +54,8 @@ export interface MailProvider {
     rooms?: MailOrderRoom[];
     cancellationUrl?: string;
     specialRequests?: string | null;
+    /** The hotel's check-in/out times and house rules as sentences; absent when the hotel set none (G-55). */
+    houseRules?: string[];
     /** The property's own subject and message, when it saved one. */
     template?: MailTemplateOverride;
   }): Promise<MailSendReceipt | void>;
@@ -648,6 +650,7 @@ export interface UpdateNotificationTopicCommand {
 export * from './capture';
 
 export * from './hotel-profile-rules';
+export * from './policy-lines';
 export * from './booking-window-rules';
 export * from './policy-rules';
 export * from './payment-rules';
