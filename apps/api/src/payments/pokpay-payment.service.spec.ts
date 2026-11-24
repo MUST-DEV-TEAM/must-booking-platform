@@ -92,6 +92,7 @@ describe('PokPayPaymentService payment after the hold ended', () => {
         referenceType: 'booking',
         referenceId: 'booking-1',
         context: {
+          kind: 'LATE_PAYMENT_AFTER_EXPIRY',
           orderId: 'order-1',
           bookingStatus: BookingStatus.EXPIRED,
           amount: '110.00',
