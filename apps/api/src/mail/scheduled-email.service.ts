@@ -85,6 +85,12 @@ type StayRow = {
 };
 
 /** The calendar date and hour right now in a time zone (UTC if the zone is unknown). */
+/** The hour of a saved "HH:MM" time, or null when it is not one. */
+export function hourOf(time: string | null | undefined): number | null {
+  const match = /^([01]\d|2[0-3]):[0-5]\d$/.exec(time ?? '');
+  return match ? Number(match[1]) : null;
+}
+
 export function localNow(now: Date, timeZone: string | null): { date: string; hour: number } {
   const format = (zone: string) =>
     new Intl.DateTimeFormat('en-CA', {
@@ -208,20 +214,52 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
       }
       try {
         await this.senderProofs?.recover(context);
-        if (local.hour >= OWNER_SUMMARY_HOUR)
+        const hours = await this.sendHours(context);
+        if (local.hour >= hours.ownerSummary)
           await this.sendOwnerSummary(context, property.timezone || 'UTC', local.date);
-        if (local.hour >= OWNER_SUMMARY_HOUR && isMonday(local.date))
+        if (local.hour >= hours.ownerSummary && isMonday(local.date))
           await this.sendOwnerWeeklySummary(context, property.timezone || 'UTC', local.date);
         await this.sendCheckInDay(context, property.timezone || 'UTC', local.date, now);
-        if (local.hour >= PRE_ARRIVAL_HOUR)
+        if (local.hour >= hours.preArrival)
           await this.sendPreArrival(context, property.timezone || 'UTC', local.date);
-        if (local.hour >= POST_STAY_HOUR) await this.sendPostStay(context, local.date);
+        if (local.hour >= hours.postStay) await this.sendPostStay(context, local.date);
       } catch (error) {
         this.logger.error(
           `Scheduled emails failed for property ${property.propertyId}.`,
           error instanceof Error ? error.stack : String(error),
         );
       }
+    }
+  }
+
+  /**
+   * The local hour from which each scheduled email may go out (G-81): the hotel's own time from Settings, or
+   * today's fixed hours when it set none. Only the hour counts; the sweep runs every 15 minutes.
+   */
+  private async sendHours(
+    context: Context,
+  ): Promise<{ ownerSummary: number; preArrival: number; postStay: number }> {
+    const defaults = {
+      ownerSummary: OWNER_SUMMARY_HOUR,
+      preArrival: PRE_ARRIVAL_HOUR,
+      postStay: POST_STAY_HOUR,
+    };
+    try {
+      const rows = await this.database.withTenantTransaction(
+        context,
+        (tx) =>
+          tx.$queryRaw<
+            Array<{ owner: string | null; pre: string | null; post: string | null }>
+          >`SELECT owner_summary_time AS owner, pre_arrival_email_time AS pre, post_stay_email_time AS post
+            FROM properties WHERE tenant_id = ${context.tenantId}::uuid AND id = ${context.propertyId}::uuid`,
+      );
+      return {
+        ownerSummary: hourOf(rows[0]?.owner) ?? defaults.ownerSummary,
+        preArrival: hourOf(rows[0]?.pre) ?? defaults.preArrival,
+        postStay: hourOf(rows[0]?.post) ?? defaults.postStay,
+      };
+    } catch {
+      return defaults;
     }
   }
 

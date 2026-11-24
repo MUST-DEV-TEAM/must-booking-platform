@@ -109,6 +109,9 @@ export type HotelSettings = {
   maxGuestsPerBooking?: number | null;
   maxRoomsPerBooking?: number | null;
   noShowRule?: string | null;
+  ownerSummaryTime?: string | null;
+  preArrivalEmailTime?: string | null;
+  postStayEmailTime?: string | null;
   earlyCheckInPolicy?: string | null;
   earlyCheckInUntil?: string | null;
   earlyCheckInNote?: string | null;
@@ -276,6 +279,9 @@ export const hotelFields = [
   { key: 'childrenPolicyNote', column: 'children_policy_note', kind: 'text', max: 300 },
   { key: 'petsPolicy', column: 'pets_policy', kind: 'policy', max: 0 },
   { key: 'petsPolicyNote', column: 'pets_policy_note', kind: 'text', max: 300 },
+  { key: 'ownerSummaryTime', column: 'owner_summary_time', kind: 'time', max: 5 },
+  { key: 'preArrivalEmailTime', column: 'pre_arrival_email_time', kind: 'time', max: 5 },
+  { key: 'postStayEmailTime', column: 'post_stay_email_time', kind: 'time', max: 5 },
 ] as const;
 export const hotelColumns = Prisma.raw(
   hotelFields.map((f) => `${f.column} AS "${f.key}"`).join(','),
