@@ -1,4 +1,5 @@
 import { enforcePropertyBookingLimits } from './property-booking-limits';
+import { checkTermsAcceptance, recordTermsAcceptance } from './terms-acceptance';
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   BookingPaymentMethod,
@@ -129,6 +130,13 @@ export class MultiRoomBookingService {
               roomCount: command.rooms.length,
             });
 
+            const terms = await checkTermsAcceptance(
+              tx,
+              context,
+              command.guest.termsAccepted === true,
+            );
+            if (!terms.ok) return this.failure(terms.code, terms.message);
+
             const paymentMethod = await this.paymentMethod(
               tx,
               context,
@@ -229,6 +237,12 @@ export class MultiRoomBookingService {
               `;
               bookings.push({ id: inserted[0]!.id, externalReference, status, total: room.total });
             }
+            await recordTermsAcceptance(
+              tx,
+              context,
+              bookings.map((booking) => booking.id),
+              terms.record,
+            );
             if (onRequest) {
               if (this.audit)
                 for (const booking of bookings)

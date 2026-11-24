@@ -3,6 +3,7 @@ import type {
   RoomMoveAvailabilitySnapshot,
 } from '@must/domain-contracts';
 import type { MoveBookingRoomCommand } from '@must/domain-contracts';
+import { checkTermsAcceptance, recordTermsAcceptance } from './terms-acceptance';
 import { enforcePropertyBookingLimits } from './property-booking-limits';
 import { enforceChildrenAges, enforceGuestForm } from './guest-form-rules';
 import { resolveBillingRatePlan } from './billing-rate-plan';
@@ -420,6 +421,11 @@ export class LocalPmsProvider implements PmsProvider {
                 await enforceGuestForm(tx, context, command.guest);
                 await enforceChildrenAges(tx, context, occupancy, command.childrenAges);
               }
+              // The hotel's terms and privacy links, when it requires the guest to accept them (G-56).
+              const terms = command.staffActorId
+                ? ({ ok: true, record: null } as const)
+                : await checkTermsAcceptance(tx, context, command.guest.termsAccepted === true);
+              if (!terms.ok) return this.failure(terms.code, terms.message);
               const catalog = await this.validateCatalog(
                 tx,
                 context,
@@ -495,6 +501,7 @@ export class LocalPmsProvider implements PmsProvider {
         RETURNING id
       `;
               const bookingId = inserted[0]!.id;
+              await recordTermsAcceptance(tx, context, [bookingId], terms.record);
               const guestReturnUrl = await this.validatedGuestReturnUrl(
                 tx,
                 context,
