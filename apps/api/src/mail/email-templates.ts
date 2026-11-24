@@ -118,6 +118,12 @@ export const EMAIL_TEMPLATES = {
     subject: 'Complete your booking at {hotel_name}',
     body: 'Hello {guest_name}, please complete payment of {payment_due} using {payment_link}. Your booking is awaiting payment.\n\n{stay_range}\n\n{hotel_contact}',
   },
+  booking_awaiting_transfer: {
+    label: 'Bank transfer details',
+    placeholders: [...COMMON, 'payment_due', 'transfer_deadline', 'bank_details'],
+    subject: 'Transfer to confirm your booking at {hotel_name} - {booking_reference}',
+    body: 'Hello {guest_name}, thank you for booking {hotel_name}. To confirm your stay, please transfer {payment_due} by {transfer_deadline} to:\n\n{bank_details}\n\nUse the booking reference as the payment reference. We hold your room until then; if the transfer has not arrived by the deadline, the room is released.\n\n{stay_range}\n\n{hotel_contact}',
+  },
   payment_reminder: {
     label: 'Payment reminder',
     placeholders: [...COMMON, 'payment_link', 'payment_due'],

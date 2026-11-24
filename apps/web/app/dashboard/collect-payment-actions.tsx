@@ -34,12 +34,17 @@ export function CollectPaymentActions({
     refundedAmount?: string;
     balanceBasis?: 'CLOCK' | 'MUST';
     guestEmail?: string | null;
+    paymentMethod?: string;
   };
 }) {
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
   const client = useQueryClient();
   const [manual, setManual] = useState(false),
-    [method, setMethod] = useState('cash'),
+    [method, setMethod] = useState(
+      booking.status === 'PAYMENT_PENDING' && booking.paymentMethod === 'BANK_TRANSFER'
+        ? 'bank_transfer'
+        : 'cash',
+    ),
     [message, setMessage] = useState('');
   const [reference, setReference] = useState(''),
     [payerName, setPayerName] = useState(''),
@@ -91,11 +96,15 @@ export function CollectPaymentActions({
     verifiedClock?.fetchedAt,
     verifiedClock?.balance,
   ]);
+  // A booking waiting for the guest's bank transfer can only be settled by recording the transfer (G-48).
+  const awaitingTransfer =
+    booking.status === 'PAYMENT_PENDING' && booking.paymentMethod === 'BANK_TRANSFER';
   const eligible =
-    booking.status === 'CONFIRMED' &&
-    (booking.balanceBasis === 'CLOCK'
-      ? !!verifiedClock && Number(verifiedClock.balance.amount) > 0
-      : minorUnits(booking.total.amount) > minorUnits(booking.paidAmount)) &&
+    (awaitingTransfer ||
+      (booking.status === 'CONFIRMED' &&
+        (booking.balanceBasis === 'CLOCK'
+          ? !!verifiedClock && Number(verifiedClock.balance.amount) > 0
+          : minorUnits(booking.total.amount) > minorUnits(booking.paidAmount)))) &&
     !!caps.data?.includes('payments.record');
   const options = useQuery({
     queryKey: [
@@ -106,7 +115,7 @@ export function CollectPaymentActions({
       booking.id,
       verifiedClock?.fetchedAt,
     ],
-    enabled: eligible,
+    enabled: eligible && !awaitingTransfer,
     queryFn: async () => {
       const r = await fetch(`${base}/bookings/${booking.id}/collection-options`, {
         credentials: 'include',
@@ -302,8 +311,14 @@ export function CollectPaymentActions({
           />
           . A recorded cash, card or bank payment means you have already received the money.
         </p>
+        {awaitingTransfer ? (
+          <p className="text-sm text-muted-foreground">
+            The guest was asked to pay by bank transfer, and the room is held until the deadline.
+            Record the transfer when the money arrives; the booking is then confirmed.
+          </p>
+        ) : null}
         <div className="flex flex-wrap gap-2">
-          {options.data?.pokpay ? (
+          {!awaitingTransfer && options.data?.pokpay ? (
             <>
               <Button disabled={pay.isPending} onClick={() => pay.mutate('open')}>
                 Pay with PokPay
@@ -455,7 +470,7 @@ export function CollectPaymentActions({
           </label>
           <label className="grid gap-1 text-sm">
             {method === 'bank_transfer'
-              ? 'Bank transaction reference'
+              ? 'Bank reference (transaction ID or the reference on the bank statement)'
               : method === 'card_in_person'
                 ? 'POS transaction / receipt reference'
                 : 'Receipt reference (optional)'}

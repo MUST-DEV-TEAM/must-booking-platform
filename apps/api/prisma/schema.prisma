@@ -44,6 +44,7 @@ enum BookingPaymentMethod {
   POKPAY
   PAY_AT_HOTEL
   FREE
+  BANK_TRANSFER
 }
 
 enum PaymentKind {
@@ -314,6 +315,13 @@ model Property {
   paymentLinkValidDays              Int                             @default(7) @map("payment_link_valid_days") @db.SmallInt
   paymentSecondReminderDays         Int?                            @map("payment_second_reminder_days") @db.SmallInt
   paymentLinkExpiryAction           String                          @default("notify_staff") @map("payment_link_expiry_action") @db.VarChar(20)
+  bankTransferEnabled               Boolean                         @default(false) @map("bank_transfer_enabled")
+  bankTransferDays                  Int                             @default(3) @map("bank_transfer_days") @db.SmallInt
+  bankAccountHolder                 String?                         @map("bank_account_holder") @db.VarChar(120)
+  bankIban                          String?                         @map("bank_iban") @db.VarChar(34)
+  bankBic                           String?                         @map("bank_bic") @db.VarChar(11)
+  bankName                          String?                         @map("bank_name") @db.VarChar(120)
+  bankTransferNote                  String?                         @map("bank_transfer_note") @db.VarChar(300)
   onlinePaymentHoldMinutes          Int                             @default(30) @map("online_payment_hold_minutes")
   autoRefundOnFreeCancellation      Boolean                         @default(true) @map("auto_refund_on_free_cancellation")
   clockCancelRefundPolicy           String                          @default("NEVER") @map("clock_cancel_refund_policy") @db.VarChar(20)

@@ -234,9 +234,24 @@ export enum BookingPaymentMethod {
   POKPAY = 'POKPAY',
   PAY_AT_HOTEL = 'PAY_AT_HOTEL',
   FREE = 'FREE',
+  BANK_TRANSFER = 'BANK_TRANSFER',
 }
 
-export type GuestPaymentMethod = 'stripe' | 'pokpay' | 'pay_at_hotel';
+export type GuestPaymentMethod = 'stripe' | 'pokpay' | 'pay_at_hotel' | 'bank_transfer';
+
+/** What a guest needs to pay a booking by bank transfer (G-48). */
+export interface BankTransferDetails {
+  accountHolder: string;
+  iban: string;
+  bic: string | null;
+  bankName: string | null;
+  note: string | null;
+  /** The booking reference the guest puts on the transfer. */
+  reference: string;
+  amount: Money;
+  /** The room is held until this time (ISO 8601); then it is released. */
+  dueAt: string;
+}
 
 export interface ResultError {
   code: string;

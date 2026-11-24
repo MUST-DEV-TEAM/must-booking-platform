@@ -26,6 +26,9 @@ import {
   checkAcceptedAtHotel,
   checkPaymentOrder,
   checkPaymentSettings,
+  BANK_TRANSFER_DAYS,
+  checkIban,
+  normaliseIban,
   type PaymentValues,
   checkMoneyAmount,
   checkPolicies,
@@ -139,6 +142,13 @@ export type HotelSettings = {
   paymentDefaultMethod?: string | null;
   acceptedAtHotel?: string[];
   paymentLinkValidDays?: number;
+  bankTransferEnabled?: boolean;
+  bankTransferDays?: number;
+  bankAccountHolder?: string | null;
+  bankIban?: string | null;
+  bankBic?: string | null;
+  bankName?: string | null;
+  bankTransferNote?: string | null;
   paymentSecondReminderDays?: number | null;
   paymentLinkExpiryAction?: string;
   quietHoursFrom?: string | null;
@@ -263,6 +273,13 @@ export const hotelFields = [
   { key: 'paymentDefaultMethod', column: 'payment_default_method', kind: 'pchoice', max: 0 },
   { key: 'acceptedAtHotel', column: 'accepted_at_hotel', kind: 'pmulti', max: 0 },
   { key: 'paymentLinkValidDays', column: 'payment_link_valid_days', kind: 'limit', max: 0 },
+  { key: 'bankTransferEnabled', column: 'bank_transfer_enabled', kind: 'boolean', max: 0 },
+  { key: 'bankTransferDays', column: 'bank_transfer_days', kind: 'bank', max: 0 },
+  { key: 'bankAccountHolder', column: 'bank_account_holder', kind: 'text', max: 120 },
+  { key: 'bankIban', column: 'bank_iban', kind: 'bank', max: 0 },
+  { key: 'bankBic', column: 'bank_bic', kind: 'bank', max: 0 },
+  { key: 'bankName', column: 'bank_name', kind: 'text', max: 120 },
+  { key: 'bankTransferNote', column: 'bank_transfer_note', kind: 'text', max: 300 },
   {
     key: 'paymentSecondReminderDays',
     column: 'payment_second_reminder_days',
@@ -303,7 +320,30 @@ export function hotelInput(raw: Record<string, unknown>): HotelSettings {
     const bad = (message: string): never => {
       throw new BadRequestException(message);
     };
-    if (f.kind === 'limit') {
+    if (f.kind === 'bank') {
+      // Bank transfer details (G-48): the number of days, the IBAN and the BIC.
+      if (f.key === 'bankTransferDays') {
+        if (
+          !Number.isInteger(v) ||
+          Number(v) < BANK_TRANSFER_DAYS.min ||
+          Number(v) > BANK_TRANSFER_DAYS.max
+        )
+          bad(
+            `Give guests between ${BANK_TRANSFER_DAYS.min} and ${BANK_TRANSFER_DAYS.max} days to transfer.`,
+          );
+      } else if (v === null || v === '') {
+        v = null;
+      } else if (f.key === 'bankIban') {
+        const message = checkIban(v);
+        if (message) bad(message);
+        v = normaliseIban(v as string);
+      } else {
+        const bic = typeof v === 'string' ? v.replace(/\s+/g, '').toUpperCase() : '';
+        if (!/^[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}([A-Z0-9]{3})?$/.test(bic))
+          bad('Enter a valid BIC (8 or 11 letters and digits), or leave it empty.');
+        v = bic;
+      }
+    } else if (f.kind === 'limit') {
       v = v === '' ? null : v;
       const message = checkBookingLimit(f.key as BookingLimitKey, v);
       if (message) bad(message);

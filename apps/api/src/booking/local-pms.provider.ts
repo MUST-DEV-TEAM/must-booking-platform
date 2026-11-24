@@ -19,6 +19,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   type AvailabilityQuery,
   type AvailabilityResult,
+  type BankTransferDetails,
   type Booking,
   BookingPaymentMethod,
   BookingStatus,
@@ -133,6 +134,8 @@ type BookingWithCheckout = Booking & {
   checkoutClientSecret?: string;
   stripePublishableKey?: string;
   onRequestDeadlineAt?: string;
+  /** Set for a bank-transfer booking: who to pay, how much, the reference and until when (G-48). */
+  bankTransfer?: BankTransferDetails;
 };
 
 type ConfirmedPaymentDetails = {
@@ -360,6 +363,7 @@ export class LocalPmsProvider implements PmsProvider {
 
     let payAtHotelConfirmationBookingId: string | null = null;
     let onRequestCreated: { id: string; deadline: string } | null = null;
+    let bankTransferCreated: (BankTransferDetails & { bookingId: string }) | null = null;
     try {
       const result = await this.database.withTenantTransaction(
         context,
@@ -772,6 +776,69 @@ export class LocalPmsProvider implements PmsProvider {
                   : this.failure('BOOKING_NOT_FOUND', 'Created booking could not be loaded.');
               }
 
+              if (paymentMethod.value === BookingPaymentMethod.BANK_TRANSFER) {
+                // The room is held, as for a card attempt, but until the hotel's own transfer deadline. The
+                // existing expiry sweep releases it at payment_due_at; staff record the transfer when it arrives.
+                const confirmed = await this.prePaymentAvailability.confirmAvailable(context, {
+                  startsOn: command.startsOn,
+                  endsOn: command.endsOn,
+                  rooms: [
+                    {
+                      roomTypeId: command.roomTypeId,
+                      roomId: command.roomId,
+                      adults: occupancy.adults,
+                      children: occupancy.children,
+                      childrenAges: command.childrenAges,
+                    },
+                  ],
+                });
+                if (!confirmed.ok) throw new PrePaymentAvailabilityError(confirmed);
+                status = await this.transition(
+                  tx,
+                  context,
+                  bookingId,
+                  status,
+                  BookingStatus.PAYMENT_PENDING,
+                );
+                const bank = await tx.$queryRaw<
+                  Array<{
+                    holder: string | null;
+                    iban: string | null;
+                    bic: string | null;
+                    bankName: string | null;
+                    note: string | null;
+                    days: number;
+                  }>
+                >`SELECT bank_account_holder AS holder, bank_iban AS iban, bank_bic AS bic, bank_name AS "bankName",
+                    bank_transfer_note AS note, bank_transfer_days AS days
+                  FROM properties WHERE tenant_id=${context.tenantId}::uuid AND id=${context.propertyId}::uuid`;
+                const account = bank[0];
+                if (!account?.holder || !account.iban)
+                  return this.failure(
+                    'PAYMENT_METHOD_NOT_ENABLED',
+                    'The hotel has not entered its bank details.',
+                  );
+                const dueAt = new Date(Date.now() + account.days * 24 * 60 * 60 * 1000);
+                await tx.$executeRaw`UPDATE bookings SET payment_due_at=${dueAt}::timestamptz
+                  WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND id=${bookingId}::uuid`;
+                const row = await this.bookingById(tx, context, bookingId);
+                const booking = row && this.toBooking(row);
+                if (!booking)
+                  return this.failure('BOOKING_NOT_FOUND', 'Created booking could not be loaded.');
+                const details: BankTransferDetails = {
+                  accountHolder: account.holder,
+                  iban: account.iban,
+                  bic: account.bic,
+                  bankName: account.bankName,
+                  note: account.note,
+                  reference: booking.externalReference,
+                  amount: command.total,
+                  dueAt: dueAt.toISOString(),
+                };
+                bankTransferCreated = { ...details, bookingId };
+                return { ok: true, value: { ...booking, bankTransfer: details } };
+              }
+
               status = await this.transition(
                 tx,
                 context,
@@ -838,6 +905,35 @@ export class LocalPmsProvider implements PmsProvider {
         result.value.onRequestDeadlineAt
       )
         onRequestCreated = { id: result.value.id, deadline: result.value.onRequestDeadlineAt };
+      if (bankTransferCreated) {
+        const transfer = bankTransferCreated as BankTransferDetails & { bookingId: string };
+        await this.lifecycle?.guest(context, {
+          topic: 'payment_pending',
+          key: 'booking_awaiting_transfer',
+          eventType: 'guest.booking_awaiting_transfer',
+          idempotencyKey: `booking-awaiting-transfer/${transfer.bookingId}`,
+          bookingId: transfer.bookingId,
+          heading: 'Transfer to confirm your booking',
+          force: true,
+          values: {
+            payment_due: `${transfer.amount.amount} ${transfer.amount.currency}`,
+            transfer_deadline: transfer.dueAt.slice(0, 10),
+            bank_details: [
+              `Account holder: ${transfer.accountHolder}`,
+              `IBAN: ${transfer.iban}`,
+              ...(transfer.bic ? [`BIC: ${transfer.bic}`] : []),
+              ...(transfer.bankName ? [`Bank: ${transfer.bankName}`] : []),
+              `Reference: ${transfer.reference}`,
+              ...(transfer.note ? [transfer.note] : []),
+            ].join('\n'),
+          },
+          rows: [
+            { label: 'Amount', value: `${transfer.amount.amount} ${transfer.amount.currency}` },
+            { label: 'IBAN', value: transfer.iban },
+            { label: 'Reference', value: transfer.reference },
+          ],
+        });
+      }
       if (onRequestCreated) {
         const request = onRequestCreated as { id: string; deadline: string };
         await Promise.all([
@@ -2883,7 +2979,8 @@ export class LocalPmsProvider implements PmsProvider {
     const enabled =
       (selected === 'stripe' && available.stripe) ||
       (selected === 'pokpay' && available.pokpay) ||
-      (selected === 'pay_at_hotel' && available.payAtHotel);
+      (selected === 'pay_at_hotel' && available.payAtHotel) ||
+      (selected === 'bank_transfer' && available.bankTransfer);
     if (!enabled)
       return this.failure(
         'PAYMENT_METHOD_NOT_ENABLED',
@@ -2896,7 +2993,9 @@ export class LocalPmsProvider implements PmsProvider {
           ? BookingPaymentMethod.STRIPE_CHECKOUT
           : selected === 'pokpay'
             ? BookingPaymentMethod.POKPAY
-            : BookingPaymentMethod.PAY_AT_HOTEL,
+            : selected === 'bank_transfer'
+              ? BookingPaymentMethod.BANK_TRANSFER
+              : BookingPaymentMethod.PAY_AT_HOTEL,
     };
   }
 

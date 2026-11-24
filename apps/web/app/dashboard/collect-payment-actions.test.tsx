@@ -19,6 +19,7 @@ async function mount(
   clock = false,
   paidAmount = '25',
   clockResult?: unknown,
+  paymentMethod?: string,
 ) {
   const requests: string[] = [];
   const fetcher = vi.fn(async (url: string, _init?: RequestInit) => {
@@ -62,6 +63,7 @@ async function mount(
               total: { amount: '100', currency: 'EUR' },
               paidAmount,
               guestEmail: 'guest@example.test',
+              ...(paymentMethod ? { paymentMethod } : {}),
             },
           }),
         }),
@@ -83,6 +85,38 @@ async function mount(
     },
   };
 }
+describe('booking waiting for a bank transfer (G-48)', () => {
+  it('offers only to record the transfer, with no online payment buttons', async () => {
+    const view = await mount(
+      'PAYMENT_PENDING',
+      ['payments.record'],
+      false,
+      '0',
+      undefined,
+      'BANK_TRANSFER',
+    );
+    expect(view.host.textContent).toContain('bank transfer');
+    const labels = [...view.host.querySelectorAll('button')].map((x) => x.textContent);
+    expect(labels).toContain('Record payment received');
+    expect(labels).not.toContain('Pay with PokPay');
+    expect(view.requests.some((x) => x.endsWith('/collection-options'))).toBe(false);
+    await view.close();
+  });
+
+  it('shows nothing for a pending booking that is not a bank transfer', async () => {
+    const view = await mount(
+      'PAYMENT_PENDING',
+      ['payments.record'],
+      false,
+      '0',
+      undefined,
+      'POKPAY',
+    );
+    expect(view.host.textContent).not.toContain('Collect payment');
+    await view.close();
+  });
+});
+
 describe('confirmed booking collection controls', () => {
   it('shows a checking skeleton before imported payment options become available', async () => {
     const v = await mount('CONFIRMED', ['payments.record'], true);

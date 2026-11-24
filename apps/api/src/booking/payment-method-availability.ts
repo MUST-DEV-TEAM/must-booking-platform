@@ -1,6 +1,12 @@
 import type { TenantTransaction } from '../tenancy/tenant-database.service';
 
-export type PaymentMethodAvailability = { stripe: boolean; pokpay: boolean; payAtHotel: boolean };
+export type PaymentMethodAvailability = {
+  stripe: boolean;
+  pokpay: boolean;
+  payAtHotel: boolean;
+  /** Switched on and the hotel entered who to pay (account holder and IBAN). */
+  bankTransfer: boolean;
+};
 
 /**
  * Which payment methods a guest may really use at this property. A card method needs both the property's
@@ -23,8 +29,9 @@ export async function paymentMethodAvailability(
         JOIN integration_connections c ON c.tenant_id = pic.tenant_id AND c.id = pic.connection_id
         WHERE pic.tenant_id = p.tenant_id AND pic.property_id = p.id AND pic.enabled
           AND c.kind = 'PAYMENT' AND c.provider::text = 'POKPAY' AND c.status = 'CONNECTED')) AS "pokpay",
-      p.pay_at_hotel_enabled AS "payAtHotel"
+      p.pay_at_hotel_enabled AS "payAtHotel",
+      (p.bank_transfer_enabled AND p.bank_iban IS NOT NULL AND p.bank_account_holder IS NOT NULL) AS "bankTransfer"
     FROM properties p
     WHERE p.tenant_id = ${context.tenantId}::uuid AND p.id = ${context.propertyId}::uuid`;
-  return row ?? { stripe: false, pokpay: false, payAtHotel: false };
+  return row ?? { stripe: false, pokpay: false, payAtHotel: false, bankTransfer: false };
 }

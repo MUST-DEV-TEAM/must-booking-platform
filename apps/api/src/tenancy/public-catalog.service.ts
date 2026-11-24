@@ -75,9 +75,9 @@ type PublicCatalogIndividualRoomType = PublicCatalogRoomType & {
 
 export type PublicCatalog = {
   /** The methods the guest may choose, in the hotel's own order (empty order = Stripe, PokPay, pay at the hotel). */
-  paymentMethods: Array<'stripe' | 'pokpay' | 'pay_at_hotel'>;
+  paymentMethods: Array<'stripe' | 'pokpay' | 'pay_at_hotel' | 'bank_transfer'>;
   /** The method to pre-select; the hotel's choice when offered, otherwise the first. Null when none is offered. */
-  defaultPaymentMethod: 'stripe' | 'pokpay' | 'pay_at_hotel' | null;
+  defaultPaymentMethod: 'stripe' | 'pokpay' | 'pay_at_hotel' | 'bank_transfer' | null;
   roomTypes: PublicCatalogRoomType[] | PublicCatalogIndividualRoomType[];
   bookingMode?: 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
   /**
@@ -155,6 +155,7 @@ export class PublicCatalogService {
           stripeEnabled: boolean;
           pokpayEnabled: boolean;
           payAtHotelEnabled: boolean;
+          bankTransferOffered: boolean;
           paymentMethodOrder: string[];
           paymentDefaultMethod: string | null;
           timezone: string;
@@ -164,6 +165,7 @@ export class PublicCatalogService {
       >`
         SELECT stripe_enabled AS "stripeEnabled", pokpay_enabled AS "pokpayEnabled",
           pay_at_hotel_enabled AS "payAtHotelEnabled", booking_mode AS "bookingMode",timezone,
+          (bank_transfer_enabled AND bank_iban IS NOT NULL AND bank_account_holder IS NOT NULL) AS "bankTransferOffered",
           payment_method_order AS "paymentMethodOrder", payment_default_method AS "paymentDefaultMethod",
           CASE WHEN EXISTS(SELECT 1 FROM property_integration_connections pc JOIN integration_connections c ON c.tenant_id=pc.tenant_id AND c.id=pc.connection_id WHERE pc.tenant_id=${tenantId}::uuid AND pc.property_id=${propertyId}::uuid AND pc.kind='PMS' AND pc.enabled AND c.provider='CLOCK_PMS') THEN 'CLOCK_PMS' ELSE 'LOCAL' END AS "pricingSource"
         FROM properties
@@ -321,6 +323,7 @@ export class PublicCatalogService {
               ? (['pokpay'] as const)
               : []),
             ...(property.payAtHotelEnabled ? (['pay_at_hotel'] as const) : []),
+            ...(property.bankTransferOffered ? (['bank_transfer'] as const) : []),
           ]
         : [];
       const { methods: paymentMethods, defaultMethod: defaultPaymentMethod } = orderPaymentMethods(
