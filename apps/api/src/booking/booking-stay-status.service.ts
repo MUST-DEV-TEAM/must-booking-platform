@@ -113,7 +113,9 @@ export class BookingStayStatusService {
     const rates = Array.isArray(row.nightlyRates) ? row.nightlyRates : [];
     const first = rates.find((rate) => rate.date === row.startsOn) ?? rates[0];
     const firstNight =
-      first?.amount && row.currency ? { amount: String(first.amount), currency: row.currency } : null;
+      first?.amount && row.currency
+        ? { amount: String(first.amount), currency: row.currency }
+        : null;
     const message = noShowFollowUp(row.rule, firstNight);
     if (!message) return;
     await this.manualReview.recordInTransaction(tx, {
