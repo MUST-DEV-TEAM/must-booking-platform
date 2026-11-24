@@ -66,6 +66,7 @@ import {
 } from '../../lib/input-rules';
 import { nightsBetween } from '../../lib/reservation-display';
 import { AwaitingPayment } from './awaiting-payment';
+import { ExtraRoomsCard, type ExtraRoom } from './add-reservation-extra-rooms';
 import { GuestLookup, type KnownGuest } from './guest-lookup';
 
 type RoomType = { id: string; name: string; roomCount: number };
@@ -229,6 +230,8 @@ export function AddReservation({
   const [knownGuest, setKnownGuest] = useState<KnownGuest | null>(null);
   const [gateway, setGateway] = useState<GatewayMethod | ''>('');
   const [settle, setSettle] = useState<SettleMethod>('');
+  // More rooms in the same reservation (a multi-room order). Empty means an ordinary one-room reservation.
+  const [extraRooms, setExtraRooms] = useState<ExtraRoom[]>([]);
   const [created, setCreated] = useState<Created | null>(null);
   // One key per distinct request: a retry of the same request cannot create a second reservation,
   // while a changed request gets a fresh key.
@@ -532,10 +535,59 @@ export function AddReservation({
       const signature = JSON.stringify(payload);
       if (attempt.current?.signature !== signature)
         attempt.current = { signature, key: crypto.randomUUID() };
-      const result = await post(`${base}/staff-bookings`, payload, attempt.current.key);
+      const isOrder = extraRooms.length > 0;
+      const orderPayload = isOrder
+        ? {
+            startsOn,
+            endsOn,
+            paymentMethod: gateway,
+            guest: payload.guest,
+            rooms: [
+              {
+                roomTypeId,
+                roomId: payload.roomId,
+                ratePlanId: payload.ratePlanId,
+                clockRateId: payload.clockRateId,
+                promoCode: payload.promoCode,
+                adults,
+                children,
+                childrenAges: payload.childrenAges,
+              },
+              ...extraRooms.map((room) => ({
+                roomTypeId: room.roomTypeId,
+                ratePlanId: isClock ? undefined : ratePlanId,
+                adults: room.adults,
+                children: room.children,
+                childrenAges: room.childrenAges.map(Number),
+                ...(room.guestFirstName.trim() || room.guestLastName.trim()
+                  ? {
+                      guest: {
+                        firstName: room.guestFirstName.trim(),
+                        lastName: room.guestLastName.trim(),
+                      },
+                    }
+                  : {}),
+              })),
+            ],
+          }
+        : null;
+      const orderSignature = JSON.stringify(orderPayload);
+      if (isOrder && attempt.current?.signature !== orderSignature)
+        attempt.current = { signature: orderSignature, key: crypto.randomUUID() };
+      const result = await post(
+        isOrder ? `${base}/staff-bookings/orders` : `${base}/staff-bookings`,
+        isOrder ? orderPayload : payload,
+        attempt.current.key,
+      );
       if (!result.ok) throw new Error(result.error?.message ?? 'Unable to create the reservation.');
-      const id = String(result.value.id);
-      const reference = String(result.value.externalReference ?? id);
+      // An order answers with its rooms; the first room carries the order's payment and reference.
+      const firstRoom = isOrder
+        ? (result.value.bookings as Array<{ id: string; externalReference?: string }>)[0]
+        : null;
+      const id = String(firstRoom?.id ?? result.value.id);
+      const reference = String(
+        isOrder ? result.value.orderReference : (result.value.externalReference ?? id),
+      );
       if (result.value.checkoutUrl) {
         const url = String(result.value.checkoutUrl);
         if (payWindow.current && !payWindow.current.closed) payWindow.current.location.href = url;
@@ -584,6 +636,7 @@ export function AddReservation({
     setChildrenAges([]);
     setRoomTypeId('');
     setRoomId('');
+    setExtraRooms([]);
     setGuest({ ...emptyGuest, arrivalTime: hotelCheckIn });
     setSettle('');
     setTouched(false);
@@ -892,9 +945,6 @@ export function AddReservation({
                       </FormField>
                     ))}
                   </div>
-                  <p className="m-0 text-xs text-muted-foreground">
-                    One room per reservation. For several rooms, create one reservation for each.
-                  </p>
                 </CardContent>
               </Card>
 
@@ -1150,6 +1200,23 @@ export function AddReservation({
                   ) : null}
                 </CardContent>
               </Card>
+              <ExtraRoomsCard
+                base={base}
+                roomTypes={roomTypes}
+                startsOn={startsOn}
+                endsOn={endsOn}
+                ratePlanId={ratePlanId}
+                isClock={isClock}
+                rooms={extraRooms}
+                onChange={setExtraRooms}
+                disabledReason={
+                  !stayComplete
+                    ? 'Choose the dates first.'
+                    : overrideOn
+                      ? 'A reservation with several rooms follows the hotel’s booking limits; switch the limit override off to add rooms.'
+                      : null
+                }
+              />
               {chosenRate ? (
                 <Card>
                   <CardHeader>
@@ -1716,7 +1783,18 @@ export function AddReservation({
               ) : null}
             </div>
             {step === 0 ? (
-              <Button disabled={!stayComplete} onClick={() => setStep(1)}>
+              <Button
+                disabled={
+                  !stayComplete ||
+                  extraRooms.some(
+                    (room) =>
+                      !room.roomTypeId ||
+                      room.childrenAges.length !== room.children ||
+                      room.childrenAges.some((age) => age.trim() === ''),
+                  )
+                }
+                onClick={() => setStep(1)}
+              >
                 Continue to guest information <ArrowRight aria-hidden="true" />
               </Button>
             ) : step === 1 ? (
