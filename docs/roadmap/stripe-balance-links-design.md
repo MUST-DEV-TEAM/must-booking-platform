@@ -1,6 +1,6 @@
 # Stripe balance links (G-44) and multi-room payment links (G-47): design
 
-Status: **G-44 built 2026-11-24** (first version, below); **G-47 not built**. Owner chose to build both (popup 2026-11-24).
+Status: **G-44 built 2026-11-24** (first version, below); **G-47 built 2026-11-24** (second PR, on top of G-44). Owner chose to build both (popup 2026-11-24).
 
 ## The problem
 
@@ -56,3 +56,10 @@ The order's balance is the sum over its rooms. One operation per **order** (aggr
 - Dashboard: a hotel with only Stripe connected gets the same buttons for Stripe; a hotel with both keeps PokPay (unchanged).
 - **Known limits of this version:** the link lasts the hotel's days but never more than 24 hours (Stripe's limit), so reminders and the staff expiry notice (S7b-4) do not cover Stripe links yet; the durable site link (slice 1.3 above) is the next step. Stripe is test-mode only in this system today (`isStripeTestKey`), so nothing here moves real money until that changes.
 - **Not run live:** tests use a fake Stripe provider; a Stripe test-mode run with the Stripe CLI is still needed.
+
+## What was built for G-47
+
+- A room of a multi-room order is paid **as one order, through Stripe**, from either room: `anchorOf()` sends the request to the order's first room (where the order's payment lives), the amount is the sum of every room's total minus what the order has paid, and the payment is recorded on the first room. One saved attempt and one Stripe session per order; asking again from the other room returns the same open link.
+- Allowed only when **every room is confirmed and none is held in Clock** (each Clock reservation has its own bill); otherwise the API refuses with that reason and the dashboard shows nothing.
+- `collection-options` answers `orderBalance` for a room of an order; the dashboard shows "Balance to collect for the whole order" and the Stripe buttons, and hides PokPay for orders.
+- **Not built:** PokPay links for orders, per-room partial balances, Clock-held orders.

@@ -34,6 +34,8 @@ export function CollectPaymentActions({
     refundedAmount?: string;
     balanceBasis?: 'CLOCK' | 'MUST';
     guestEmail?: string | null;
+    /** Set for a room of a multi-room order, which is paid as one through Stripe (G-47). */
+    orderReference?: string | null;
   };
 }) {
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
@@ -91,11 +93,14 @@ export function CollectPaymentActions({
     verifiedClock?.fetchedAt,
     verifiedClock?.balance,
   ]);
+  const isOrder = !!booking.orderReference;
   const eligible =
     booking.status === 'CONFIRMED' &&
-    (booking.balanceBasis === 'CLOCK'
-      ? !!verifiedClock && Number(verifiedClock.balance.amount) > 0
-      : minorUnits(booking.total.amount) > minorUnits(booking.paidAmount)) &&
+    (isOrder
+      ? true
+      : booking.balanceBasis === 'CLOCK'
+        ? !!verifiedClock && Number(verifiedClock.balance.amount) > 0
+        : minorUnits(booking.total.amount) > minorUnits(booking.paidAmount)) &&
     !!caps.data?.includes('payments.record');
   const options = useQuery({
     queryKey: [
@@ -115,6 +120,7 @@ export function CollectPaymentActions({
       return (await r.json()) as {
         pokpay: boolean;
         stripe?: boolean;
+        orderBalance?: { amount: string; currency: string } | null;
         unavailableReason?: string | null;
       };
     },
@@ -135,7 +141,7 @@ export function CollectPaymentActions({
     return d;
   };
   // PokPay stays the way a hotel with both is served today; a hotel with only Stripe gets Stripe links.
-  const provider = options.data?.pokpay || !options.data?.stripe ? 'pokpay' : 'stripe';
+  const provider = isOrder || (!options.data?.pokpay && options.data?.stripe) ? 'stripe' : 'pokpay';
   const providerName = provider === 'stripe' ? 'Stripe' : 'PokPay';
   const pay = useMutation({
     mutationFn: async (action: 'open' | 'send' | 'copy' | 'qr') => {
@@ -290,6 +296,10 @@ export function CollectPaymentActions({
       </Card>
     );
   if (!eligible) return null;
+  // A room of a multi-room order shows the order's balance, and only when Stripe can collect it.
+  if (isOrder && !options.isPending && !(options.data?.stripe && options.data.orderBalance))
+    return null;
+  const canPay = isOrder ? !!options.data?.stripe : options.data?.pokpay || options.data?.stripe;
   return (
     <Card id="booking-collection">
       <CardHeader>
@@ -297,12 +307,17 @@ export function CollectPaymentActions({
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-sm">
-          Balance to collect:{' '}
+          {isOrder ? 'Balance to collect for the whole order:' : 'Balance to collect:'}{' '}
           <HotelMoney
             tenantId={tenantId}
             propertyId={propertyId}
-            currency={verifiedClock?.balance.currency ?? booking.total.currency}
+            currency={
+              options.data?.orderBalance?.currency ??
+              verifiedClock?.balance.currency ??
+              booking.total.currency
+            }
             amount={
+              options.data?.orderBalance?.amount ??
               verifiedClock?.balance.amount ??
               decimalMoney(minorUnits(booking.total.amount) - minorUnits(booking.paidAmount))
             }
@@ -310,7 +325,7 @@ export function CollectPaymentActions({
           . A recorded cash, card or bank payment means you have already received the money.
         </p>
         <div className="flex flex-wrap gap-2">
-          {options.data?.pokpay || options.data?.stripe ? (
+          {canPay ? (
             <>
               <Button disabled={pay.isPending} onClick={() => pay.mutate('open')}>
                 Pay with {providerName}
