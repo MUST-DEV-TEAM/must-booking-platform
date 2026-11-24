@@ -112,7 +112,11 @@ export function CollectPaymentActions({
         credentials: 'include',
       });
       if (!r.ok) throw Error('Could not check payment options.');
-      return (await r.json()) as { pokpay: boolean; unavailableReason?: string | null };
+      return (await r.json()) as {
+        pokpay: boolean;
+        stripe?: boolean;
+        unavailableReason?: string | null;
+      };
     },
   });
   const post = async (action: string, body?: unknown) => {
@@ -130,6 +134,9 @@ export function CollectPaymentActions({
       throw Error(d.error?.message || d.message || 'Payment action could not finish.');
     return d;
   };
+  // PokPay stays the way a hotel with both is served today; a hotel with only Stripe gets Stripe links.
+  const provider = options.data?.pokpay || !options.data?.stripe ? 'pokpay' : 'stripe';
+  const providerName = provider === 'stripe' ? 'Stripe' : 'PokPay';
   const pay = useMutation({
     mutationFn: async (action: 'open' | 'send' | 'copy' | 'qr') => {
       if (busy.current) return;
@@ -141,7 +148,7 @@ export function CollectPaymentActions({
         const result =
           action !== 'send' && cached?.signature === linkSignature && Date.now() - cached.at < 60000
             ? { checkoutUrl: cached.url, orderId: cached.orderId }
-            : await post(action === 'send' ? 'send-pokpay-link' : 'collect-pokpay');
+            : await post(action === 'send' ? `send-${provider}-link` : `collect-${provider}`);
         if (!result.orderId && action !== 'send')
           throw Error('The payment attempt could not be identified. Refresh before trying again.');
         if (result.orderId) setActiveOrderId(result.orderId);
@@ -303,10 +310,10 @@ export function CollectPaymentActions({
           . A recorded cash, card or bank payment means you have already received the money.
         </p>
         <div className="flex flex-wrap gap-2">
-          {options.data?.pokpay ? (
+          {options.data?.pokpay || options.data?.stripe ? (
             <>
               <Button disabled={pay.isPending} onClick={() => pay.mutate('open')}>
-                Pay with PokPay
+                Pay with {providerName}
               </Button>
               <Button
                 variant="outline"
@@ -316,7 +323,7 @@ export function CollectPaymentActions({
                 Send payment link
               </Button>
               <Button variant="outline" disabled={pay.isPending} onClick={() => pay.mutate('copy')}>
-                Copy PokPay link
+                Copy {providerName} link
               </Button>
               <Button variant="outline" disabled={pay.isPending} onClick={() => pay.mutate('qr')}>
                 Show payment QR code
@@ -334,7 +341,10 @@ export function CollectPaymentActions({
             Record payment received
           </Button>
         </div>
-        {options.data?.unavailableReason ? (
+        {options.data?.unavailableReason &&
+        !(
+          options.data.stripe && options.data.unavailableReason.startsWith('PokPay is disabled')
+        ) ? (
           <p className="text-sm text-muted-foreground">{options.data.unavailableReason}</p>
         ) : null}
         {pay.error || options.error ? (

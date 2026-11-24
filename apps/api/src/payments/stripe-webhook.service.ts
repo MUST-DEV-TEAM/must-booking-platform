@@ -13,6 +13,7 @@ import { PaymentNotificationService } from '../mail/payment-notification.service
 import { AuditLogService } from '../tenancy/audit-log.service';
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
 import { PaymentRefundService } from './payment-refund.service';
+import { StripeBalanceCollectionService } from './stripe-balance-collection.service';
 import type { RefundConfirmation } from './payment-refund.service';
 
 type PaymentPendingBooking = {
@@ -34,6 +35,8 @@ export class StripeWebhookService {
     @Inject(PaymentNotificationService) private readonly notifications: PaymentNotificationService,
     @Inject(BookingConfirmationNotificationService)
     private readonly confirmations: BookingConfirmationNotificationService,
+    @Inject(StripeBalanceCollectionService)
+    private readonly balanceCollections: StripeBalanceCollectionService,
   ) {}
 
   async processPaymentSucceeded(
@@ -53,6 +56,7 @@ export class StripeWebhookService {
     });
     const bookingConfirmation: { bookingId?: string; paymentId?: string } = {};
     let refundConfirmation: RefundConfirmation | null = null;
+    let balanceReceipt: { amount: string; currency: string } | null = null;
     const result = await this.database.withTenantTransaction<Result<{ duplicate: boolean }>>(
       context,
       async (tx) => {
@@ -101,6 +105,17 @@ export class StripeWebhookService {
               'STRIPE_CONNECTION_MISMATCH',
               'This payment belongs to a different Stripe connection.',
             );
+        }
+        // A paid Stripe link staff sent for a confirmed booking's balance: record the charge, never refund it (G-44).
+        const balance = await this.balanceCollections.complete(
+          tx,
+          context,
+          booking,
+          event.externalPaymentId,
+        );
+        if (balance.handled) {
+          if (balance.receipt) balanceReceipt = balance.receipt;
+          return { ok: true, value: { duplicate: balance.duplicate } };
         }
         // A paid event the booking can no longer accept (the hold expired, or staff or the guest cancelled it
         // before payment, or it is already paid another way) is recorded and refunded in full, never left as
@@ -186,6 +201,13 @@ export class StripeWebhookService {
       );
     if (refundConfirmation)
       await this.notifications.sendRefundConfirmationEmailSafely(refundConfirmation, context);
+    if (balanceReceipt)
+      await this.balanceCollections.sendReceiptSafely(
+        context,
+        event.bookingId,
+        event.externalPaymentId,
+        balanceReceipt,
+      );
     return result;
   }
 
