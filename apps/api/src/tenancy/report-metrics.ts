@@ -666,7 +666,7 @@ export function reservationMetrics(
   const createdDays = new Map(rows.map((row) => [row, propertyDay(row.createdAt, timezone)]));
   const cohort = rows.filter((r) => {
     const created = createdDays.get(r)!;
-    return created >= from && created <= to;
+    return r.status !== 'DECLINED' && created >= from && created <= to;
   });
   const nights = cohort.map((r) => dayDistance(r.startsOn, r.endsOn));
   if (nights.some((n) => n <= 0)) throw new Error('Invalid reservation stay.');

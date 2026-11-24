@@ -21,6 +21,7 @@ export const BOOKING_STATUS_TRANSITIONS: Readonly<Record<BookingStatus, readonly
       BookingStatus.PAYMENT_PENDING,
       BookingStatus.PAYMENT_NOT_REQUIRED,
       BookingStatus.DECLINED,
+      BookingStatus.CANCELLED,
     ],
     [BookingStatus.DECLINED]: [],
     [BookingStatus.PAYMENT_PENDING]: [

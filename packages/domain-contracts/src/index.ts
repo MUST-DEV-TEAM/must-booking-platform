@@ -211,6 +211,22 @@ export enum BookingStatus {
   EXPIRED = 'EXPIRED',
 }
 
+/** Booking states which currently hold or use inventory. */
+export const LIVE_BOOKING_STATUSES: readonly BookingStatus[] = [
+  BookingStatus.ON_REQUEST_PENDING,
+  BookingStatus.PAYMENT_PENDING,
+  BookingStatus.PAYMENT_NOT_REQUIRED,
+  BookingStatus.PMS_CREATION_PENDING,
+  BookingStatus.PMS_CONFIRMATION_PENDING,
+  BookingStatus.CONFIRMED,
+  BookingStatus.PMS_UNKNOWN_RESULT,
+  BookingStatus.MANUAL_REVIEW,
+];
+
+export function bookingHoldsInventory(status: string): boolean {
+  return (LIVE_BOOKING_STATUSES as readonly string[]).includes(status);
+}
+
 export enum BookingPaymentMethod {
   STRIPE_CHECKOUT = 'STRIPE_CHECKOUT',
   POKPAY = 'POKPAY',
@@ -499,6 +515,8 @@ export interface CreateCheckoutSessionCommand {
   description?: string;
   /** How long the payment page stays usable. Omitted: the provider default. */
   expiresAfterMinutes?: number;
+  /** Absolute expiry for deferred booking checkout sessions. */
+  expiresAt?: number;
   /** Ask for a checkout the website shows inside its own page (a provider that cannot, ignores this). */
   embedded?: boolean;
 }
@@ -537,6 +555,8 @@ export interface PaymentWebhookEvent {
   propertyId?: string;
   bookingId?: string;
   paymentStatus?: string;
+  /** When the provider says the event happened (ISO 8601); used to judge a payment against a deadline. */
+  occurredAt?: string;
 }
 
 export interface PaymentProvider {
@@ -559,6 +579,10 @@ export interface PaymentProvider {
     context: PaymentProviderContext,
     externalPaymentId: string,
   ): Promise<Result<{ closed: boolean }>>;
+  checkoutState?(
+    context: PaymentProviderContext,
+    externalPaymentId: string,
+  ): Promise<Result<'open' | 'paid' | 'expired'>>;
   /**
    * What the provider kept as its fee for one payment, in the payment's own currency; null when it is not
    * known (yet). Used to keep the fee back from a refund the guest asked for.

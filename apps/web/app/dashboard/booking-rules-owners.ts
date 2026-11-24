@@ -36,7 +36,7 @@ export function ruleOwnerLabel(title: string, connected: boolean): string | unde
  * Sections that are saved and published to websites but not yet applied to real bookings. Remove a title
  * from this list in the same change that makes the booking check or the booking pages use it.
  */
-const NOT_APPLIED_YET = new Set(['Guest ages', 'Confirmation', 'Advanced']);
+const NOT_APPLIED_YET = new Set(['Guest ages', 'Advanced']);
 
 export const NOT_APPLIED_LABEL = 'Saved · not applied to bookings yet';
 

@@ -2,6 +2,7 @@
 
 import { formatDate, formatDateTime } from '../../lib/hotel-format';
 import { ScopedHotelMoney } from './approximate-money';
+import { bookingHoldsInventory } from '@must/domain-contracts';
 
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
@@ -844,7 +845,7 @@ export function ReservationsPage({
                     paid: row.paidAmount,
                     refunded: row.refundedAmount,
                   });
-                  const live = !['CANCELLED', 'EXPIRED', 'DRAFT', 'QUOTED'].includes(row.status);
+                  const live = bookingHoldsInventory(row.status);
                   const nights = nightsBetween(row.startsOn, row.endsOn);
                   const isSelected = selectedIds.includes(row.id);
                   const isExpanded = expandedId === row.id;

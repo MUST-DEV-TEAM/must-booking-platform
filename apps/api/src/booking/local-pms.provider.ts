@@ -37,6 +37,7 @@ import { AvailabilityService } from '../tenancy/availability.service';
 import { AuditLogService } from '../tenancy/audit-log.service';
 import { loadCheckoutDescription } from '../payments/checkout-description';
 import { checkoutHoldMinutes } from '../payments/checkout-hold';
+import { requestPaymentLink } from '../payments/request-payment-link';
 import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant-database.service';
 import { PaymentProviderRegistry } from '../payments/payment-provider-registry';
 import { PaymentRefundService, type RefundConfirmation } from '../payments/payment-refund.service';
@@ -115,6 +116,7 @@ type BookingRow = {
   updatedAt: Date;
   onRequestDeadlineAt: Date | null;
   paymentPendingAt: Date | null;
+  paymentDueAt: Date | null;
   onRequestCheckoutUrl: string | null;
 };
 
@@ -170,6 +172,9 @@ type MultiRoomCancellation = {
 };
 
 type RoomSelection = { autoAssign: boolean };
+
+/** How long a due request booking with an open payment page waits for the provider's notice before release. */
+const REQUEST_RECONCILE_GRACE_MS = 5 * 60_000;
 
 @Injectable()
 export class LocalPmsProvider implements PmsProvider {
@@ -913,7 +918,9 @@ export class LocalPmsProvider implements PmsProvider {
               ok: true as const,
               value: {
                 ...this.toBooking(row)!,
-                ...(anchor.onRequestCheckoutUrl ? { checkoutUrl: anchor.onRequestCheckoutUrl } : {}),
+                ...(anchor.onRequestCheckoutUrl
+                  ? { checkoutUrl: anchor.onRequestCheckoutUrl }
+                  : {}),
               },
             };
           }
@@ -977,43 +984,20 @@ export class LocalPmsProvider implements PmsProvider {
             )
           )
             return this.failure('INVALID_PAYMENT_METHOD', 'An online payment method is required.');
-          const available = await this.prePaymentAvailability.confirmAvailable(context, {
-            startsOn: row.startsOn,
-            endsOn: row.endsOn,
-            rooms: bookings.map((member) => ({
-              roomTypeId: member!.roomTypeId,
-              roomId: member!.roomId ?? undefined,
-              adults: member!.adults,
-              children: member!.children,
-              childrenAges: member!.childrenAges ?? undefined,
-            })),
-          });
-          if (!available.ok) return available;
-          const provider = this.paymentProviders.forBookingMethod(row.paymentMethod);
-          if (!provider)
-            return this.failure(
-              'PAYMENT_PROVIDER_NOT_AVAILABLE',
-              'Payment provider is unavailable.',
-            );
-          const hold = await tx.$queryRaw<Array<{ minutes: number }>>`
-          SELECT online_payment_hold_minutes AS minutes FROM properties
-          WHERE tenant_id=${context.tenantId}::uuid AND id=${context.propertyId}::uuid`;
-          const checkout = await provider.createCheckoutSession(context, {
-            idempotencyKey: `on-request/${anchor.id}`,
+          const [timing] = await tx.$queryRaw<Array<{ dueAt: Date }>>`
+            SELECT CURRENT_TIMESTAMP + make_interval(days => payment_link_valid_days) AS "dueAt"
+            FROM properties WHERE tenant_id=${context.tenantId}::uuid AND id=${context.propertyId}::uuid`;
+          if (!timing) return this.failure('PROPERTY_NOT_FOUND', 'Property was not found.');
+          const link = requestPaymentLink({
+            ...context,
             bookingId: anchor.id,
-            description: await loadCheckoutDescription(tx, context, anchor.id),
-            expiresAfterMinutes: hold[0]?.minutes ?? 30,
-            amount: { amount: await this.checkoutAmount(tx, context, row), currency: row.currency },
-            successUrl: this.checkoutReturnUrl(anchor.id, 'success', row.guestReturnUrl, context),
-            cancelUrl: this.checkoutReturnUrl(anchor.id, 'cancel', row.guestReturnUrl, context),
+            dueAt: timing.dueAt.toISOString(),
           });
-          if (!checkout.ok) return checkout;
-          await tx.$executeRaw`INSERT INTO payment_provider_sessions(tenant_id,property_id,booking_id,provider,external_payment_id,connection_id)
-          VALUES(${context.tenantId}::uuid,${context.propertyId}::uuid,${anchor.id}::uuid,
-            ${row.paymentMethod === BookingPaymentMethod.POKPAY ? 'pokpay' : 'stripe'},${checkout.value.id},${checkout.value.connectionId ?? null}::uuid)
-          ON CONFLICT(tenant_id,provider,external_payment_id) DO NOTHING`;
-          await tx.$executeRaw`UPDATE bookings SET on_request_checkout_url=${checkout.value.url}
-          WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND id=${anchor.id}::uuid`;
+          for (const member of bookings) {
+            await tx.$executeRaw`UPDATE bookings SET payment_due_at=${timing.dueAt}::timestamptz,
+              on_request_checkout_url=${member!.id === anchor.id ? link : null}
+              WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND id=${member!.id}::uuid`;
+          }
           for (const member of bookings)
             await this.transition(
               tx,
@@ -1024,7 +1008,8 @@ export class LocalPmsProvider implements PmsProvider {
             );
         }
         const updated = await this.bookingById(tx, context, bookingId);
-        const updatedAnchor = anchor.id === bookingId ? updated : await this.bookingById(tx, context, anchor.id);
+        const updatedAnchor =
+          anchor.id === bookingId ? updated : await this.bookingById(tx, context, anchor.id);
         for (const member of bookings) {
           const after =
             member!.id === bookingId
@@ -1044,6 +1029,7 @@ export class LocalPmsProvider implements PmsProvider {
                 status: after.status,
                 version: after.version,
                 paymentPendingAt: after.paymentPendingAt?.toISOString() ?? null,
+                paymentDueAt: after.paymentDueAt?.toISOString() ?? null,
               },
             },
           });
@@ -1069,8 +1055,10 @@ export class LocalPmsProvider implements PmsProvider {
         `on-request-free/${notificationBookingId}`,
       );
     const accepted = notification === 'accepted';
-    const paymentLink = 'checkoutUrl' in result.value && typeof result.value.checkoutUrl === 'string'
-      ? result.value.checkoutUrl : undefined;
+    const paymentLink =
+      'checkoutUrl' in result.value && typeof result.value.checkoutUrl === 'string'
+        ? result.value.checkoutUrl
+        : undefined;
     await Promise.all([
       this.lifecycle?.guest(context, {
         topic: 'booking_request_decision',
@@ -1081,7 +1069,10 @@ export class LocalPmsProvider implements PmsProvider {
         heading: accepted ? 'Booking request accepted' : 'Booking request declined',
         force: true,
         ...(accepted && paymentLink
-          ? { cta: { label: 'Pay for your booking', url: paymentLink } }
+          ? {
+              values: { payment_link: paymentLink },
+              cta: { label: 'Pay for your booking', url: paymentLink },
+            }
           : {}),
       }),
       this.lifecycle?.staff(context, {
@@ -1619,18 +1610,40 @@ export class LocalPmsProvider implements PmsProvider {
     context: PmsProviderContext,
     bookingId: string,
     cutoffAt: Date,
+    reconcileGraceMs = REQUEST_RECONCILE_GRACE_MS,
   ): Promise<boolean> {
+    const sweepTime = new Date(cutoffAt.getTime() + 30 * 60000);
     const settings = await tx.$queryRaw<
       { minutes: number }[]
     >`SELECT online_payment_hold_minutes AS minutes FROM properties WHERE tenant_id=${context.tenantId}::uuid AND id=${context.propertyId}::uuid FOR UPDATE`;
     cutoffAt = new Date(cutoffAt.getTime() + (30 - (settings[0]?.minutes ?? 30)) * 60000);
-    const row = await this.bookingById(tx, context, bookingId);
+    let row = await this.bookingById(tx, context, bookingId);
+    if (row?.paymentDueAt) {
+      await this.lockRequestMembers(tx, context, bookingId);
+      row = await this.bookingById(tx, context, bookingId);
+    }
     if (
       !row ||
       row.status !== BookingStatus.PAYMENT_PENDING ||
-      (row.paymentPendingAt ?? row.createdAt).getTime() > cutoffAt.getTime()
+      (row.paymentDueAt
+        ? row.paymentDueAt.getTime() > sweepTime.getTime()
+        : (row.paymentPendingAt ?? row.createdAt).getTime() > cutoffAt.getTime())
     ) {
       return false;
+    }
+    // A guest may have paid just before the deadline while the provider's notice is still on its way. While a
+    // payment page is open, the sweep waits a few minutes (and the poll/webhook can confirm) before it releases
+    // the room. A notice that proves a payment came after the deadline expires the booking at once (grace 0).
+    if (
+      row.paymentDueAt &&
+      reconcileGraceMs > 0 &&
+      row.paymentDueAt.getTime() + reconcileGraceMs > sweepTime.getTime()
+    ) {
+      const [open] = await tx.$queryRaw<Array<{ open: boolean }>>`SELECT EXISTS(
+        SELECT 1 FROM integration_operations WHERE tenant_id=${context.tenantId}::uuid
+          AND property_id=${context.propertyId}::uuid AND aggregate_id=${bookingId}::uuid
+          AND result->>'kind'='request_checkout' AND result->>'stage'='READY') AS open`;
+      if (open?.open) return false;
     }
     if (row.orderReference) {
       const children = await tx.$queryRaw<Array<{ id: string }>>`
@@ -1676,6 +1689,38 @@ export class LocalPmsProvider implements PmsProvider {
     return true;
   }
 
+  /**
+   * Recheck the due time before processing a provider notification, even between sweep runs. A payment that was
+   * finished before the deadline keeps the booking, however late its notice arrives: either the provider's own
+   * time (`paidAt`) is not after the deadline, or the payment page we created could not stay open past it.
+   */
+  async expireRequestPaymentIfDue(
+    context: PmsProviderContext,
+    bookingId: string,
+    evidence: { externalPaymentId?: string; paidAt?: Date } = {},
+  ): Promise<void> {
+    await this.database.withTenantTransaction(context, async (tx) => {
+      const [candidate] = await tx.$queryRaw<
+        Array<{ due: boolean; dueAt: Date }>
+      >`SELECT payment_due_at <= CURRENT_TIMESTAMP AS due,
+          payment_due_at AS "dueAt"
+        FROM bookings WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid
+          AND id=${bookingId}::uuid AND status='PAYMENT_PENDING' AND payment_due_at IS NOT NULL`;
+      if (!candidate?.due) return;
+      if (evidence.paidAt && evidence.paidAt.getTime() <= candidate.dueAt.getTime()) return;
+      if (evidence.externalPaymentId) {
+        const [bound] = await tx.$queryRaw<
+          Array<{ onTime: boolean }>
+        >`SELECT COALESCE((result->>'expiresAt')::timestamptz <= ${candidate.dueAt}::timestamptz, false) AS "onTime"
+          FROM integration_operations WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid
+            AND aggregate_id=${bookingId}::uuid AND result->>'kind'='request_checkout'
+            AND external_reference=${evidence.externalPaymentId} LIMIT 1`;
+        if (bound?.onTime) return;
+      }
+      await this.expirePaymentPending(tx, context, bookingId, new Date(Date.now() - 30 * 60000), 0);
+    });
+  }
+
   /** Gives back what a single unpaid online booking held and marks it expired. */
   private async releaseUnpaidHold(
     tx: TenantTransaction,
@@ -1719,6 +1764,7 @@ export class LocalPmsProvider implements PmsProvider {
       FROM bookings b
       WHERE b.tenant_id = ${context.tenantId}::uuid AND b.property_id = ${context.propertyId}::uuid
         AND b.status = 'PAYMENT_PENDING'::"BookingStatus"
+        AND b.payment_due_at IS NULL
         AND b.source = 'WEBSITE'
         AND b.order_reference IS NULL
         AND b.room_type_id = ${command.roomTypeId}::uuid
@@ -1759,7 +1805,7 @@ export class LocalPmsProvider implements PmsProvider {
   ): Promise<Result<never> | null> {
     const held = await tx.$queryRaw<Array<{ minutes: number }>>`
       SELECT GREATEST(1, CEIL(EXTRACT(EPOCH FROM (
-        MIN(b.created_at) + make_interval(mins => p.online_payment_hold_minutes) - now()
+        MIN(COALESCE(b.payment_due_at, b.created_at + make_interval(mins => p.online_payment_hold_minutes))) - now()
       )) / 60))::int AS minutes
       FROM bookings b
       JOIN properties p ON p.tenant_id = b.tenant_id AND p.id = b.property_id
@@ -1783,6 +1829,7 @@ export class LocalPmsProvider implements PmsProvider {
     command: CancelBookingCommand & {
       notifyGuest?: boolean;
       singleBooking?: boolean;
+      onlyPendingRequest?: boolean;
       /** Set only when a reviewer approved a saved cancellation request. The booking's version may have moved
        * for harmless reasons, so it is not compared; instead the dates and total the request was made on (when
        * it saved them) are checked here, under the booking's row lock, and must still be the same. */
@@ -1809,6 +1856,78 @@ export class LocalPmsProvider implements PmsProvider {
             if (!row) return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
             if (!command.staffActorId && row.guestSessionId !== command.guestSessionId)
               return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
+            if (command.onlyPendingRequest && row.status !== BookingStatus.ON_REQUEST_PENDING)
+              return this.failure('INVALID_BOOKING_STATE', 'This request is no longer waiting.');
+            if (row.status === BookingStatus.ON_REQUEST_PENDING) {
+              const members = await this.lockRequestMembers(tx, context, row.id);
+              const current = await this.bookingById(tx, context, row.id);
+              if (
+                !current ||
+                current.status !== BookingStatus.ON_REQUEST_PENDING ||
+                current.version !== command.expectedVersion
+              )
+                return this.failure(
+                  'VERSION_CONFLICT',
+                  'Booking has changed; reload it before cancelling.',
+                  true,
+                );
+              const selected =
+                command.staffActorId && command.singleBooking
+                  ? members.filter((member) => member.id === row.id)
+                  : members;
+              for (const member of selected) {
+                const pending =
+                  member.id === current.id
+                    ? current
+                    : await this.bookingById(tx, context, member.id);
+                if (!pending || pending.status !== BookingStatus.ON_REQUEST_PENDING)
+                  return this.failure(
+                    'INVALID_BOOKING_STATE',
+                    'The booking request has already been decided.',
+                  );
+              }
+              for (const member of selected) {
+                const pending =
+                  member.id === current.id
+                    ? current
+                    : (await this.bookingById(tx, context, member.id))!;
+                if (!pending.roomId)
+                  await this.availability.releaseBookedUnits(
+                    tx,
+                    context.tenantId,
+                    context.propertyId,
+                    {
+                      roomTypeId: pending.roomTypeId,
+                      startsOn: pending.startsOn,
+                      endsOn: pending.endsOn,
+                      units: 1,
+                    },
+                  );
+                await this.transition(
+                  tx,
+                  context,
+                  pending.id,
+                  pending.status,
+                  BookingStatus.CANCELLED,
+                );
+                const after = await this.bookingById(tx, context, pending.id);
+                await this.audit.recordInTransaction(tx, {
+                  tenantId: context.tenantId,
+                  propertyId: context.propertyId,
+                  actorUserId: command.staffActorId ?? null,
+                  action: 'booking.cancelled',
+                  targetType: 'booking',
+                  targetId: pending.id,
+                  details: {
+                    before: { status: pending.status, version: pending.version },
+                    after: { status: after!.status, version: after!.version },
+                  },
+                });
+                cancelledBookingIds.push(pending.id);
+              }
+              const cancelled = await this.bookingById(tx, context, row.id);
+              return { ok: true as const, value: this.toBooking(cancelled!)! };
+            }
             const approved = command.approvedRequest;
             if (
               approved &&
@@ -2625,7 +2744,7 @@ export class LocalPmsProvider implements PmsProvider {
         rp.currency, b.external_reference AS "externalReference", b.order_reference AS "orderReference",
         b.external_booking_id AS "externalBookingId",
         b.version, b.created_at AS "createdAt", b.updated_at AS "updatedAt",
-        b.on_request_deadline_at AS "onRequestDeadlineAt", b.payment_pending_at AS "paymentPendingAt",
+        b.on_request_deadline_at AS "onRequestDeadlineAt", b.payment_pending_at AS "paymentPendingAt", b.payment_due_at AS "paymentDueAt",
         b.on_request_checkout_url AS "onRequestCheckoutUrl"
       FROM bookings b JOIN rate_plans rp
         ON rp.tenant_id = b.tenant_id AND rp.property_id = b.property_id AND rp.id = b.rate_plan_id

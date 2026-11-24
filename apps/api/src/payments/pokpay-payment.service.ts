@@ -56,6 +56,9 @@ export class PokPayPaymentService {
       return this.venueDeposits
         ? this.venueDeposits.process(candidate.tenantId, candidate.propertyId, orderId)
         : this.failure('POKPAY_ORDER_BINDING_INVALID', 'Restaurant payment handler unavailable.');
+    await this.bookings.expireRequestPaymentIfDue(context, candidate.bookingId, {
+      externalPaymentId: orderId,
+    });
     const collection = await this.collections.process(context, candidate.bookingId, orderId);
     if (collection) return collection;
     let emailBookingId: string | null = null;

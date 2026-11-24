@@ -277,6 +277,8 @@ export function ReservationDetail({
   }, [wasNew, bookingId]);
   const [refunding, setRefunding] = useState(false);
   const [decliningRequest, setDecliningRequest] = useState(false);
+  const [cancellingRequest, setCancellingRequest] = useState(false);
+  const cancelRequestKey = useRef('');
   const [decidingRequest, setDecidingRequest] = useState(false);
   const refundAttempt = useRef({ body: '', key: '' });
   const [refundOnlyPick, setRefundOnlyPick] = useState<RefundChoiceValue>({
@@ -473,6 +475,20 @@ export function ReservationDetail({
     }
   };
 
+  const cancelRequest = async () => {
+    cancelRequestKey.current ||= crypto.randomUUID();
+    const response = await fetch(`${base}/bookings/${booking.id}/request-cancel`, {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': cancelRequestKey.current },
+      body: JSON.stringify({ expectedVersion: booking.version }),
+    });
+    const result = await response.json().catch(() => null);
+    if (!response.ok || result?.ok === false)
+      throw new Error(result?.error?.message ?? result?.message ?? 'The request could not be cancelled.');
+    cancelRequestKey.current = '';
+    await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+  };
+
   const hasClock = booking.clockFolios.length > 0 || !!booking.externalBookingId;
   const firstCharge = ledger.data?.find((entry) => entry.kind === 'CHARGE');
   const received = Number(booking.paidAmount) - Number(booking.refundedAmount);
@@ -540,6 +556,9 @@ export function ReservationDetail({
           <>
             {canEditBooking ? (
               <StayStatusActions tenantId={tenantId} propertyId={propertyId} booking={booking} />
+            ) : null}
+            {canCancelBooking ? (
+              <Button variant="outline" onClick={() => setCancellingRequest(true)}>Cancel request</Button>
             ) : null}
             {canEditBooking ? (
               <Button onClick={() => setEditingDetails(true)}>
@@ -614,6 +633,14 @@ export function ReservationDetail({
           </CardContent>
         </Card>
       ) : null}
+      <ConfirmDialog
+        open={cancellingRequest}
+        onOpenChange={setCancellingRequest}
+        title={`Cancel booking request ${booking.externalReference}`}
+        description="The room will be released."
+        confirmLabel="Cancel request"
+        onConfirm={cancelRequest}
+      />
       <ConfirmDialog
         open={decliningRequest}
         onOpenChange={setDecliningRequest}

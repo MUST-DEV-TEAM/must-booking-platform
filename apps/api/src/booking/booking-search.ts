@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { BookingStatus } from '@must/domain-contracts';
+import { BookingStatus, LIVE_BOOKING_STATUSES } from '@must/domain-contracts';
 
 /**
  * Query parsing and SQL building for the dashboard Reservations list (Milestone 24, B01).
@@ -53,16 +53,7 @@ export type BookingSearchQuery = {
 };
 
 /** Statuses that hold or use a room (the same set as the overview's occupying statuses). */
-export const LIVE_STATUSES = [
-  BookingStatus.ON_REQUEST_PENDING,
-  BookingStatus.PAYMENT_PENDING,
-  BookingStatus.PAYMENT_NOT_REQUIRED,
-  BookingStatus.PMS_CREATION_PENDING,
-  BookingStatus.PMS_CONFIRMATION_PENDING,
-  BookingStatus.CONFIRMED,
-  BookingStatus.PMS_UNKNOWN_RESULT,
-  BookingStatus.MANUAL_REVIEW,
-] as const;
+export const LIVE_STATUSES = LIVE_BOOKING_STATUSES;
 
 const ATTENTION_STATUSES = [
   BookingStatus.MANUAL_REVIEW,

@@ -1007,6 +1007,7 @@ model Booking {
   status                     BookingStatus            @default(DRAFT)
   onRequestDeadlineAt        DateTime?                @map("on_request_deadline_at") @db.Timestamptz(6)
   paymentPendingAt           DateTime?                @map("payment_pending_at") @db.Timestamptz(6)
+  paymentDueAt               DateTime?                @map("payment_due_at") @db.Timestamptz(6)
   onRequestCheckoutUrl       String?                  @map("on_request_checkout_url") @db.VarChar(2048)
   // The PMS's own stay status as received (Clock: expected, checked_in, ...).
   pmsStayStatus              String?                  @map("pms_stay_status") @db.VarChar(40)

@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
+import { LIVE_BOOKING_STATUSES } from '@must/domain-contracts';
 
 import { PropertyRoleTemplatesService } from '../../tenancy/property-role-templates.service';
 import { StaffInviteService } from '../../tenancy/staff-invite.service';
@@ -497,7 +498,7 @@ export class PlatformHotelsService {
           SELECT (SELECT COUNT(*)::int FROM "bookings") AS "bookings",
             (SELECT COUNT(*)::int FROM "bookings" WHERE "created_at" >= now() - interval '30 days') AS "bookings30",
             (SELECT COUNT(*)::int FROM "bookings" WHERE "created_at" >= now() - interval '30 days'
-              AND "status"::text NOT IN ('DRAFT','QUOTED','INVENTORY_REVALIDATING','CANCELLED','EXPIRED','PAYMENT_FAILED')) AS "confirmed30",
+              AND "status"::text = ANY(${[...LIVE_BOOKING_STATUSES]}::text[])) AS "confirmed30",
             (SELECT COUNT(*)::int FROM "properties") AS "properties"
         `,
         tx.$queryRaw<Array<{ currency: string; count: number; amount: string }>>`
