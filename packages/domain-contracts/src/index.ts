@@ -100,6 +100,8 @@ export interface MailProvider {
     guestCount: number;
     nightlyRates?: NightlyRate[];
     template?: MailTemplateOverride;
+    /** What happened to the guest's online money, when there was any (G-02). */
+    refund?: { status: 'processed' | 'manual_action'; amount: Money };
   }): Promise<MailSendReceipt | void>;
   /** An email whose subject and body were already rendered by the caller. */
   sendRenderedEmail(command: RenderedEmailCommand): Promise<MailSendReceipt | void>;
