@@ -229,6 +229,7 @@ export function AddReservation({
   const [knownGuest, setKnownGuest] = useState<KnownGuest | null>(null);
   const [gateway, setGateway] = useState<GatewayMethod | ''>('');
   const [settle, setSettle] = useState<SettleMethod>('');
+  const [settleReference, setSettleReference] = useState('');
   const [created, setCreated] = useState<Created | null>(null);
   // One key per distinct request: a retry of the same request cannot create a second reservation,
   // while a changed request gets a fresh key.
@@ -529,6 +530,10 @@ export function AddReservation({
         paymentMethod: gateway,
         ruleOverrideReason,
       };
+      if (settle === 'bank_transfer' && !settleReference.trim())
+        throw new Error(
+          'Enter the bank reference (transaction ID or the reference on the statement).',
+        );
       const signature = JSON.stringify(payload);
       if (attempt.current?.signature !== signature)
         attempt.current = { signature, key: crypto.randomUUID() };
@@ -557,9 +562,18 @@ export function AddReservation({
         };
       }
       if (settle) {
+        // A bank transfer is recorded with the bank's own reference and the day the money arrived (G-48).
         const paid = await post(
           `${base}/bookings/${id}/manual-payment`,
-          { method: settle },
+          settle === 'bank_transfer'
+            ? {
+                method: settle,
+                evidence: {
+                  receivedOn: new Date().toISOString().slice(0, 10),
+                  reference: settleReference.trim(),
+                },
+              }
+            : { method: settle },
           crypto.randomUUID(),
         );
         if (!paid.ok)
@@ -1581,6 +1595,18 @@ export function AddReservation({
                           { value: 'bank_transfer', label: 'Bank transfer' },
                         ]}
                       />
+                      {settle === 'bank_transfer' ? (
+                        <FormField
+                          label="Bank reference"
+                          hint="The transaction ID or the reference shown on the bank statement."
+                        >
+                          <Input
+                            value={settleReference}
+                            maxLength={120}
+                            onChange={(event) => setSettleReference(event.target.value)}
+                          />
+                        </FormField>
+                      ) : null}
                     </div>
                   ) : gateway ? (
                     <div className="space-y-2 rounded-xl border border-info/30 bg-info-surface p-4 text-sm text-info">
