@@ -15,7 +15,10 @@ const base = {
   guestCount: 2,
 };
 
-async function render(refund?: { status: 'processed' | 'manual_action'; amount: { amount: string; currency: string } }) {
+async function render(refund?: {
+  status: 'processed' | 'manual_action';
+  amount: { amount: string; currency: string };
+}) {
   const provider = new ResendMailProvider();
   const send = vi.fn(async (message: Sent) => message);
   (provider as unknown as { send: typeof send }).send = send;
@@ -31,14 +34,20 @@ describe('guest cancellation email: what happened to the money (G-02)', () => {
   });
 
   it('tells the guest a refund was sent', async () => {
-    const sent = await render({ status: 'processed', amount: { amount: '120.00', currency: 'EUR' } });
+    const sent = await render({
+      status: 'processed',
+      amount: { amount: '120.00', currency: 'EUR' },
+    });
     expect(sent.html).toContain('Your payment');
     expect(sent.html).toContain('has been sent back');
     expect(sent.text).toContain('120');
   });
 
   it('tells the guest the hotel will arrange a refund that could not be sent', async () => {
-    const sent = await render({ status: 'manual_action', amount: { amount: '120.00', currency: 'EUR' } });
+    const sent = await render({
+      status: 'manual_action',
+      amount: { amount: '120.00', currency: 'EUR' },
+    });
     expect(sent.html).toContain('will arrange it with you directly');
     expect(sent.text).toContain('will arrange it with you directly');
   });

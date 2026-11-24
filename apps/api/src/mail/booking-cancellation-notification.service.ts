@@ -194,7 +194,9 @@ export class BookingCancellationNotificationService {
         {
           to: row.email,
           ...details,
-          ...(refundDetails ? { refund: { status: refundDetails.status, amount: refundDetails.amount } } : {}),
+          ...(refundDetails
+            ? { refund: { status: refundDetails.status, amount: refundDetails.amount } }
+            : {}),
         },
         context,
       );
