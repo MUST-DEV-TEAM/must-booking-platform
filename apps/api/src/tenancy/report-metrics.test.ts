@@ -200,7 +200,12 @@ describe('immutable nightly revenue evidence', () => {
   });
   it('counts created cohorts in property time zone and scheduled stays without counting checkout night', () => {
     const result = reservationMetrics(
-      [stay, { ...stay, status: 'CANCELLED' }, { ...stay, status: 'PAYMENT_PENDING' }],
+      [
+        stay,
+        { ...stay, status: 'CANCELLED' },
+        { ...stay, status: 'PAYMENT_PENDING' },
+        { ...stay, status: 'DECLINED' },
+      ],
       '2026-12-31',
       '2027-01-02',
       'Europe/Tirane',

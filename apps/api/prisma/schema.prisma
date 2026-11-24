@@ -23,6 +23,8 @@ enum BookingStatus {
   DRAFT
   QUOTED
   INVENTORY_REVALIDATING
+  ON_REQUEST_PENDING
+  DECLINED
   PAYMENT_PENDING
   PAYMENT_NOT_REQUIRED
   PMS_CREATION_PENDING
@@ -1003,6 +1005,10 @@ model Booking {
   roomGuestLastName          String?                  @map("room_guest_last_name") @db.VarChar(100)
   externalBookingId          String?                  @map("external_booking_id") @db.VarChar(64)
   status                     BookingStatus            @default(DRAFT)
+  onRequestDeadlineAt        DateTime?                @map("on_request_deadline_at") @db.Timestamptz(6)
+  paymentPendingAt           DateTime?                @map("payment_pending_at") @db.Timestamptz(6)
+  paymentDueAt               DateTime?                @map("payment_due_at") @db.Timestamptz(6)
+  onRequestCheckoutUrl       String?                  @map("on_request_checkout_url") @db.VarChar(2048)
   // The PMS's own stay status as received (Clock: expected, checked_in, ...).
   pmsStayStatus              String?                  @map("pms_stay_status") @db.VarChar(40)
   checkedInAt                DateTime?                @map("checked_in_at") @db.Timestamptz

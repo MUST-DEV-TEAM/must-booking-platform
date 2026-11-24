@@ -17,6 +17,7 @@ import {
   Post,
   Query,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import type { GuestPaymentMethod } from '@must/domain-contracts';
@@ -37,6 +38,9 @@ import { CancellationLinkService } from './cancellation-link.service';
 import { PmsProviderRegistry } from './pms-provider-registry';
 import { MultiRoomBookingService } from './multi-room-booking.service';
 import { ARRIVAL_TIME_RE } from './guest-form-rules';
+import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator';
+import { PaymentCollectionService } from '../payments/payment-collection.service';
+import { TenantDatabaseService } from '../tenancy/tenant-database.service';
 
 type GuestBookingRequest = {
   tenantContext: { tenantId: string; propertyId: string };
@@ -54,6 +58,8 @@ export class BookingController {
     @Inject(BookingProjectionService) private readonly projections: BookingProjectionService,
     @Inject(CancellationLinkService) private readonly cancellations: CancellationLinkService,
     @Inject(MultiRoomBookingService) private readonly multiRoomBookings: MultiRoomBookingService,
+    @Inject(PaymentCollectionService) private readonly collections: PaymentCollectionService,
+    @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
   ) {}
 
   @Get()
@@ -145,6 +151,94 @@ export class BookingController {
     );
     if (!booking) throw new NotFoundException('Booking was not found.');
     return booking;
+  }
+
+  @Post(':bookingId/request-decision')
+  @HttpCode(200)
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('bookings.edit')
+  @RequiresVerifiedEmail()
+  async decideRequest(
+    @Param('bookingId') bookingId: string,
+    @Body() body: unknown,
+    @Req() request: { tenantContext: { tenantId: string; propertyId: string; userId: string } },
+  ) {
+    const input = (body ?? {}) as Record<string, unknown>;
+    if (input.decision !== 'accept' && input.decision !== 'decline')
+      throw new BadRequestException('Choose accept or decline.');
+    if (!Number.isInteger(input.expectedVersion) || (input.expectedVersion as number) < 1)
+      throw new BadRequestException('The current booking version is required.');
+    return throwIfBookingRefused(
+      await this.provider.decideOnRequest(
+        request.tenantContext,
+        bookingId,
+        request.tenantContext.userId,
+        input.expectedVersion as number,
+        input.decision,
+      ),
+    );
+  }
+
+  @Post(':bookingId/request-cancel')
+  @HttpCode(200)
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('bookings.cancel')
+  @RequiresVerifiedEmail()
+  async cancelWaitingRequest(
+    @Param('bookingId') bookingId: string,
+    @Body() body: unknown,
+    @Headers('idempotency-key') key: string | undefined,
+    @Req() request: { tenantContext: { tenantId: string; propertyId: string; userId: string } },
+  ) {
+    const input = (body ?? {}) as Record<string, unknown>;
+    if (!Number.isInteger(input.expectedVersion) || (input.expectedVersion as number) < 1)
+      throw new BadRequestException('The current booking version is required.');
+    return throwIfBookingRefused(
+      await this.provider.cancelBooking(request.tenantContext, {
+        bookingId,
+        idempotencyKey: this.idempotencyKey(key),
+        expectedVersion: input.expectedVersion as number,
+        staffActorId: request.tenantContext.userId,
+        onlyPendingRequest: true,
+        reason: null,
+      }),
+    );
+  }
+
+  @Get(':bookingId/request-payment')
+  @PublicTenantScoped({ propertyParam: 'propertyId' })
+  @UseGuards(PublicRateLimitGuard)
+  @PublicRateLimit({ name: 'request-payment', maximum: 10, windowSeconds: 60 })
+  async requestPayment(
+    @Param('bookingId') bookingId: string,
+    @Query('token') token: string | undefined,
+    @Req() request: GuestBookingRequest,
+    @Res()
+    response: {
+      status(code: number): { type(value: string): { send(value: string): void } };
+      setHeader(name: string, value: string): void;
+      redirect(code: number, url: string): void;
+    },
+  ) {
+    const context = request.tenantContext;
+    const result = await this.collections.openRequestLink(context, bookingId, token ?? '');
+    if (result.expired) {
+      await this.database.withTenantTransaction(context, (tx) =>
+        this.provider.expirePaymentPending(
+          tx,
+          context,
+          bookingId,
+          new Date(Date.now() - 30 * 60000),
+        ),
+      );
+      response.status(410).type('text/plain').send('This payment link has expired.');
+      return;
+    }
+    response.setHeader('Referrer-Policy', 'no-referrer');
+    response.setHeader('Cache-Control', 'no-store');
+    response.redirect(303, result.url!);
   }
 
   @Post()

@@ -61,6 +61,7 @@ export class StripePaymentProvider implements PaymentProvider {
       const session = await new Stripe(secretKey).checkout.sessions.create(
         {
           mode: 'payment',
+          ...(command.expiresAt ? { expires_at: command.expiresAt } : {}),
           submit_type: 'book',
           client_reference_id: command.bookingId,
           // The guest pays in the hotel's own currency: no local-currency offer with a conversion fee, so the
@@ -192,6 +193,9 @@ export class StripePaymentProvider implements PaymentProvider {
         propertyId: metadata.propertyId,
         bookingId: metadata.bookingId,
         paymentStatus: session.payment_status,
+        ...(Number.isFinite(event.created)
+          ? { occurredAt: new Date(event.created * 1000).toISOString() }
+          : {}),
       },
     };
   }
@@ -275,6 +279,29 @@ export class StripePaymentProvider implements PaymentProvider {
         `Stripe checkout could not be closed: ${stripeError.message ?? 'unknown error'}`,
       );
       return { ok: true, value: { closed: false } };
+    }
+  }
+
+  async checkoutState(
+    context: PaymentProviderContext,
+    externalPaymentId: string,
+  ): Promise<Result<'open' | 'paid' | 'expired'>> {
+    const configured = await this.tenantConnection(context, externalPaymentId);
+    if (!configured.ok) return configured;
+    try {
+      const session = await new Stripe(configured.value.secretKey).checkout.sessions.retrieve(
+        externalPaymentId,
+      );
+      if (session.payment_status === 'paid') return { ok: true, value: 'paid' };
+      if (session.status === 'expired') return { ok: true, value: 'expired' };
+      if (session.status === 'open') return { ok: true, value: 'open' };
+      return this.failure('STRIPE_CHECKOUT_UNCERTAIN', 'Checkout status needs review.', true);
+    } catch {
+      return this.failure(
+        'STRIPE_CHECKOUT_UNCERTAIN',
+        'Checkout status could not be verified.',
+        true,
+      );
     }
   }
 

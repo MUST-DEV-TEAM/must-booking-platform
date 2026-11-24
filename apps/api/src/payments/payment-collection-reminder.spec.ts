@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { PaymentCollectionService } from './payment-collection.service';
 
-function setup(rows: unknown[]) {
+function setup(rows: unknown[], requestRows: unknown[] = []) {
   const guest = vi.fn().mockResolvedValue(undefined);
-  const db = { $queryRaw: vi.fn().mockResolvedValue(rows) };
+  const db = { $queryRaw: vi.fn().mockResolvedValueOnce(requestRows).mockResolvedValue(rows) };
   const service = new PaymentCollectionService(
     db as never,
     {} as never,
@@ -50,5 +50,30 @@ describe('payment link reminders', () => {
     const { service, guest } = setup([]);
     await service.sendDueReminders();
     expect(guest).not.toHaveBeenCalled();
+  });
+
+  it('uses the durable request link for each due reminder', async () => {
+    const { service, guest } = setup(
+      [],
+      [
+        {
+          bookingId: 'b1',
+          tenantId: 't1',
+          propertyId: 'p1',
+          checkoutUrl: 'https://hotel.test/request',
+          amount: '120.00',
+          currency: 'EUR',
+          reminder: 2,
+        },
+      ],
+    );
+    await service.sendDueReminders();
+    expect(guest).toHaveBeenCalledWith(
+      { tenantId: 't1', propertyId: 'p1' },
+      expect.objectContaining({
+        idempotencyKey: 'request-payment-reminder/b1/2',
+        cta: { label: 'Pay securely', url: 'https://hotel.test/request' },
+      }),
+    );
   });
 });

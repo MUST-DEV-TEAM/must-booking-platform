@@ -29,7 +29,10 @@ function setup(
       $queryRaw: vi.fn().mockResolvedValue([{ bookingId: 'booking-1', ...context }]),
       withTenantTransaction: vi.fn(async (_context, callback) => callback(transaction)),
     } as never,
-    { continueAfterPayment } as never,
+    {
+      continueAfterPayment,
+      expireRequestPaymentIfDue: vi.fn().mockResolvedValue(undefined),
+    } as never,
     {
       pokpay: {
         getPayment: vi.fn().mockResolvedValue({

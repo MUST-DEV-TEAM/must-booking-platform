@@ -81,6 +81,36 @@ export class PaymentExpiryService implements OnModuleInit, OnModuleDestroy {
     await this.collection.sendDueReminders().catch(() => {
       this.logger.warn('Payment reminders could not be prepared.');
     });
+    const requests = await this.database.$queryRaw<ExpiryCandidate[]>`
+      SELECT "bookingId", "tenantId", "propertyId"
+      FROM on_request_expiry_candidates(${now}::timestamptz, ${SWEEP_BATCH_SIZE}::integer)
+    `;
+    for (const request of requests) {
+      const context = { tenantId: request.tenantId, propertyId: request.propertyId };
+      const declined = await this.database.withTenantTransaction(context, (tx) =>
+        this.bookings.expireOnRequest(tx, context, request.bookingId, now),
+      );
+      if (!declined) continue;
+      await Promise.all([
+        this.lifecycle.guest(context, {
+          topic: 'booking_request_decision',
+          key: 'booking_request_declined',
+          eventType: 'guest.booking_request_declined',
+          idempotencyKey: `booking-request/decision/guest/${request.bookingId}`,
+          bookingId: request.bookingId,
+          heading: 'Booking request declined',
+          force: true,
+        }),
+        this.lifecycle.staff(context, {
+          topic: 'booking_request_decision',
+          key: 'staff_booking_request_decided',
+          eventType: 'staff.booking_request_decided',
+          idempotencyKey: `booking-request/decision/staff/${request.bookingId}`,
+          bookingId: request.bookingId,
+          heading: 'Booking request declined after the deadline',
+        }),
+      ]);
+    }
     const cutoffAt = new Date(now.getTime() - PAYMENT_PENDING_TIMEOUT_MINUTES * 60_000);
     const candidates = await this.database.$queryRaw<ExpiryCandidate[]>`
       SELECT "bookingId", "tenantId", "propertyId"
@@ -137,10 +167,10 @@ export class PaymentExpiryService implements OnModuleInit, OnModuleDestroy {
       try {
         const link = await this.database.withTenantTransaction(context, async (tx) => {
           const rows = await tx.$queryRaw<Array<{ url: string; time: string }>>`
-            SELECT op.result->'value'->>'checkoutUrl' AS url,
+            SELECT COALESCE(b.on_request_checkout_url, op.result->'value'->>'checkoutUrl') AS url,
               to_char(${candidate.expiresAt}::timestamptz AT TIME ZONE COALESCE(p.timezone, 'UTC'), 'HH24:MI') AS time
             FROM bookings b JOIN properties p ON p.tenant_id = b.tenant_id AND p.id = b.property_id
-            JOIN LATERAL (
+            LEFT JOIN LATERAL (
               SELECT result FROM integration_operations
               WHERE tenant_id = b.tenant_id AND property_id = b.property_id
                 AND external_entity_id IN (
@@ -151,6 +181,7 @@ export class PaymentExpiryService implements OnModuleInit, OnModuleDestroy {
               ORDER BY created_at DESC LIMIT 1) op ON true
             WHERE b.tenant_id = ${candidate.tenantId}::uuid AND b.property_id = ${candidate.propertyId}::uuid
               AND b.id = ${candidate.bookingId}::uuid AND b.status = 'PAYMENT_PENDING'
+              AND COALESCE(b.on_request_checkout_url, op.result->'value'->>'checkoutUrl') IS NOT NULL
           `;
           return rows[0] ?? null;
         });

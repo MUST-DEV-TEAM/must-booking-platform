@@ -118,7 +118,7 @@ export class InventoryStockService {
               }>
             >`
         SELECT r.room_type_id AS "roomTypeId",d.day::date::text AS date,COUNT(*)::int AS stock,
-          COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM bookings b WHERE b.tenant_id=${tenantId}::uuid AND b.property_id=${propertyId}::uuid AND b.room_id=r.id AND b.starts_on<=d.day::date AND b.ends_on>d.day::date AND b.status IN ('PAYMENT_PENDING','PAYMENT_NOT_REQUIRED','PMS_CREATION_PENDING','PMS_CONFIRMATION_PENDING','CONFIRMED','PAYMENT_FAILED','PMS_UNKNOWN_RESULT','PMS_REJECTED','MANUAL_REVIEW')))::int AS "soldHeld",
+          COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM bookings b WHERE b.tenant_id=${tenantId}::uuid AND b.property_id=${propertyId}::uuid AND b.room_id=r.id AND b.starts_on<=d.day::date AND b.ends_on>d.day::date AND b.status IN ('ON_REQUEST_PENDING','PAYMENT_PENDING','PAYMENT_NOT_REQUIRED','PMS_CREATION_PENDING','PMS_CONFIRMATION_PENDING','CONFIRMED','PAYMENT_FAILED','PMS_UNKNOWN_RESULT','PMS_REJECTED','MANUAL_REVIEW')))::int AS "soldHeld",
           COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM room_availability ra WHERE ra.tenant_id=${tenantId}::uuid AND ra.property_id=${propertyId}::uuid AND ra.room_id=r.id AND ra.stays_on=d.day::date AND NOT ra.is_available))::int AS unavailable
         FROM rooms r CROSS JOIN generate_series(${start}::date,${end}::date-1,interval '1 day') d(day)
         WHERE r.tenant_id=${tenantId}::uuid AND r.property_id=${propertyId}::uuid AND r.is_active GROUP BY r.room_type_id,d.day`

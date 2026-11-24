@@ -112,7 +112,7 @@ export class PromoCodeService {
         SELECT id, code, kind, value::text AS value, currency, book_from AS "bookFrom",
                book_until AS "bookUntil", stay_from AS "stayFrom", stay_until AS "stayUntil",
                min_nights AS "minNights", room_type_ids::text[] AS "roomTypeIds",
-               max_redemptions AS "maxRedemptions", (SELECT COUNT(*)::int FROM bookings b WHERE b.tenant_id = p.tenant_id AND b.property_id = p.property_id AND b.promo_code = p.code AND b.status::text NOT IN ('AVAILABILITY_FAILED', 'PAYMENT_FAILED', 'PMS_REJECTED', 'CANCELLED', 'EXPIRED')) AS redemptions, active
+               max_redemptions AS "maxRedemptions", (SELECT COUNT(*)::int FROM bookings b WHERE b.tenant_id = p.tenant_id AND b.property_id = p.property_id AND b.promo_code = p.code AND b.status::text NOT IN ('AVAILABILITY_FAILED', 'PAYMENT_FAILED', 'PMS_REJECTED', 'CANCELLED', 'EXPIRED', 'DECLINED')) AS redemptions, active
         FROM promo_codes p
         WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
           AND code = ${input.code}
@@ -176,7 +176,7 @@ export class PromoCodeService {
       SELECT pg_advisory_xact_lock(hashtextextended(${`promo:${scope.tenantId}:${scope.propertyId}:${code}`}, 0))
     `;
     const rows = await tx.$queryRaw<Array<{ ok: boolean }>>`
-      SELECT (p.active AND (p.max_redemptions IS NULL OR (SELECT COUNT(*)::int FROM bookings b WHERE b.tenant_id = p.tenant_id AND b.property_id = p.property_id AND b.promo_code = p.code AND b.status::text NOT IN ('AVAILABILITY_FAILED', 'PAYMENT_FAILED', 'PMS_REJECTED', 'CANCELLED', 'EXPIRED')) < p.max_redemptions)) AS ok
+      SELECT (p.active AND (p.max_redemptions IS NULL OR (SELECT COUNT(*)::int FROM bookings b WHERE b.tenant_id = p.tenant_id AND b.property_id = p.property_id AND b.promo_code = p.code AND b.status::text NOT IN ('AVAILABILITY_FAILED', 'PAYMENT_FAILED', 'PMS_REJECTED', 'CANCELLED', 'EXPIRED', 'DECLINED')) < p.max_redemptions)) AS ok
       FROM promo_codes p
       WHERE p.tenant_id = ${scope.tenantId}::uuid AND p.property_id = ${scope.propertyId}::uuid
         AND p.code = ${code}

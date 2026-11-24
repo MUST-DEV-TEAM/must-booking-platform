@@ -110,6 +110,7 @@ export type BookingActivity = {
 };
 
 export type BookingDetail = BookingSearchItem & {
+  onRequestDeadlineAt: string | null;
   version: number;
   updatedAt: string;
   detailsManagedInClock: boolean;
@@ -223,6 +224,7 @@ const BOOKING_BASE_SQL = `
           ${BOOKING_CONTACT_SQL.email} AS guest_email, ${BOOKING_CONTACT_SQL.phone} AS guest_phone,
           COALESCE(pt.paid, 0) AS paid, COALESCE(pt.refunded, 0) AS refunded,
           b.version, b.updated_at, b.external_booking_id, b.nightly_rates, b.estimated_arrival_time, rt.max_occupancy,
+          b.on_request_deadline_at,
           b.promo_code, b.promo_discount_amount, b.original_total_amount,
           (b.external_booking_id IS NOT NULL OR EXISTS(SELECT 1 FROM property_integration_connections pc JOIN integration_connections ic ON ic.tenant_id=pc.tenant_id AND ic.id=pc.connection_id WHERE pc.tenant_id=b.tenant_id AND pc.property_id=b.property_id AND pc.enabled AND pc.kind='PMS' AND ic.provider='CLOCK_PMS')) AS details_managed_in_clock,
           b.cancellation_is_free, b.cancellation_free_until_hours, b.cancellation_cutoff_at,
@@ -277,7 +279,7 @@ export class BookingProjectionService {
       const rows = await tx.$queryRawUnsafe<Array<Record<string, unknown>>>(
         `SELECT x.* FROM (${BOOKING_BASE_SQL}) x
          WHERE x.starts_on < $4::date AND x.ends_on > $3::date
-           AND x.status NOT IN (${includeCancelled ? "'EXPIRED', 'DRAFT', 'QUOTED'" : "'CANCELLED', 'EXPIRED', 'DRAFT', 'QUOTED'"})
+           AND x.status NOT IN (${includeCancelled ? "'EXPIRED', 'DECLINED', 'DRAFT', 'QUOTED'" : "'CANCELLED', 'EXPIRED', 'DECLINED', 'DRAFT', 'QUOTED'"})
          ORDER BY x.starts_on, x.created_at
          LIMIT ${LIMIT + 1}`,
         tenantId,
@@ -306,7 +308,7 @@ export class BookingProjectionService {
           ON s.tenant_id = b.tenant_id AND s.booking_id = b.id AND s.user_id = ${userId}::uuid
         WHERE b.tenant_id = ${tenantId}::uuid AND b.property_id = ${propertyId}::uuid
           AND b.created_at > now() - interval '14 days'
-          AND b.status NOT IN ('CANCELLED', 'EXPIRED', 'DRAFT', 'QUOTED')
+          AND b.status NOT IN ('CANCELLED', 'EXPIRED', 'DECLINED', 'DRAFT', 'QUOTED')
           AND s.booking_id IS NULL
         ORDER BY b.created_at DESC
         LIMIT 500
@@ -382,6 +384,10 @@ export class BookingProjectionService {
         value === null || value === undefined ? null : String(value);
       return {
         ...toSearchItem(row),
+        onRequestDeadlineAt:
+          row.on_request_deadline_at instanceof Date
+            ? row.on_request_deadline_at.toISOString()
+            : null,
         version: Number(row.version),
         updatedAt:
           row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at),

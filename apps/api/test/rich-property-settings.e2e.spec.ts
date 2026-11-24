@@ -29,6 +29,7 @@ import { AvailabilityService } from '../src/tenancy/availability.service';
 import { BookingStateMachine } from '../src/booking/booking-state-machine';
 import { PaymentProviderRegistry } from '../src/payments/payment-provider-registry';
 import { PaymentRefundService } from '../src/payments/payment-refund.service';
+import { PaymentCollectionService } from '../src/payments/payment-collection.service';
 import { PaymentNotificationService } from '../src/mail/payment-notification.service';
 import { BookingConfirmationNotificationService } from '../src/mail/booking-confirmation-notification.service';
 import { BookingCancellationNotificationService } from '../src/mail/booking-cancellation-notification.service';
@@ -185,6 +186,7 @@ beforeAll(async () => {
     BookingStateMachine,
     PaymentProviderRegistry,
     PaymentRefundService,
+    PaymentCollectionService,
     PaymentNotificationService,
     BookingConfirmationNotificationService,
     BookingCancellationNotificationService,

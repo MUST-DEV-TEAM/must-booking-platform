@@ -391,6 +391,7 @@ export class PublicCatalogService {
               AND b.starts_on < ${range.endsOn}::date
               AND b.ends_on > ${range.startsOn}::date
               AND b.status IN (
+                'ON_REQUEST_PENDING'::"BookingStatus",
                 'PAYMENT_PENDING'::"BookingStatus",
                 'PAYMENT_NOT_REQUIRED'::"BookingStatus",
                 'PMS_CREATION_PENDING'::"BookingStatus",

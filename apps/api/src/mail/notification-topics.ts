@@ -11,6 +11,18 @@ export const NOTIFICATION_TOPICS = {
     staff: true,
     defaultStaff: 'assigned-or-owners',
   },
+  booking_request: {
+    label: 'Booking request awaiting a decision',
+    guest: true,
+    staff: true,
+    defaultStaff: 'assigned-or-owners',
+  },
+  booking_request_decision: {
+    label: 'Booking request decision',
+    guest: true,
+    staff: true,
+    defaultStaff: 'assigned-or-owners',
+  },
   booking_cancelled: {
     label: 'Booking cancelled',
     guest: true,

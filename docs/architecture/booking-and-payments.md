@@ -89,6 +89,14 @@ Local properties also apply dated property/category/type restrictions through th
 
 ## Creation and payment lifecycle
 
+### On-request confirmation
+
+For a standalone hotel's guest booking, `confirmation_mode=on_request` holds each requested room in `ON_REQUEST_PENDING` until the saved deadline (`on_request_hours`, default 24, allowed 1-48). Staff with `bookings.edit` accept or decline through `POST /tenants/:tenantId/properties/:propertyId/bookings/:bookingId/request-decision` with `{ decision: "accept" | "decline", expectedVersion }`. Multi-room decisions cover the whole order. Decline or the minute sweep after the deadline moves the request to `DECLINED` and releases stock. Acceptance starts a new online-payment hold and emails the payment link; the existing payment confirmation path confirms the booking after a paid event. A free stay confirms on acceptance. Pay-at-hotel is refused for on-request guests. The server also refuses on-request creation and acceptance while a PMS is connected.
+
+Acceptance saves `payment_due_at` from the hotel's payment-link validity setting (seven days by default) and sends a signed link on this site through the existing email outbox. Opening the link creates or reuses a short-lived provider checkout; provider calls run outside booking locks. The room hold, reminders and expiry use the same due date. A checkout can be started until about 2 minutes before the due date. The page ends by the due date, except that Stripe's 31-minute minimum can run past it; the expiry sweep closes it at the due date. A payment finished before the due date is kept even when its notice arrives later: the Stripe event time is not after the due date, or the recorded page expiry is not after it. While a payment page is open the sweep waits 5 minutes after the due date before releasing the room; a notice that proves a later payment releases it at once. An uncertain provider creation remains blocked rather than being retried blindly. Stripe sessions can be expired; PokPay sessions must expire on their own. Confirmation comes from a webhook or poll, and later payments use the existing late-payment flow.
+
+The guest and staff messages use the existing email outbox, and decision audit events save before and after state. The booking response and guest status read expose `onRequestDeadlineAt`; sites should show a request-received state when no checkout URL is returned for `ON_REQUEST_PENDING`. Migrations `20261123161000_on_request_status`, `20261123161100_on_request_sweep` and `20261124100000_on_request_payment_due` add the states, timing and scoped sweep functions. Their rollback notes describe how to restore the earlier functions and retain additive data.
+
 ```mermaid
 flowchart TD
   Draft[DRAFT] --> Quoted[QUOTED]
