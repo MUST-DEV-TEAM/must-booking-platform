@@ -332,4 +332,57 @@ describe.skipIf(!hasSandboxCredentials)('Clock multi-room orders (G-39, real san
     expect(rows).toHaveLength(2);
     await cancelOrder(orderReference);
   }, 240_000);
+
+  it('lets staff cancel one room of an order on its own: only that room goes in MUST and in Clock, the other stays booked', async () => {
+    const order = await placeOrder(false);
+    expect(order.ok, JSON.stringify(order)).toBe(true);
+    if (!order.ok) return;
+    const reference = order.value.orderReference;
+    await expectRealClockReservations(reference, 2);
+    await admin.$executeRaw`UPDATE properties SET free_cancellation_days_before_arrival = 0 WHERE id = ${propertyId}::uuid`;
+    const rooms = await admin.$queryRaw<
+      Array<{ id: string; version: number; externalBookingId: string }>
+    >`SELECT id::text, version, external_booking_id AS "externalBookingId" FROM bookings
+      WHERE tenant_id = ${tenantId}::uuid AND order_reference = ${reference} ORDER BY order_room_number`;
+    const { LocalPmsProvider } = await import('../src/booking/local-pms.provider');
+    const cancelRoom = (room: { id: string; version: number }) =>
+      app!.get(LocalPmsProvider).cancelBooking(
+        { tenantId, propertyId },
+        {
+          idempotencyKey: `clock-one-room-cancel-${randomUUID()}`,
+          bookingId: room.id,
+          guestSessionId: null as unknown as string,
+          staffActorId: userId,
+          expectedVersion: room.version,
+          reason: 'One room of the order is cancelled.',
+          singleBooking: true,
+        },
+      );
+    const second = await cancelRoom(rooms[1]!);
+    expect(second.ok, JSON.stringify(second)).toBe(true);
+
+    const states = await admin.$queryRaw<Array<{ status: string }>>`
+      SELECT status::text FROM bookings WHERE tenant_id = ${tenantId}::uuid AND order_reference = ${reference} ORDER BY order_room_number`;
+    expect(states.map((row) => row.status)).toEqual(['CONFIRMED', 'CANCELLED']);
+    const clock = app!.get(ClockHttpClient);
+    const remote = async (id: string) =>
+      (
+        (
+          await clock.request<{ status: string }>(sandboxCredentials(), {
+            api: 'pms_api',
+            method: 'GET',
+            path: `/bookings/${id}`,
+          })
+        ).body as { status: string }
+      ).status;
+    expect(await remote(rooms[1]!.externalBookingId)).toBe('canceled');
+    expect(await remote(rooms[0]!.externalBookingId)).not.toBe('canceled');
+
+    // The first room can still be cancelled by itself afterwards.
+    const fresh = await admin.$queryRaw<Array<{ id: string; version: number }>>`
+      SELECT id::text, version FROM bookings WHERE id = ${rooms[0]!.id}::uuid`;
+    const first = await cancelRoom(fresh[0]!);
+    expect(first.ok, JSON.stringify(first)).toBe(true);
+    expect(await remote(rooms[0]!.externalBookingId)).toBe('canceled');
+  }, 240_000);
 });
