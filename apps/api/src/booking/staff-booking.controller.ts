@@ -23,6 +23,8 @@ import { Role, Roles } from '../tenancy/roles.decorator';
 import { TenantScoped } from '../tenancy/tenant-context.decorator';
 import { LocalPmsProvider } from './local-pms.provider';
 import { QuoteService } from './quote.service';
+import { MultiRoomBookingService } from './multi-room-booking.service';
+import { randomUUID } from 'node:crypto';
 
 @Controller('tenants/:tenantId/properties/:propertyId/staff-bookings')
 export class StaffBookingController {
@@ -31,6 +33,7 @@ export class StaffBookingController {
     @Inject(LocalPmsProvider) private readonly provider: LocalPmsProvider,
     @Inject(QuoteService) private readonly quotes: QuoteService,
     @Inject(StaffAvailabilityService) private readonly availability: StaffAvailabilityService,
+    @Inject(MultiRoomBookingService) private readonly orders: MultiRoomBookingService,
   ) {}
 
   @Post('offers')
@@ -134,6 +137,98 @@ export class StaffBookingController {
       staffActorId: request.tenantContext.userId,
       ...(ruleOverrideReason ? { ruleOverrideReason } : {}),
       skipQuoteValidation: true,
+    });
+    if (!result.ok && result.error.code === 'IDEMPOTENCY_KEY_CONFLICT')
+      throw new ConflictException(
+        'This idempotency key was already used with a different request.',
+      );
+    return result;
+  }
+
+  /**
+   * Several rooms for one guest in one reservation (an order): the same dates for every room, every room held or
+   * none, one payment and one confirmation. Each room is priced with the staff channel and carries its own party,
+   * coupon, Clock rate and optional guest name. Staff orders follow the hotel's booking limits (no override).
+   */
+  @Post('orders')
+  @HttpCode(201)
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('bookings.create')
+  @RequiresVerifiedEmail()
+  async createOrder(
+    @Body() body: unknown,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @Req() request: { tenantContext: { tenantId: string; propertyId: string; userId: string } },
+  ) {
+    const value = (body ?? {}) as Record<string, unknown>;
+    const guestValue = (value.guest ?? {}) as Record<string, unknown>;
+    const startsOn = typeof value.startsOn === 'string' ? value.startsOn : '';
+    const endsOn = typeof value.endsOn === 'string' ? value.endsOn : '';
+    const rawRooms = Array.isArray(value.rooms) ? value.rooms : [];
+    if (rawRooms.length < 2 || rawRooms.length > 50)
+      throw new BadRequestException('Choose at least two rooms for one order.');
+    const guest = {
+      email: typeof guestValue.email === 'string' ? guestValue.email : '',
+      firstName: typeof guestValue.firstName === 'string' ? guestValue.firstName : '',
+      lastName: typeof guestValue.lastName === 'string' ? guestValue.lastName : '',
+      phone: typeof guestValue.phone === 'string' ? guestValue.phone : null,
+    };
+    this.validateGuest(guest);
+    const paymentMethod =
+      value.paymentMethod === 'stripe' ||
+      value.paymentMethod === 'pokpay' ||
+      value.paymentMethod === 'pay_at_hotel'
+        ? (value.paymentMethod as GuestPaymentMethod)
+        : undefined;
+    const { tenantId, propertyId, userId } = request.tenantContext;
+    // The order's rooms are quoted together under one fresh session, exactly as a guest's cart is.
+    const sessionId = randomUUID();
+    const rooms = [];
+    for (const candidate of rawRooms) {
+      const room = (candidate ?? {}) as Record<string, unknown>;
+      const roomGuest = (room.guest ?? {}) as Record<string, unknown>;
+      const input = this.input({ ...room, startsOn, endsOn });
+      const quote = await this.quotes.create(
+        tenantId,
+        propertyId,
+        sessionId,
+        { ...input, ratePlanId: input.ratePlanId },
+        15 * 60,
+        'staff',
+      );
+      rooms.push({
+        roomTypeId: input.roomTypeId,
+        roomId: input.roomId,
+        ratePlanId: input.ratePlanId,
+        clockRateId: input.clockRateId,
+        promoCode: input.promoCode,
+        adults: input.adults,
+        children: input.children,
+        childrenAges: input.childrenAges,
+        guestCount: input.guestCount,
+        total: quote.total,
+        quoteToken: quote.quoteToken,
+        ...(typeof roomGuest.firstName === 'string' || typeof roomGuest.lastName === 'string'
+          ? {
+              guest: {
+                firstName: typeof roomGuest.firstName === 'string' ? roomGuest.firstName : '',
+                lastName: typeof roomGuest.lastName === 'string' ? roomGuest.lastName : '',
+              },
+            }
+          : {}),
+      });
+    }
+    const result = await this.orders.create(request.tenantContext, {
+      idempotencyKey: this.idempotencyKey(idempotencyKey),
+      externalReference: this.externalReference(body),
+      startsOn,
+      endsOn,
+      quoteSessionId: sessionId,
+      staffActorId: userId,
+      paymentMethod,
+      guest,
+      rooms,
     });
     if (!result.ok && result.error.code === 'IDEMPOTENCY_KEY_CONFLICT')
       throw new ConflictException(
