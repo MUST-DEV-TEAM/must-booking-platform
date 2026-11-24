@@ -2,6 +2,7 @@ import type { RecipientEnvelope } from './recipient-envelope';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { MailTemplateOverride } from '@must/domain-contracts';
 
+import { acceptedAtHotelLabels, acceptedAtHotelSentence } from '../booking/payment-method-order';
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
 import { MailDeliveryService } from './mail-delivery.service';
 import type { QueuedMailCommands } from './mail-descriptors';
@@ -50,9 +51,14 @@ export class PaymentNotificationService {
       }),
     );
     if (!guest.enabled) return;
+    const acceptedAtHotelNote = await this.acceptedAtHotelNote(context);
     return this.delivery.dispatch(
       'paymentConfirmation',
-      { ...command, ...(guest.template ? { template: guest.template } : {}) },
+      {
+        ...command,
+        ...(acceptedAtHotelNote ? { acceptedAtHotelNote } : {}),
+        ...(guest.template ? { template: guest.template } : {}),
+      },
       this.scope(context),
     );
   }
@@ -90,6 +96,28 @@ export class PaymentNotificationService {
       { ...command, ...(guest.template ? { template: guest.template } : {}) },
       this.scope(context),
     );
+  }
+
+  /** One line about what the reception takes in person, for the confirmation email. Never throws (S7b-3). */
+  private async acceptedAtHotelNote(context: NotificationContext): Promise<string | null> {
+    try {
+      const rows = await this.database.withTenantTransaction(
+        context,
+        (tx) =>
+          tx.$queryRaw<Array<{ accepted: string[] }>>`
+            SELECT accepted_at_hotel AS accepted FROM properties
+            WHERE tenant_id = ${context.tenantId}::uuid AND id = ${context.propertyId}::uuid`,
+      );
+      return acceptedAtHotelSentence(
+        acceptedAtHotelLabels(rows[0]?.accepted).map((entry) => entry.label),
+      );
+    } catch (error) {
+      this.logger.error(
+        'Could not read what the reception accepts for the confirmation email; sending it without.',
+        error instanceof Error ? error.stack : String(error),
+      );
+      return null;
+    }
   }
 
   async sendBookingCancelledEmailSafely(

@@ -1,3 +1,4 @@
+import { acceptedAtHotelLabels, orderPaymentMethods } from '../booking/payment-method-order';
 import { pricingFacts } from './pricing.repository';
 import { evaluatePricing } from '../booking/pricing-evaluator';
 import { propertyClock } from '../booking/booking-rules';
@@ -73,7 +74,10 @@ type PublicCatalogIndividualRoomType = PublicCatalogRoomType & {
 };
 
 export type PublicCatalog = {
+  /** The methods the guest may choose, in the hotel's own order (empty order = Stripe, PokPay, pay at the hotel). */
   paymentMethods: Array<'stripe' | 'pokpay' | 'pay_at_hotel'>;
+  /** The method to pre-select; the hotel's choice when offered, otherwise the first. Null when none is offered. */
+  defaultPaymentMethod: 'stripe' | 'pokpay' | 'pay_at_hotel' | null;
   roomTypes: PublicCatalogRoomType[] | PublicCatalogIndividualRoomType[];
   bookingMode?: 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
   /**
@@ -112,6 +116,7 @@ export class PublicCatalogService {
           checkOutTime: string | null;
           houseRules: string | null;
           termsUrl: string | null;
+          acceptedAtHotel: string[];
           freeCancellationDays: number | null;
           currency: string | null;
           timezone: string;
@@ -119,7 +124,7 @@ export class PublicCatalogService {
       >`
         SELECT p.name, p.address, p.phone, p.support_email AS "supportEmail",
           p.check_in_time AS "checkInTime", p.check_out_time AS "checkOutTime",
-          p.rules AS "houseRules", p.terms_url AS "termsUrl",
+          p.rules AS "houseRules", p.terms_url AS "termsUrl", p.accepted_at_hotel AS "acceptedAtHotel",
           p.free_cancellation_days_before_arrival AS "freeCancellationDays",
           COALESCE(p.default_currency, (SELECT rp.currency FROM rate_plans rp WHERE rp.tenant_id=p.tenant_id AND rp.property_id=p.id ORDER BY rp.created_at LIMIT 1)) AS currency,
           p.timezone
@@ -133,6 +138,8 @@ export class PublicCatalogService {
       return {
         ...row,
         profile: publicHotelProfile(profileRows[0]!),
+        /** What the reception takes in person (cash, cards, wallets), with names a guest can read (S7b-3). */
+        payment: { acceptedAtHotel: acceptedAtHotelLabels(row.acceptedAtHotel) },
         cancellationText:
           days && days > 0
             ? `Free cancellation up to ${days} days before arrival. Inside ${days} days, contact the hotel.`
@@ -148,6 +155,8 @@ export class PublicCatalogService {
           stripeEnabled: boolean;
           pokpayEnabled: boolean;
           payAtHotelEnabled: boolean;
+          paymentMethodOrder: string[];
+          paymentDefaultMethod: string | null;
           timezone: string;
           pricingSource: string;
           bookingMode: 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
@@ -155,6 +164,7 @@ export class PublicCatalogService {
       >`
         SELECT stripe_enabled AS "stripeEnabled", pokpay_enabled AS "pokpayEnabled",
           pay_at_hotel_enabled AS "payAtHotelEnabled", booking_mode AS "bookingMode",timezone,
+          payment_method_order AS "paymentMethodOrder", payment_default_method AS "paymentDefaultMethod",
           CASE WHEN EXISTS(SELECT 1 FROM property_integration_connections pc JOIN integration_connections c ON c.tenant_id=pc.tenant_id AND c.id=pc.connection_id WHERE pc.tenant_id=${tenantId}::uuid AND pc.property_id=${propertyId}::uuid AND pc.kind='PMS' AND pc.enabled AND c.provider='CLOCK_PMS') THEN 'CLOCK_PMS' ELSE 'LOCAL' END AS "pricingSource"
         FROM properties
         WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid
@@ -302,7 +312,7 @@ export class PublicCatalogService {
       const connectedPaymentProviders = new Set(
         connectedPaymentConnections.map((connection) => connection.provider),
       );
-      const paymentMethods: PublicCatalog['paymentMethods'] = property
+      const offered: PublicCatalog['paymentMethods'] = property
         ? [
             ...(property.stripeEnabled && connectedPaymentProviders.has('STRIPE')
               ? (['stripe'] as const)
@@ -313,10 +323,16 @@ export class PublicCatalogService {
             ...(property.payAtHotelEnabled ? (['pay_at_hotel'] as const) : []),
           ]
         : [];
+      const { methods: paymentMethods, defaultMethod: defaultPaymentMethod } = orderPaymentMethods(
+        offered,
+        property?.paymentMethodOrder,
+        property?.paymentDefaultMethod,
+      );
       if (!property || property.bookingMode === 'ROOM_TYPE_ONLY')
         return {
           roomTypes,
           paymentMethods,
+          defaultPaymentMethod,
           pricingSource: properties[0]?.pricingSource as 'CLOCK_PMS' | 'LOCAL' | undefined,
         };
 
@@ -467,6 +483,7 @@ export class PublicCatalogService {
           rooms: roomsByType.get(roomType.id) ?? [],
         })),
         paymentMethods,
+        defaultPaymentMethod,
       };
     });
   }

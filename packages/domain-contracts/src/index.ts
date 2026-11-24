@@ -54,6 +54,8 @@ export interface MailProvider {
     rooms?: MailOrderRoom[];
     cancellationUrl?: string;
     specialRequests?: string | null;
+    /** What the reception takes in person, as one sentence; absent when the hotel listed nothing (S7b-3). */
+    acceptedAtHotelNote?: string;
     /** The property's own subject and message, when it saved one. */
     template?: MailTemplateOverride;
   }): Promise<MailSendReceipt | void>;
