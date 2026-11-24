@@ -6,7 +6,9 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
+import { NotificationsService } from '../tenancy/notifications.service';
 import { ClockFinancialService } from '../integrations/clock/clock-financial.service';
 import { createHash, randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
@@ -33,7 +35,7 @@ type Collection = {
   stage: 'PREPARING' | 'READY' | 'PAID' | 'UNCERTAIN';
 };
 type Operation = { id: string; result: Collection };
-/** A link staff send for a balance stays payable this long, so a reminder always has a working link. */
+/** A link staff send for a balance stays payable this long unless the hotel set its own (1 to 14 days). */
 const BALANCE_LINK_VALID_MINUTES = 7 * 24 * 60;
 /** A new checkout is not started when less than this is left before the hotel's deadline. */
 const REQUEST_CHECKOUT_MIN_REMAINING_MINUTES = 2;
@@ -75,6 +77,7 @@ export class PaymentCollectionService {
     @Inject(MailDeliveryService) private readonly delivery: MailDeliveryService,
     @Inject(ClockFinancialService) private readonly financial: ClockFinancialService,
     @Inject(LifecycleEmailService) private readonly lifecycle: LifecycleEmailService,
+    @Optional() @Inject(NotificationsService) private readonly notifications?: NotificationsService,
   ) {}
 
   /** Reserve an attempt before leaving the database transaction; an uncertain attempt is never repeated. */
@@ -413,6 +416,14 @@ export class PaymentCollectionService {
         orderId: intent.result.externalPaymentId,
         amount: { amount: intent.result.amount, currency: intent.result.currency },
       };
+    // The hotel's own link life (Settings, Payment methods), 1 to 14 days; 7 days when none is saved.
+    const validMinutes = await this.db.withTenantTransaction(scope, async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ days: number | null }>>`
+        SELECT payment_link_valid_days AS days FROM properties
+        WHERE tenant_id = ${scope.tenantId}::uuid AND id = ${scope.propertyId}::uuid`;
+      const days = rows[0]?.days;
+      return days && days >= 1 && days <= 14 ? days * 24 * 60 : BALANCE_LINK_VALID_MINUTES;
+    });
     const origin = process.env.WEB_APP_URL ?? 'http://localhost:3001';
     let checkout;
     try {
@@ -432,7 +443,7 @@ export class PaymentCollectionService {
           `/bookings/${bookingId}/payment/cancel?${new URLSearchParams(scope)}`,
           origin,
         ).toString(),
-        expiresAfterMinutes: BALANCE_LINK_VALID_MINUTES,
+        expiresAfterMinutes: validMinutes,
       });
     } catch {
       checkout = {
@@ -472,7 +483,7 @@ export class PaymentCollectionService {
       stage: 'READY',
       externalPaymentId: checkout.value.id,
       checkoutUrl: checkout.value.url,
-      expiresAt: new Date(Date.now() + BALANCE_LINK_VALID_MINUTES * 60_000).toISOString(),
+      expiresAt: new Date(Date.now() + validMinutes * 60_000).toISOString(),
     };
     await this.db.withTenantTransaction(scope, async (tx) => {
       await tx.$executeRaw`INSERT INTO payment_provider_sessions(tenant_id,property_id,booking_id,provider,external_payment_id,connection_id) VALUES(${scope.tenantId}::uuid,${scope.propertyId}::uuid,${bookingId}::uuid,'pokpay',${checkout.value.id},${checkout.value.connectionId ?? null}::uuid) ON CONFLICT(tenant_id,provider,external_payment_id) DO NOTHING`;
@@ -596,6 +607,72 @@ export class PaymentCollectionService {
           cta: { label: 'Pay securely with PokPay', url: link.checkoutUrl },
         },
       );
+    }
+    // The hotel's second reminder, when it set one (Settings, Payment methods). Once per link.
+    const second = await this.db.$queryRaw<
+      Array<{
+        bookingId: string;
+        tenantId: string;
+        propertyId: string;
+        operationId: string;
+        checkoutUrl: string;
+        amount: string;
+        currency: string;
+      }>
+    >`SELECT * FROM "payment_link_second_reminder_candidates"(100::integer)`;
+    for (const link of second) {
+      const amount = `${link.amount} ${link.currency}`;
+      await this.lifecycle.guest(
+        { tenantId: link.tenantId, propertyId: link.propertyId },
+        {
+          topic: 'payment_reminder',
+          key: 'payment_reminder',
+          eventType: 'guest.payment_reminder',
+          idempotencyKey: `payment-reminder-2/${link.operationId}`,
+          bookingId: link.bookingId,
+          heading: 'Payment reminder',
+          values: { payment_link: link.checkoutUrl, payment_due: amount },
+          rows: [{ label: 'Amount', value: amount }],
+          cta: { label: 'Pay securely with PokPay', url: link.checkoutUrl },
+        },
+      );
+    }
+    await this.tellStaffAboutExpiredLinks();
+  }
+
+  /**
+   * A balance link that ran out while money is still owed: staff get a "needs attention" notice, once per link.
+   * The booking is never cancelled for this (a confirmed booking is not lost because a link lapsed).
+   */
+  private async tellStaffAboutExpiredLinks(): Promise<void> {
+    const expired = await this.db.$queryRaw<
+      Array<{
+        bookingId: string;
+        tenantId: string;
+        propertyId: string;
+        operationId: string;
+        amount: string;
+        currency: string;
+      }>
+    >`SELECT * FROM "payment_link_expired_candidates"(100::integer)`;
+    for (const link of expired) {
+      const scope = { tenantId: link.tenantId, propertyId: link.propertyId };
+      await this.db.withTenantTransaction(scope, async (tx) => {
+        const marked = await tx.$executeRaw`
+          UPDATE integration_operations SET result = jsonb_set(result, '{expiryNotified}', 'true'::jsonb), updated_at = now()
+          WHERE tenant_id = ${scope.tenantId}::uuid AND property_id = ${scope.propertyId}::uuid
+            AND id = ${link.operationId}::uuid AND result->>'expiryNotified' IS NULL`;
+        if (marked === 0) return;
+        await this.notifications?.recordInTransaction(tx, {
+          ...scope,
+          type: 'BOOKING_NEEDS_ATTENTION',
+          payload: {
+            bookingId: link.bookingId,
+            reason: 'payment_link_expired',
+            amount: `${link.amount} ${link.currency}`,
+          },
+        });
+      });
     }
   }
 
