@@ -478,13 +478,16 @@ export function ReservationDetail({
   const cancelRequest = async () => {
     cancelRequestKey.current ||= crypto.randomUUID();
     const response = await fetch(`${base}/bookings/${booking.id}/request-cancel`, {
-      method: 'POST', credentials: 'include',
+      method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json', 'Idempotency-Key': cancelRequestKey.current },
       body: JSON.stringify({ expectedVersion: booking.version }),
     });
     const result = await response.json().catch(() => null);
     if (!response.ok || result?.ok === false)
-      throw new Error(result?.error?.message ?? result?.message ?? 'The request could not be cancelled.');
+      throw new Error(
+        result?.error?.message ?? result?.message ?? 'The request could not be cancelled.',
+      );
     cancelRequestKey.current = '';
     await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
   };
@@ -558,7 +561,9 @@ export function ReservationDetail({
               <StayStatusActions tenantId={tenantId} propertyId={propertyId} booking={booking} />
             ) : null}
             {canCancelBooking ? (
-              <Button variant="outline" onClick={() => setCancellingRequest(true)}>Cancel request</Button>
+              <Button variant="outline" onClick={() => setCancellingRequest(true)}>
+                Cancel request
+              </Button>
             ) : null}
             {canEditBooking ? (
               <Button onClick={() => setEditingDetails(true)}>
