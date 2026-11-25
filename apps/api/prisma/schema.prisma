@@ -321,6 +321,8 @@ model Property {
   brandColour                       String?                         @map("brand_colour") @db.VarChar(7)
   emailFooterText                   String?                         @map("email_footer_text") @db.VarChar(300)
   termsUrl                          String?                         @map("terms_url") @db.VarChar(2048)
+  privacyUrl                        String?                         @map("privacy_url") @db.VarChar(2048)
+  requireTermsAcceptance            Boolean                         @default(false) @map("require_terms_acceptance")
   emailDeliveryExportVersion        Int                             @default(0) @map("email_delivery_export_version")
   emailConfigurationVersion         Int                             @default(1) @map("email_configuration_version")
   emailSenderName                   String?                         @map("email_sender_name") @db.VarChar(120)
@@ -996,6 +998,9 @@ model Booking {
   taxNumber                  String?                  @map("tax_number") @db.VarChar(40)
   marketingConsent           Boolean                  @default(false) @map("marketing_consent")
   marketingConsentAt         DateTime?                @map("marketing_consent_at") @db.Timestamptz(6)
+  termsAcceptedAt            DateTime?                @map("terms_accepted_at") @db.Timestamptz(6)
+  termsVersionId             String?                  @map("terms_version_id") @db.Uuid
+  privacyVersionId           String?                  @map("privacy_version_id") @db.Uuid
   guestReturnUrl             String?                  @map("guest_return_url") @db.VarChar(2000)
   specialRequests            String?                  @map("special_requests") @db.VarChar(2000)
   externalReference          String                   @map("external_reference") @db.VarChar(200)
@@ -2540,4 +2545,18 @@ model GroupRequest {
 
   @@index([tenantId, propertyId, createdAt(sort: Desc)], map: "group_requests_property_created_idx")
   @@map("group_requests")
+}
+
+/// A numbered version of a hotel's terms or privacy link; a booking records which ones the guest accepted (G-56).
+model PropertyLegalVersion {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  propertyId String   @map("property_id") @db.Uuid
+  kind       String
+  version    Int
+  url        String   @db.VarChar(2048)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, propertyId, kind, version])
+  @@map("property_legal_versions")
 }
