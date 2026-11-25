@@ -313,6 +313,9 @@ model Property {
   acceptedAtHotel                   String[]                        @default([]) @map("accepted_at_hotel")
   paymentLinkValidDays              Int                             @default(7) @map("payment_link_valid_days") @db.SmallInt
   paymentSecondReminderDays         Int?                            @map("payment_second_reminder_days") @db.SmallInt
+  ownerSummaryTime                  String?                         @map("owner_summary_time") @db.VarChar(5)
+  preArrivalEmailTime               String?                         @map("pre_arrival_email_time") @db.VarChar(5)
+  postStayEmailTime                 String?                         @map("post_stay_email_time") @db.VarChar(5)
   paymentLinkExpiryAction           String                          @default("notify_staff") @map("payment_link_expiry_action") @db.VarChar(20)
   onlinePaymentHoldMinutes          Int                             @default(30) @map("online_payment_hold_minutes")
   autoRefundOnFreeCancellation      Boolean                         @default(true) @map("auto_refund_on_free_cancellation")
