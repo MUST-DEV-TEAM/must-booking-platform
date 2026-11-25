@@ -16,10 +16,13 @@ const charge = {
 function setup(options: { clockRefund?: boolean; refundOk?: boolean; clockThrows?: boolean } = {}) {
   const { clockRefund = true, refundOk = true, clockThrows = false } = options;
   const tx = {
-    $queryRaw: vi
-      .fn()
-      .mockResolvedValueOnce([charge])
-      .mockResolvedValue([{ amount: '0' }]),
+    // Answers by what is asked: the booking lock, the paid charge, then the earlier refunds.
+    $queryRaw: vi.fn(async (strings: TemplateStringsArray) => {
+      const sql = strings.join('?');
+      if (sql.includes('FOR UPDATE')) return [{ id: 'b1' }];
+      if (sql.includes('SELECT id, provider')) return [charge];
+      return [{ amount: '0' }];
+    }),
     $executeRaw: vi.fn(),
   };
   const clockBooking = {

@@ -11,7 +11,6 @@ import { MultiRoomBookingService } from '../src/booking/multi-room-booking.servi
 import { QuoteService } from '../src/booking/quote.service';
 import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
 import { PAYMENT_PROVIDER } from '../src/payments/payment.provider';
-import { StripeWebhookService } from '../src/payments/stripe-webhook.service';
 import { cleanupTenant } from './helpers/cleanup-tenant';
 import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
 
@@ -128,7 +127,7 @@ describe('guest cancels one room of an order', () => {
     await request(server)
       .patch(`${propertyUrl}/payment-gateways`)
       .set('Cookie', cookie)
-      .send({ stripe: true, pokpay: false, payAtHotel: true })
+      .send({ stripe: false, pokpay: false, payAtHotel: true })
       .expect(200);
     const types = [] as Array<{ body: { id: string } }>;
     for (const name of ['Garden Suite', 'Sea Suite']) {
@@ -185,7 +184,7 @@ describe('guest cancels one room of an order', () => {
         startsOn,
         endsOn,
         quoteSessionId: sessionId,
-        paymentMethod: 'stripe',
+        paymentMethod: 'pay_at_hotel',
         guest: {
           email: 'guest@example.test',
           firstName: 'Room',
@@ -203,14 +202,9 @@ describe('guest cancels one room of an order', () => {
     expect(order.ok, JSON.stringify(order)).toBe(true);
     if (!order.ok) return;
     const [first, second] = order.value.bookings;
-    await app!.get(StripeWebhookService).processPaymentSucceeded({
-      id: randomUUID(),
-      type: 'checkout.session.completed',
-      externalPaymentId: `cs_test_${first!.id}`,
-      tenantId,
-      propertyId,
-      bookingId: first!.id,
-    });
+    // The order was paid online as one payment on its first room.
+    await admin.$executeRaw`INSERT INTO payments (tenant_id, property_id, booking_id, kind, provider, external_payment_id, status, amount, currency)
+      VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${first!.id}::uuid, 'CHARGE'::"PaymentKind", 'stripe', ${`cs_test_${first!.id}`}, 'PAID', 430, 'EUR')`;
     const before = await admin.$queryRaw<Array<{ version: number }>>`
       SELECT version FROM bookings WHERE id = ${second!.id}::uuid AND tenant_id = ${tenantId}::uuid`;
 
@@ -275,7 +269,7 @@ describe('guest cancels one room of an order', () => {
           startsOn,
           endsOn,
           quoteSessionId: session,
-          paymentMethod: 'stripe',
+          paymentMethod: 'pay_at_hotel',
           returnUrl,
           guest: {
             email: 'guest2@example.test',
