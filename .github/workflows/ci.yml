@@ -349,3 +349,4 @@ jobs:
           test/clock-booking.e2e.spec.ts
           test/clock-payment-gated-booking.e2e.spec.ts
           test/clock-bank-transfer.e2e.spec.ts
+          test/clock-multi-room.e2e.spec.ts

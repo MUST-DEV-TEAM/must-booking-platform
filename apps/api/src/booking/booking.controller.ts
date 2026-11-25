@@ -445,6 +445,8 @@ export class BookingController {
             : undefined,
           guestCount: typeof room.guestCount === 'number' ? room.guestCount : undefined,
           quoteToken: typeof room.quoteToken === 'string' ? room.quoteToken : '',
+          clockRateId: typeof room.clockRateId === 'string' ? room.clockRateId : undefined,
+          promoCode: typeof room.promoCode === 'string' ? room.promoCode : undefined,
           guest:
             typeof roomGuest.firstName === 'string' || typeof roomGuest.lastName === 'string'
               ? {

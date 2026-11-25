@@ -2,6 +2,7 @@ import { paymentMethodAvailability } from './payment-method-availability';
 import { NotificationsService } from '../tenancy/notifications.service';
 import { enforcePropertyBookingLimits } from './property-booking-limits';
 import { checkTermsAcceptance, recordTermsAcceptance } from './terms-acceptance';
+import { PromoCodeService } from './promo-code.service';
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   BookingPaymentMethod,
@@ -50,6 +51,10 @@ export type MultiRoomBookingCommand = {
     guestCount?: number;
     quoteToken: string;
     guest?: RoomGuestName;
+    /** The Clock rate the guest chose, when the hotel sells through Clock. Bound into the room's quote. */
+    clockRateId?: string;
+    /** The coupon entered for this room. Bound into the room's quote; its discount is stored on the booking. */
+    promoCode?: string;
   }>;
 };
 
@@ -109,6 +114,7 @@ export class MultiRoomBookingService {
     @Optional()
     @Inject(NotificationsService)
     private readonly notificationsService?: NotificationsService,
+    @Optional() @Inject(PromoCodeService) private readonly promos?: PromoCodeService,
   ) {}
 
   async create(
@@ -175,6 +181,8 @@ export class MultiRoomBookingService {
                 roomTypeId: room.roomTypeId,
                 roomId: room.roomId,
                 ratePlanId: room.ratePlanId,
+                clockRateId: room.clockRateId,
+                promoCode: room.promoCode,
                 startsOn: command.startsOn,
                 endsOn: command.endsOn,
                 adults: room.adults,
@@ -220,13 +228,24 @@ export class MultiRoomBookingService {
               const nightlyRates = this.quotes.nightlyRates(room.quoteToken)!;
               const roomGuest = room.guest ?? command.guest;
               const occupancy = roomOccupancy(room);
+              // The coupon signed into this room's quote. A limited coupon counts one use per room it is applied to.
+              const promo = room.promoCode ? this.quotes.promoOf(room.quoteToken) : null;
+              if (promo?.source === 'own') {
+                const redeemed = await this.promos?.reserveUse(tx, context, promo.code);
+                if (!redeemed)
+                  return this.failure(
+                    'PROMO_UNAVAILABLE',
+                    'This code has just been used up. Please request a new quote.',
+                  );
+              }
               const inserted = await tx.$queryRaw<Array<{ id: string }>>`
                 INSERT INTO bookings (
                   tenant_id, property_id, room_type_id, room_id, guest_id, guest_session_id,
                   external_reference, order_reference, order_room_number,
                   room_guest_first_name, room_guest_last_name, status, payment_method,
                   starts_on, ends_on, rate_plan_id, total_amount, adults, children, guest_count,
-                  nightly_rates, source, on_request_deadline_at, payment_pending_at
+                  nightly_rates, source, on_request_deadline_at, payment_pending_at,
+                  clock_rate_id, promo_code, promo_discount_amount, original_total_amount
                 ) VALUES (
                   ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${room.roomTypeId}::uuid,
                   ${room.roomId ?? null}::uuid, ${guest.value}::uuid, ${command.quoteSessionId}::uuid,
@@ -236,7 +255,9 @@ export class MultiRoomBookingService {
                   ${command.startsOn}::date, ${command.endsOn}::date, ${billingRatePlanIds[index]}::uuid,
                   ${room.total.amount}::numeric, ${occupancy.adults}, ${occupancy.children},
                   ${occupancy.guestCount}, ${JSON.stringify(nightlyRates)}::jsonb, 'WEBSITE',
-                  ${deadline}::timestamptz, ${onRequest ? null : status === BookingStatus.PAYMENT_PENDING ? new Date() : null}::timestamptz
+                  ${deadline}::timestamptz, ${onRequest ? null : status === BookingStatus.PAYMENT_PENDING ? new Date() : null}::timestamptz,
+                  ${room.clockRateId ?? null}, ${promo?.code ?? null}, ${promo?.discount.amount ?? null}::numeric,
+                  ${promo?.originalTotal.amount ?? null}::numeric
                 )
                 RETURNING id
               `;
@@ -449,7 +470,7 @@ export class MultiRoomBookingService {
     for (const room of command.rooms) {
       if (
         !room.roomTypeId ||
-        !room.ratePlanId ||
+        (!room.ratePlanId && !room.clockRateId) ||
         !room.quoteToken ||
         !this.validMoney(room.total) ||
         (room.guestCount !== undefined &&
@@ -536,7 +557,17 @@ export class MultiRoomBookingService {
         AND id = ${room.roomTypeId}::uuid AND status = 'PUBLISHED'::"RoomTypeStatus"
     `;
     if (!types[0]) return null;
-    const billing = await resolveBillingRatePlan(tx, context, room.ratePlanId, room.total.currency);
+    // A Clock hotel sells by Clock rate: the room type's shadow plan stands in when no plan id is sent (as for a single booking).
+    const ratePlanId =
+      room.ratePlanId ||
+      (
+        await tx.$queryRaw<Array<{ id: string }>>`
+          SELECT id FROM rate_plans
+          WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+            AND clock_shadow_room_type_id = ${room.roomTypeId}::uuid`
+      )[0]?.id;
+    if (!ratePlanId) return null;
+    const billing = await resolveBillingRatePlan(tx, context, ratePlanId, room.total.currency);
     if (!billing.ok) return null;
     if (!room.roomId) return billing.ratePlanId;
     const selected = await tx.$queryRaw<Array<{ id: string }>>`
