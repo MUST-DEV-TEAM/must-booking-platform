@@ -105,7 +105,7 @@ const depositMethodOptions = options([
 /** Saved and checked, but no guest page or email shows these yet (gap G-55). */
 const NOT_SHOWN = 'Saved · not shown to guests yet';
 export const hotelSettingGroups: Record<
-  'general' | 'booking-rules' | 'check-in-out',
+  'general' | 'booking-rules' | 'check-in-out' | 'bank-transfer' | 'scheduled-emails',
   SettingGroup[]
 > = {
   general: [
@@ -1068,6 +1068,75 @@ export const hotelSettingGroups: Record<
           defaultValue: false,
           span: 'full',
           hint: 'Your booking page must show the tick box and send the answer, otherwise guests cannot book. Leave off until it does.',
+        },
+      ],
+    },
+  ],
+  'bank-transfer': [
+    {
+      title: 'Bank transfer',
+      description:
+        'Guests send the money to your bank account within a set number of days. Their rooms are held until then; when you record the transfer on the booking, it is confirmed.',
+      fields: [
+        {
+          key: 'bankTransferEnabled',
+          label: 'Accept bank transfers',
+          kind: 'boolean',
+          defaultValue: false,
+          span: 'full',
+          hint: 'Guests only see this once the account holder and the IBAN are filled in.',
+        },
+        { key: 'bankAccountHolder', label: 'Account holder', max: 140, span: 'half' },
+        {
+          key: 'bankIban',
+          label: 'IBAN',
+          max: 42,
+          span: 'half',
+          placeholder: 'AL35 2021 1109 0000 0000 0123 4567',
+          hint: 'Checked for typing mistakes when you save.',
+        },
+        { key: 'bankBic', label: 'BIC or SWIFT (optional)', max: 11, span: 'third' },
+        { key: 'bankName', label: 'Bank name (optional)', max: 120, span: 'third' },
+        {
+          key: 'bankTransferDays',
+          label: 'Days to pay',
+          kind: 'number',
+          span: 'third',
+          hint: 'From 1 to 14. The rooms are held this long.',
+        },
+        {
+          key: 'bankTransferNote',
+          label: 'Note for the guest (optional)',
+          max: 300,
+          span: 'full',
+          hint: 'Shown with the bank details, for example which reference to write.',
+        },
+      ],
+    },
+  ],
+  'scheduled-emails': [
+    {
+      title: 'When scheduled emails go out',
+      description:
+        'The local time each scheduled email is sent. Leave a time empty to use the standard one.',
+      fields: [
+        {
+          key: 'ownerSummaryTime',
+          label: 'Daily summary to the hotel',
+          kind: 'time',
+          span: 'third',
+        },
+        {
+          key: 'preArrivalEmailTime',
+          label: 'Email before arrival',
+          kind: 'time',
+          span: 'third',
+        },
+        {
+          key: 'postStayEmailTime',
+          label: 'Email after the stay',
+          kind: 'time',
+          span: 'third',
         },
       ],
     },

@@ -894,7 +894,7 @@ export function PaymentSettings({
     <div className="flex flex-col gap-4">
       <FormSection
         title="Checkout methods"
-        description={`Guests see the methods that are switched on and working, in this order. The default is pre-selected.${
+        description={`Guests see the methods that are switched on and working, in this order. The default is pre-selected. Bank transfer is set up in its own section below.${
           property.defaultCurrency
             ? ` Guests pay in ${property.defaultCurrency}; the currency is set in Profile.`
             : ''
@@ -908,14 +908,6 @@ export function PaymentSettings({
           onToggle={(key, enabled) => setDraft({ ...draft, [draftGatewayKey(key)]: enabled })}
           onMove={move}
           onDefault={setDefaultKey}
-          soon={[
-            {
-              key: 'bank_transfer',
-              label: 'Bank transfer',
-              description:
-                'Guests pay by transfer to your bank account within a set number of days.',
-            },
-          ]}
         />
         {error ? (
           <p role="alert" className="m-0 text-sm text-destructive">
