@@ -210,7 +210,7 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
             ? 'Your payment was received and your stay is confirmed.'
             : 'Your stay is confirmed. Payment is collected at the hotel.',
         heading: 'Your stay is confirmed',
-        content: `${command.template?.html ?? `<p style="margin:0 0 18px 0;">Hello <strong>${escapeHtml(command.guest.name)}</strong>, ${paid ? `thank you for choosing ${escapeHtml(hotelName)}. We've received your payment and your reservation is confirmed.` : `your reservation at ${escapeHtml(hotelName)} is confirmed. Payment will be collected at the hotel on arrival.`}</p>`}${this.specialRequests(command.specialRequests)}`,
+        content: `${command.template?.html ?? `<p style="margin:0 0 18px 0;">Hello <strong>${escapeHtml(command.guest.name)}</strong>, ${paid ? `thank you for choosing ${escapeHtml(hotelName)}. We've received your payment and your reservation is confirmed.` : `your reservation at ${escapeHtml(hotelName)} is confirmed. Payment will be collected at the hotel on arrival.`}</p>`}${this.specialRequests(command.specialRequests)}${this.houseRulesBlock(command.houseRules)}`,
         summaryRows: this.bookingSummaryRows(command, {
           paymentMethod: command.paymentMethod,
           amountLabel: paid ? 'Paid' : 'Due at hotel',
@@ -223,7 +223,7 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
         showDirections: true,
         footerNote: `You&#39;re receiving this email because you made a reservation at ${escapeHtml(hotelName)}.`,
       }),
-      text: `${command.template ? `${command.template.text}\n\n` : ''}${paid ? `Your payment of ${this.money(command.amount)} was received and your reservation is confirmed.` : 'Your reservation is confirmed. Payment will be collected at the hotel on arrival.'} Booking ${command.bookingReference}: ${command.rooms && command.rooms.length > 1 ? this.roomLines(command.rooms).replace(/\n/g, '; ') : command.roomName}, ${command.stay.startsOn} to ${command.stay.endsOn}, ${command.guestCount} guest${command.guestCount === 1 ? '' : 's'}.${command.specialRequests?.trim() ? ` Special requests: ${command.specialRequests.trim()}` : ''}${command.cancellationUrl ? ` Review or cancel: ${command.cancellationUrl}` : ''}`,
+      text: `${command.template ? `${command.template.text}\n\n` : ''}${paid ? `Your payment of ${this.money(command.amount)} was received and your reservation is confirmed.` : 'Your reservation is confirmed. Payment will be collected at the hotel on arrival.'} Booking ${command.bookingReference}: ${command.rooms && command.rooms.length > 1 ? this.roomLines(command.rooms).replace(/\n/g, '; ') : command.roomName}, ${command.stay.startsOn} to ${command.stay.endsOn}, ${command.guestCount} guest${command.guestCount === 1 ? '' : 's'}.${command.specialRequests?.trim() ? ` Special requests: ${command.specialRequests.trim()}` : ''}${command.cancellationUrl ? ` Review or cancel: ${command.cancellationUrl}` : ''}${command.houseRules?.length ? `\n\nGood to know:\n${command.houseRules.map((line) => `- ${line}`).join('\n')}` : ''}`,
       idempotencyKey,
       ...this.guestSender(command.brand),
     });
@@ -302,6 +302,11 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
   ): Promise<MailSendReceipt> {
     const hotelName = command.brand.name || 'your hotel';
     const { subject, idempotencyKey } = describeMail('bookingCancelled', command);
+    const refundNote = command.refund
+      ? command.refund.status === 'processed'
+        ? `A refund of ${this.money(command.refund.amount)} has been sent back to your original payment method. It can take a few business days to appear.`
+        : `You are due a refund of ${this.money(command.refund.amount)}. It could not be sent automatically, so ${hotelName} will arrange it with you directly.`
+      : '';
     return this.send({
       to: command.to,
       subject,
@@ -312,8 +317,11 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
           command.template?.previewText || `Your reservation at ${hotelName} has been cancelled.`,
         heading: 'Your booking was cancelled',
         content:
-          command.template?.html ??
-          `<p style="margin:0 0 18px 0;">Hello <strong>${escapeHtml(command.guest.name)}</strong>, your booking has been cancelled as requested. If you need help planning a new stay, we're here for you.</p>`,
+          (command.template?.html ??
+            `<p style="margin:0 0 18px 0;">Hello <strong>${escapeHtml(command.guest.name)}</strong>, your booking has been cancelled as requested. If you need help planning a new stay, we're here for you.</p>`) +
+          (refundNote
+            ? `<p style="margin:0 0 18px 0;"><strong>Your payment</strong><br>${escapeHtml(refundNote)}</p>`
+            : ''),
         summaryRows: this.bookingSummaryRows(command, {
           includeGuests: false,
           dateFormat: emailDateOrder(command.brand),
@@ -326,7 +334,7 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
           : null,
         footerNote: `You&#39;re receiving this email because a reservation at ${escapeHtml(hotelName)} under your name was cancelled.`,
       }),
-      text: `${command.template ? `${command.template.text}\n\n` : ''}Your booking ${command.bookingReference} has been cancelled as requested. ${command.roomName}, ${command.stay.startsOn} to ${command.stay.endsOn}.`,
+      text: `${command.template ? `${command.template.text}\n\n` : ''}Your booking ${command.bookingReference} has been cancelled as requested. ${command.roomName}, ${command.stay.startsOn} to ${command.stay.endsOn}.${refundNote ? ` ${refundNote}` : ''}`,
       idempotencyKey,
       ...this.guestSender(command.brand),
     });
@@ -465,6 +473,12 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
     if (!value?.trim()) return '';
     const body = escapeHtml(value.trim()).replace(/\r?\n/g, '<br>');
     return `<p style="margin:${compact ? '16px 0 0 0' : '0 0 18px 0'};"><strong>Special requests</strong><br>${body}</p>`;
+  }
+
+  /** The hotel's check-in/out times and house rules under the confirmation (G-55); nothing when it set none. */
+  private houseRulesBlock(lines: readonly string[] | undefined): string {
+    if (!lines?.length) return '';
+    return `<p style="margin:0 0 6px 0;"><strong>Good to know</strong></p><ul style="margin:0 0 18px 0;padding-left:20px;">${lines.map((line) => `<li style="margin:0 0 4px 0;">${escapeHtml(line)}</li>`).join('')}</ul>`;
   }
 
   private paymentMethodLabel(paymentMethod: string): string {

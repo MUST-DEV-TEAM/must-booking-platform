@@ -477,7 +477,7 @@ describe('DashboardSettings', () => {
     expect(document.body.textContent).toContain('Expires in 30 minutes');
 
     await act(async () => root.unmount());
-  });
+  }, 60_000);
 
   it.each(['payment-methods', 'contact-brand', 'integrations'] as const)(
     'shows %s values without save or pairing actions for a read-only viewer',

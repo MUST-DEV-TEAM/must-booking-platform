@@ -54,6 +54,8 @@ export interface MailProvider {
     rooms?: MailOrderRoom[];
     cancellationUrl?: string;
     specialRequests?: string | null;
+    /** The hotel's check-in/out times and house rules as sentences; absent when the hotel set none (G-55). */
+    houseRules?: string[];
     /** The property's own subject and message, when it saved one. */
     template?: MailTemplateOverride;
   }): Promise<MailSendReceipt | void>;
@@ -100,6 +102,8 @@ export interface MailProvider {
     guestCount: number;
     nightlyRates?: NightlyRate[];
     template?: MailTemplateOverride;
+    /** What happened to the guest's online money, when there was any (G-02). */
+    refund?: { status: 'processed' | 'manual_action'; amount: Money };
   }): Promise<MailSendReceipt | void>;
   /** An email whose subject and body were already rendered by the caller. */
   sendRenderedEmail(command: RenderedEmailCommand): Promise<MailSendReceipt | void>;
@@ -277,9 +281,13 @@ export interface GuestDetails {
   companyName?: string | null;
   taxNumber?: string | null;
   marketingConsent?: boolean;
+  /** The guest ticked the hotel's terms and privacy box. Only asked when the hotel requires it (G-56). */
+  termsAccepted?: boolean;
 }
 
 export interface Booking {
+  /** Payment-hold deadline, only while an online checkout is pending. Not proof that a payment completed. */
+  checkoutExpiresAt?: string;
   id: string;
   tenantId: string;
   propertyId: string;
@@ -648,6 +656,7 @@ export interface UpdateNotificationTopicCommand {
 export * from './capture';
 
 export * from './hotel-profile-rules';
+export * from './policy-lines';
 export * from './booking-window-rules';
 export * from './policy-rules';
 export * from './payment-rules';

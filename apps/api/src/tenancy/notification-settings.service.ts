@@ -12,6 +12,7 @@ import {
   NOTIFICATION_TOPICS,
   isNotificationTopic,
   isOptionalStaffTopic,
+  isRequiredGuestTopic,
   topicDaysOffset,
   type NotificationTopic,
 } from '../mail/notification-topics';
@@ -272,7 +273,8 @@ export class NotificationSettingsService {
       label: definition.label,
       hasGuestEmail: definition.guest,
       hasStaffEmail: definition.staff,
-      guestEnabled: definition.guest && (settings[0]?.guestEnabled ?? true),
+      guestEnabled:
+        definition.guest && (isRequiredGuestTopic(topic) || (settings[0]?.guestEnabled ?? true)),
       staffEnabled: definition.staff && (settings[0]?.staffEnabled ?? true),
       customStaffRecipients: settings[0]?.custom ?? false,
       staffDeliveryMode:
@@ -361,7 +363,8 @@ export class NotificationSettingsService {
     }
     return {
       // A topic with no guest email ignores the guest switch.
-      guestEnabled: definition.guest ? value.guestEnabled : true,
+      // A guest email the guest needs is always on, whatever was sent.
+      guestEnabled: definition.guest ? isRequiredGuestTopic(topic) || value.guestEnabled : true,
       staffEnabled: definition.staff ? ((value.staffEnabled as boolean | undefined) ?? true) : true,
       customStaffRecipients: value.customStaffRecipients,
       rules,

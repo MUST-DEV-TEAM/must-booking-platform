@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { createHash } from 'node:crypto';
@@ -194,6 +195,7 @@ export function needsApproval(
 
 @Injectable()
 export class BookingRequestsService {
+  private readonly logger = new Logger(BookingRequestsService.name);
   constructor(
     @Inject(TenantDatabaseService) private readonly db: TenantDatabaseService,
     @Inject(CapabilitiesService) private readonly caps: CapabilitiesService,
@@ -503,11 +505,59 @@ export class BookingRequestsService {
         referenceId: e.bookingId,
         message:
           'Cancellation could not be confirmed. Review the existing provider operation before retrying.',
-        context: { cancellationRequest: key, errorCode: result.error.code },
+        context: {
+          kind: 'CANCELLATION_UNCONFIRMED',
+          cancellationRequest: key,
+          errorCode: result.error.code,
+        },
       });
       return result;
     }
     if (minor(refundAmount) === 0n) return result;
+    // The cancellation has committed. Nothing after this point may turn it into an error answer: staff would
+    // see a failure for a booking that is already cancelled and could cancel or refund it twice.
+    try {
+      return await this.refundAfterCancellation(c, snapshot, key, actorId, result);
+    } catch (error) {
+      this.logger.error(
+        `Refund step failed after cancelling ${e.bookingId}: ${error instanceof Error ? error.name : 'unknown error'}`,
+      );
+      const message = `The booking was cancelled, but the refund of ${refundAmount} ${e.currency} could not be completed because of an unexpected error. Check the payments and refund it by hand if needed.`;
+      await this.manualReview
+        .record({
+          ...c,
+          category: 'PAYMENT_BOOKING_MISMATCH',
+          referenceType: 'booking',
+          referenceId: e.bookingId,
+          message,
+          context: {
+            kind: 'CANCELLATION_REFUND_NOT_MADE',
+            cancellationRequest: key,
+            errorCode: 'REFUND_STEP_FAILED',
+          },
+        })
+        .catch(() => undefined);
+      return {
+        ...result,
+        refundOutcome: {
+          ok: false as const,
+          status: 'not_made' as const,
+          message,
+          errorCode: 'REFUND_STEP_FAILED',
+        },
+      };
+    }
+  }
+
+  /** The refund after a committed cancellation: money back to the guest, plus review items for what staff must do. */
+  private async refundAfterCancellation(
+    c: RequestContext,
+    snapshot: Snapshot,
+    key: string,
+    actorId: string,
+    result: Awaited<ReturnType<LocalPmsProvider['cancelBooking']>> & { ok: true },
+  ) {
+    const { evidence: e, input, refundAmount } = snapshot;
     const split = await this.refunds.cancellationRefund(c, {
       bookingId: e.bookingId,
       idempotencyKey: `${key}:refund`,

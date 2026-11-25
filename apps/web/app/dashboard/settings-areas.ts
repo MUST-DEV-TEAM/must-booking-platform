@@ -95,6 +95,8 @@ export type Property = {
   maxGuestsPerBooking?: number | null;
   maxRoomsPerBooking?: number | null;
   noShowRule?: string;
+  privacyUrl?: string | null;
+  requireTermsAcceptance?: boolean;
   earlyCheckInPolicy?: string | null;
   earlyCheckInUntil?: string | null;
   earlyCheckInNote?: string | null;

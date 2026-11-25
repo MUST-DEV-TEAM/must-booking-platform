@@ -313,7 +313,7 @@ export function RoomTypePeek({
                     <span className="block text-xs text-muted-foreground">
                       {[room.viewType, room.floor !== null ? `Floor ${room.floor}` : null]
                         .filter(Boolean)
-                        .join(' Â· ') || 'Details not set'}
+                        .join(' · ') || 'Details not set'}
                     </span>
                   </span>
                   {canManageAccommodations ? (

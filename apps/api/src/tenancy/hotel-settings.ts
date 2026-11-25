@@ -109,6 +109,11 @@ export type HotelSettings = {
   maxGuestsPerBooking?: number | null;
   maxRoomsPerBooking?: number | null;
   noShowRule?: string | null;
+  privacyUrl?: string | null;
+  requireTermsAcceptance?: boolean;
+  ownerSummaryTime?: string | null;
+  preArrivalEmailTime?: string | null;
+  postStayEmailTime?: string | null;
   earlyCheckInPolicy?: string | null;
   earlyCheckInUntil?: string | null;
   earlyCheckInNote?: string | null;
@@ -276,7 +281,22 @@ export const hotelFields = [
   { key: 'childrenPolicyNote', column: 'children_policy_note', kind: 'text', max: 300 },
   { key: 'petsPolicy', column: 'pets_policy', kind: 'policy', max: 0 },
   { key: 'petsPolicyNote', column: 'pets_policy_note', kind: 'text', max: 300 },
+  { key: 'privacyUrl', column: 'privacy_url', kind: 'text', max: 2048 },
+  { key: 'requireTermsAcceptance', column: 'require_terms_acceptance', kind: 'boolean', max: 0 },
+  { key: 'ownerSummaryTime', column: 'owner_summary_time', kind: 'time', max: 5 },
+  { key: 'preArrivalEmailTime', column: 'pre_arrival_email_time', kind: 'time', max: 5 },
+  { key: 'postStayEmailTime', column: 'post_stay_email_time', kind: 'time', max: 5 },
 ] as const;
+/** A full https address without a user name or password (the same rule the terms link follows). */
+function isHttpsLink(value: string): boolean {
+  try {
+    const u = new URL(value);
+    return u.protocol === 'https:' && !u.username && !u.password;
+  } catch {
+    return false;
+  }
+}
+
 export const hotelColumns = Prisma.raw(
   hotelFields.map((f) => `${f.column} AS "${f.key}"`).join(','),
 );
@@ -397,6 +417,8 @@ export function hotelInput(raw: Record<string, unknown>): HotelSettings {
         bad('Choose a currency from the list.');
       if (v && f.kind === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v as string))
         bad('Enter a valid email address.');
+      if (v && f.key === 'privacyUrl' && !isHttpsLink(v as string))
+        bad('Enter a full https privacy policy link.');
       if (v && f.kind === 'time' && !/^([01]\d|2[0-3]):[0-5]\d$/.test(v as string))
         bad('Use a local time such as 15:00.');
       const choices =

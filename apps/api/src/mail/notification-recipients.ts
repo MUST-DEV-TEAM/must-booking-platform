@@ -13,6 +13,7 @@ import {
   NOTIFICATION_TOPICS,
   topicDaysOffset,
   type NotificationTopic,
+  isRequiredGuestTopic,
 } from './notification-topics';
 
 /** `staffUserId` is the user id, or `email:<address>` for an extra address that has no account. */
@@ -28,6 +29,7 @@ export async function guestNotificationEnabled(
   context: Context,
   topic: NotificationTopic,
 ): Promise<boolean> {
+  if (isRequiredGuestTopic(topic)) return true;
   const rows = await tx.$queryRaw<Array<{ guestEnabled: boolean }>>`
     SELECT guest_enabled AS "guestEnabled" FROM notification_topic_settings
     WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid

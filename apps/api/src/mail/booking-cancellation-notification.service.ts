@@ -191,7 +191,13 @@ export class BookingCancellationNotificationService {
         : undefined;
     if (notifyGuest && row.email)
       await this.notifications.sendBookingCancelledEmailSafely(
-        { to: row.email, ...details },
+        {
+          to: row.email,
+          ...details,
+          ...(refundDetails
+            ? { refund: { status: refundDetails.status, amount: refundDetails.amount } }
+            : {}),
+        },
         context,
       );
     for (const recipient of staffDeliveryGroups(staff))

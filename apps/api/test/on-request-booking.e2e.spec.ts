@@ -1,3 +1,6 @@
+import { paymentMethodAvailability } from '../src/booking/payment-method-availability';
+import { TenantDatabaseService } from '../src/tenancy/tenant-database.service';
+import { connectPaymentProviders } from './helpers/payment-connections';
 import { createHash, randomUUID } from 'node:crypto';
 import { createClient } from 'redis';
 import { INestApplication } from '@nestjs/common';
@@ -141,6 +144,7 @@ describe('on-request booking lifecycle with real PostgreSQL', () => {
       .expect(201);
     tenantId = signup.body.organization.id;
     propertyId = signup.body.property.id;
+    await connectPaymentProviders(admin, tenantId, propertyId);
     userId = signup.body.user.id;
     ownerCookie = signup.headers['set-cookie'][0];
     planId = randomUUID();
@@ -490,6 +494,24 @@ describe('on-request booking lifecycle with real PostgreSQL', () => {
       WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND aggregate_id=${booking.id}::uuid AND result->>'kind'='request_checkout'`;
     await app.get(PaymentExpiryService).sweep();
     expect((await state(booking.id)).status).toBe('CONFIRMED');
+  });
+
+  it('offers a card method only when it is switched on and its connection works', async () => {
+    const available = () =>
+      app
+        .get(TenantDatabaseService)
+        .withTenantTransaction({ tenantId, propertyId }, (tx) =>
+          paymentMethodAvailability(tx, { tenantId, propertyId }),
+        );
+    expect(await available()).toMatchObject({ stripe: true, pokpay: true });
+    await admin.$executeRaw`UPDATE integration_connections SET status='PENDING'
+      WHERE tenant_id=${tenantId}::uuid AND provider='STRIPE'`;
+    try {
+      expect(await available()).toMatchObject({ stripe: false, pokpay: true });
+    } finally {
+      await admin.$executeRaw`UPDATE integration_connections SET status='CONNECTED'
+        WHERE tenant_id=${tenantId}::uuid AND provider='STRIPE'`;
+    }
   });
 
   it('declines manually and automatically after the saved deadline, releasing stock', async () => {

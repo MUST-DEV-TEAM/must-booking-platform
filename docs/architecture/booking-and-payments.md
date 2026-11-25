@@ -120,6 +120,14 @@ Before creating an online checkout session, single and multi-room bookings call 
 
 Online payment confirmation writes the charge and calls `continueAfterPayment`. Local-only bookings confirm locally; Clock properties attach the real reservation after verification and then attempt deposit posting. Pay-at-hotel/free flows attach without a gateway charge. A successful payment and a failed PMS operation are distinct outcomes requiring staff attention, not proof of confirmation.
 
+### Pending checkout holds
+
+Clock-backed room searches, room cards, signed quotes and calendars include local `PAYMENT_PENDING` holds that have no external reservation yet. Holds are deducted on their actual nights from Clock availability, after reading any provider cache; linked and confirmed reservations are not deducted again. The uncached provider pre-payment check remains independent of local holds because creation already owns its local inventory claim. Final room locks still decide concurrent attempts.
+
+An idempotent replay of a single-booking checkout (for example a guest clicking twice with the same request key) is returned only while its booking remains payment-pending and before its configured hold deadline. A paid booking returns its current status without the old payment link. Expired checkouts require a fresh availability check. Guest-scoped pending booking responses include `checkoutExpiresAt`; this is a deadline, not payment proof or confirmation of release. The expiry worker still verifies provider payment before changing the booking and releasing inventory. The status-page countdown waits for that server outcome.
+
+Room assignment distinguishes `CHECKOUT_HOLD_ACTIVE`, `PRICE_CHANGED` and unavailable rooms. Search uses the additive `temporarily_held` reason when local pending payment holds exhaust a provider offer. The matching WordPress plugin change (message for a held room, one request key per unchanged retry, pending-status countdown) is a separate pull request and needs the owner's go before a plugin release, because it updates real hotel websites. The API change is additive, so older plugins keep working and show their generic unavailable message. No new payment method or Clock endpoint is introduced.
+
 ## Guest payments and refunds
 
 `PaymentProviderRegistry` chooses Stripe or PokPay using tenant/property credentials. Stripe verifies the webhook against the connection and payment details; PokPay re-reads the authoritative order rather than trusting browser/callback fields. Return pages are display/continuation surfaces, never payment proof.

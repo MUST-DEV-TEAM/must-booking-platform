@@ -1,4 +1,7 @@
+import { paymentMethodAvailability } from './payment-method-availability';
+import { NotificationsService } from '../tenancy/notifications.service';
 import { enforcePropertyBookingLimits } from './property-booking-limits';
+import { checkTermsAcceptance, recordTermsAcceptance } from './terms-acceptance';
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   BookingPaymentMethod,
@@ -103,6 +106,9 @@ export class MultiRoomBookingService {
     private readonly confirmations: BookingConfirmationNotificationService,
     @Optional() @Inject(LifecycleEmailService) private readonly lifecycle?: LifecycleEmailService,
     @Optional() @Inject(AuditLogService) private readonly audit?: AuditLogService,
+    @Optional()
+    @Inject(NotificationsService)
+    private readonly notificationsService?: NotificationsService,
   ) {}
 
   async create(
@@ -128,6 +134,13 @@ export class MultiRoomBookingService {
               ),
               roomCount: command.rooms.length,
             });
+
+            const terms = await checkTermsAcceptance(
+              tx,
+              context,
+              command.guest.termsAccepted === true,
+            );
+            if (!terms.ok) return this.failure(terms.code, terms.message);
 
             const paymentMethod = await this.paymentMethod(
               tx,
@@ -229,6 +242,12 @@ export class MultiRoomBookingService {
               `;
               bookings.push({ id: inserted[0]!.id, externalReference, status, total: room.total });
             }
+            await recordTermsAcceptance(
+              tx,
+              context,
+              bookings.map((booking) => booking.id),
+              terms.record,
+            );
             if (onRequest) {
               if (this.audit)
                 for (const booking of bookings)
@@ -275,7 +294,15 @@ export class MultiRoomBookingService {
                     AND order_reference = ${orderReference}
                     AND status = ${BookingStatus.PMS_CREATION_PENDING}::"BookingStatus"
                 `;
-                for (const booking of bookings) booking.status = BookingStatus.CONFIRMED;
+                for (const booking of bookings) {
+                  booking.status = BookingStatus.CONFIRMED;
+                  // The "Booking created" notice a single pay-at-hotel booking already gets (G-14).
+                  await this.notificationsService?.recordBookingConfirmedInTransaction(tx, {
+                    tenantId: context.tenantId,
+                    propertyId: context.propertyId,
+                    bookingId: booking.id,
+                  });
+                }
               }
               return { ok: true, value: { orderReference, bookings } };
             }
@@ -531,19 +558,11 @@ export class MultiRoomBookingService {
     if (!needsCheckout) return { ok: true, value: BookingPaymentMethod.FREE };
     if (!selected)
       return this.failure('PAYMENT_METHOD_REQUIRED', 'Select an enabled payment method.');
-    const properties = await tx.$queryRaw<
-      Array<{ stripeEnabled: boolean; pokpayEnabled: boolean; payAtHotelEnabled: boolean }>
-    >`
-      SELECT stripe_enabled AS "stripeEnabled", pokpay_enabled AS "pokpayEnabled",
-        pay_at_hotel_enabled AS "payAtHotelEnabled"
-      FROM properties
-      WHERE tenant_id = ${context.tenantId}::uuid AND id = ${context.propertyId}::uuid
-    `;
-    const property = properties[0];
+    const available = await paymentMethodAvailability(tx, context);
     const enabled =
-      (selected === 'stripe' && property?.stripeEnabled) ||
-      (selected === 'pokpay' && property?.pokpayEnabled) ||
-      (selected === 'pay_at_hotel' && property?.payAtHotelEnabled);
+      (selected === 'stripe' && available.stripe) ||
+      (selected === 'pokpay' && available.pokpay) ||
+      (selected === 'pay_at_hotel' && available.payAtHotel);
     if (!enabled)
       return this.failure(
         'PAYMENT_METHOD_NOT_ENABLED',

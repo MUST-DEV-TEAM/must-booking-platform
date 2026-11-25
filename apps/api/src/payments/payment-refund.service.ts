@@ -221,7 +221,14 @@ export class PaymentRefundService {
         : null;
     if (!fee) {
       const read = await provider.getPaymentFee(context, charge.externalPaymentId);
-      if (!read.ok || !read.value) return null;
+      if (!read.ok) {
+        // G-33: the guest is refunded in full (ADR-0042); leave a trace so the hotel's absorbed fee is findable.
+        this.logger.warn(
+          `Provider fee of booking ${bookingId} could not be read from ${charge.provider}; the guest was refunded without keeping a fee back.`,
+        );
+        return null;
+      }
+      if (!read.value) return null;
       fee = read.value;
       await tx.$executeRaw`
         UPDATE payment_provider_sessions
@@ -315,13 +322,22 @@ export class PaymentRefundService {
     bookingId: string,
     idempotencyKey: string,
     note: string,
-  ): Promise<{ result: Result<Payment | null>; confirmation: RefundConfirmation | null }> {
+  ): Promise<{
+    result: Result<Payment | null>;
+    confirmation: RefundConfirmation | null;
+    /** Money paid in person that only staff can give back; null when there is none. */
+    returnByHand: Money | null;
+  }> {
     await this.lockBooking(tx, context, bookingId);
-    const charge = await this.chargeForBooking(tx, context, bookingId, ['PAID']);
-    if (!charge) return { result: { ok: true, value: null }, confirmation: null };
+    // Only the online charge can be refunded at the gateway. Money paid in person (cash, POS, bank transfer)
+    // is reported as `returnByHand`, the same split a staff cancellation makes (D5).
+    const returnByHand = await this.inPersonBalance(tx, context, bookingId);
+    const charge = await this.chargeForBooking(tx, context, bookingId, ['PAID'], true);
+    if (!charge) return { result: { ok: true, value: null }, confirmation: null, returnByHand };
     const remaining =
-      this.minorUnits(charge.amount) - (await this.refundedAmount(tx, context, bookingId));
-    if (remaining <= 0n) return { result: { ok: true, value: null }, confirmation: null };
+      this.minorUnits(charge.amount) - (await this.refundedAmount(tx, context, bookingId, true));
+    if (remaining <= 0n)
+      return { result: { ok: true, value: null }, confirmation: null, returnByHand };
     const outcome = await this.refundCharge(tx, context, bookingId, charge, {
       amount: { amount: this.money(remaining), currency: charge.currency },
       idempotencyKey,
@@ -329,7 +345,27 @@ export class PaymentRefundService {
       reasonCode: 'hotel_cancellation',
     });
     await this.mirrorCancellationRefundToClock(tx, context, bookingId, outcome);
-    return { result: outcome.result, confirmation: outcome.confirmation };
+    return { result: outcome.result, confirmation: outcome.confirmation, returnByHand };
+  }
+
+  /** What was paid in person (manual charges) and not yet given back; null when nothing is left or currencies mix. */
+  private async inPersonBalance(
+    tx: TenantTransaction,
+    context: PaymentProviderContext,
+    bookingId: string,
+  ): Promise<Money | null> {
+    const rows = await tx.$queryRaw<Array<{ currency: string; paid: string; refunded: string }>>`
+      SELECT currency,
+        COALESCE(SUM(amount) FILTER (WHERE kind = 'CHARGE'::"PaymentKind"
+          AND status IN ('PAID', 'LATE_AFTER_EXPIRY', 'succeeded')), 0)::text AS paid,
+        COALESCE(SUM(amount) FILTER (WHERE kind = 'REFUND'::"PaymentKind" AND status = 'REFUNDED'), 0)::text AS refunded
+      FROM payments
+      WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+        AND booking_id = ${bookingId}::uuid AND provider = 'manual'
+      GROUP BY currency`;
+    if (rows.length !== 1) return null;
+    const left = this.minorUnits(rows[0]!.paid) - this.minorUnits(rows[0]!.refunded);
+    return left > 0n ? { amount: this.money(left), currency: rows[0]!.currency } : null;
   }
 
   /**
@@ -451,6 +487,7 @@ export class PaymentRefundService {
           referenceId: operation.bookingId,
           message: `A refund of ${amount} was started ${operation.ageMinutes} minutes ago and the system could not confirm it. Check in the payment provider whether the guest was refunded before trying again; new refunds on this booking are blocked until this is resolved.`,
           context: {
+            kind: 'REFUND_STARTED_UNCONFIRMED',
             operationId: operation.operationId,
             stage: operation.stage,
             chargeExternalPaymentId: operation.chargeExternalPaymentId,
@@ -560,6 +597,7 @@ export class PaymentRefundService {
         message:
           'A refund could not be confirmed. The saved gateway attempt blocks automatic retries; verify the original payment before resolving it.',
         context: {
+          kind: 'REFUND_UNCONFIRMED_BLOCKS_RETRY',
           chargeExternalPaymentId: charge.externalPaymentId,
           amount: command.amount,
           error: refunded.error.code,
@@ -605,6 +643,7 @@ export class PaymentRefundService {
         message:
           'A refund was submitted but the provider has not confirmed completion. Verify the original payment before retrying or recording it in Clock.',
         context: {
+          kind: 'REFUND_PENDING_AT_PROVIDER',
           refundId: refunded.value.id,
           chargeExternalPaymentId: charge.externalPaymentId,
           amount: command.amount,
@@ -743,7 +782,11 @@ export class PaymentRefundService {
         referenceType: 'booking',
         referenceId: bookingId,
         message: `The payment provider had already refunded this payment in full; our records were behind by ${behind} ${charge.currency} and were corrected. If the hotel system also holds this payment, check it matches.`,
-        context: { chargeExternalPaymentId: charge.externalPaymentId, reconciled: true },
+        context: {
+          kind: 'REFUND_RECORDS_BEHIND_PROVIDER',
+          chargeExternalPaymentId: charge.externalPaymentId,
+          reconciled: true,
+        },
       });
     }
     return {
@@ -1221,7 +1264,11 @@ export class PaymentRefundService {
           referenceId: bookingId,
           message:
             'The refund succeeded in MUST, but Clock refund synchronization failed unexpectedly. Post the negative payment to the original Clock deposit folio and issue the Deposit Adjustment manually.',
-          context: { refundId: refund.refundId, amount: refund.amount },
+          context: {
+            kind: 'REFUND_CLOCK_SYNC_FAILED',
+            refundId: refund.refundId,
+            amount: refund.amount,
+          },
         });
         await this.inAppNotifications.recordInTransaction(tx, {
           tenantId: context.tenantId,

@@ -1042,7 +1042,8 @@ export const hotelSettingGroups: Record<
     },
     {
       title: 'Terms and conditions',
-      description: 'Guests are linked to these terms in booking emails and on the booking page.',
+      description:
+        'Guests are linked to these in booking emails and on the booking page. Each time you change a link it becomes a new numbered version, and a booking keeps the versions the guest accepted.',
       fields: [
         {
           key: 'termsUrl',
@@ -1051,6 +1052,22 @@ export const hotelSettingGroups: Record<
           span: 'full',
           placeholder: 'https://',
           hint: 'A full https:// address.',
+        },
+        {
+          key: 'privacyUrl',
+          label: 'Privacy policy link',
+          max: 500,
+          span: 'full',
+          placeholder: 'https://',
+          hint: 'A full https:// address.',
+        },
+        {
+          key: 'requireTermsAcceptance',
+          label: 'Guests must accept these to book',
+          kind: 'boolean',
+          defaultValue: false,
+          span: 'full',
+          hint: 'Your booking page must show the tick box and send the answer, otherwise guests cannot book. Leave off until it does.',
         },
       ],
     },

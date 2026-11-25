@@ -1,8 +1,10 @@
+import { paymentMethodAvailability } from './payment-method-availability';
 import type {
   RoomMoveAvailabilityQuery,
   RoomMoveAvailabilitySnapshot,
 } from '@must/domain-contracts';
 import type { MoveBookingRoomCommand } from '@must/domain-contracts';
+import { checkTermsAcceptance, recordTermsAcceptance } from './terms-acceptance';
 import { enforcePropertyBookingLimits } from './property-booking-limits';
 import { enforceChildrenAges, enforceGuestForm } from './guest-form-rules';
 import { resolveBillingRatePlan } from './billing-rate-plan';
@@ -244,7 +246,11 @@ export class LocalPmsProvider implements PmsProvider {
       referenceType: 'booking',
       referenceId: bookingId,
       message: `The booking was cancelled, but its room charges could not be cleared in Clock: ${cleared.error.message} Void the room folio in Clock by hand.`,
-      context: { externalBookingId, errorCode: cleared.error.code },
+      context: {
+        kind: 'CANCEL_ROOM_CHARGES_NOT_CLEARED',
+        externalBookingId,
+        errorCode: cleared.error.code,
+      },
     });
   }
 
@@ -336,7 +342,10 @@ export class LocalPmsProvider implements PmsProvider {
     return this.database.withTenantTransaction(context, async (tx) => {
       const row = await this.bookingById(tx, context, bookingId);
       if (!row || row.guestSessionId !== guestSessionId) return null;
-      return this.toBooking(row);
+      const booking = this.toBooking(row);
+      return booking && row.status === BookingStatus.PAYMENT_PENDING
+        ? { ...booking, checkoutExpiresAt: await this.checkoutExpiry(tx, context, row) }
+        : booking;
     });
   }
 
@@ -379,7 +388,7 @@ export class LocalPmsProvider implements PmsProvider {
               context.propertyId,
               command.roomTypeId,
             );
-          return this.withIdempotency(
+          const created = await this.withIdempotency(
             tx,
             context,
             command.idempotencyKey,
@@ -420,6 +429,11 @@ export class LocalPmsProvider implements PmsProvider {
                 await enforceGuestForm(tx, context, command.guest);
                 await enforceChildrenAges(tx, context, occupancy, command.childrenAges);
               }
+              // The hotel's terms and privacy links, when it requires the guest to accept them (G-56).
+              const terms = command.staffActorId
+                ? ({ ok: true, record: null } as const)
+                : await checkTermsAcceptance(tx, context, command.guest.termsAccepted === true);
+              if (!terms.ok) return this.failure(terms.code, terms.message);
               const catalog = await this.validateCatalog(
                 tx,
                 context,
@@ -495,6 +509,7 @@ export class LocalPmsProvider implements PmsProvider {
         RETURNING id
       `;
               const bookingId = inserted[0]!.id;
+              await recordTermsAcceptance(tx, context, [bookingId], terms.record);
               const guestReturnUrl = await this.validatedGuestReturnUrl(
                 tx,
                 context,
@@ -595,9 +610,10 @@ export class LocalPmsProvider implements PmsProvider {
               // retry never costs the guest the hold they already have.
               if (!command.skipQuoteValidation)
                 await this.releaseOwnUnpaidHolds(tx, context, command);
-              const autoAssignedRoomId = roomSelection.autoAssign
+              const assignment = roomSelection.autoAssign
                 ? await this.reserveSamePricedRoom(tx, context, command)
                 : null;
+              const autoAssignedRoomId = assignment?.roomId ?? null;
               if (roomSelection.autoAssign && !autoAssignedRoomId) {
                 await this.transition(
                   tx,
@@ -607,10 +623,21 @@ export class LocalPmsProvider implements PmsProvider {
                   BookingStatus.AVAILABILITY_FAILED,
                 );
                 return (
-                  (await this.heldForPaymentFailure(tx, context, command, bookingId)) ??
+                  // A room held by someone else's unpaid checkout says for how long; a changed price has its own answer.
+                  (assignment?.reason === 'price_changed'
+                    ? null
+                    : await this.heldForPaymentFailure(tx, context, command, bookingId)) ??
                   this.failure(
-                    'AUTO_ASSIGNMENT_UNAVAILABLE',
-                    'No available room matches the quoted price for the requested stay.',
+                    assignment?.reason === 'held'
+                      ? 'CHECKOUT_HOLD_ACTIVE'
+                      : assignment?.reason === 'price_changed'
+                        ? 'PRICE_CHANGED'
+                        : 'AUTO_ASSIGNMENT_UNAVAILABLE',
+                    assignment?.reason === 'held'
+                      ? 'This room is temporarily held while another checkout awaits payment. Please try again shortly or choose another room.'
+                      : assignment?.reason === 'price_changed'
+                        ? 'The available room price has changed. Please refresh the price before booking.'
+                        : 'No assignable room is available for the requested stay. Please choose another room or different dates.',
                   )
                 );
               }
@@ -821,6 +848,7 @@ export class LocalPmsProvider implements PmsProvider {
                 : this.failure('BOOKING_NOT_FOUND', 'Created booking could not be loaded.');
             },
           );
+          return this.currentCheckout(tx, context, created);
         },
         { timeoutMs: 30_000 },
       );
@@ -2182,6 +2210,7 @@ export class LocalPmsProvider implements PmsProvider {
             referenceId: child.row.id,
             message: `Clock cancellation could not be confirmed for this room: ${cancelledAtClock.error.message}`,
             context: {
+              kind: 'ORDER_ROOM_CLOCK_CANCEL_UNCONFIRMED',
               orderReference,
               externalBookingId: child.row.externalBookingId,
               errorCode: cancelledAtClock.error.code,
@@ -2354,6 +2383,7 @@ export class LocalPmsProvider implements PmsProvider {
       referenceId: bookingId,
       message: `Automatic cancellation refund needs manual action: ${error.message}`,
       context: {
+        kind: 'CANCELLATION_REFUND_NEEDS_ACTION',
         automaticRefund: true,
         errorCode: error.code,
         retryable: error.retryable,
@@ -2538,7 +2568,7 @@ export class LocalPmsProvider implements PmsProvider {
     tx: TenantTransaction,
     context: PmsProviderContext,
     command: LocalCreateBookingCommand,
-  ): Promise<string | null> {
+  ): Promise<{ roomId: string | null; reason?: 'held' | 'price_changed' | 'unavailable' }> {
     const occupancy = resolveBookingOccupancy(command);
     const rooms = await tx.$queryRaw<Array<{ id: string }>>`
       SELECT id
@@ -2549,6 +2579,8 @@ export class LocalPmsProvider implements PmsProvider {
         AND is_active = true
       ORDER BY created_at
     `;
+    let matchedPrice = false;
+    let held = false;
     for (const room of rooms) {
       const price = await this.quotes.price(
         context.tenantId,
@@ -2570,8 +2602,12 @@ export class LocalPmsProvider implements PmsProvider {
         // The same override the staff member used for the booking: the room is re-priced under the same limits.
         { overrideRules: Boolean(command.staffActorId && command.ruleOverrideReason) },
       );
-      if (price.amount !== command.total.amount || price.currency !== command.total.currency)
+      if (
+        this.minorUnits(price.amount) !== this.minorUnits(command.total.amount) ||
+        price.currency !== command.total.currency
+      )
         continue;
+      matchedPrice = true;
       const reserved = await this.availability.reserveRoom(
         tx,
         context.tenantId,
@@ -2582,9 +2618,68 @@ export class LocalPmsProvider implements PmsProvider {
           endsOn: command.endsOn,
         },
       );
-      if (reserved) return room.id;
+      if (reserved) return { roomId: room.id };
+      const pending = await tx.$queryRaw<Array<{ held: boolean }>>`
+        SELECT EXISTS(SELECT 1 FROM bookings WHERE tenant_id=${context.tenantId}::uuid
+          AND property_id=${context.propertyId}::uuid AND room_id=${room.id}::uuid
+          AND starts_on<${command.endsOn}::date AND ends_on>${command.startsOn}::date
+          AND status='PAYMENT_PENDING' AND external_booking_id IS NULL) AS held`;
+      held ||= pending[0]?.held === true;
     }
-    return null;
+    return {
+      roomId: null,
+      reason: held ? 'held' : rooms.length && !matchedPrice ? 'price_changed' : 'unavailable',
+    };
+  }
+
+  private async checkoutExpiry(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    row: BookingRow,
+  ): Promise<string> {
+    const settings = await tx.$queryRaw<Array<{ minutes: number }>>`
+      SELECT online_payment_hold_minutes AS minutes FROM properties
+      WHERE tenant_id=${context.tenantId}::uuid AND id=${context.propertyId}::uuid`;
+    return new Date(row.createdAt.getTime() + (settings[0]?.minutes ?? 30) * 60000).toISOString();
+  }
+
+  /** An idempotent replay restores the original checkout, but must not revive an expired or paid hold. */
+  private async currentCheckout(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    result: Result<BookingWithCheckout>,
+  ): Promise<Result<BookingWithCheckout>> {
+    if (
+      !result.ok ||
+      !result.value.checkoutUrl ||
+      result.value.status !== BookingStatus.PAYMENT_PENDING
+    )
+      return result;
+    const row = await this.bookingById(tx, context, result.value.id);
+    if (!row) return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
+    if (row.status !== BookingStatus.PAYMENT_PENDING) {
+      const booking = this.toBooking(row);
+      return booking &&
+        [
+          BookingStatus.CONFIRMED,
+          BookingStatus.PMS_CREATION_PENDING,
+          BookingStatus.PMS_CONFIRMATION_PENDING,
+          BookingStatus.PMS_UNKNOWN_RESULT,
+          BookingStatus.MANUAL_REVIEW,
+        ].includes(row.status)
+        ? { ok: true, value: booking }
+        : this.failure(
+            'CHECKOUT_EXPIRED',
+            'This checkout is no longer active. Please check availability and start again.',
+          );
+    }
+    const checkoutExpiresAt = await this.checkoutExpiry(tx, context, row);
+    if (Date.now() >= Date.parse(checkoutExpiresAt))
+      return this.failure(
+        'CHECKOUT_EXPIRED',
+        'The payment time has ended. Please check the booking status before starting again.',
+      );
+    return { ok: true, value: { ...result.value, checkoutExpiresAt } };
   }
 
   private async cancellationPolicy(
@@ -2878,19 +2973,11 @@ export class LocalPmsProvider implements PmsProvider {
         'Select an enabled payment method before creating a non-zero-total booking.',
       );
 
-    const properties = await tx.$queryRaw<
-      Array<{ stripeEnabled: boolean; pokpayEnabled: boolean; payAtHotelEnabled: boolean }>
-    >`
-      SELECT stripe_enabled AS "stripeEnabled", pokpay_enabled AS "pokpayEnabled",
-        pay_at_hotel_enabled AS "payAtHotelEnabled"
-      FROM properties
-      WHERE tenant_id = ${context.tenantId}::uuid AND id = ${context.propertyId}::uuid
-    `;
-    const property = properties[0];
+    const available = await paymentMethodAvailability(tx, context);
     const enabled =
-      (selected === 'stripe' && property?.stripeEnabled) ||
-      (selected === 'pokpay' && property?.pokpayEnabled) ||
-      (selected === 'pay_at_hotel' && property?.payAtHotelEnabled);
+      (selected === 'stripe' && available.stripe) ||
+      (selected === 'pokpay' && available.pokpay) ||
+      (selected === 'pay_at_hotel' && available.payAtHotel);
     if (!enabled)
       return this.failure(
         'PAYMENT_METHOD_NOT_ENABLED',

@@ -93,6 +93,7 @@ export class HotelCancellationRefundService {
               referenceId: bookingId,
               message: `The hotel cancelled this booking in Clock, but the automatic refund needs manual action: ${refunded.result.error.message}`,
               context: {
+                kind: 'CLOCK_CANCEL_REFUND_NEEDS_ACTION',
                 automaticRefund: true,
                 hotelCancellation: true,
                 errorCode: refunded.result.error.code,
@@ -102,6 +103,16 @@ export class HotelCancellationRefundService {
             return;
           }
           confirmation = refunded.confirmation;
+          if (refunded.returnByHand)
+            await this.manualReview.recordInTransaction(tx, {
+              tenantId: context.tenantId,
+              propertyId: context.propertyId,
+              category: 'PAYMENT_BOOKING_MISMATCH',
+              referenceType: 'booking',
+              referenceId: bookingId,
+              message: `The hotel cancelled this booking in Clock. ${refunded.returnByHand.amount} ${refunded.returnByHand.currency} was paid in person and must be returned to the guest by hand.`,
+              context: { kind: 'CANCELLATION_RETURN_BY_HAND', hotelCancellation: true },
+            });
         },
         // Gateway refund plus the Clock negative payment can exceed the default timeout.
         { timeoutMs: 90_000 },
@@ -144,7 +155,11 @@ export class HotelCancellationRefundService {
       referenceType: 'booking',
       referenceId: bookingId,
       message: `The hotel cancelled this booking in Clock, but its room charges could not be cleared: ${cleared.error.message} Void the room folio in Clock by hand.`,
-      context: { externalBookingId, errorCode: cleared.error.code },
+      context: {
+        kind: 'CLOCK_CANCEL_CHARGES_NOT_CLEARED',
+        externalBookingId,
+        errorCode: cleared.error.code,
+      },
     });
   }
 

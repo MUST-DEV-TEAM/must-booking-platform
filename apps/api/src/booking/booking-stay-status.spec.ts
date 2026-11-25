@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { stayStatusProblem } from './booking-stay-status';
+import { noShowFollowUp, stayStatusProblem } from './booking-stay-status';
 
 const base = { startsOn: '2027-07-12', today: '2027-07-12' };
 
@@ -26,5 +26,28 @@ describe('stayStatusProblem', () => {
     const early = { from: 'expected' as const, startsOn: '2027-07-20', today: '2027-07-12' };
     expect(stayStatusProblem({ ...early, to: 'checked_in' })).toMatch(/not come/);
     expect(stayStatusProblem({ ...early, to: 'no_show' })).toMatch(/not come/);
+  });
+});
+
+describe('noShowFollowUp (G-54)', () => {
+  const night = { amount: '90.00', currency: 'EUR' };
+
+  it('asks staff to collect the first night when the hotel rule says so', () => {
+    const message = noShowFollowUp('charge_first_night', night);
+    expect(message).toContain('90.00 EUR');
+    expect(message).toContain('MUST does not charge guests');
+  });
+
+  it('still raises the task when the first night price is unknown', () => {
+    expect(noShowFollowUp('charge_first_night', null)).toContain('no recorded nightly price');
+  });
+
+  it('asks staff to decide when the rule is to review', () => {
+    expect(noShowFollowUp('flag_for_review', night)).toContain('review each no-show');
+    expect(noShowFollowUp(null, night)).toContain('review each no-show');
+  });
+
+  it('raises nothing when the hotel charges nothing', () => {
+    expect(noShowFollowUp('charge_nothing', night)).toBeNull();
   });
 });

@@ -13,6 +13,7 @@ import { IntegrationConnectionsService } from '../integration-connections.servic
 import { ClockCircuitBreakerService, CircuitOpenError } from './clock-circuit-breaker';
 import { parseClockCredentials } from './clock-credentials';
 import { minimumStayForOpenRates } from '../../booking/booking-rules';
+import { pendingCheckoutHolds } from '../../booking/checkout-holds';
 import {
   classifyClockClientFailure,
   classifyClockHttpResponse,
@@ -116,7 +117,14 @@ type ClockQuote = { total: Money; nightlyRates: NightlyRate[] };
 
 /** Why a room type cannot be sold for a stay, in words a guest can act on. */
 export type UnavailableReason =
-  'sold_out' | 'closed' | 'min_stay' | 'no_arrival' | 'no_departure' | 'capacity' | 'unavailable';
+  | 'sold_out'
+  | 'closed'
+  | 'min_stay'
+  | 'no_arrival'
+  | 'no_departure'
+  | 'capacity'
+  | 'unavailable'
+  | 'temporarily_held';
 
 /** What a search learns about one room type for one stay, from a single Clock product request. */
 export type StaySearchDetail =
@@ -379,7 +387,7 @@ function normalizeCode(code: string | undefined): string | undefined {
 export class ClockAvailabilityService {
   private readonly logger = new Logger(ClockAvailabilityService.name);
   private readonly calendarCache = new Map<string, CacheEntry<CalendarDay[]>>();
-  private readonly availabilityCache = new Map<string, CacheEntry<AvailabilityResult>>();
+  private readonly availabilityCache = new Map<string, CacheEntry<ClockRateAvailabilityResponse>>();
   private readonly ratesCache = new Map<string, CacheEntry<RoomTypeRates>>();
   private readonly catalogueCache = new Map<string, CacheEntry<ClockRateRow[]>>();
   private readonly pendingCatalogue = new Map<string, Promise<ClockOutcome<ClockRateRow[]>>>();
@@ -621,7 +629,14 @@ export class ClockAvailabilityService {
     const cacheKey = `${tenantId}:${propertyId}:${connection.connectionId}:${externalRoomTypeId}:${query.startsOn}:${query.endsOn}:${adultCount}:${childrenCount}:${JSON.stringify(query.childrenAges ?? [])}${hiddenKeyPart(hidden)}`;
     if (!options.skipCache) {
       const cached = this.availabilityCache.get(cacheKey);
-      if (cached && cached.expiresAt > Date.now()) return { ok: true, value: cached.value };
+      if (cached && cached.expiresAt > Date.now())
+        return this.availabilityAfterHolds(
+          tenantId,
+          propertyId,
+          query,
+          cached.value,
+          externalRoomTypeId,
+        );
     }
 
     const rateIds = await this.ratesForRoomType(
@@ -653,9 +668,17 @@ export class ClockAvailabilityService {
     });
     if (!response.ok) return failure(response.error);
 
-    const value = summarizeAvailability(query, nights, response.value, externalRoomTypeId);
-    this.availabilityCache.set(cacheKey, { value, expiresAt: Date.now() + CACHE_TTL_MS });
-    return { ok: true, value };
+    this.availabilityCache.set(cacheKey, {
+      value: response.value,
+      expiresAt: Date.now() + CACHE_TTL_MS,
+    });
+    return this.availabilityAfterHolds(
+      tenantId,
+      propertyId,
+      query,
+      response.value,
+      externalRoomTypeId,
+    );
   }
 
   /**
@@ -737,7 +760,9 @@ export class ClockAvailabilityService {
     ]);
     const pending = this.pendingStayQuotes.get(key);
     if (pending) return pending;
-    const request = this.loadQuotesForStay(tenantId, propertyId, queries);
+    const request = this.getStaySearch(tenantId, propertyId, queries).then(
+      (search) => search.results,
+    );
     this.pendingStayQuotes.set(key, request);
     try {
       return await request;
@@ -762,7 +787,139 @@ export class ClockAvailabilityService {
   }> {
     const details: Record<string, StaySearchDetail> = {};
     const results = await this.loadQuotesForStay(tenantId, propertyId, queries, details);
+    if (queries.length) {
+      const holds = await pendingCheckoutHolds(
+        this.database,
+        tenantId,
+        propertyId,
+        queries.map((q) => q.roomTypeId),
+        queries.map((q) => q.startsOn).sort()[0],
+        queries
+          .map((q) => q.endsOn)
+          .sort()
+          .at(-1)!,
+      );
+      for (const query of queries) {
+        const detail = details[query.roomTypeId];
+        if (!holds.has(query.roomTypeId) || !detail?.available) continue;
+        const remaining = await this.getAvailability(tenantId, propertyId, query);
+        if (!remaining.ok) {
+          results[query.roomTypeId] = remaining;
+          delete details[query.roomTypeId];
+        } else if (
+          !remaining.value.isAvailable ||
+          remaining.value.availableUnits < (query.roomCount ?? 1)
+        ) {
+          results[query.roomTypeId] = this.checkoutHeld();
+          details[query.roomTypeId] = { available: false, reason: 'temporarily_held' };
+        } else {
+          details[query.roomTypeId] = {
+            ...detail,
+            freeRooms: Math.min(detail.freeRooms ?? Infinity, remaining.value.availableUnits),
+          };
+        }
+      }
+    }
     return { results, details };
+  }
+
+  private checkoutHeld(): Result<never> {
+    return {
+      ok: false,
+      error: {
+        code: 'CHECKOUT_HOLD_ACTIVE',
+        message:
+          'This room is temporarily held while another checkout awaits payment. Please try again shortly or choose another room.',
+        retryable: true,
+      },
+    };
+  }
+
+  private async availabilityAfterHolds(
+    tenantId: string,
+    propertyId: string,
+    query: AvailabilityQuery,
+    raw: ClockRateAvailabilityResponse,
+    externalRoomTypeId: string,
+  ): Promise<Result<AvailabilityResult>> {
+    const holds = (
+      await pendingCheckoutHolds(
+        this.database,
+        tenantId,
+        propertyId,
+        [query.roomTypeId],
+        query.startsOn,
+        query.endsOn,
+      )
+    ).get(query.roomTypeId);
+    const adjusted = !holds
+      ? raw
+      : raw.map((type) => ({
+          ...type,
+          rates: Object.fromEntries(
+            Object.entries(type.rates).map(([rateId, days]) => [
+              rateId,
+              Object.fromEntries(
+                Object.entries(days).map(([date, cell]) => [
+                  date,
+                  {
+                    ...cell,
+                    room_type_free_rooms: Math.max(
+                      0,
+                      cell.room_type_free_rooms - (holds.get(date) ?? 0),
+                    ),
+                  },
+                ]),
+              ),
+            ]),
+          ),
+        }));
+    return {
+      ok: true,
+      value: summarizeAvailability(
+        query,
+        nightsBetween(query.startsOn, query.endsOn),
+        adjusted,
+        externalRoomTypeId,
+      ),
+    };
+  }
+
+  private async calendarAfterHolds(
+    tenantId: string,
+    propertyId: string,
+    roomTypeId: string,
+    days: CalendarDay[],
+    roomsNeeded: number,
+  ): Promise<CalendarDay[]> {
+    if (!days.length) return days;
+    const until = new Date(days[days.length - 1].date + 'T00:00:00Z');
+    until.setUTCDate(until.getUTCDate() + 1);
+    const holds = (
+      await pendingCheckoutHolds(
+        this.database,
+        tenantId,
+        propertyId,
+        [roomTypeId],
+        days[0].date,
+        until.toISOString().slice(0, 10),
+      )
+    ).get(roomTypeId);
+    if (!holds) return days;
+    return days.map((day) => {
+      const held = holds.get(day.date) ?? 0;
+      if (!held) return day;
+      const availableUnits = Math.max(0, (day.availableUnits ?? 0) - held);
+      if (!day.isAvailable || availableUnits >= roomsNeeded) return { ...day, availableUnits };
+      const unavailable: CalendarDay = {
+        ...day,
+        availableUnits,
+        isAvailable: false,
+        status: 'sold_out',
+      };
+      delete unavailable.referencePrice;
+      return unavailable;
+    });
   }
 
   private async loadQuotesForStay(
@@ -1329,6 +1486,19 @@ export class ClockAvailabilityService {
       code?: string;
     },
   ): Promise<Result<ClockStayOffer[]>> {
+    const holds = await pendingCheckoutHolds(
+      this.database,
+      tenantId,
+      propertyId,
+      [query.roomTypeId],
+      query.startsOn,
+      query.endsOn,
+    );
+    if (holds.has(query.roomTypeId)) {
+      const remaining = await this.getAvailability(tenantId, propertyId, query);
+      if (!remaining.ok) return remaining;
+      if (!remaining.value.isAvailable) return this.checkoutHeld();
+    }
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
     if (!connection || connection.provider !== 'CLOCK_PMS')
       return failure(classifyConfigurationError(NO_CLOCK_CONNECTION_MESSAGE));
@@ -1421,6 +1591,7 @@ export class ClockAvailabilityService {
     propertyId: string,
     query: {
       roomTypeId: string;
+      roomId?: string;
       startsOn: string;
       endsOn: string;
       adultCount?: number;
@@ -1433,6 +1604,23 @@ export class ClockAvailabilityService {
   ): Promise<Result<ClockQuote>> {
     const total = await this.getQuote(tenantId, propertyId, query);
     if (!total.ok) return total;
+    const holds = await pendingCheckoutHolds(
+      this.database,
+      tenantId,
+      propertyId,
+      [query.roomTypeId],
+      query.startsOn,
+      query.endsOn,
+      query.roomId,
+    );
+    if (holds.has(query.roomTypeId)) {
+      if (query.roomId) return this.checkoutHeld();
+      const remaining = await this.getAvailability(tenantId, propertyId, query, {
+        skipCache: true,
+      });
+      if (!remaining.ok) return remaining;
+      if (!remaining.value.isAvailable) return this.checkoutHeld();
+    }
 
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
     if (!connection || connection.provider !== 'CLOCK_PMS')
@@ -1636,7 +1824,16 @@ export class ClockAvailabilityService {
     ]);
     const cachedCalendar = this.calendarCache.get(calendarKey);
     if (!query.fresh && cachedCalendar && cachedCalendar.expiresAt > Date.now())
-      return { ok: true, value: cachedCalendar.value };
+      return {
+        ok: true,
+        value: await this.calendarAfterHolds(
+          tenantId,
+          propertyId,
+          query.roomTypeId,
+          cachedCalendar.value,
+          Math.max(1, query.roomCount ?? 1),
+        ),
+      };
     const rateIds = await this.ratesForRoomType(
       parsed.value,
       externalRoomTypeId,
@@ -1745,7 +1942,16 @@ export class ClockAvailabilityService {
     if (this.calendarCache.size >= 1000)
       this.calendarCache.delete(this.calendarCache.keys().next().value!);
     this.calendarCache.set(calendarKey, { value: days, expiresAt: Date.now() + CACHE_TTL_MS });
-    return { ok: true, value: days };
+    return {
+      ok: true,
+      value: await this.calendarAfterHolds(
+        tenantId,
+        propertyId,
+        query.roomTypeId,
+        days,
+        roomsNeeded,
+      ),
+    };
   }
 
   private async mappedExternalRoomTypeId(

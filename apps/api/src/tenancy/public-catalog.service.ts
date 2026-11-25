@@ -1,3 +1,4 @@
+import { houseRuleLines } from './house-rules';
 import { pricingFacts } from './pricing.repository';
 import { evaluatePricing } from '../booking/pricing-evaluator';
 import { propertyClock } from '../booking/booking-rules';
@@ -112,6 +113,8 @@ export class PublicCatalogService {
           checkOutTime: string | null;
           houseRules: string | null;
           termsUrl: string | null;
+          privacyUrl: string | null;
+          requireTermsAcceptance: boolean;
           freeCancellationDays: number | null;
           currency: string | null;
           timezone: string;
@@ -119,7 +122,8 @@ export class PublicCatalogService {
       >`
         SELECT p.name, p.address, p.phone, p.support_email AS "supportEmail",
           p.check_in_time AS "checkInTime", p.check_out_time AS "checkOutTime",
-          p.rules AS "houseRules", p.terms_url AS "termsUrl",
+          p.rules AS "houseRules", p.terms_url AS "termsUrl", p.privacy_url AS "privacyUrl",
+          p.require_terms_acceptance AS "requireTermsAcceptance",
           p.free_cancellation_days_before_arrival AS "freeCancellationDays",
           COALESCE(p.default_currency, (SELECT rp.currency FROM rate_plans rp WHERE rp.tenant_id=p.tenant_id AND rp.property_id=p.id ORDER BY rp.created_at LIMIT 1)) AS currency,
           p.timezone
@@ -133,6 +137,8 @@ export class PublicCatalogService {
       return {
         ...row,
         profile: publicHotelProfile(profileRows[0]!),
+        /** Check-in/out times and house rules as sentences, ready to show next to a booking (G-55). */
+        policyLines: await houseRuleLines(tx, { tenantId, propertyId }),
         cancellationText:
           days && days > 0
             ? `Free cancellation up to ${days} days before arrival. Inside ${days} days, contact the hotel.`

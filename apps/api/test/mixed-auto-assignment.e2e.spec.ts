@@ -214,9 +214,10 @@ describe('mixed-mode room auto-assignment', () => {
       ok: true,
       value: { roomId: baseRateRoom.id, status: 'CONFIRMED' },
     });
+    // Rooms exist but none is sold at the quoted price: the guest is told to refresh the price.
     await expect(bookAnyRoom(noMatchType.body.id)).resolves.toMatchObject({
       ok: false,
-      error: { code: 'AUTO_ASSIGNMENT_UNAVAILABLE' },
+      error: { code: 'PRICE_CHANGED' },
     });
   });
 });

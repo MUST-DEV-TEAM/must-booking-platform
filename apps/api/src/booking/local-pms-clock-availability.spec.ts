@@ -198,6 +198,49 @@ describe('LocalPmsProvider pre-payment Clock availability', () => {
   });
 });
 
+describe('checkout replay safety', () => {
+  it.each([
+    { status: BookingStatus.PAYMENT_PENDING, ageMinutes: 5, outcome: 'resume' },
+    { status: BookingStatus.PAYMENT_PENDING, ageMinutes: 31, outcome: 'expired' },
+    { status: BookingStatus.EXPIRED, ageMinutes: 31, outcome: 'expired' },
+    { status: BookingStatus.CANCELLED, ageMinutes: 5, outcome: 'expired' },
+    { status: BookingStatus.CONFIRMED, ageMinutes: 5, outcome: 'paid' },
+    { status: BookingStatus.PMS_CREATION_PENDING, ageMinutes: 5, outcome: 'paid' },
+  ])(
+    'handles a saved checkout when the booking is $status ($ageMinutes minutes old)',
+    async ({ status, ageMinutes, outcome }) => {
+      const f = makeProvider({ clockConnected: false, clockAvailable: true });
+      const initial = await f.provider.createBooking(context, command);
+      expect(initial).toMatchObject({ ok: true, value: { checkoutExpiresAt: expect.any(String) } });
+      const internal = f.provider as unknown as {
+        bookingById: (...args: unknown[]) => Promise<Record<string, unknown>>;
+      };
+      const original = internal.bookingById.bind(f.provider);
+      Object.assign(f.provider, {
+        withIdempotency: async () => initial,
+        bookingById: async (...args: unknown[]) => ({
+          ...(await original(...args)),
+          status,
+          createdAt: new Date(Date.now() - ageMinutes * 60000),
+        }),
+      });
+      const replay = await f.provider.createBooking(context, command);
+      if (outcome === 'resume') {
+        expect(replay).toMatchObject({
+          ok: true,
+          value: { checkoutUrl: 'https://payments.example.test/checkout-1' },
+        });
+      } else if (outcome === 'expired') {
+        expect(replay).toMatchObject({ ok: false, error: { code: 'CHECKOUT_EXPIRED' } });
+      } else {
+        expect(replay).toMatchObject({ ok: true, value: { status } });
+        expect(replay.ok && replay.value.checkoutUrl).toBeUndefined();
+      }
+      expect(f.paymentProviders.forBookingMethod).toHaveBeenCalledOnce();
+    },
+  );
+});
+
 it('requires review on the older guest cancellation route for shared Clock orders without cancelling or refunding', async () => {
   const fixture = makeProvider({ clockConnected: true, clockAvailable: true });
   const cancelled = vi.fn();

@@ -312,7 +312,7 @@ export class VenueDepositPaymentsService {
       {
         eventType: 'payment.link',
         to: row.guestEmail,
-        subject: `Restaurant deposit Â· ${row.reference}`,
+        subject: `Restaurant deposit · ${row.reference}`,
         html: `<p>${escaped}</p>`,
         text,
         idempotencyKey: `restaurant-deposit-link:${reservationId}`,

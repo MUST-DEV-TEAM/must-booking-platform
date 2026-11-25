@@ -159,6 +159,7 @@ export class PokPayPaymentService {
               message:
                 'A PokPay payment arrived after this booking stopped awaiting payment. The money is recorded; the booking was not confirmed. Refund the payment or rebook the guest.',
               context: {
+                kind: 'LATE_PAYMENT_AFTER_EXPIRY',
                 orderId,
                 bookingStatus: booking.status,
                 amount: payment.amount.amount,
@@ -180,7 +181,7 @@ export class PokPayPaymentService {
         return { ok: true, value: { duplicate: false } };
       },
       // continueAfterPayment can attach a real Clock reservation and post a
-      // real deposit folio + credit_item inside this transaction â€” several
+      // real deposit folio + credit_item inside this transaction — several
       // real outbound Clock calls, same reasoning as
       // ClockBookingService.createBooking's own extended timeout.
       { timeoutMs: 45_000 },

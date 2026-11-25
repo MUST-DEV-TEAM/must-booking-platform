@@ -1,3 +1,4 @@
+import { connectPaymentProviders } from './helpers/payment-connections';
 import * as crypto from 'node:crypto';
 import { CredentialCipherService } from '../src/integrations/credential-cipher';
 import { randomUUID } from 'node:crypto';
@@ -300,6 +301,7 @@ describe('LocalPmsProvider', () => {
       .expect(201);
     tenantId = signup.body.organization.id;
     propertyId = signup.body.property.id;
+    await connectPaymentProviders(admin, tenantId, propertyId);
     userId = signup.body.user.id;
     cookie = signup.headers['set-cookie'][0];
     const propertyUrl = `/tenants/${tenantId}/properties/${propertyId}`;
@@ -1157,12 +1159,14 @@ describe('LocalPmsProvider', () => {
       checkoutUrl: _checkoutUrl,
       cancellationToken: _cancellationToken,
       checkoutOrderId: _checkoutOrderId,
+      checkoutExpiresAt,
       ...createdBooking
     } = created.value;
     void _checkoutUrl;
     void _cancellationToken;
     // The checkout order id is only returned when a booking is created, like the URL and token.
     void _checkoutOrderId;
+    expect(Date.parse(checkoutExpiresAt)).toBeGreaterThan(Date.parse(created.value.createdAt));
     await expect(provider.getBooking(context, created.value.externalBookingId!)).resolves.toEqual(
       createdBooking,
     );

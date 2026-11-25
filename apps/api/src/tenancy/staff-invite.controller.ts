@@ -1,4 +1,16 @@
-import { BadRequestException, Body, Controller, HttpCode, Inject, Post, Req } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Inject,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Req,
+} from '@nestjs/common';
 
 import { Public } from './tenant-context.decorator';
 import { RequiresCapability } from './capabilities.decorator';
@@ -35,6 +47,48 @@ export class StaffInviteController {
         request.tenantContext.userId,
       ),
     };
+  }
+
+  @Get('tenants/:tenantId/staff-invitations')
+  @TenantScoped()
+  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresCapability('staff.view')
+  list(@Req() request: { tenantContext: { tenantId: string } }) {
+    return this.invites.list(request.tenantContext.tenantId);
+  }
+
+  @Post('tenants/:tenantId/staff-invitations/:invitationId/resend')
+  @HttpCode(204)
+  @TenantScoped()
+  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresCapability('staff.create')
+  @RequiresVerifiedEmail()
+  async resend(
+    @Param('invitationId', ParseUUIDPipe) invitationId: string,
+    @Req() request: { tenantContext: { tenantId: string; userId: string } },
+  ): Promise<void> {
+    await this.invites.resend(
+      request.tenantContext.tenantId,
+      invitationId,
+      request.tenantContext.userId,
+    );
+  }
+
+  @Delete('tenants/:tenantId/staff-invitations/:invitationId')
+  @HttpCode(204)
+  @TenantScoped()
+  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresCapability('staff.create')
+  @RequiresVerifiedEmail()
+  async withdraw(
+    @Param('invitationId', ParseUUIDPipe) invitationId: string,
+    @Req() request: { tenantContext: { tenantId: string; userId: string } },
+  ): Promise<void> {
+    await this.invites.withdraw(
+      request.tenantContext.tenantId,
+      invitationId,
+      request.tenantContext.userId,
+    );
   }
 
   @Public()
