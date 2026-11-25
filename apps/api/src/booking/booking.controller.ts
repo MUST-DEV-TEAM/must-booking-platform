@@ -384,6 +384,7 @@ export class BookingController {
         companyName: this.optionalOneLine(guest.companyName, 160, 'Company name'),
         taxNumber: this.optionalOneLine(guest.taxNumber, 40, 'Tax number'),
         marketingConsent: guest.marketingConsent === true,
+        termsAccepted: guest.termsAccepted === true,
       },
       total: this.money(value.total) ?? { amount: '', currency: '' },
       adults: typeof value.adults === 'number' ? value.adults : undefined,
@@ -420,6 +421,7 @@ export class BookingController {
         firstName: typeof guest.firstName === 'string' ? guest.firstName : '',
         lastName: typeof guest.lastName === 'string' ? guest.lastName : '',
         phone: typeof guest.phone === 'string' ? guest.phone : null,
+        termsAccepted: guest.termsAccepted === true,
       },
       paymentMethod:
         value.paymentMethod === 'stripe' ||

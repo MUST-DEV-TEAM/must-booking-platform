@@ -279,6 +279,8 @@ export interface GuestDetails {
   companyName?: string | null;
   taxNumber?: string | null;
   marketingConsent?: boolean;
+  /** The guest ticked the hotel's terms and privacy box. Only asked when the hotel requires it (G-56). */
+  termsAccepted?: boolean;
 }
 
 export interface Booking {
