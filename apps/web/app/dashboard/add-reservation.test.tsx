@@ -136,7 +136,7 @@ describe('AddReservation', () => {
       button.textContent?.includes('Continue to guest information'),
     );
     expect(next?.disabled).toBe(true);
-    expect(container.textContent).toContain('One room per reservation');
+    expect(container.textContent).toContain('More rooms in this reservation');
 
     await act(async () => root.unmount());
   });
