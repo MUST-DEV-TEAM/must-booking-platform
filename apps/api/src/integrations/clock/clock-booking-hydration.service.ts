@@ -717,10 +717,15 @@ export class ClockBookingHydrationService {
       email,
     );
     if (existing[0]) {
+      // Only when something is actually blank and Clock has it: an update that changes nothing still took the
+      // guest's row lock, so events and bookings of the same guest waited for each other (timeouts under load).
       await tx.$executeRawUnsafe(
         `UPDATE guests SET first_name = COALESCE(first_name, $3), last_name = COALESCE(last_name, $4),
            phone = COALESCE(phone, $5), updated_at = CURRENT_TIMESTAMP
-         WHERE tenant_id = $1::uuid AND id = $2::uuid`,
+         WHERE tenant_id = $1::uuid AND id = $2::uuid
+           AND ((first_name IS NULL AND $3::text IS NOT NULL)
+             OR (last_name IS NULL AND $4::text IS NOT NULL)
+             OR (phone IS NULL AND $5::text IS NOT NULL))`,
         tenantId,
         existing[0].id,
         firstName,
