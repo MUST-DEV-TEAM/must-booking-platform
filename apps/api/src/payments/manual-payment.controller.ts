@@ -44,8 +44,12 @@ export class ManualPaymentController {
   ) {
     return Promise.all([
       this.collections.options(req.tenantContext, id),
-      this.stripeCollections.options(req.tenantContext),
-    ]).then(([pokpay, stripe]) => ({ ...pokpay, stripe: stripe.stripe }));
+      this.stripeCollections.options(req.tenantContext, id),
+    ]).then(([pokpay, stripe]) => ({
+      ...pokpay,
+      stripe: stripe.stripe,
+      orderBalance: stripe.orderBalance,
+    }));
   }
 
   @Post(':bookingId/collect-stripe')
