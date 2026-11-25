@@ -28,6 +28,8 @@ describe('Stripe balance links', () => {
   const booking = randomUUID();
   const sessions: Array<{ amount: string; expiresAt?: number }> = [];
   const refunds: string[] = [];
+  // Session ids are unique per run, so a half-cleaned earlier run can never collide with this one.
+  const tag = randomUUID().slice(0, 8);
   let app: INestApplication;
   let tenantId = '';
   let propertyId = '';
@@ -39,7 +41,7 @@ describe('Stripe balance links', () => {
       command: { amount: { amount: string }; expiresAt?: number },
     ) {
       sessions.push({ amount: command.amount.amount, expiresAt: command.expiresAt });
-      const id = `cs_test_${sessions.length}`;
+      const id = `cs_${tag}_${sessions.length}`;
       return { ok: true as const, value: { id, url: `https://stripe.test/pay/${id}` } };
     },
     async verifyWebhookEvent() {
@@ -120,11 +122,11 @@ describe('Stripe balance links', () => {
 
   it('offers a Stripe link for the balance, never longer than Stripe keeps the page open', async () => {
     const service = app.get(StripeBalanceCollectionService);
-    expect(await service.options(scope())).toEqual({ stripe: true });
+    expect(await service.options(scope(), booking)).toEqual({ stripe: true, orderBalance: null });
     const link = await service.start(scope(), booking, userId, 'key-1');
     expect(link).toMatchObject({
-      checkoutUrl: 'https://stripe.test/pay/cs_test_1',
-      orderId: 'cs_test_1',
+      checkoutUrl: `https://stripe.test/pay/cs_${tag}_1`,
+      orderId: `cs_${tag}_1`,
       amount: { amount: '150.00', currency: 'EUR' },
     });
     const hours = ((sessions[0]!.expiresAt ?? 0) * 1000 - Date.now()) / 3_600_000;
@@ -133,13 +135,13 @@ describe('Stripe balance links', () => {
 
     // The same balance asked again returns the same open link and makes no second Stripe session.
     const again = await service.start(scope(), booking, userId, 'key-2');
-    expect(again.orderId).toBe('cs_test_1');
+    expect(again.orderId).toBe(`cs_${tag}_1`);
     expect(sessions).toHaveLength(1);
   });
 
   it('records the paid link as a charge, once, and never refunds it', async () => {
     const webhook = app.get(StripeWebhookService);
-    const first = await webhook.processPaymentSucceeded(paidEvent('cs_test_1'));
+    const first = await webhook.processPaymentSucceeded(paidEvent(`cs_${tag}_1`));
     expect(first).toEqual({ ok: true, value: { duplicate: false } });
     const rows = await ledger();
     expect(rows).toEqual([
@@ -148,7 +150,7 @@ describe('Stripe balance links', () => {
     ]);
     expect(refunds).toEqual([]);
 
-    const replay = await webhook.processPaymentSucceeded(paidEvent('cs_test_1'));
+    const replay = await webhook.processPaymentSucceeded(paidEvent(`cs_${tag}_1`));
     expect(replay).toEqual({ ok: true, value: { duplicate: true } });
     expect(await ledger()).toHaveLength(2);
 
@@ -173,5 +175,63 @@ describe('Stripe balance links', () => {
     const rows = await ledger();
     expect(rows.find((row) => row.status === 'LATE_AFTER_EXPIRY')).toBeTruthy();
     expect(refunds).toContain('cs_test_late');
+  });
+
+  describe('a multi-room order (G-47)', () => {
+    const first = randomUUID();
+    const second = randomUUID();
+    const insert = (id: string, ref: string, room: number, total: number, extra = '') =>
+      admin.$executeRaw`INSERT INTO bookings(id,tenant_id,property_id,room_type_id,rate_plan_id,external_reference,order_reference,order_room_number,status,starts_on,ends_on,total_amount)
+        VALUES(${id}::uuid,${tenantId}::uuid,${propertyId}::uuid,${roomType}::uuid,${ratePlan}::uuid,${ref},'ORD-47',${room},${'CONFIRMED' + extra}::"BookingStatus",'2027-04-01','2027-04-03',${total})`;
+
+    it('collects the whole order through its first room, from either room', async () => {
+      await insert(first, 'ORD-47-room1', 1, 200);
+      await insert(second, 'ORD-47-room2', 2, 180);
+      await admin.$executeRaw`INSERT INTO payments(tenant_id,property_id,booking_id,kind,provider,external_payment_id,status,amount,currency) VALUES(${tenantId}::uuid,${propertyId}::uuid,${first}::uuid,'CHARGE','manual','cash-47','PAID',80,'EUR')`;
+      const service = app.get(StripeBalanceCollectionService);
+      expect(await service.options(scope(), second)).toEqual({
+        stripe: true,
+        orderBalance: { amount: '300.00', currency: 'EUR' },
+      });
+      const before = sessions.length;
+      const link = await service.start(scope(), second, userId, 'order-key-1');
+      expect(link.amount).toEqual({ amount: '300.00', currency: 'EUR' });
+      expect(sessions.length).toBe(before + 1);
+      const operation = await admin.$queryRaw<Array<{ aggregate: string }>>`
+        SELECT aggregate_id::text AS aggregate FROM integration_operations WHERE tenant_id=${tenantId}::uuid AND external_reference=${link.orderId}`;
+      expect(operation).toEqual([{ aggregate: first }]);
+
+      // Asking from the other room returns the same open link.
+      const again = await service.start(scope(), first, userId, 'order-key-2');
+      expect(again.orderId).toBe(link.orderId);
+      expect(sessions.length).toBe(before + 1);
+
+      const paid = await app.get(StripeWebhookService).processPaymentSucceeded({
+        id: 'evt_order',
+        type: 'checkout.session.completed',
+        externalPaymentId: link.orderId!,
+        tenantId,
+        propertyId,
+        bookingId: first,
+      });
+      expect(paid).toEqual({ ok: true, value: { duplicate: false } });
+      const charges = await admin.$queryRaw<Array<{ booking: string; amount: string }>>`
+        SELECT booking_id::text AS booking, amount::text FROM payments WHERE tenant_id=${tenantId}::uuid AND external_payment_id=${link.orderId}`;
+      expect(charges).toEqual([{ booking: first, amount: '300.00' }]);
+      expect((await service.options(scope(), second)).orderBalance).toBeNull();
+    });
+
+    it('refuses an order with a room held in Clock', async () => {
+      const a = randomUUID();
+      const b = randomUUID();
+      await admin.$executeRaw`INSERT INTO bookings(id,tenant_id,property_id,room_type_id,rate_plan_id,external_reference,order_reference,order_room_number,status,starts_on,ends_on,total_amount,external_booking_id)
+        VALUES(${a}::uuid,${tenantId}::uuid,${propertyId}::uuid,${roomType}::uuid,${ratePlan}::uuid,'ORD-48-room1','ORD-48',1,'CONFIRMED'::"BookingStatus",'2027-05-01','2027-05-03',100,'clock-1'),
+          (${b}::uuid,${tenantId}::uuid,${propertyId}::uuid,${roomType}::uuid,${ratePlan}::uuid,'ORD-48-room2','ORD-48',2,'CONFIRMED'::"BookingStatus",'2027-05-01','2027-05-03',100,'clock-2')`;
+      const service = app.get(StripeBalanceCollectionService);
+      expect((await service.options(scope(), b)).orderBalance).toBeNull();
+      await expect(service.start(scope(), b, userId, 'order-key-3')).rejects.toThrow(
+        /every room confirmed and none held in Clock/,
+      );
+    });
   });
 });

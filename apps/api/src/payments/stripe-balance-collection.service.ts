@@ -62,17 +62,72 @@ export class StripeBalanceCollectionService {
     @Inject(LifecycleEmailService) private readonly lifecycle: LifecycleEmailService,
   ) {}
 
-  /** Whether a Stripe link can be offered for this hotel at all (the switch and a connected account). */
-  async options(scope: Scope): Promise<{ stripe: boolean }> {
-    const available = await this.db.withTenantTransaction(scope, (tx) =>
-      paymentMethodAvailability(tx, scope),
-    );
-    return { stripe: available.stripe };
+  /**
+   * Whether a Stripe link can be offered for this hotel at all (the switch and a connected account), and, for a
+   * room of a multi-room order, what the whole order still owes (G-47).
+   */
+  async options(
+    scope: Scope,
+    bookingId?: string,
+  ): Promise<{ stripe: boolean; orderBalance: { amount: string; currency: string } | null }> {
+    return this.db.withTenantTransaction(scope, async (tx) => {
+      const available = await paymentMethodAvailability(tx, scope);
+      const order = bookingId ? await this.orderBalance(tx, scope, bookingId) : null;
+      return {
+        stripe: available.stripe,
+        orderBalance: order && new Prisma.Decimal(order.amount).gt(0) ? order : null,
+      };
+    });
   }
 
-  async start(scope: Scope, bookingId: string, actorUserId: string, key: string) {
+  /** What a multi-room order still owes (all rooms confirmed, no Clock reservation), or null for a single booking. */
+  private async orderBalance(
+    tx: TenantTransaction,
+    scope: Scope,
+    bookingId: string,
+  ): Promise<{ amount: string; currency: string } | null> {
+    const rows = await tx.$queryRaw<
+      Array<{ total: string; paid: string; refunded: string; currency: string; ready: boolean }>
+    >`
+      SELECT COALESCE(sum(c.total_amount),0)::text AS total, max(rp.currency) AS currency,
+        COALESCE((SELECT sum(p.amount) FROM payments p JOIN bookings pb ON pb.tenant_id=p.tenant_id AND pb.id=p.booking_id
+          WHERE pb.tenant_id=b.tenant_id AND pb.order_reference=b.order_reference AND p.kind='CHARGE' AND p.status IN ('PAID','succeeded')),0)::text AS paid,
+        COALESCE((SELECT sum(p.amount) FROM payments p JOIN bookings pb ON pb.tenant_id=p.tenant_id AND pb.id=p.booking_id
+          WHERE pb.tenant_id=b.tenant_id AND pb.order_reference=b.order_reference AND p.kind='REFUND' AND p.status='REFUNDED'),0)::text AS refunded,
+        (bool_and(c.status::text='CONFIRMED') AND bool_and(c.external_booking_id IS NULL)) AS ready
+      FROM bookings b
+      JOIN bookings c ON c.tenant_id=b.tenant_id AND c.property_id=b.property_id AND c.order_reference=b.order_reference
+      JOIN rate_plans rp ON rp.tenant_id=b.tenant_id AND rp.property_id=b.property_id AND rp.id=b.rate_plan_id
+      WHERE b.tenant_id=${scope.tenantId}::uuid AND b.property_id=${scope.propertyId}::uuid
+        AND b.id=${bookingId}::uuid AND b.order_reference IS NOT NULL
+      GROUP BY b.tenant_id, b.id, b.order_reference`;
+    const row = rows[0];
+    if (!row || !row.ready) return null;
+    return {
+      amount: new Prisma.Decimal(row.total).minus(row.paid).plus(row.refunded).toFixed(2),
+      currency: row.currency,
+    };
+  }
+
+  /** A room of a multi-room order is paid through the order's first room (where the order's payment lives). */
+  private async anchorOf(scope: Scope, bookingId: string): Promise<string> {
+    const rows = await this.db.withTenantTransaction(
+      scope,
+      (tx) =>
+        tx.$queryRaw<Array<{ id: string }>>`
+          SELECT a.id::text FROM bookings b
+          JOIN bookings a ON a.tenant_id=b.tenant_id AND a.property_id=b.property_id
+            AND a.order_reference=b.order_reference AND a.order_room_number=1
+          WHERE b.tenant_id=${scope.tenantId}::uuid AND b.property_id=${scope.propertyId}::uuid
+            AND b.id=${bookingId}::uuid AND b.order_reference IS NOT NULL`,
+    );
+    return rows[0]?.id ?? bookingId;
+  }
+
+  async start(scope: Scope, requestedBookingId: string, actorUserId: string, key: string) {
     if (!key || key.length > 200)
       throw new BadRequestException('A payment attempt key is required.');
+    const bookingId = await this.anchorOf(scope, requestedBookingId);
     const verified = await this.financial.refresh(scope, bookingId);
     const intent = await this.db.withTenantTransaction(scope, async (tx) => {
       const rows = await tx.$queryRaw<
@@ -86,13 +141,16 @@ export class StripeBalanceCollectionService {
           version: number;
           refunded: string;
           linkDays: number | null;
+          orderReady: boolean | null;
         }>
       >`
-        SELECT b.status::text AS status, rp.currency, b.total_amount::text AS total, b.version,
+        SELECT b.status::text AS status, rp.currency, b.version,
+          COALESCE((SELECT sum(o.total_amount) FROM bookings o WHERE o.tenant_id=b.tenant_id AND o.property_id=b.property_id AND o.order_reference=b.order_reference), b.total_amount)::text AS total,
+          (SELECT bool_and(o.status::text='CONFIRMED' AND o.external_booking_id IS NULL) FROM bookings o WHERE o.tenant_id=b.tenant_id AND o.property_id=b.property_id AND o.order_reference=b.order_reference) AS "orderReady",
           b.order_reference AS "orderReference", p.payment_link_valid_days AS "linkDays",
           (b.external_booking_id IS NOT NULL AND b.external_reference LIKE 'CLOCK-%') AS "balanceManagedInClock",
-          COALESCE((SELECT sum(c.amount) FROM payments c WHERE c.tenant_id=b.tenant_id AND c.property_id=b.property_id AND c.booking_id=b.id AND c.kind='CHARGE' AND c.status IN ('PAID','succeeded')),0)::text AS paid,
-          COALESCE((SELECT sum(r.amount) FROM payments r WHERE r.tenant_id=b.tenant_id AND r.property_id=b.property_id AND r.booking_id=b.id AND r.kind='REFUND' AND r.status='REFUNDED'),0)::text AS refunded
+          COALESCE((SELECT sum(c.amount) FROM payments c JOIN bookings cb ON cb.tenant_id=c.tenant_id AND cb.id=c.booking_id WHERE cb.tenant_id=b.tenant_id AND cb.property_id=b.property_id AND (cb.id=b.id OR (b.order_reference IS NOT NULL AND cb.order_reference=b.order_reference)) AND c.kind='CHARGE' AND c.status IN ('PAID','succeeded')),0)::text AS paid,
+          COALESCE((SELECT sum(r.amount) FROM payments r JOIN bookings rb ON rb.tenant_id=r.tenant_id AND rb.id=r.booking_id WHERE rb.tenant_id=b.tenant_id AND rb.property_id=b.property_id AND (rb.id=b.id OR (b.order_reference IS NOT NULL AND rb.order_reference=b.order_reference)) AND r.kind='REFUND' AND r.status='REFUNDED'),0)::text AS refunded
         FROM bookings b JOIN properties p ON p.tenant_id=b.tenant_id AND p.id=b.property_id
         JOIN rate_plans rp ON rp.tenant_id=b.tenant_id AND rp.property_id=b.property_id AND rp.id=b.rate_plan_id
         WHERE b.tenant_id=${scope.tenantId}::uuid AND b.property_id=${scope.propertyId}::uuid AND b.id=${bookingId}::uuid
@@ -105,9 +163,10 @@ export class StripeBalanceCollectionService {
         );
       if (b.status !== 'CONFIRMED')
         throw new ConflictException('Confirm the booking before collecting a balance.');
-      if (b.orderReference)
+      // A multi-room order is paid as one: every room confirmed, no room held in Clock (each of those has its own bill).
+      if (b.orderReference && !b.orderReady)
         throw new ConflictException(
-          'Collect shared-order payments through the original order checkout.',
+          'A payment link for a multi-room order needs every room confirmed and none held in Clock.',
         );
       if (!(await paymentMethodAvailability(tx, scope)).stripe)
         throw new ConflictException(
@@ -125,7 +184,10 @@ export class StripeBalanceCollectionService {
         );
       const amount = verified
         ? new Prisma.Decimal(verified.balance.amount).toFixed(2)
-        : new Prisma.Decimal(b.total).minus(b.paid).toFixed(2);
+        : new Prisma.Decimal(b.total)
+            .minus(b.paid)
+            .plus(b.orderReference ? b.refunded : 0)
+            .toFixed(2);
       if (new Prisma.Decimal(amount).lte(0))
         throw new ConflictException('This booking has no outstanding balance.');
 
@@ -374,8 +436,10 @@ export class StripeBalanceCollectionService {
     if (!inserted[0]) return { handled: true, duplicate: true };
 
     const totals = await tx.$queryRaw<Array<{ total: string; paid: string }>>`
-      SELECT b.total_amount::text AS total,
-        COALESCE((SELECT sum(p.amount) FROM payments p WHERE p.tenant_id=b.tenant_id AND p.property_id=b.property_id AND p.booking_id=b.id AND p.kind='CHARGE' AND p.status IN ('PAID','succeeded')),0)::text AS paid
+      SELECT COALESCE((SELECT sum(o.total_amount) FROM bookings o WHERE o.tenant_id=b.tenant_id AND o.property_id=b.property_id AND o.order_reference=b.order_reference), b.total_amount)::text AS total,
+        COALESCE((SELECT sum(p.amount) FROM payments p JOIN bookings pb ON pb.tenant_id=p.tenant_id AND pb.id=p.booking_id
+          WHERE pb.tenant_id=b.tenant_id AND pb.property_id=b.property_id AND (pb.id=b.id OR (b.order_reference IS NOT NULL AND pb.order_reference=b.order_reference))
+            AND p.kind='CHARGE' AND p.status IN ('PAID','succeeded')),0)::text AS paid
       FROM bookings b WHERE b.tenant_id=${scope.tenantId}::uuid AND b.id=${booking.id}::uuid`;
     // Paid more than the booking costs (two links paid, or the balance moved meanwhile): a person decides.
     const overpaid =
