@@ -2,7 +2,7 @@
 
 For the people who build a hotel website in Astro. All hotel websites are Astro now (the WordPress plugin is gone); the website only talks to the MUST API, it never works out prices or availability by itself.
 
-Status (2026-11-25): the staff dashboard can already book several rooms in one order. The guest side below works in the API, but the **website cart is not built yet** and must not go live before gap G-105 is closed (see "What is still missing").
+Status (2026-11-25): the staff dashboard can already book several rooms in one order, and the guest side below works in the API. A working cart exists in the Must Hotel Demo site (`/hotel-demo/cart/`) and a switched-off skeleton in the Luxury site; neither is live.
 
 ## What the guest sees (the agreed flow)
 
@@ -45,11 +45,13 @@ All calls use the same guest session (cookie or header) and the same `Idempotenc
 - **Whole order**: `DELETE /public/bookings/:bookingId` on any room cancels the whole order (each room by its own rule; the refund is the sum of the rooms whose rule is free).
 - **One room only** (new): the manage page (`POST .../bookings/:bookingId/manage`) accepts `"scope": "room"` to cancel just that room by its own policy. Only that room is released and only its price is refunded from the order's single payment. The manage preview (`GET .../manage`) now returns `inOrder` and `roomCancellation: {automaticAllowed, refundAmount}` so the site can offer the choice. On a Clock hotel the guest sends a cancellation request for staff instead (`automaticAllowed` is false).
 
-## What is still missing (gap G-105)
+## Payment methods and what the order carries
 
-The guest order now carries the guest form fields (country, address, arrival time, special requests, company, marketing consent), applies the hotel's required-field and children's-age checks, and takes `returnUrl` (the hotel's own website) for the way back after card payment. Still missing: bank transfer as a payment method and the accepted terms and privacy versions; both are built for one booking in other pull requests and must be added to the order after those are merged. The website cart stays unbuilt until then.
+The guest order carries the same things as one booking: the guest form fields (country, address, arrival time, special requests, company, marketing consent) with the hotel's required-field and children's-age checks, the accepted terms and privacy versions (`guest.termsAccepted`), and `returnUrl` (the hotel's own website) for the way back after card payment.
 
-## For the Astro cart (when G-105 is done)
+Payment methods for an order: `stripe`, `pokpay`, `pay_at_hotel` and `bank_transfer`. For `bank_transfer` the answer has `value.bankTransfer` (`accountHolder`, `iban`, `bic`, `bankName`, `note`, `reference`, `amount` for all rooms, `dueAt`); show it to the guest and tell them to quote the reference. Every room is held until `dueAt`; when staff record the one transfer, all rooms are confirmed together, and if the deadline passes all rooms are released. The guest is also emailed the instructions.
+
+## For the Astro cart
 
 - Source of truth for money: the API only. Never add prices in the browser.
 - Build the cart as components under the site's existing booking pages (Luxury is the reference site); edit the site repos only through pull requests, and nothing goes live without the owner's go.
