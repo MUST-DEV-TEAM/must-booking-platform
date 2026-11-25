@@ -302,6 +302,11 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
   ): Promise<MailSendReceipt> {
     const hotelName = command.brand.name || 'your hotel';
     const { subject, idempotencyKey } = describeMail('bookingCancelled', command);
+    const refundNote = command.refund
+      ? command.refund.status === 'processed'
+        ? `A refund of ${this.money(command.refund.amount)} has been sent back to your original payment method. It can take a few business days to appear.`
+        : `You are due a refund of ${this.money(command.refund.amount)}. It could not be sent automatically, so ${hotelName} will arrange it with you directly.`
+      : '';
     return this.send({
       to: command.to,
       subject,
@@ -312,8 +317,11 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
           command.template?.previewText || `Your reservation at ${hotelName} has been cancelled.`,
         heading: 'Your booking was cancelled',
         content:
-          command.template?.html ??
-          `<p style="margin:0 0 18px 0;">Hello <strong>${escapeHtml(command.guest.name)}</strong>, your booking has been cancelled as requested. If you need help planning a new stay, we're here for you.</p>`,
+          (command.template?.html ??
+            `<p style="margin:0 0 18px 0;">Hello <strong>${escapeHtml(command.guest.name)}</strong>, your booking has been cancelled as requested. If you need help planning a new stay, we're here for you.</p>`) +
+          (refundNote
+            ? `<p style="margin:0 0 18px 0;"><strong>Your payment</strong><br>${escapeHtml(refundNote)}</p>`
+            : ''),
         summaryRows: this.bookingSummaryRows(command, {
           includeGuests: false,
           dateFormat: emailDateOrder(command.brand),
@@ -326,7 +334,7 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
           : null,
         footerNote: `You&#39;re receiving this email because a reservation at ${escapeHtml(hotelName)} under your name was cancelled.`,
       }),
-      text: `${command.template ? `${command.template.text}\n\n` : ''}Your booking ${command.bookingReference} has been cancelled as requested. ${command.roomName}, ${command.stay.startsOn} to ${command.stay.endsOn}.`,
+      text: `${command.template ? `${command.template.text}\n\n` : ''}Your booking ${command.bookingReference} has been cancelled as requested. ${command.roomName}, ${command.stay.startsOn} to ${command.stay.endsOn}.${refundNote ? ` ${refundNote}` : ''}`,
       idempotencyKey,
       ...this.guestSender(command.brand),
     });
