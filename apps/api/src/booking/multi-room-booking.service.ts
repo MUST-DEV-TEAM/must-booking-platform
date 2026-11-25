@@ -1,4 +1,5 @@
 import { paymentMethodAvailability } from './payment-method-availability';
+import { NotificationsService } from '../tenancy/notifications.service';
 import { enforcePropertyBookingLimits } from './property-booking-limits';
 import { checkTermsAcceptance, recordTermsAcceptance } from './terms-acceptance';
 import { Inject, Injectable, Optional } from '@nestjs/common';
@@ -105,6 +106,9 @@ export class MultiRoomBookingService {
     private readonly confirmations: BookingConfirmationNotificationService,
     @Optional() @Inject(LifecycleEmailService) private readonly lifecycle?: LifecycleEmailService,
     @Optional() @Inject(AuditLogService) private readonly audit?: AuditLogService,
+    @Optional()
+    @Inject(NotificationsService)
+    private readonly notificationsService?: NotificationsService,
   ) {}
 
   async create(
@@ -290,7 +294,15 @@ export class MultiRoomBookingService {
                     AND order_reference = ${orderReference}
                     AND status = ${BookingStatus.PMS_CREATION_PENDING}::"BookingStatus"
                 `;
-                for (const booking of bookings) booking.status = BookingStatus.CONFIRMED;
+                for (const booking of bookings) {
+                  booking.status = BookingStatus.CONFIRMED;
+                  // The "Booking created" notice a single pay-at-hotel booking already gets (G-14).
+                  await this.notificationsService?.recordBookingConfirmedInTransaction(tx, {
+                    tenantId: context.tenantId,
+                    propertyId: context.propertyId,
+                    bookingId: booking.id,
+                  });
+                }
               }
               return { ok: true, value: { orderReference, bookings } };
             }
