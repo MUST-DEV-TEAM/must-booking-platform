@@ -1,7 +1,18 @@
 name: CI
 
+# Tests cost GitHub minutes (a private repository on the free plan gets 2,000 a month; one full run is about 33).
+# So the full set does not run on every push:
+#   - every push and every pull request runs the quick check "Build, lint and format" (about 2 minutes);
+#   - the full set (API, web and UI, browser, real Clock staging) runs on a pull request only while it carries the
+#     label `full-ci`, or when started by hand (Actions > CI > Run workflow);
+#   - the required check "Build, lint, and test" stays red on a pull request until the label is on and everything passed,
+#     so nothing merges untested;
+#   - a push to main runs the quick check only: the same code already passed in full on its pull request.
+# Rules and the monthly minutes check: docs/operations/ci-and-release-rules.md.
 on:
+  workflow_dispatch:
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
   push:
     branches:
       - main
@@ -68,6 +79,7 @@ jobs:
   # the shards can run at the same time without ever sharing them.
   api-tests:
     name: API tests (shard ${{ matrix.shard }} of 4)
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -125,6 +137,7 @@ jobs:
 
   other-tests:
     name: Web and UI tests
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -187,14 +200,26 @@ jobs:
           STATIC: ${{ needs.static.result }}
           API: ${{ needs.api-tests.result }}
           OTHER: ${{ needs.other-tests.result }}
+          EVENT: ${{ github.event_name }}
+          FULL_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
         run: |
           echo "build, lint and format: $STATIC"
           echo "API tests: $API"
           echo "web and UI tests: $OTHER"
-          test "$STATIC" = success && test "$API" = success && test "$OTHER" = success
+          test "$STATIC" = success
+          if [ "$EVENT" = push ]; then
+            # Main: the quick check is enough, the full set passed on the pull request before it merged.
+            exit 0
+          fi
+          if [ "$EVENT" = pull_request ] && [ "$FULL_LABEL" != true ]; then
+            echo "Not ready to merge: the full tests have not run. Add the label full-ci to this pull request when it is ready."
+            exit 1
+          fi
+          test "$API" = success && test "$OTHER" = success
 
   browser:
     name: Browser tests
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -265,6 +290,7 @@ jobs:
 
   clock-staging:
     name: Clock staging tests
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     runs-on: ubuntu-latest
     # Real bookings in the Clock demo account (subscription 16307, Must Hotel), never Empire.
     # One run at a time so two PRs don't race for the same demo rooms.
