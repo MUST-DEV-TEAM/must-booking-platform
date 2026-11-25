@@ -368,11 +368,23 @@ export class ClockWebhookService {
     return candidate as SnsEnvelope;
   }
 
+  /**
+   * Every webhook of a hotel used to update the same connection row, so each one waited for whoever else was
+   * touching it (other webhooks, sync jobs, a booking in progress) and timed out under load. The stamp is only read
+   * in hours (missing-webhook alerts, health screens), so it is written at most every 30 seconds and a busy row is
+   * skipped instead of waited for.
+   */
   private async markConnectionSeen(tenantId: string, connectionId: string): Promise<void> {
     await this.database.withTenantTransaction({ tenantId }, (tx) =>
       tx.$executeRawUnsafe(
         `UPDATE integration_connections SET last_webhook_received_at = CURRENT_TIMESTAMP
-         WHERE tenant_id = $1::uuid AND id = $2::uuid`,
+         WHERE tenant_id = $1::uuid AND id = (
+           SELECT id FROM integration_connections
+           WHERE tenant_id = $1::uuid AND id = $2::uuid
+             AND (last_webhook_received_at IS NULL
+               OR last_webhook_received_at < CURRENT_TIMESTAMP - interval '30 seconds')
+           FOR UPDATE SKIP LOCKED
+         )`,
         tenantId,
         connectionId,
       ),
