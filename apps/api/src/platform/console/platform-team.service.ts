@@ -277,6 +277,13 @@ export class PlatformTeamService {
   }
 
   private async lockAccount(tx: TenantTransaction, accountId: string) {
+    // Lock the account row alone first. Locking it in the same query as its role makes the loser of two
+    // simultaneous changes re-check the join against the role it had before the winner's change, find
+    // nothing and report "not found" instead of "changed by someone else" (G-76).
+    const locked = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT "id" FROM "platform_accounts" WHERE "id" = ${accountId}::uuid FOR UPDATE
+    `;
+    if (!locked[0]) throw new NotFoundException('Platform account not found.');
     const rows = await tx.$queryRaw<
       Array<{
         email: string;
@@ -288,7 +295,7 @@ export class PlatformTeamService {
     >`
       SELECT a."email", a."status", a."version", r."key" AS "roleKey", r."capabilities" AS "roleCapabilities"
       FROM "platform_accounts" a JOIN "platform_roles" r ON r."id" = a."role_id"
-      WHERE a."id" = ${accountId}::uuid FOR UPDATE OF a
+      WHERE a."id" = ${accountId}::uuid
     `;
     if (!rows[0]) throw new NotFoundException('Platform account not found.');
     return rows[0];
