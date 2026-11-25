@@ -3,6 +3,8 @@ import { NotificationsService } from '../tenancy/notifications.service';
 import { enforcePropertyBookingLimits } from './property-booking-limits';
 import { checkTermsAcceptance, recordTermsAcceptance } from './terms-acceptance';
 import { PromoCodeService } from './promo-code.service';
+import { enforceChildrenAges, enforceGuestForm } from './guest-form-rules';
+import { checkoutReturnUrl, validatedGuestReturnUrl } from './guest-return-url';
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   BookingPaymentMethod,
@@ -39,6 +41,8 @@ export type MultiRoomBookingCommand = {
   guest: CreateBookingCommand['guest'];
   paymentMethod?: GuestPaymentMethod;
   quoteSessionId: string;
+  /** Where the guest comes back to after card payment: the hotel's own website. */
+  returnUrl?: string;
   /** Set when staff make the order for a guest; the rooms are then booked as direct bookings by that person. */
   staffActorId?: string;
   rooms: Array<{
@@ -149,6 +153,14 @@ export class MultiRoomBookingService {
               command.guest.termsAccepted === true,
             );
             if (!terms.ok) return this.failure(terms.code, terms.message);
+            // A guest order carries what a single booking carries: every field the hotel marked Required in its
+            // Booking form, and each child's age when the hotel asks for it. Staff orders are not held to the form.
+            if (!command.staffActorId) {
+              await enforceGuestForm(tx, context, command.guest);
+              for (const room of command.rooms)
+                await enforceChildrenAges(tx, context, roomOccupancy(room), room.childrenAges);
+            }
+            const guestReturnUrl = await validatedGuestReturnUrl(tx, context, command.returnUrl);
 
             const paymentMethod = await this.paymentMethod(
               tx,
@@ -271,6 +283,21 @@ export class MultiRoomBookingService {
               bookings.map((booking) => booking.id),
               terms.record,
             );
+            // The guest's form answers belong to every room of the order; the way back to the website follows the
+            // first room, which carries the order's payment.
+            await tx.$executeRaw`
+              UPDATE bookings SET
+                special_requests = ${command.guest.specialRequests?.trim() || null},
+                estimated_arrival_time = ${command.guest.arrivalTime ?? null},
+                company_name = ${command.guest.companyName ?? null},
+                tax_number = ${command.guest.taxNumber ?? null},
+                marketing_consent = ${command.guest.marketingConsent === true},
+                marketing_consent_at = ${command.guest.marketingConsent === true ? new Date() : null}::timestamptz
+              WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+                AND order_reference = ${orderReference}`;
+            if (guestReturnUrl)
+              await tx.$executeRaw`UPDATE bookings SET guest_return_url = ${guestReturnUrl}
+                WHERE id = ${bookings[0]!.id}::uuid AND tenant_id = ${context.tenantId}::uuid`;
             if (onRequest) {
               if (this.audit)
                 for (const booking of bookings)
@@ -362,8 +389,8 @@ export class MultiRoomBookingService {
                 description: await loadCheckoutDescription(tx, context, bookings[0]!.id),
                 expiresAfterMinutes: await checkoutHoldMinutes(tx, context, bookings[0]!.id),
                 amount,
-                successUrl: this.checkoutReturnUrl(bookings[0]!.id, 'success'),
-                cancelUrl: this.checkoutReturnUrl(bookings[0]!.id, 'cancel'),
+                successUrl: checkoutReturnUrl(bookings[0]!.id, 'success', guestReturnUrl, context),
+                cancelUrl: checkoutReturnUrl(bookings[0]!.id, 'cancel', guestReturnUrl, context),
               });
               if (!checkout.ok) return checkout;
               await tx.$executeRaw`
@@ -711,13 +738,6 @@ export class MultiRoomBookingService {
       amount: `${total / 100n}.${(total % 100n).toString().padStart(2, '0')}`,
       currency,
     };
-  }
-
-  private checkoutReturnUrl(bookingId: string, outcome: 'success' | 'cancel'): string {
-    return new URL(
-      `/bookings/${bookingId}/payment/${outcome}`,
-      process.env.WEB_APP_URL!,
-    ).toString();
   }
 
   private async isClockConnected(context: {
