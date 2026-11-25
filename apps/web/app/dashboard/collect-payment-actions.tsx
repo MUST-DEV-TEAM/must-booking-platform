@@ -34,12 +34,19 @@ export function CollectPaymentActions({
     refundedAmount?: string;
     balanceBasis?: 'CLOCK' | 'MUST';
     guestEmail?: string | null;
+    /** Set for a room of a multi-room order, which is paid as one through Stripe (G-47). */
+    orderReference?: string | null;
+    paymentMethod?: string;
   };
 }) {
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
   const client = useQueryClient();
   const [manual, setManual] = useState(false),
-    [method, setMethod] = useState('cash'),
+    [method, setMethod] = useState(
+      booking.status === 'PAYMENT_PENDING' && booking.paymentMethod === 'BANK_TRANSFER'
+        ? 'bank_transfer'
+        : 'cash',
+    ),
     [message, setMessage] = useState('');
   const [reference, setReference] = useState(''),
     [payerName, setPayerName] = useState(''),
@@ -91,11 +98,18 @@ export function CollectPaymentActions({
     verifiedClock?.fetchedAt,
     verifiedClock?.balance,
   ]);
+  const isOrder = !!booking.orderReference;
+  // A booking waiting for the guest's bank transfer can only be settled by recording the transfer (G-48).
+  const awaitingTransfer =
+    booking.status === 'PAYMENT_PENDING' && booking.paymentMethod === 'BANK_TRANSFER';
   const eligible =
-    booking.status === 'CONFIRMED' &&
-    (booking.balanceBasis === 'CLOCK'
-      ? !!verifiedClock && Number(verifiedClock.balance.amount) > 0
-      : minorUnits(booking.total.amount) > minorUnits(booking.paidAmount)) &&
+    (awaitingTransfer ||
+      (booking.status === 'CONFIRMED' &&
+        (isOrder
+          ? true
+          : booking.balanceBasis === 'CLOCK'
+            ? !!verifiedClock && Number(verifiedClock.balance.amount) > 0
+            : minorUnits(booking.total.amount) > minorUnits(booking.paidAmount)))) &&
     !!caps.data?.includes('payments.record');
   const options = useQuery({
     queryKey: [
@@ -106,13 +120,18 @@ export function CollectPaymentActions({
       booking.id,
       verifiedClock?.fetchedAt,
     ],
-    enabled: eligible,
+    enabled: eligible && !awaitingTransfer,
     queryFn: async () => {
       const r = await fetch(`${base}/bookings/${booking.id}/collection-options`, {
         credentials: 'include',
       });
       if (!r.ok) throw Error('Could not check payment options.');
-      return (await r.json()) as { pokpay: boolean; unavailableReason?: string | null };
+      return (await r.json()) as {
+        pokpay: boolean;
+        stripe?: boolean;
+        orderBalance?: { amount: string; currency: string } | null;
+        unavailableReason?: string | null;
+      };
     },
   });
   const post = async (action: string, body?: unknown) => {
@@ -130,6 +149,9 @@ export function CollectPaymentActions({
       throw Error(d.error?.message || d.message || 'Payment action could not finish.');
     return d;
   };
+  // PokPay stays the way a hotel with both is served today; a hotel with only Stripe gets Stripe links.
+  const provider = isOrder || (!options.data?.pokpay && options.data?.stripe) ? 'stripe' : 'pokpay';
+  const providerName = provider === 'stripe' ? 'Stripe' : 'PokPay';
   const pay = useMutation({
     mutationFn: async (action: 'open' | 'send' | 'copy' | 'qr') => {
       if (busy.current) return;
@@ -141,7 +163,7 @@ export function CollectPaymentActions({
         const result =
           action !== 'send' && cached?.signature === linkSignature && Date.now() - cached.at < 60000
             ? { checkoutUrl: cached.url, orderId: cached.orderId }
-            : await post(action === 'send' ? 'send-pokpay-link' : 'collect-pokpay');
+            : await post(action === 'send' ? `send-${provider}-link` : `collect-${provider}`);
         if (!result.orderId && action !== 'send')
           throw Error('The payment attempt could not be identified. Refresh before trying again.');
         if (result.orderId) setActiveOrderId(result.orderId);
@@ -283,6 +305,10 @@ export function CollectPaymentActions({
       </Card>
     );
   if (!eligible) return null;
+  // A room of a multi-room order shows the order's balance, and only when Stripe can collect it.
+  if (isOrder && !options.isPending && !(options.data?.stripe && options.data.orderBalance))
+    return null;
+  const canPay = isOrder ? !!options.data?.stripe : options.data?.pokpay || options.data?.stripe;
   return (
     <Card id="booking-collection">
       <CardHeader>
@@ -290,23 +316,34 @@ export function CollectPaymentActions({
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-sm">
-          Balance to collect:{' '}
+          {isOrder ? 'Balance to collect for the whole order:' : 'Balance to collect:'}{' '}
           <HotelMoney
             tenantId={tenantId}
             propertyId={propertyId}
-            currency={verifiedClock?.balance.currency ?? booking.total.currency}
+            currency={
+              options.data?.orderBalance?.currency ??
+              verifiedClock?.balance.currency ??
+              booking.total.currency
+            }
             amount={
+              options.data?.orderBalance?.amount ??
               verifiedClock?.balance.amount ??
               decimalMoney(minorUnits(booking.total.amount) - minorUnits(booking.paidAmount))
             }
           />
           . A recorded cash, card or bank payment means you have already received the money.
         </p>
+        {awaitingTransfer ? (
+          <p className="text-sm text-muted-foreground">
+            The guest was asked to pay by bank transfer, and the room is held until the deadline.
+            Record the transfer when the money arrives; the booking is then confirmed.
+          </p>
+        ) : null}
         <div className="flex flex-wrap gap-2">
-          {options.data?.pokpay ? (
+          {!awaitingTransfer && canPay ? (
             <>
               <Button disabled={pay.isPending} onClick={() => pay.mutate('open')}>
-                Pay with PokPay
+                Pay with {providerName}
               </Button>
               <Button
                 variant="outline"
@@ -316,7 +353,7 @@ export function CollectPaymentActions({
                 Send payment link
               </Button>
               <Button variant="outline" disabled={pay.isPending} onClick={() => pay.mutate('copy')}>
-                Copy PokPay link
+                Copy {providerName} link
               </Button>
               <Button variant="outline" disabled={pay.isPending} onClick={() => pay.mutate('qr')}>
                 Show payment QR code
@@ -334,7 +371,10 @@ export function CollectPaymentActions({
             Record payment received
           </Button>
         </div>
-        {options.data?.unavailableReason ? (
+        {options.data?.unavailableReason &&
+        !(
+          options.data.stripe && options.data.unavailableReason.startsWith('PokPay is disabled')
+        ) ? (
           <p className="text-sm text-muted-foreground">{options.data.unavailableReason}</p>
         ) : null}
         {pay.error || options.error ? (
@@ -455,7 +495,7 @@ export function CollectPaymentActions({
           </label>
           <label className="grid gap-1 text-sm">
             {method === 'bank_transfer'
-              ? 'Bank transaction reference'
+              ? 'Bank reference (transaction ID or the reference on the bank statement)'
               : method === 'card_in_person'
                 ? 'POS transaction / receipt reference'
                 : 'Receipt reference (optional)'}

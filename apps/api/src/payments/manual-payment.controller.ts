@@ -1,4 +1,5 @@
 import { PaymentCollectionService } from './payment-collection.service';
+import { StripeBalanceCollectionService } from './stripe-balance-collection.service';
 import {
   BadRequestException,
   Body,
@@ -29,6 +30,8 @@ export class ManualPaymentController {
     @Inject(LocalPmsProvider) private readonly bookings: LocalPmsProvider,
     @Inject(PokPayPaymentService) private readonly pokpay: PokPayPaymentService,
     @Inject(PaymentCollectionService) private readonly collections: PaymentCollectionService,
+    @Inject(StripeBalanceCollectionService)
+    private readonly stripeCollections: StripeBalanceCollectionService,
   ) {}
 
   @Get(':bookingId/collection-options')
@@ -39,7 +42,52 @@ export class ManualPaymentController {
     @Param('bookingId') id: string,
     @Req() req: { tenantContext: { tenantId: string; propertyId: string } },
   ) {
-    return this.collections.options(req.tenantContext, id);
+    return Promise.all([
+      this.collections.options(req.tenantContext, id),
+      this.stripeCollections.options(req.tenantContext, id),
+    ]).then(([pokpay, stripe]) => ({
+      ...pokpay,
+      stripe: stripe.stripe,
+      orderBalance: stripe.orderBalance,
+    }));
+  }
+
+  @Post(':bookingId/collect-stripe')
+  @HttpCode(200)
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('payments.record')
+  @RequiresVerifiedEmail()
+  collectStripe(
+    @Param('bookingId') id: string,
+    @Req() req: { tenantContext: { tenantId: string; propertyId: string; userId: string } },
+    @Headers('idempotency-key') key?: string,
+  ) {
+    return this.stripeCollections.start(
+      req.tenantContext,
+      id,
+      req.tenantContext.userId,
+      this.idempotencyKey(key),
+    );
+  }
+
+  @Post(':bookingId/send-stripe-link')
+  @HttpCode(200)
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('payments.record')
+  @RequiresVerifiedEmail()
+  sendStripeLink(
+    @Param('bookingId') id: string,
+    @Req() req: { tenantContext: { tenantId: string; propertyId: string; userId: string } },
+    @Headers('idempotency-key') key?: string,
+  ) {
+    return this.stripeCollections.sendLink(
+      req.tenantContext,
+      id,
+      req.tenantContext.userId,
+      this.idempotencyKey(key),
+    );
   }
 
   @Post(':bookingId/collect-pokpay')
@@ -73,7 +121,14 @@ export class ManualPaymentController {
   ) {
     if (body?.orderId !== undefined && typeof body.orderId !== 'string')
       throw new BadRequestException('Choose a valid payment attempt.');
-    return this.collections.refresh(req.tenantContext, id, body?.orderId as string | undefined);
+    const orderId = body?.orderId as string | undefined;
+    return (async () => {
+      // A Stripe link is paid through the Stripe webhook; its check only reads the saved attempt.
+      const stripe = orderId
+        ? await this.stripeCollections.check(req.tenantContext, id, orderId)
+        : null;
+      return stripe ?? this.collections.refresh(req.tenantContext, id, orderId);
+    })();
   }
 
   @Post(':bookingId/send-pokpay-link')

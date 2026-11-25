@@ -19,6 +19,7 @@ import {
 } from './integrations/clock/clock-guest-import.service';
 import { StaffAvailabilityService } from './booking/staff-availability.service';
 import { PaymentCollectionService } from './payments/payment-collection.service';
+import { StripeBalanceCollectionService } from './payments/stripe-balance-collection.service';
 import {
   ClockImportController,
   ClockImportService,
@@ -569,6 +570,7 @@ const healthPaths = new Set(['/health', '/health/ready']);
     PaymentLedgerService,
     ManualPaymentService,
     PaymentCollectionService,
+    StripeBalanceCollectionService,
     PlatformAdminService,
     ProviderHealthService,
     LocalDemoSeedService,

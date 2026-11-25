@@ -56,6 +56,8 @@ export interface MailProvider {
     specialRequests?: string | null;
     /** The hotel's check-in/out times and house rules as sentences; absent when the hotel set none (G-55). */
     houseRules?: string[];
+    /** What the reception takes in person, as one sentence; absent when the hotel listed nothing (S7b-3). */
+    acceptedAtHotelNote?: string;
     /** The property's own subject and message, when it saved one. */
     template?: MailTemplateOverride;
   }): Promise<MailSendReceipt | void>;
@@ -236,9 +238,24 @@ export enum BookingPaymentMethod {
   POKPAY = 'POKPAY',
   PAY_AT_HOTEL = 'PAY_AT_HOTEL',
   FREE = 'FREE',
+  BANK_TRANSFER = 'BANK_TRANSFER',
 }
 
-export type GuestPaymentMethod = 'stripe' | 'pokpay' | 'pay_at_hotel';
+export type GuestPaymentMethod = 'stripe' | 'pokpay' | 'pay_at_hotel' | 'bank_transfer';
+
+/** What a guest needs to pay a booking by bank transfer (G-48). */
+export interface BankTransferDetails {
+  accountHolder: string;
+  iban: string;
+  bic: string | null;
+  bankName: string | null;
+  note: string | null;
+  /** The booking reference the guest puts on the transfer. */
+  reference: string;
+  amount: Money;
+  /** The room is held until this time (ISO 8601); then it is released. */
+  dueAt: string;
+}
 
 export interface ResultError {
   code: string;
