@@ -162,7 +162,7 @@ export class ClockPaymentReconciliationService {
         referenceType: 'booking',
         referenceId: finding.bookingId,
         message: reconciliationFindingMessage(finding),
-        context: finding,
+        context: { kind: `CLOCK_RECONCILIATION_${finding.type}`, ...finding },
       });
     }
 

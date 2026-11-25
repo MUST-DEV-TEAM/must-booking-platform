@@ -146,7 +146,7 @@ describe('ClockBookingService Task 14 rate delegation', () => {
         referenceType: 'booking',
         referenceId: 'booking-1',
         message: 'Clock rate selection failed.',
-        context: { errorCode: 'clock_configuration' },
+        context: { kind: 'CLOCK_UNKNOWN_RESULT', errorCode: 'clock_configuration' },
       },
     );
     expect(notifications.recordInTransaction).toHaveBeenCalledWith(

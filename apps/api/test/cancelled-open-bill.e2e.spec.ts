@@ -139,11 +139,23 @@ describe('a cancelled reservation whose Clock bill is still open', () => {
     expect(audited[0]!.details.note).toBe('Cancellation fee kept by the hotel');
   });
 
-  it('closes the note by itself once Clock settles the bill', async () => {
+  it('keeps a note staff closed closed for the same balance, and raises it again when the balance changes (G-29)', async () => {
     await readBill(cancelled, '170.00');
+    expect(await openNotes(cancelled)).toHaveLength(0);
+    await readBill(cancelled, '180.00');
+    expect(await openNotes(cancelled)).toHaveLength(1);
+  });
+
+  it('closes the note by itself once Clock settles the bill', async () => {
+    await readBill(cancelled, '180.00');
     expect(await openNotes(cancelled)).toHaveLength(1);
     await readBill(cancelled, '0.00');
     expect(await openNotes(cancelled)).toHaveLength(0);
     expect((await review(cancelled)).needsReview).toBe(false);
+  });
+
+  it('forgets what staff closed once the bill has been settled, so a later equal balance is raised (G-29)', async () => {
+    await readBill(cancelled, '170.00');
+    expect(await openNotes(cancelled)).toHaveLength(1);
   });
 });

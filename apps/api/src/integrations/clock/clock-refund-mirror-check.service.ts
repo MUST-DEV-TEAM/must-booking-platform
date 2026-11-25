@@ -103,6 +103,7 @@ export class ClockRefundMirrorCheckService implements OnModuleInit, OnModuleDest
               referenceId: candidate.bookingId,
               message: `A refund recorded here was not found in Clock: ${candidate.amount} ${candidate.currency}. The guest was refunded, but the deposit in Clock may still show the payment. Post the negative payment on the original deposit folio in Clock, and do the Deposit Adjustment if your hotel needs it.`,
               context: {
+                kind: 'CLOCK_REFUND_MISSING',
                 refundExternalPaymentId: candidate.refundExternalPaymentId,
                 amount: candidate.amount,
                 currency: candidate.currency,

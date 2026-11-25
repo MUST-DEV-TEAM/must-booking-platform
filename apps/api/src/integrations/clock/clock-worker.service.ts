@@ -812,6 +812,7 @@ export class ClockWorkerService implements OnModuleInit, OnModuleDestroy {
           referenceType: 'provider_event',
           referenceId: row.eventId,
           message: `Clock event ${row.eventId}'s BullMQ job completed, but its outcome was never recorded on provider_events (row ${row.id}). Verify directly against Clock whether the referenced resource was actually applied, then either mark this row HYDRATED (if confirmed applied) or reset it to RECEIVED (if not) so the next recovery sweep reprocesses it.`,
+          context: { kind: 'CLOCK_JOB_OUTCOME_LOST' },
         });
         return true;
       },

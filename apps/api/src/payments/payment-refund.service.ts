@@ -451,6 +451,7 @@ export class PaymentRefundService {
           referenceId: operation.bookingId,
           message: `A refund of ${amount} was started ${operation.ageMinutes} minutes ago and the system could not confirm it. Check in the payment provider whether the guest was refunded before trying again; new refunds on this booking are blocked until this is resolved.`,
           context: {
+            kind: 'REFUND_STARTED_UNCONFIRMED',
             operationId: operation.operationId,
             stage: operation.stage,
             chargeExternalPaymentId: operation.chargeExternalPaymentId,
@@ -560,6 +561,7 @@ export class PaymentRefundService {
         message:
           'A refund could not be confirmed. The saved gateway attempt blocks automatic retries; verify the original payment before resolving it.',
         context: {
+          kind: 'REFUND_UNCONFIRMED_BLOCKS_RETRY',
           chargeExternalPaymentId: charge.externalPaymentId,
           amount: command.amount,
           error: refunded.error.code,
@@ -605,6 +607,7 @@ export class PaymentRefundService {
         message:
           'A refund was submitted but the provider has not confirmed completion. Verify the original payment before retrying or recording it in Clock.',
         context: {
+          kind: 'REFUND_PENDING_AT_PROVIDER',
           refundId: refunded.value.id,
           chargeExternalPaymentId: charge.externalPaymentId,
           amount: command.amount,
@@ -743,7 +746,11 @@ export class PaymentRefundService {
         referenceType: 'booking',
         referenceId: bookingId,
         message: `The payment provider had already refunded this payment in full; our records were behind by ${behind} ${charge.currency} and were corrected. If the hotel system also holds this payment, check it matches.`,
-        context: { chargeExternalPaymentId: charge.externalPaymentId, reconciled: true },
+        context: {
+          kind: 'REFUND_RECORDS_BEHIND_PROVIDER',
+          chargeExternalPaymentId: charge.externalPaymentId,
+          reconciled: true,
+        },
       });
     }
     return {
@@ -1221,7 +1228,11 @@ export class PaymentRefundService {
           referenceId: bookingId,
           message:
             'The refund succeeded in MUST, but Clock refund synchronization failed unexpectedly. Post the negative payment to the original Clock deposit folio and issue the Deposit Adjustment manually.',
-          context: { refundId: refund.refundId, amount: refund.amount },
+          context: {
+            kind: 'REFUND_CLOCK_SYNC_FAILED',
+            refundId: refund.refundId,
+            amount: refund.amount,
+          },
         });
         await this.inAppNotifications.recordInTransaction(tx, {
           tenantId: context.tenantId,

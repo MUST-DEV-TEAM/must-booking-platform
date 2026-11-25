@@ -503,7 +503,11 @@ export class BookingRequestsService {
         referenceId: e.bookingId,
         message:
           'Cancellation could not be confirmed. Review the existing provider operation before retrying.',
-        context: { cancellationRequest: key, errorCode: result.error.code },
+        context: {
+          kind: 'CANCELLATION_UNCONFIRMED',
+          cancellationRequest: key,
+          errorCode: result.error.code,
+        },
       });
       return result;
     }
