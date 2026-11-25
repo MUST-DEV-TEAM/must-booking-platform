@@ -30,3 +30,20 @@ export function stayStatusProblem(input: {
     return 'The arrival day has not come yet.';
   return null;
 }
+
+/**
+ * What staff are told when a guest did not arrive, from the hotel's no-show rule (G-54). MUST never charges
+ * a guest for a no-show (no card is held for it), so the rule becomes a task for staff, not a payment.
+ * `null` when the rule is "charge nothing".
+ */
+export function noShowFollowUp(
+  rule: string | null,
+  firstNight: { amount: string; currency: string } | null,
+): string | null {
+  if (rule === 'charge_nothing') return null;
+  if (rule === 'charge_first_night')
+    return firstNight
+      ? `The guest did not arrive. The hotel's rule is to charge the first night (${firstNight.amount} ${firstNight.currency}). MUST does not charge guests, so collect it yourself.`
+      : "The guest did not arrive. The hotel's rule is to charge the first night, but this booking has no recorded nightly price. Work out the amount and collect it yourself; MUST does not charge guests.";
+  return "The guest did not arrive. The hotel's rule is to review each no-show: decide whether to charge anything. MUST does not charge guests.";
+}
