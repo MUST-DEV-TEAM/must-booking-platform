@@ -293,4 +293,43 @@ describe.skipIf(!hasSandboxCredentials)('Clock multi-room orders (G-39, real san
     expect(rows.every((row) => row.promo === 'TWIN10')).toBe(true);
     await cancelOrder(order.value.orderReference);
   }, 240_000);
+
+  it('lets staff book several rooms in one order (staff channel) and creates one real Clock reservation per room', async () => {
+    const response = await request(app!.getHttpServer())
+      .post(`/tenants/${tenantId}/properties/${propertyId}/staff-bookings/orders`)
+      .set('Cookie', cookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({
+        startsOn: STAY_STARTS_ON,
+        endsOn: STAY_ENDS_ON,
+        paymentMethod: 'pay_at_hotel',
+        guest: {
+          email: `staff-order-guest-${randomUUID()}@example.test`,
+          firstName: 'Staff',
+          lastName: 'Order',
+          phone: '+355690000000',
+        },
+        rooms: [
+          { roomTypeId: localRoomTypeId, ratePlanId, adults: 1, children: 0 },
+          {
+            roomTypeId: localRoomTypeId,
+            ratePlanId,
+            adults: 1,
+            children: 0,
+            guest: { firstName: 'Second', lastName: 'Sleeper' },
+          },
+        ],
+      });
+    expect(response.status, JSON.stringify(response.body)).toBe(201);
+    expect(response.body.ok, JSON.stringify(response.body)).toBe(true);
+    const orderReference = response.body.value.orderReference as string;
+    const rows = await expectRealClockReservations(orderReference, 2);
+    const meta = await admin.$queryRaw<Array<{ source: string; roomGuest: string | null }>>`
+      SELECT source::text, room_guest_last_name AS "roomGuest" FROM bookings
+      WHERE tenant_id = ${tenantId}::uuid AND order_reference = ${orderReference} ORDER BY order_room_number`;
+    expect(meta.map((row) => row.source)).toEqual(['DIRECT', 'DIRECT']);
+    expect(meta[1]!.roomGuest).toBe('Sleeper');
+    expect(rows).toHaveLength(2);
+    await cancelOrder(orderReference);
+  }, 240_000);
 });

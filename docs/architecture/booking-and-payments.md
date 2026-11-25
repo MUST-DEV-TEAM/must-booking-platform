@@ -10,6 +10,7 @@ Status: **IMPLEMENTED**, with partial provider guarantees identified below. Code
 | Staff creation/cancellation | `booking/staff-booking.controller.ts` under the same API source root |
 | Checkout orchestration, payment continuation, cancellation/expiry | `booking/local-pms.provider.ts` |
 | Multi-room reservation | `booking/multi-room-booking.service.ts` |
+| Staff multi-room order | `POST staff-bookings/orders` (`booking/staff-booking.controller.ts`): the same order flow as a guest cart, priced with the staff channel, booked as DIRECT, optional guest name per room, the hotel's rooms-per-booking limit applies |
 | Pricing, rules and signed snapshot | `booking/quote.service.ts` |
 | Inventory and physical-room claims | `tenancy/availability.service.ts` |
 | State graph and projection | `booking/booking-state-machine.ts`, `booking/booking-projection.service.ts` |
