@@ -82,6 +82,7 @@ describe('signed guest booking management', () => {
       scope,
       'booking',
       'other@example.test',
+      true,
     );
     await expect(
       f.controller.resendConfirmation({ tenantContext: scope }, 'booking', {

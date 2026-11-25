@@ -230,7 +230,7 @@ export class GuestBookingManageController {
       (email.length > 254 || !/^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[^\s@<>(),;:"]+$/.test(email))
     )
       throw new BadRequestException('Enter a valid email address.');
-    const result = await this.confirmations.resendToGuest(scope, id, email || undefined);
+    const result = await this.confirmations.resendToGuest(scope, id, email || undefined, true);
     if (!result.ok) {
       if (result.code === 'RESEND_LIMIT') throw new HttpException(result.message, 429);
       throw new ConflictException(result.message);

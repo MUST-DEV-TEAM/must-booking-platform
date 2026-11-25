@@ -203,6 +203,46 @@ describe('sending a confirmation again', () => {
       .send({ token: 'nonsense' })
       .expect(400);
 
+    // A guest who sends it to another address cannot use one address over and over: a second booking may send to
+    // an address once more, and then it is refused for that address (2 a day), though the booking has slots left.
+    const q2 = await request(server)
+      .post(`${propertyUrl}/quotes`)
+      .set('Cookie', guestCookie)
+      .send({ roomTypeId: roomType.body.id, ratePlanId: ratePlan.body.id, startsOn, endsOn })
+      .expect(201);
+    const second = await request(server)
+      .post(`${propertyUrl}/bookings`)
+      .set('Cookie', guestCookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({
+        roomTypeId: roomType.body.id,
+        ratePlanId: ratePlan.body.id,
+        startsOn,
+        endsOn,
+        guest: {
+          email: 'grace.hopper@example.test',
+          firstName: 'Grace',
+          lastName: 'Hopper',
+          phone: null,
+        },
+        total: q2.body.total,
+        quoteToken: q2.body.quoteToken,
+        paymentMethod: 'pay_at_hotel',
+      })
+      .expect(201);
+    const manage2 = `${propertyUrl}/bookings/${second.body.value.id}/manage/resend-confirmation`;
+    const token2 = second.body.value.cancellationToken as string;
+    await request(server)
+      .post(manage2)
+      .send({ token: token2, email: 'someone.else@example.test' })
+      .expect(200);
+    await request(server)
+      .post(manage2)
+      .send({ token: token2, email: 'someone.else@example.test' })
+      .expect(429);
+    // To the address on the booking is still fine.
+    await request(server).post(manage2).send({ token: token2 }).expect(200);
+
     // An unconfirmed booking has nothing to resend.
     await admin.$executeRaw`UPDATE bookings SET status = 'CANCELLED'::"BookingStatus"
       WHERE id = ${booking.id}::uuid AND tenant_id = ${tenantId}::uuid`;

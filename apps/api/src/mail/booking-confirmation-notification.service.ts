@@ -87,22 +87,30 @@ export class BookingConfirmationNotificationService {
     context: PaymentProviderContext,
     bookingId: string,
     to?: string,
+    /**
+     * True when the guest asked for it (public manage page). A guest who sends it to another address gets a plain
+     * confirmation there: no manage link (so the other person cannot cancel) and no free text, and that address
+     * cannot be used over and over (2 a day per address, 100 a day per hotel), so the hotel's sending cannot be
+     * turned into a way to mail strangers.
+     */
+    byGuest = false,
   ): Promise<
     | { ok: true; sentTo: string | null }
     | { ok: false; code: 'NOT_CONFIRMED' | 'NO_ADDRESS' | 'RESEND_LIMIT'; message: string }
   > {
+    const day = new Date().toISOString().slice(0, 10);
+    const slotPrefix = `payment-confirmation/resend:${bookingId}:${day}:`;
     const state = await this.database.withTenantTransaction(context, async (tx) => {
       const rows = await tx.$queryRaw<Array<{ status: string; email: string | null }>>`
         SELECT b.status::text AS status, ${bookingContactSql.email} AS email
         FROM bookings b LEFT JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
         WHERE b.id = ${bookingId}::uuid AND b.tenant_id = ${context.tenantId}::uuid
           AND b.property_id = ${context.propertyId}::uuid`;
-      const recent = await tx.$queryRaw<Array<{ count: number }>>`
-        SELECT count(*)::int AS count FROM email_messages
+      const used = await tx.$queryRaw<Array<{ key: string }>>`
+        SELECT idempotency_key AS key FROM email_messages
         WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
-          AND booking_id = ${bookingId}::uuid AND idempotency_key LIKE 'payment-confirmation/resend:%'
-          AND created_at > now() - interval '24 hours'`;
-      return { row: rows[0] ?? null, recent: recent[0]?.count ?? 0 };
+          AND booking_id = ${bookingId}::uuid AND idempotency_key LIKE ${slotPrefix + '%'}`;
+      return { row: rows[0] ?? null, used: new Set(used.map((row) => row.key)) };
     });
     if (!state.row || state.row.status !== 'CONFIRMED')
       return {
@@ -117,16 +125,42 @@ export class BookingConfirmationNotificationService {
         code: 'NO_ADDRESS',
         message: 'There is no email address on this booking.',
       };
-    if (state.recent >= 3)
-      return {
-        ok: false,
-        code: 'RESEND_LIMIT',
-        message:
-          'The confirmation was already sent again 3 times today. Please try again tomorrow.',
-      };
-    await this.sendAfterConfirmation(context, bookingId, `resend:${bookingId}:${randomUUID()}`, {
+    const limit = (message: string) => ({
+      ok: false as const,
+      code: 'RESEND_LIMIT' as const,
+      message,
+    });
+    // Three fixed slots a day per booking. A slot is an email key, so two requests that race for the same slot
+    // send one email, never a fourth.
+    const slot = [1, 2, 3].find((n) => !state.used.has(`${slotPrefix}${n}`));
+    if (!slot)
+      return limit(
+        'The confirmation was already sent again 3 times today. Please try again tomorrow.',
+      );
+    const redirected =
+      byGuest && !!to && to.trim().toLowerCase() !== (state.row.email ?? '').toLowerCase();
+    if (redirected) {
+      const counts = await this.database.withTenantTransaction(context, async (tx) => {
+        const perAddress = await tx.$queryRaw<Array<{ count: number }>>`
+          SELECT count(*)::int AS count FROM email_messages
+          WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+            AND lower(recipient_email) = ${address.toLowerCase()}
+            AND idempotency_key LIKE 'payment-confirmation/resend:%' AND created_at > now() - interval '24 hours'`;
+        const perHotel = await tx.$queryRaw<Array<{ count: number }>>`
+          SELECT count(*)::int AS count FROM email_messages
+          WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+            AND idempotency_key LIKE 'payment-confirmation/resend:%' AND created_at > now() - interval '24 hours'`;
+        return { perAddress: perAddress[0]?.count ?? 0, perHotel: perHotel[0]?.count ?? 0 };
+      });
+      if (counts.perAddress >= 2 || counts.perHotel >= 100)
+        return limit(
+          'That address cannot receive the confirmation again today. Please try another address or tomorrow.',
+        );
+    }
+    await this.sendAfterConfirmation(context, bookingId, `resend:${bookingId}:${day}:${slot}`, {
       guestOnly: true,
       to: address,
+      plain: redirected,
     });
     return { ok: true, sentTo: maskEmail(address) };
   }
@@ -135,7 +169,7 @@ export class BookingConfirmationNotificationService {
     context: PaymentProviderContext,
     bookingId: string,
     paymentId: string,
-    options: { guestOnly?: boolean; to?: string } = {},
+    options: { guestOnly?: boolean; to?: string; plain?: boolean } = {},
   ): Promise<void> {
     const notification = await this.database.withTenantTransaction(context, async (tx) => {
       const rows = await tx.$queryRaw<BookingEmailRow[]>`
@@ -230,16 +264,17 @@ export class BookingConfirmationNotificationService {
         guestCount: row.guestCount,
         nightlyRates: row.nightlyRates ?? undefined,
         rooms,
-        specialRequests: row.specialRequests,
-        cancellationUrl: row.guestSessionId
-          ? this.manageUrl(
-              context,
-              bookingId,
-              row.guestSessionId,
-              row.endsOn,
-              customSiteOrigin(row),
-            )
-          : undefined,
+        specialRequests: options.plain ? null : row.specialRequests,
+        cancellationUrl:
+          row.guestSessionId && !options.plain
+            ? this.manageUrl(
+                context,
+                bookingId,
+                row.guestSessionId,
+                row.endsOn,
+                customSiteOrigin(row),
+              )
+            : undefined,
       },
       context,
     );
