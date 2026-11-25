@@ -1,3 +1,4 @@
+import { connectPaymentProviders } from './helpers/payment-connections';
 import { randomUUID } from 'node:crypto';
 
 import { INestApplication } from '@nestjs/common';
@@ -103,6 +104,7 @@ describe('retry after an abandoned online payment', () => {
       .expect(201);
     tenantId = signup.body.organization.id;
     propertyId = signup.body.property.id;
+    await connectPaymentProviders(admin, tenantId, propertyId);
     ownerId = signup.body.user.id;
     const cookie = signup.headers['set-cookie'][0];
     const propertyUrl = `/tenants/${tenantId}/properties/${propertyId}`;

@@ -1,3 +1,4 @@
+import { paymentMethodAvailability } from './payment-method-availability';
 import { enforcePropertyBookingLimits } from './property-booking-limits';
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
@@ -531,19 +532,11 @@ export class MultiRoomBookingService {
     if (!needsCheckout) return { ok: true, value: BookingPaymentMethod.FREE };
     if (!selected)
       return this.failure('PAYMENT_METHOD_REQUIRED', 'Select an enabled payment method.');
-    const properties = await tx.$queryRaw<
-      Array<{ stripeEnabled: boolean; pokpayEnabled: boolean; payAtHotelEnabled: boolean }>
-    >`
-      SELECT stripe_enabled AS "stripeEnabled", pokpay_enabled AS "pokpayEnabled",
-        pay_at_hotel_enabled AS "payAtHotelEnabled"
-      FROM properties
-      WHERE tenant_id = ${context.tenantId}::uuid AND id = ${context.propertyId}::uuid
-    `;
-    const property = properties[0];
+    const available = await paymentMethodAvailability(tx, context);
     const enabled =
-      (selected === 'stripe' && property?.stripeEnabled) ||
-      (selected === 'pokpay' && property?.pokpayEnabled) ||
-      (selected === 'pay_at_hotel' && property?.payAtHotelEnabled);
+      (selected === 'stripe' && available.stripe) ||
+      (selected === 'pokpay' && available.pokpay) ||
+      (selected === 'pay_at_hotel' && available.payAtHotel);
     if (!enabled)
       return this.failure(
         'PAYMENT_METHOD_NOT_ENABLED',
