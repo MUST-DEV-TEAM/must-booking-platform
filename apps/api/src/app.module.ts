@@ -135,6 +135,7 @@ import { ResendWebhookController } from './mail/resend-webhook.controller';
 import { ResendWebhookService } from './mail/resend-webhook.service';
 import { PaymentNotificationService } from './mail/payment-notification.service';
 import { BookingConfirmationNotificationService } from './mail/booking-confirmation-notification.service';
+import { BookingConfirmationResendController } from './booking/booking-confirmation-resend.controller';
 import { BookingCancellationNotificationService } from './mail/booking-cancellation-notification.service';
 import { PlanUsageController } from './tenancy/plan-usage.controller';
 import { PlanUsageService } from './tenancy/plan-usage.service';
@@ -416,6 +417,7 @@ const healthPaths = new Set(['/health', '/health/ready']);
     GuestBookingManageController,
     BookingRequestsController,
     BookingDetailsController,
+    BookingConfirmationResendController,
     BookingAmendController,
     BookingRoomMoveController,
     BookingStayStatusController,

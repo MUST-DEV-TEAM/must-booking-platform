@@ -14,6 +14,7 @@ import { PublicRateLimitGuard } from '../tenancy/public-rate-limit.guard';
 import { PUBLIC_READ_RATE_LIMIT, PublicRateLimit } from '../tenancy/public-rate-limit.decorator';
 import { CancellationLinkService } from './cancellation-link.service';
 import { LocalPmsProvider } from './local-pms.provider';
+import { BookingConfirmationNotificationService } from '../mail/booking-confirmation-notification.service';
 
 type GuestBookingRequest = {
   tenantContext: { tenantId: string; propertyId: string };
@@ -25,6 +26,8 @@ export class PublicBookingController {
   constructor(
     @Inject(LocalPmsProvider) private readonly provider: LocalPmsProvider,
     @Inject(CancellationLinkService) private readonly cancellations: CancellationLinkService,
+    @Inject(BookingConfirmationNotificationService)
+    private readonly confirmations: BookingConfirmationNotificationService,
   ) {}
 
   @Get(':bookingId')
@@ -52,6 +55,10 @@ export class PublicBookingController {
       guestSessionId,
     );
     if (!booking) throw new NotFoundException('Booking was not found.');
-    return booking;
+    // Where the booking's emails go, masked ("a***@icloud.com"), so the page can say "we sent it to ..." (G-96).
+    return {
+      ...booking,
+      emailHint: await this.confirmations.emailHint(request.tenantContext, bookingId),
+    };
   }
 }

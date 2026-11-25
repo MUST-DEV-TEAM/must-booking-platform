@@ -12,6 +12,8 @@ import {
   Inject,
   BadRequestException,
   ConflictException,
+  HttpCode,
+  HttpException,
   NotFoundException,
   UseGuards,
 } from '@nestjs/common';
@@ -26,6 +28,7 @@ import { CancellationLinkService } from './cancellation-link.service';
 import { LocalPmsProvider } from './local-pms.provider';
 import { BookingRequestsService } from './booking-requests.service';
 import { ClockFinancialService } from '../integrations/clock/clock-financial.service';
+import { BookingConfirmationNotificationService } from '../mail/booking-confirmation-notification.service';
 type Scope = { tenantId: string; propertyId: string };
 type Terms = {
   arrivalDate: string;
@@ -62,6 +65,8 @@ export class GuestBookingManageController {
     @Inject(LocalPmsProvider) private readonly provider: LocalPmsProvider,
     @Inject(BookingRequestsService) private readonly requests: BookingRequestsService,
     @Inject(ClockFinancialService) private readonly financial: ClockFinancialService,
+    @Inject(BookingConfirmationNotificationService)
+    private readonly confirmations: BookingConfirmationNotificationService,
   ) {}
   private identity(scope: Scope, id: string, token: string) {
     return this.links.verify(token, { ...scope, bookingId: id });
@@ -185,6 +190,8 @@ export class GuestBookingManageController {
       automaticAllowed,
       // For a room of a multi-room order: the guest can cancel just this room (not on Clock hotels, which need
       // staff review) and gets back this room's share, never more than the order paid.
+      // Where the confirmation went, masked, so the guest can tell when it went somewhere else (G-96).
+      emailHint: await this.confirmations.emailHint(scope, id),
       inOrder: !!row.orderReference,
       roomCancellation: row.orderReference
         ? {
@@ -199,6 +206,36 @@ export class GuestBookingManageController {
       refundAmount: gross ? Prisma.Decimal.max(0, gross.minus(fee?.amount ?? 0)).toFixed(2) : null,
       providerFee: fee?.amount ?? null,
     };
+  }
+  /**
+   * "Send the confirmation again", to the address on the booking or to another one the guest types (G-96). The
+   * guest proves the booking with the same link token as for cancelling. At most 3 a day per booking.
+   */
+  @Post('resend-confirmation')
+  @HttpCode(200)
+  @PublicRateLimit(PUBLIC_BOOKING_MUTATION_RATE_LIMIT)
+  @PublicTenantScoped({ propertyParam: 'propertyId' })
+  async resendConfirmation(
+    @Req() req: { tenantContext: Scope },
+    @Param('bookingId') id: string,
+    @Body() body: { token?: string; email?: string },
+  ) {
+    if (!body || typeof body !== 'object') throw new BadRequestException('A request is required.');
+    const scope = req.tenantContext,
+      identity = this.identity(scope, id, body.token ?? '');
+    await this.booking(scope, id, identity.guestSessionId);
+    const email = typeof body.email === 'string' ? body.email.trim() : '';
+    if (
+      email &&
+      (email.length > 254 || !/^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[^\s@<>(),;:"]+$/.test(email))
+    )
+      throw new BadRequestException('Enter a valid email address.');
+    const result = await this.confirmations.resendToGuest(scope, id, email || undefined, true);
+    if (!result.ok) {
+      if (result.code === 'RESEND_LIMIT') throw new HttpException(result.message, 429);
+      throw new ConflictException(result.message);
+    }
+    return { sent: true, sentTo: result.sentTo };
   }
   @Post()
   @PublicRateLimit(PUBLIC_BOOKING_MUTATION_RATE_LIMIT)
