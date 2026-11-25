@@ -11,6 +11,8 @@ export function SegmentedControl<T extends string>({
   onChange,
   label,
   className,
+  disabled,
+  fullWidth = false,
 }: {
   options: ReadonlyArray<SegmentedOption<T>>;
   value: T;
@@ -18,12 +20,20 @@ export function SegmentedControl<T extends string>({
   /** Accessible name of the group. */
   label: string;
   className?: string;
+  disabled?: boolean;
+  /** Fill the row: every choice the same width, on one line. */
+  fullWidth?: boolean;
 }) {
   return (
     <div
       role="radiogroup"
       aria-label={label}
-      className={cn('inline-flex max-w-full flex-wrap gap-1 rounded-lg bg-muted p-1', className)}
+      className={cn(
+        fullWidth
+          ? 'flex w-full gap-1 rounded-lg bg-muted p-1'
+          : 'inline-flex max-w-full flex-wrap gap-1 rounded-lg bg-muted p-1',
+        className,
+      )}
     >
       {options.map((option) => {
         const active = option.value === value;
@@ -34,9 +44,11 @@ export function SegmentedControl<T extends string>({
             role="radio"
             aria-checked={active}
             title={option.hint}
+            disabled={disabled}
             onClick={() => onChange(option.value)}
             className={cn(
-              'rounded-md border-0 bg-transparent px-3 py-1.5 text-sm font-semibold text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50',
+              'rounded-md border-0 bg-transparent px-3 py-1.5 text-sm font-semibold text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-60',
+              fullWidth && 'flex-1 whitespace-nowrap px-2 text-center',
               active && 'bg-card text-foreground shadow-xs',
             )}
           >

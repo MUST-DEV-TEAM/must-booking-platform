@@ -72,7 +72,7 @@ describe('B1 confirmation, refund preview, queue and review panel', () => {
   it('shows policy, local deadline, existing refunds and the amount before confirmation', async () => {
     await mount(<CancellationPreview evidence={evidence} refundAmount="90.00" />);
     expect(document.body.textContent).toContain('Europe/Tirane');
-    expect(document.body.textContent).toContain('09/07/2030, 00:00:00');
+    expect(document.body.textContent).toContain('09/07/2030 00:00');
     for (const text of [
       'Flexible',
       'Paid',

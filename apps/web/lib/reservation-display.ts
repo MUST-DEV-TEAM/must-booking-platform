@@ -11,6 +11,8 @@ const bookingStatus: Record<string, Display> = {
   DRAFT: { label: 'Draft', tone: 'muted' },
   QUOTED: { label: 'Quoted', tone: 'muted' },
   INVENTORY_REVALIDATING: { label: 'Checking availability', tone: 'info' },
+  ON_REQUEST_PENDING: { label: 'Awaiting hotel decision', tone: 'warning' },
+  DECLINED: { label: 'Request declined', tone: 'muted' },
   PAYMENT_PENDING: { label: 'Awaiting payment', tone: 'warning' },
   PAYMENT_NOT_REQUIRED: { label: 'Confirming', tone: 'info' },
   PMS_CREATION_PENDING: { label: 'Confirming', tone: 'info' },
@@ -53,7 +55,7 @@ export type PaymentInput = {
 
 export const NO_BOOKING_BALANCE = 'No balance - booking was not created';
 export function bookingWasNotCreated(status: string): boolean {
-  return ['AVAILABILITY_FAILED', 'PAYMENT_FAILED', 'PMS_REJECTED'].includes(status);
+  return ['AVAILABILITY_FAILED', 'PAYMENT_FAILED', 'PMS_REJECTED', 'DECLINED'].includes(status);
 }
 
 const cents = (amount: string): number => Math.round(Number(amount) * 100);
@@ -84,6 +86,8 @@ export function paymentDisplay(input: PaymentInput): Display {
   if (['CANCELLED', 'EXPIRED'].includes(input.status) && paid === 0)
     return { label: 'No payment due', tone: 'muted' };
   if (input.status === 'PAYMENT_FAILED') return { label: 'Failed', tone: 'danger' };
+  if (input.status === 'ON_REQUEST_PENDING')
+    return { label: 'Not due until accepted', tone: 'muted' };
   if (total > 0 && paid >= total) return { label: 'Paid', tone: 'success' };
   if (paid > 0) return { label: 'Deposit paid', tone: 'info' };
   if (total === 0 || input.paymentMethod === 'FREE')

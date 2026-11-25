@@ -1,3 +1,4 @@
+import { formatDateTime } from '../../lib/hotel-format';
 import { Button } from '../../components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/card';
 import { StatTile } from '../../components/ui/stat-tile';
@@ -8,12 +9,16 @@ import type { EmailOverview } from '../../lib/email-workspace';
 export function EmailHealthOverview({
   data,
   onDelivery,
-  onConfiguration,
+  onBlocked,
+  onSending,
   onMessage,
 }: {
   data: EmailOverview;
   onDelivery: (filter: string, topic?: string, hours?: number) => void;
-  onConfiguration: () => void;
+  /** Shows the blocked addresses (the suppression list). */
+  onBlocked: () => void;
+  /** Where a sender problem is fixed. */
+  onSending: () => void;
   onMessage: (id: string) => void;
 }) {
   const rate = (v: number | null) =>
@@ -26,47 +31,38 @@ export function EmailHealthOverview({
   };
   const domain = data.domainEvidence;
   return (
-    <>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="flex flex-col gap-6">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatTile
-          label="Volume - last 24 hours"
+          label="Sent, last 24 hours"
           value={data.volume24h}
+          note={`${data.volume7d} in the last 7 days`}
           onClick={() => onDelivery('all', undefined, 24)}
         />
         <StatTile
-          label="Volume - last 7 days"
-          value={data.volume7d}
-          onClick={() => onDelivery('all', undefined, 168)}
-        />
-        <StatTile
-          label="Bounce rate - 7 days"
+          label="Bounce rate, 7 days"
           value={rate(data.bounceRate)}
-          note="Bounced messages / attempted messages"
+          note="Share of emails that could not be delivered"
           onClick={() => onDelivery('bounced', undefined, 168)}
         />
         <StatTile
-          label="Complaint rate - 7 days"
+          label="Complaint rate, 7 days"
           value={rate(data.complaintRate)}
-          note="Complained messages / attempted messages"
+          note="Share of emails reported as spam"
           onClick={() => onDelivery('complained', undefined, 168)}
         />
         <StatTile
-          label="Queued / unsent"
+          label="Queued or unsent"
           value={data.queued}
           note={
             data.oldestQueued
-              ? `Oldest queued: ${new Date(data.oldestQueued).toLocaleString()}`
+              ? `Oldest queued: ${formatDateTime(data.oldestQueued)}`
               : 'No queued messages'
           }
           onClick={() => onDelivery('queued')}
         />
-        <StatTile
-          label="Suppressed addresses"
-          value={data.suppressedAddresses}
-          onClick={onConfiguration}
-        />
       </div>
-      <div className="grid items-start gap-4 xl:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-2 [&>*]:h-full">
         <Card>
           <CardHeader>
             <CardTitle>What to fix next</CardTitle>
@@ -89,7 +85,7 @@ export function EmailHealthOverview({
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {row.lastError?.startsWith('Email sending is not configured.') ? (
-                      <Button variant="outline" onClick={onConfiguration}>
+                      <Button variant="outline" onClick={onSending}>
                         Set up sending
                       </Button>
                     ) : null}
@@ -102,8 +98,28 @@ export function EmailHealthOverview({
             ) : (
               <EmptyPanel title="No deliveries need action" />
             )}
-            <Button variant="outline" onClick={() => onDelivery('problems')}>
+            {data.failingTopics.length ? (
+              <div className="flex flex-col gap-2">
+                <p className="m-0 text-sm font-semibold">Most problems, last 7 days</p>
+                <div className="flex flex-wrap gap-2">
+                  {data.failingTopics.map((row) => (
+                    <Button
+                      key={row.topic}
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onDelivery('problems', row.topic)}
+                    >
+                      {row.label} · {row.count}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            <Button variant="outline" className="self-start" onClick={() => onDelivery('problems')}>
               Open all delivery problems
+            </Button>
+            <Button variant="outline" className="self-start" onClick={onBlocked}>
+              Blocked addresses ({data.suppressedAddresses})
             </Button>
           </CardContent>
         </Card>
@@ -129,21 +145,16 @@ export function EmailHealthOverview({
                 {
                   label: 'Domain checks',
                   value: domain?.checkedAt
-                    ? `${domain.setupMode === 'RESEND' && domain.activeMode !== 'RESEND' ? 'Saved custom domain (not active): ' : ''}${domain.status === 'verified' ? 'provider verified' : domain.status === 'pending' ? 'DNS pending' : domain.status === 'not_found' ? 'domain not found' : 'check needs attention'}`
+                    ? `${domain.setupMode === 'RESEND' && domain.activeMode !== 'RESEND' ? 'Saved custom domain (not active): ' : ''}${domain.status === 'verified' ? 'verified' : domain.status === 'pending' ? 'waiting for DNS records' : domain.status === 'not_found' ? 'domain not found' : 'check needs attention'}`
                     : domain?.setupMode === 'SMTP' || domain?.setupMode === 'BREVO'
-                      ? 'Use the connection and mailbox checks in Configuration.'
-                      : 'No provider domain check has been recorded for this hotel.',
+                      ? 'Use the connection and mailbox checks under Sending.'
+                      : 'The sending domain has not been checked yet.',
                 },
                 ...(domain?.checkedAt
                   ? [
                       {
                         label: 'Last checked',
-                        value:
-                          new Intl.DateTimeFormat('en-GB', {
-                            timeZone: 'UTC',
-                            dateStyle: 'medium',
-                            timeStyle: 'short',
-                          }).format(new Date(domain.checkedAt)) + ' UTC',
+                        value: formatDateTime(domain.checkedAt, 'medium'),
                       },
                       { label: 'SPF', value: domain.spf },
                       { label: 'DKIM', value: domain.dkim },
@@ -152,37 +163,15 @@ export function EmailHealthOverview({
                   : []),
               ]}
             />
-            <Button variant="outline" onClick={onConfiguration}>
-              Set up sending and DNS records
+            <Button variant="outline" className="self-start" onClick={onSending}>
+              Open Sending
             </Button>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Top failing topics - 7 days</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            {data.failingTopics.length ? (
-              data.failingTopics.map((row) => (
-                <Button
-                  key={row.topic}
-                  variant="outline"
-                  className="justify-between"
-                  onClick={() => onDelivery('problems', row.topic)}
-                >
-                  <span>{row.label}</span>
-                  <span>{row.count}</span>
-                </Button>
-              ))
-            ) : (
-              <EmptyPanel title="No failing topics in this period" />
-            )}
-          </CardContent>
-        </Card>
       </div>
-      <p className="m-0 text-sm text-muted-foreground">
-        Controlled tests are excluded. Rates use each message's current stored outcome.
+      <p className="m-0 text-xs text-muted-foreground">
+        Test emails are not counted. Rates use the latest result of each message.
       </p>
-    </>
+    </div>
   );
 }

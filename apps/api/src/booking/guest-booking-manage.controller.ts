@@ -83,12 +83,29 @@ export class GuestBookingManageController {
       Date.now() <= Date.parse(row.terms.cutoffAt)
     );
   }
-  private async moneyAllows(scope: Scope, row: Row, fresh = false) {
+  private async moneyAllows(scope: Scope, row: Row) {
     if (new Prisma.Decimal(row.paid).gt(0) && !row.onlineRefundable) return false;
     if (!row.external) return true;
     const saved = await this.financial.read(scope, row.id);
     if (saved.status === 'NOT_CONNECTED') return true;
-    const data = fresh ? await this.financial.refresh(scope, row.id) : saved.data;
+    // Retry only financial reads, never cancellation or refund commands. A concurrent
+    // booking update can invalidate an otherwise healthy financial snapshot.
+    let data;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        data = await this.financial.refresh(scope, row.id);
+        if (
+          data &&
+          (data.bookingVersion !== row.version || Date.now() - Date.parse(data.fetchedAt) > 60000)
+        )
+          throw new ConflictException(
+            'Your booking changed. Reload its details before confirming.',
+          );
+        break;
+      } catch (error) {
+        if (!(error instanceof ConflictException) || attempt === 1) throw error;
+      }
+    }
     return (
       !!data &&
       Date.now() - Date.parse(data.fetchedAt) <= 60000 &&
@@ -110,16 +127,20 @@ export class GuestBookingManageController {
     @Query('token') token: string,
   ) {
     const scope = req.tenantContext,
-      identity = this.identity(scope, id, token),
-      row = await this.booking(scope, id, identity.guestSessionId);
+      identity = this.identity(scope, id, token);
+    let row = await this.booking(scope, id, identity.guestSessionId);
     // Read the money position fresh, as the cancel action does, so the preview never says "not automatic"
     // only because the saved Clock snapshot is older than a minute.
     let automaticAllowed = false;
-    if (this.policyAllows(row)) {
+    let financialChanged = false;
+    for (let attempt = 0; attempt < 2 && this.policyAllows(row); attempt++) {
       try {
-        automaticAllowed = await this.moneyAllows(scope, row, true);
-      } catch {
-        /* An uncertain financial position requires staff review. */
+        automaticAllowed = await this.moneyAllows(scope, row);
+        break;
+      } catch (error) {
+        financialChanged = error instanceof ConflictException;
+        if (!financialChanged || attempt === 1) break;
+        row = await this.booking(scope, id, identity.guestSessionId);
       }
     }
     const position =
@@ -130,7 +151,10 @@ export class GuestBookingManageController {
       !!position &&
       !('lastError' in position && position.lastError) &&
       position.status !== 'FAILED' &&
-      (!position.data || Date.now() - Date.parse(position.data.fetchedAt) > 60000);
+      (financialChanged ||
+        !position.data ||
+        position.data.bookingVersion !== row.version ||
+        Date.now() - Date.parse(position.data.fetchedAt) > 60000);
     // What the guest would get back; when the hotel keeps the payment fee back from a refund the guest
     // asks for, that fee is shown separately and is not part of the refund.
     const gross =
@@ -209,8 +233,12 @@ export class GuestBookingManageController {
     let automaticAllowed = false;
     if (this.policyAllows(row)) {
       try {
-        automaticAllowed = await this.moneyAllows(scope, row, true);
-      } catch {
+        automaticAllowed = await this.moneyAllows(scope, row);
+      } catch (error) {
+        if (error instanceof ConflictException)
+          throw new ConflictException(
+            'Your booking changed. Reload its details before confirming.',
+          );
         /* An uncertain financial position requires staff review. */
       }
     }

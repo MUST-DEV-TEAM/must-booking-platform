@@ -9,14 +9,16 @@ it('opens exact rolling windows, failing topic, message and sender/suppression f
   document.body.append(host);
   const root = createRoot(host),
     onDelivery = vi.fn(),
-    onConfiguration = vi.fn(),
+    onBlocked = vi.fn(),
+    onSending = vi.fn(),
     onMessage = vi.fn();
   try {
     await act(async () =>
       root.render(
         createElement(EmailHealthOverview, {
           onDelivery,
-          onConfiguration,
+          onBlocked,
+          onSending,
           onMessage,
           data: {
             counts: [],
@@ -61,24 +63,24 @@ it('opens exact rolling windows, failing topic, message and sender/suppression f
       expect(b).toBeTruthy();
       await act(async () => b!.click());
     };
-    await click('Volume - last 24 hours');
+    await click('Sent, last 24 hours');
     expect(onDelivery).toHaveBeenLastCalledWith('all', undefined, 24);
     await click('Bounce rate');
     expect(onDelivery).toHaveBeenLastCalledWith('bounced', undefined, 168);
-    await click('Queued / unsent');
+    await click('Queued or unsent');
     expect(onDelivery).toHaveBeenLastCalledWith('queued');
     await click('Open delivery');
     expect(onMessage).toHaveBeenLastCalledWith('m');
-    await click('Owner alert2');
+    await click('Owner alert');
     expect(onDelivery).toHaveBeenLastCalledWith('problems', 'owner.alert');
-    await click('Suppressed addresses');
-    expect(onConfiguration).toHaveBeenCalled();
+    await click('Blocked addresses');
+    expect(onBlocked).toHaveBeenCalled();
     expect(host.textContent).toContain('33.33%');
     expect(host.textContent).toContain('No attempts in this period');
     expect(host.textContent).not.toContain('Delivery health');
-    expect(host.textContent).toContain('Saved custom domain (not active): provider verified');
+    expect(host.textContent).toContain('Saved custom domain (not active): verified');
     expect(host.textContent).toContain('TXT published; alignment not checked');
-    expect(host.textContent).not.toContain('No provider domain check has been recorded');
+    expect(host.textContent).not.toContain('The sending domain has not been checked yet');
   } finally {
     await act(async () => root.unmount());
     host.remove();

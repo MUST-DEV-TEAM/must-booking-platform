@@ -257,7 +257,7 @@ it('shows the default sender separately and hides custom activation until setup 
   server();
   await render();
   expect(document.body.textContent).toContain('Currently sending with');
-  expect(document.body.textContent).toContain('Saving does not activate a sender.');
+  expect(document.body.textContent).toContain('Saving does not switch your sender on.');
   expect(button('Save sending setup').disabled).toBe(true);
   expect(
     [...document.querySelectorAll('button')].some((n) =>
@@ -326,7 +326,7 @@ it('separates checking from explicit registration and displays exact provider DN
   expect(document.body.textContent).toContain('Domain is not in this account.');
   await click(button('Register domain in Resend'));
   expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
-    'receiving and tracking disabled',
+    'receiving and open tracking switched off',
   );
   await fill('confirm-reason', 'Register this hotel domain');
   await click(button('Register domain'));
@@ -359,7 +359,7 @@ it('keeps default-domain diagnostics read-only at the provider and disables unve
     });
   };
   await render();
-  expect(document.body.textContent).toContain('Hotel staff cannot register it');
+  expect(document.body.textContent).toContain('only MUST can change it');
   await click(button('Check MUST sender domain'));
   await fill('confirm-reason', 'Review shared DNS');
   await click(button('Check domain'));

@@ -1,4 +1,7 @@
 'use client';
+import { formatTime as hotelTime } from '../../lib/hotel-format';
+
+import { formatDate, formatDateTime } from '../../lib/hotel-format';
 import { ClockRoomsTile } from './clock-room-counts';
 
 import { MoneyList } from './approximate-money';
@@ -263,11 +266,7 @@ export function DashboardOverview({
           {overview.metricBasis.source === 'CLOCK'
             ? 'Synced from Clock - locally stored records'
             : 'MUST local records'}{' '}
-          - Updated{' '}
-          {new Date(overview.metricBasis.asOf).toLocaleString(undefined, {
-            timeZone: overview.metricBasis.timezone,
-          })}{' '}
-          ({overview.metricBasis.timezone})
+          - Updated {formatDateTime(overview.metricBasis.asOf)} ({overview.metricBasis.timezone})
         </Badge>
       ) : null}
       <section
@@ -572,13 +571,9 @@ function partySize(item: ArrivalDeparture): string {
 }
 
 function formatTime(value: string) {
-  return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(
-    new Date(value),
-  );
+  return hotelTime(value);
 }
 
 function formatDay(value: string) {
-  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(
-    new Date(`${value}T00:00:00`),
-  );
+  return formatDate(value, 'short');
 }

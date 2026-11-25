@@ -47,6 +47,10 @@ export class StripeWebhookService {
       );
     }
     const context = { tenantId: event.tenantId, propertyId: event.propertyId };
+    await this.bookings.expireRequestPaymentIfDue(context, event.bookingId, {
+      externalPaymentId: event.externalPaymentId,
+      paidAt: event.occurredAt ? new Date(event.occurredAt) : undefined,
+    });
     const bookingConfirmation: { bookingId?: string; paymentId?: string } = {};
     let refundConfirmation: RefundConfirmation | null = null;
     const result = await this.database.withTenantTransaction<Result<{ duplicate: boolean }>>(

@@ -9,7 +9,7 @@ export const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
 export const PHOTO_CONTENT_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const uuid = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 const keyPattern = new RegExp(
-  `^(?:room-types/${uuid}/${uuid}/${uuid}|library/${uuid}/${uuid})/${uuid}\\.(?:jpeg|jpg|png|webp)$`,
+  `^(?:server-v1/)?(?:room-types/${uuid}/${uuid}/${uuid}|library/${uuid}/${uuid})/${uuid}\\.(?:jpeg|jpg|png|webp)$`,
   'i',
 );
 

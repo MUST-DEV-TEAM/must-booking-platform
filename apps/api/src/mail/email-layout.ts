@@ -1,4 +1,4 @@
-import type { MailBrand } from '@must/domain-contracts';
+import { ONLINE_PROFILE_SITES, type MailBrand } from '@must/domain-contracts';
 
 export type EmailBrand = MailBrand & {
   brandColour?: string | null;
@@ -28,6 +28,10 @@ export function renderBrandedEmail(command: {
   supportStyle?: SupportStyle;
   supportLinks?: SupportLink[];
   showBrandFooter?: boolean;
+  /** Print the hotel's legal name and tax number in the footer (payment and refund emails). */
+  showLegal?: boolean;
+  /** Print the hotel's own directions text in the footer (the stay-confirmed email). */
+  showDirections?: boolean;
   footerNote?: string | null;
   platformFooter?: string | null;
 }): string {
@@ -53,7 +57,10 @@ export function renderBrandedEmail(command: {
     command.supportStyle ?? 'icon-grid',
     command.supportLinks,
   );
-  const footer = renderFooter(command.brand, command.showBrandFooter ?? true, command.footerNote);
+  const footer = renderFooter(command.brand, command.showBrandFooter ?? true, command.footerNote, {
+    legal: command.showLegal === true,
+    directions: command.showDirections === true,
+  });
   const platformFooter = clean(command.platformFooter)
     ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;border-collapse:collapse;"><tr><td style="padding:20px 8px 0 8px;text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#a39a86;">${escapeHtml(command.platformFooter!)}</td></tr></table>`
     : '';
@@ -176,7 +183,7 @@ function renderSupportBlock(brand: EmailBrand, style: SupportStyle, links?: Supp
       : null,
     address
       ? {
-          href: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`,
+          href: mapsLink(brand, address),
           label: 'Get directions',
           detail: address,
         }
@@ -197,7 +204,32 @@ function defaultPlainLinks(brand: EmailBrand): SupportLink[] {
   ];
 }
 
-function renderFooter(brand: EmailBrand, showBrand: boolean, footerNote?: string | null): string {
+/** A maps link that opens at the hotel's map pin when it has one, otherwise searches its address. */
+export function mapsLink(brand: EmailBrand, address: string): string {
+  const pin =
+    typeof brand.latitude === 'number' &&
+    typeof brand.longitude === 'number' &&
+    Number.isFinite(brand.latitude) &&
+    Number.isFinite(brand.longitude)
+      ? `${brand.latitude},${brand.longitude}`
+      : null;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(pin ?? address)}`;
+}
+
+/** "Hotel Ltd · NUIS L12345678A" (the tax number is labelled NUIS when it has the Albanian shape). */
+export function legalLine(brand: EmailBrand): string {
+  const name = clean(brand.legalName);
+  const tax = clean(brand.taxNumber);
+  const label = /^[A-Z]\d{8}[A-Z]$/.test(tax) ? 'NUIS' : 'Tax no.';
+  return [name, tax ? `${label} ${tax}` : ''].filter(Boolean).join(' · ');
+}
+
+function renderFooter(
+  brand: EmailBrand,
+  showBrand: boolean,
+  footerNote?: string | null,
+  extras: { legal: boolean; directions: boolean } = { legal: false, directions: false },
+): string {
   const colour = /^#[0-9a-f]{6}$/i.test(brand.brandColour ?? '') ? brand.brandColour! : '#141414';
   const terms =
     brand.termsUrl?.startsWith('https://') && safeHttpUrl(brand.termsUrl)
@@ -206,7 +238,7 @@ function renderFooter(brand: EmailBrand, showBrand: boolean, footerNote?: string
   const custom = brand.emailFooterText
     ? `<p>${escapeHtml(brand.emailFooterText).replace(/\r?\n/g, '<br>')}</p>`
     : '';
-  const brandFooter = (showBrand ? renderFooterMeta(brand) : '') + custom + terms;
+  const brandFooter = (showBrand ? renderFooterMeta(brand, extras) : '') + custom + terms;
   const note = clean(footerNote)
     ? `<div style="${brandFooter ? 'margin-top:18px;' : 'margin-top:18px;'}font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:1.7;color:#a39a86;"><p style="margin:0;">${footerNote}</p></div>`
     : '';
@@ -214,19 +246,36 @@ function renderFooter(brand: EmailBrand, showBrand: boolean, footerNote?: string
   return `<div style="padding:${brandFooter ? '22px' : '0'} 40px 36px 40px;">${brandFooter}${note}</div>`;
 }
 
-function renderFooterMeta(brand: EmailBrand): string {
+function renderFooterMeta(
+  brand: EmailBrand,
+  extras: { legal: boolean; directions: boolean },
+): string {
   const name = clean(brand.name);
   const address = clean(brand.address).replace(/\r?\n/g, ', ');
   const websiteUrl = safeHttpUrl(brand.websiteUrl);
-  const mapsUrl = address
-    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`
-    : null;
+  const mapsUrl = address ? mapsLink(brand, address) : null;
+  const directions = extras.directions ? clean(brand.directions) : '';
+  const legal = extras.legal ? legalLine(brand) : '';
+  const contact = [clean(brand.supportEmail), clean(brand.phone)].filter(Boolean);
+  const profiles = ONLINE_PROFILE_SITES.flatMap((site) => {
+    const url = safeHttpUrl(brand.onlineProfiles?.[site.key]);
+    return url
+      ? [
+          `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" style="color:#141414;text-decoration:underline;">${escapeHtml(site.label)}</a>`,
+        ]
+      : [];
+  });
   const parts = [
     name && `<p style="margin:0;font-weight:700;">${escapeHtml(name)}</p>`,
     address &&
       `<p style="margin:6px 0 0 0;"><a href="${escapeHtml(mapsUrl!)}" target="_blank" rel="noopener noreferrer" style="color:#141414;text-decoration:underline;">${escapeHtml(address)}</a></p>`,
+    directions &&
+      `<p style="margin:6px 0 0 0;"><strong>How to find us:</strong> ${escapeHtml(directions)}</p>`,
+    contact.length && `<p style="margin:6px 0 0 0;">${contact.map(escapeHtml).join(' · ')}</p>`,
     websiteUrl &&
       `<p style="margin:6px 0 0 0;"><a href="${escapeHtml(websiteUrl)}" target="_blank" rel="noopener noreferrer" style="color:#141414;text-decoration:underline;">${escapeHtml(displayUrl(websiteUrl))}</a></p>`,
+    profiles.length && `<p style="margin:6px 0 0 0;">Follow us: ${profiles.join(' · ')}</p>`,
+    legal && `<p style="margin:10px 0 0 0;font-size:12px;color:#8a8472;">${escapeHtml(legal)}</p>`,
   ].filter(Boolean);
   return parts.length
     ? `<div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.7;color:#5f5a50;">${parts.join('')}</div>`

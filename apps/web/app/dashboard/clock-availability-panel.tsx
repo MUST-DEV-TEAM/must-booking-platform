@@ -1,4 +1,6 @@
 'use client';
+
+import { formatDateTime } from '../../lib/hotel-format';
 import { ScopedHotelMoney } from './approximate-money';
 import { formatMoney } from '../../lib/money';
 import { useState } from 'react';
@@ -59,10 +61,8 @@ export function ClockAvailabilityPanel({
           <>
             <p className="text-xs">
               Last synchronized{' '}
-              {stored.data?.lastSyncedAt
-                ? new Date(stored.data.lastSyncedAt).toLocaleString()
-                : 'updating'}
-              . Complete block history remains managed in Clock.
+              {stored.data?.lastSyncedAt ? formatDateTime(stored.data.lastSyncedAt) : 'updating'}.
+              Complete block history remains managed in Clock.
             </p>
             <div className="max-h-96 overflow-auto">
               {view === 'availability' ? (

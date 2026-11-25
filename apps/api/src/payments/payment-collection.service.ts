@@ -19,6 +19,7 @@ import { IntegrationConnectionsService } from '../integrations/integration-conne
 import { LifecycleEmailService } from '../mail/lifecycle-email.service';
 import { MailDeliveryService } from '../mail/mail-delivery.service';
 import { bookingContactSql } from '../booking/booking-contact';
+import { verifyRequestPaymentLink } from './request-payment-link';
 type Scope = { tenantId: string; propertyId: string };
 type Collection = {
   kind: 'balance_collection';
@@ -34,6 +35,30 @@ type Collection = {
 type Operation = { id: string; result: Collection };
 /** A link staff send for a balance stays payable this long, so a reminder always has a working link. */
 const BALANCE_LINK_VALID_MINUTES = 7 * 24 * 60;
+/** A new checkout is not started when less than this is left before the hotel's deadline. */
+const REQUEST_CHECKOUT_MIN_REMAINING_MINUTES = 2;
+/** Longest checkout page we ask a provider for. Stripe also refuses anything shorter than 30 minutes. */
+const REQUEST_CHECKOUT_MAX_MINUTES = 31;
+const PROVIDER_MIN_CHECKOUT_MINUTES = { stripe: REQUEST_CHECKOUT_MAX_MINUTES, pokpay: 1 } as const;
+
+/**
+ * How long the payment page may stay open for an accepted request, or null when it is too late to start one.
+ * The page never outlives the deadline, except where the provider has a minimum length (Stripe: 30 minutes). Then
+ * the page is opened for that minimum, and the booking's expiry closes it at the deadline; a payment finished
+ * before the deadline still counts (see `LocalPmsProvider.expireRequestPaymentIfDue`).
+ */
+export function requestCheckoutMinutes(
+  provider: 'stripe' | 'pokpay',
+  dueAt: Date,
+  now: number,
+): number | null {
+  const remaining = Math.floor((dueAt.getTime() - now) / 60000);
+  if (remaining < REQUEST_CHECKOUT_MIN_REMAINING_MINUTES) return null;
+  return Math.max(
+    PROVIDER_MIN_CHECKOUT_MINUTES[provider],
+    Math.min(REQUEST_CHECKOUT_MAX_MINUTES, remaining - 1),
+  );
+}
 /** Confirmed reservations keep their identity and payment method. Captures append to the ledger.
  * The committed PREPARING intent prevents a timeout/retry from creating another gateway order.
  */
@@ -51,6 +76,202 @@ export class PaymentCollectionService {
     @Inject(ClockFinancialService) private readonly financial: ClockFinancialService,
     @Inject(LifecycleEmailService) private readonly lifecycle: LifecycleEmailService,
   ) {}
+
+  /** Reserve an attempt before leaving the database transaction; an uncertain attempt is never repeated. */
+  async openRequestLink(
+    scope: Scope,
+    bookingId: string,
+    token: string,
+  ): Promise<{ url?: string; expired?: true }> {
+    type Attempt = {
+      stage: 'PREPARING' | 'READY' | 'UNCERTAIN';
+      url?: string;
+      externalId?: string;
+      expiresAt?: string;
+      provider: 'stripe' | 'pokpay';
+    };
+    type Row = {
+      status: string;
+      dueAt: Date | null;
+      method: string;
+      amount: string;
+      currency: string;
+    };
+    for (let waiting = 0; waiting < 100; waiting++) {
+      const intent = await this.db.withTenantTransaction(scope, async (tx) => {
+        const [booking] = await tx.$queryRaw<Row[]>`
+          SELECT b.status::text AS status,b.payment_due_at AS "dueAt",b.payment_method::text AS method,
+            COALESCE((SELECT sum(c.total_amount) FROM bookings c WHERE c.tenant_id=b.tenant_id
+              AND c.property_id=b.property_id AND c.order_reference=b.order_reference),b.total_amount)::text AS amount,
+            rp.currency FROM bookings b JOIN rate_plans rp ON rp.tenant_id=b.tenant_id
+              AND rp.property_id=b.property_id AND rp.id=b.rate_plan_id
+          WHERE b.tenant_id=${scope.tenantId}::uuid AND b.property_id=${scope.propertyId}::uuid
+            AND b.id=${bookingId}::uuid FOR UPDATE OF b`;
+        if (
+          !booking?.dueAt ||
+          !verifyRequestPaymentLink(token, {
+            ...scope,
+            bookingId,
+            dueAt: booking.dueAt.toISOString(),
+          })
+        )
+          throw new NotFoundException('Payment link is invalid.');
+        if (booking.status !== 'PAYMENT_PENDING' || booking.dueAt.getTime() <= Date.now())
+          return { expired: true as const };
+        const [existing] = await tx.$queryRaw<Array<{ id: string; result: Attempt }>>`
+          SELECT id,result FROM integration_operations WHERE tenant_id=${scope.tenantId}::uuid
+            AND property_id=${scope.propertyId}::uuid AND aggregate_id=${bookingId}::uuid
+            AND result->>'kind'='request_checkout' ORDER BY created_at DESC LIMIT 1`;
+        if (existing?.result.stage === 'PREPARING') return { waiting: true as const };
+        if (existing?.result.stage === 'UNCERTAIN')
+          throw new ConflictException('Payment session needs review.');
+        if (
+          existing?.result.stage === 'READY' &&
+          existing.result.url &&
+          existing.result.expiresAt &&
+          new Date(existing.result.expiresAt).getTime() > Date.now()
+        )
+          return { url: existing.result.url };
+        const provider =
+          booking.method === 'POKPAY'
+            ? 'pokpay'
+            : booking.method === 'STRIPE_CHECKOUT'
+              ? 'stripe'
+              : null;
+        if (!provider) throw new ConflictException('Online payment is unavailable.');
+        const minutes = requestCheckoutMinutes(provider, booking.dueAt, Date.now());
+        if (minutes === null) return { expired: true as const };
+        const id = randomUUID();
+        const result: Attempt & { kind: string } = {
+          kind: 'request_checkout',
+          stage: 'PREPARING',
+          provider,
+        };
+        await tx.$executeRaw`INSERT INTO integration_operations(id,tenant_id,property_id,idempotency_key,aggregate_id,request_hash,status,result)
+          VALUES(${id}::uuid,${scope.tenantId}::uuid,${scope.propertyId}::uuid,${'request-checkout:' + id},${bookingId}::uuid,
+            ${createHash('sha256').update(id).digest('hex')},'PENDING',${JSON.stringify(result)}::jsonb)`;
+        const description = await loadCheckoutDescription(tx, scope, bookingId);
+        return {
+          id,
+          booking,
+          provider: provider as Attempt['provider'],
+          minutes,
+          previous: existing?.result,
+          description,
+        };
+      });
+      if ('expired' in intent) return { expired: true };
+      if ('url' in intent) return { url: intent.url };
+      if ('waiting' in intent) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        continue;
+      }
+      const provider = this.providers.forProvider(intent.provider)!;
+      try {
+        if (intent.previous?.externalId) {
+          if (intent.provider === 'stripe') {
+            const state = await provider.checkoutState?.(scope, intent.previous.externalId);
+            if (!state?.ok || state.value === 'paid')
+              throw new Error('Previous checkout requires review.');
+            const closed = await provider.expireCheckout?.(scope, intent.previous.externalId);
+            if (!closed?.ok || !closed.value.closed)
+              throw new Error('Previous checkout could not be closed.');
+          } else {
+            const previous = await provider.getPayment(scope, intent.previous.externalId);
+            if (!previous || ['PAID', 'CAPTURED', 'COMPLETED'].includes(previous.status))
+              throw new Error('Previous checkout requires review.');
+          }
+        }
+        const now = Date.now();
+        const minutes = requestCheckoutMinutes(intent.provider, intent.booking.dueAt!, now);
+        if (minutes === null) {
+          // The deadline came while we were closing the previous page. Nothing was sent to the provider for
+          // this attempt, so it is released rather than left as "uncertain".
+          await this.db.withTenantTransaction(
+            scope,
+            (tx) => tx.$executeRaw`
+            UPDATE integration_operations SET status='FAILED',result=jsonb_set(result,'{stage}','"EXPIRED"'::jsonb),updated_at=now()
+            WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${intent.id}::uuid`,
+          );
+          return { expired: true };
+        }
+        const origin = process.env.WEB_APP_URL ?? 'http://localhost:3001';
+        const makeReturn = (result: string) =>
+          new URL(
+            `/bookings/${bookingId}/payment/${result}?${new URLSearchParams(scope)}`,
+            origin,
+          ).toString();
+        const checkout = await provider.createCheckoutSession(scope, {
+          idempotencyKey: intent.id,
+          bookingId,
+          description: intent.description,
+          amount: { amount: intent.booking.amount, currency: intent.booking.currency },
+          successUrl: makeReturn('success'),
+          cancelUrl: makeReturn('cancel'),
+          expiresAfterMinutes: minutes,
+          expiresAt: Math.floor(now / 1000) + minutes * 60,
+        });
+        if (!checkout.ok || !checkout.value.url) throw new Error('Checkout result is uncertain.');
+        // The response arrives after the provider created the order. Using response time gives a
+        // conservative upper bound for PokPay's relative expiry, so it is never replaced early.
+        const saved: Attempt & { kind: string } = {
+          kind: 'request_checkout',
+          stage: 'READY',
+          provider: intent.provider,
+          url: checkout.value.url,
+          externalId: checkout.value.id,
+          expiresAt: new Date(Date.now() + minutes * 60000).toISOString(),
+        };
+        const payable = await this.db.withTenantTransaction(scope, async (tx) => {
+          await tx.$executeRaw`INSERT INTO payment_provider_sessions(tenant_id,property_id,booking_id,provider,external_payment_id,connection_id)
+            VALUES(${scope.tenantId}::uuid,${scope.propertyId}::uuid,${bookingId}::uuid,${intent.provider},${checkout.value.id},${checkout.value.connectionId ?? null}::uuid)
+            ON CONFLICT(tenant_id,provider,external_payment_id) DO NOTHING`;
+          await tx.$executeRaw`UPDATE integration_operations SET status='COMPLETED',external_reference=${checkout.value.id},result=${JSON.stringify(saved)}::jsonb,updated_at=now()
+            WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${intent.id}::uuid`;
+          await this.audit.recordInTransaction(tx, {
+            ...scope,
+            actorUserId: null,
+            action: 'payment.checkout_ready',
+            targetType: 'booking',
+            targetId: bookingId,
+            operationId: intent.id,
+            details: {
+              before: { stage: 'PREPARING' },
+              after: {
+                stage: 'READY',
+                provider: intent.provider,
+                externalPaymentId: checkout.value.id,
+                expiresAt: saved.expiresAt,
+              },
+            },
+          });
+          const [current] = await tx.$queryRaw<
+            Array<{ payable: boolean }>
+          >`SELECT status='PAYMENT_PENDING'
+            AND payment_due_at > CURRENT_TIMESTAMP AS payable FROM bookings WHERE tenant_id=${scope.tenantId}::uuid
+            AND property_id=${scope.propertyId}::uuid AND id=${bookingId}::uuid`;
+          return current?.payable ?? false;
+        });
+        if (!payable) {
+          if (intent.provider === 'stripe' && provider.expireCheckout)
+            await provider.expireCheckout(scope, checkout.value.id);
+          return { expired: true };
+        }
+        return { url: checkout.value.url };
+      } catch {
+        await this.db.withTenantTransaction(
+          scope,
+          (tx) => tx.$executeRaw`
+          UPDATE integration_operations SET status='FAILED',result=jsonb_set(result,'{stage}','"UNCERTAIN"'::jsonb),updated_at=now()
+          WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${intent.id}::uuid`,
+        );
+        throw new ConflictException(
+          'Payment session could not be confirmed. Please contact the hotel.',
+        );
+      }
+    }
+    throw new ConflictException('Payment session is still being prepared. Please try again.');
+  }
   async options(scope: Scope, bookingId: string) {
     return this.db.withTenantTransaction(scope, async (tx) => {
       const rows = await tx.$queryRaw<
@@ -318,6 +539,36 @@ export class PaymentCollectionService {
    * of days (default 3). The link is the one already sent, which is still valid. Sent once per link.
    */
   async sendDueReminders(): Promise<void> {
+    const requests = await this.db.$queryRaw<
+      Array<
+        Scope & {
+          bookingId: string;
+          checkoutUrl: string;
+          amount: string;
+          currency: string;
+          reminder: number;
+        }
+      >
+    >`
+      SELECT * FROM on_request_payment_reminder_candidates(100::integer)`;
+    for (const link of requests) {
+      await this.lifecycle.guest(
+        { tenantId: link.tenantId, propertyId: link.propertyId },
+        {
+          topic: 'payment_reminder',
+          key: 'payment_reminder',
+          eventType: 'guest.payment_reminder',
+          idempotencyKey: `request-payment-reminder/${link.bookingId}/${link.reminder}`,
+          bookingId: link.bookingId,
+          heading: 'Payment reminder',
+          values: {
+            payment_link: link.checkoutUrl,
+            payment_due: `${link.amount} ${link.currency}`,
+          },
+          cta: { label: 'Pay securely', url: link.checkoutUrl },
+        },
+      );
+    }
     const due = await this.db.$queryRaw<
       Array<{
         bookingId: string;

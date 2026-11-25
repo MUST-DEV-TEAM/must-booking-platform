@@ -1,3 +1,4 @@
+import { formatDate, formatTime } from '../../lib/hotel-format';
 import type { LucideIcon } from 'lucide-react';
 
 import { cn } from '../../lib/utils';
@@ -20,10 +21,8 @@ const toneClass = {
   info: 'bg-info-surface text-info',
 } as const;
 
-const dayLabel = (iso: string) =>
-  new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-const timeLabel = (iso: string) =>
-  new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+const dayLabel = (iso: string) => formatDate(iso, 'medium');
+const timeLabel = (iso: string) => formatTime(iso);
 
 /**
  * What happened and when: grouped by day, newest first, an icon per event on a vertical line,

@@ -13,7 +13,13 @@ import {
   SelectValue,
 } from './select';
 
-export type SettingsNavItem = { key: string; label: string; href: string };
+export type SettingsNavItem = {
+  key: string;
+  label: string;
+  href: string;
+  /** Shown after the label in the side menu, e.g. a count of things that need attention. */
+  badge?: ReactNode;
+};
 export type SettingsNavGroup = {
   key: string;
   label: string;
@@ -72,8 +78,11 @@ export function SettingsLayout({
     <div className="flex flex-col gap-6">
       <PageHeader title={title} description={description} />
       <div className="grid gap-6 lg:grid-cols-[14rem_minmax(0,1fr)]">
-        <nav aria-label={`${title} menu`} className="hidden lg:block">
-          <div className="sticky top-4 flex flex-col gap-5">
+        <nav
+          aria-label={`${title} menu`}
+          className="sticky top-[calc(var(--app-header-height,68px)+1rem)] hidden max-h-[calc(100vh-var(--app-header-height,68px)-2rem)] self-start overflow-y-auto lg:block"
+        >
+          <div className="flex flex-col gap-5">
             {groups.map((group) => (
               <div key={group.key} className="flex flex-col gap-1">
                 <p className="m-0 px-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -92,13 +101,14 @@ export function SettingsLayout({
                           aria-current={active ? 'page' : undefined}
                           onClick={(event) => follow(event, item.key)}
                           className={cn(
-                            'block rounded-md px-3 py-1.5 text-sm no-underline transition-colors',
+                            'flex items-center justify-between gap-2 rounded-md px-3 py-1.5 text-sm no-underline transition-colors',
                             active
                               ? 'bg-muted font-semibold text-foreground'
                               : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
                           )}
                         >
-                          {item.label}
+                          <span>{item.label}</span>
+                          {item.badge}
                         </a>
                       </li>
                     );

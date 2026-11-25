@@ -1,15 +1,27 @@
 'use client';
+
+import { formatDateTime } from '../../lib/hotel-format';
 import { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowUpRight, Plug, Settings2 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
 import { FormField } from '../../components/ui/form-field';
 import { FormSection } from '../../components/ui/form-section';
 import { HotelLogoPicker } from '../../components/ui/hotel-logo-picker';
+import type { PokpayConnection } from '../../components/ui/pokpay-connection-panel';
+import { Input, Textarea } from '../../components/ui/input';
+import { Checkbox } from '../../components/ui/checkbox';
+import { CheckoutMethods } from '../../components/ui/checkout-methods';
+import { PaymentModeBadge } from '../../components/ui/payment-mode-badge';
+import { ToggleChips } from '../../components/ui/toggle-chips';
 import {
-  PokpayConnectionPanel,
-  type PokpayConnection,
-} from '../../components/ui/pokpay-connection-panel';
-import { Input } from '../../components/ui/input';
+  ACCEPTED_AT_HOTEL,
+  CHECKOUT_METHODS,
+  PAYMENT_LINK_VALID_DAYS,
+  checkBookingLimit,
+  checkPaymentSettings,
+} from '@must/domain-contracts';
 import { ColourField } from '../../components/ui/colour-field';
 import { Switch } from '../../components/ui/switch';
 import { TimeField } from '../../components/ui/time-field';
@@ -32,7 +44,7 @@ import {
   SelectValue,
 } from '../../components/ui/select';
 import { SaveBar } from '../../components/ui/save-bar';
-import { EmailBrandingPreview } from '../../components/ui/email-branding-preview';
+import { BrandPreview } from '../../components/ui/brand-preview';
 import { useUnsavedChanges } from '../../components/ui/unsaved-changes';
 import type {
   ClockCancelRefundPolicy,
@@ -63,11 +75,31 @@ const webUrl = (s: string, originOnly = false) => {
     return false;
   }
 };
+/** The sites that can be asked for a review, and the private feedback page (same keys as the review-links API). */
+const REVIEW_SITES = [
+  { key: 'google', label: 'Google Business Profile' },
+  { key: 'tripadvisor', label: 'Tripadvisor' },
+  { key: 'booking_com', label: 'Booking.com' },
+  { key: 'facebook', label: 'Facebook' },
+] as const;
+type ReviewDraft = Record<string, string | null>;
+const reviewsKey = (tenantId: string, propertyId: string) =>
+  ['dashboard', 'review-links', tenantId, propertyId] as const;
+
 type BrandingDraft = {
   logoUrl: string;
+  logoDarkUrl: string;
+  iconUrl: string;
+  faviconUrl: string;
+  coverUrl: string;
+  accountingEmail: string;
+  mainContactName: string;
+  mainContactRole: string;
+  mainContactPhone: string;
+  mainContactEmail: string;
+  reviews: ReviewDraft;
   brandColour: string;
   emailFooterText: string;
-  termsUrl: string;
   supportEmail: string;
   reservationsEmail: string;
   phone: string;
@@ -81,9 +113,18 @@ type BrandingDraft = {
   accentColour: string;
   profiles: Record<string, string>;
 };
-const phoneKeys = ['phone', 'whatsappNumber', 'afterHoursPhone'] as const;
+const phoneKeys = ['phone', 'whatsappNumber', 'afterHoursPhone', 'mainContactPhone'] as const;
 const textKeys = [
   'logoUrl',
+  'logoDarkUrl',
+  'iconUrl',
+  'faviconUrl',
+  'coverUrl',
+  'accountingEmail',
+  'mainContactName',
+  'mainContactRole',
+  'mainContactPhone',
+  'mainContactEmail',
   'supportEmail',
   'reservationsEmail',
   'phone',
@@ -95,7 +136,6 @@ const textKeys = [
   'brandColour',
   'accentColour',
   'emailFooterText',
-  'termsUrl',
 ] as const;
 const shared = (key: ProfileFieldKey, text: string) =>
   text.trim()
@@ -116,11 +156,53 @@ export function BrandingSettings({
   canManagePhotos?: boolean;
   onSave: (update: Partial<Property>) => void;
 }) {
+  const client = useQueryClient();
+  const reviewQuery = useQuery({
+    queryKey: reviewsKey(tenantId, property.id),
+    queryFn: async () => {
+      const response = await fetch(
+        `/api/tenants/${tenantId}/properties/${property.id}/review-links`,
+        { credentials: 'include' },
+      );
+      if (!response.ok) throw new Error('Review links could not be read.');
+      return ((await response.json()) as { links: Record<string, string> }).links ?? {};
+    },
+  });
+  const savedReviews: Record<string, string> = reviewQuery.data ?? {};
+  const saveReviews = useMutation({
+    mutationFn: async (links: Record<string, string>) => {
+      const response = await fetch(
+        `/api/tenants/${tenantId}/properties/${property.id}/review-links`,
+        {
+          method: 'PUT',
+          credentials: 'include',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(links),
+        },
+      );
+      if (!response.ok) throw new Error('Review links could not be saved.');
+    },
+    onSuccess: () => client.invalidateQueries({ queryKey: reviewsKey(tenantId, property.id) }),
+  });
   const initial: BrandingDraft = {
     logoUrl: property.logoUrl ?? '',
+    logoDarkUrl: property.logoDarkUrl ?? '',
+    iconUrl: property.iconUrl ?? '',
+    faviconUrl: property.faviconUrl ?? '',
+    coverUrl: property.coverUrl ?? '',
+    accountingEmail: property.accountingEmail ?? '',
+    mainContactName: property.mainContactName ?? '',
+    mainContactRole: property.mainContactRole ?? '',
+    mainContactPhone: property.mainContactPhone ?? '',
+    mainContactEmail: property.mainContactEmail ?? '',
+    reviews: Object.fromEntries(
+      [...REVIEW_SITES.map((site) => site.key), 'feedback'].map((key) => [
+        key,
+        savedReviews[key] ?? null,
+      ]),
+    ),
     brandColour: property.brandColour ?? '',
     emailFooterText: property.emailFooterText ?? '',
-    termsUrl: property.termsUrl ?? '',
     supportEmail: property.supportEmail ?? '',
     reservationsEmail: property.reservationsEmail ?? '',
     phone: property.phone ?? '',
@@ -157,10 +239,23 @@ export function BrandingSettings({
         : 'Enter a colour such as #123ABC.',
     emailFooterText:
       draft.emailFooterText.length <= 300 ? null : 'Keep the footer to 300 characters or fewer.',
-    termsUrl:
-      !draft.termsUrl || (webUrl(draft.termsUrl) && draft.termsUrl.startsWith('https://'))
-        ? null
-        : 'Enter a full https terms link.',
+    accountingEmail: shared('accountingEmail', draft.accountingEmail),
+    mainContactName: shared('mainContactName', draft.mainContactName),
+    mainContactRole: shared('mainContactRole', draft.mainContactRole),
+    mainContactPhone: shared('mainContactPhone', draft.mainContactPhone),
+    mainContactEmail: shared('mainContactEmail', draft.mainContactEmail),
+    ...Object.fromEntries(
+      Object.entries(draft.reviews).map(([key, url]) => [
+        `review-${key}`,
+        url === null
+          ? null
+          : !url.trim()
+            ? 'Enter the review link, or untick this.'
+            : webUrl(url.trim()) && url.trim().startsWith('https://')
+              ? null
+              : 'Enter a full https:// address.',
+      ]),
+    ),
     supportEmail:
       !draft.supportEmail.trim() && initial.supportEmail
         ? 'Enter the guest contact email.'
@@ -195,8 +290,12 @@ export function BrandingSettings({
     website: 'Website address',
     brandColour: 'Brand colour',
     accentColour: 'Accent colour',
-    emailFooterText: 'Email footer text',
-    termsUrl: 'Terms and conditions link',
+    emailFooterText: 'Optional note',
+    accountingEmail: 'Accounting email',
+    mainContactName: 'Name',
+    mainContactRole: 'Role',
+    mainContactPhone: 'Phone',
+    mainContactEmail: 'Email',
   } as const;
   const shown = (key: keyof typeof errors) =>
     changed(key as keyof BrandingDraft) ||
@@ -237,27 +336,123 @@ export function BrandingSettings({
       )}
     </FormField>
   );
+  const picked = (url: string) => (webUrl(url.trim()) && url.trim() ? url.trim() : null);
+  const profileNames = ONLINE_PROFILE_SITES.filter((site) =>
+    (draft.profiles[site.key] ?? '').trim(),
+  ).map((site) => site.label);
+  // The email footer is built from what is saved elsewhere, so it cannot go out of date.
+  const footerLines = [
+    property.name,
+    [property.address, property.city].filter(Boolean).join(', '),
+    [draft.supportEmail.trim(), draft.phone.trim()].filter(Boolean).join(' · '),
+    property.legalName
+      ? `${property.legalName}${property.taxNumber ? ` · NUIS ${property.taxNumber}` : ''} (payment and refund emails)`
+      : '',
+    profileNames.length ? `Follow us: ${profileNames.join(', ')}` : '',
+  ].filter(Boolean);
+  const ticked = Object.entries(draft.reviews).filter(([, url]) => url !== null);
+  const setReview = (key: string, url: string | null) =>
+    setDraft({ ...draft, reviews: { ...draft.reviews, [key]: url } });
+  const reviewField = (key: string, label: string) => {
+    const url = draft.reviews[key];
+    const id = `branding-review-${key}`;
+    return (
+      <div key={key} className="flex flex-col gap-2">
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox
+            id={id}
+            checked={url !== null}
+            disabled={!canWrite}
+            onCheckedChange={(on) => setReview(key, on === true ? '' : null)}
+          />
+          {key === 'feedback' ? 'Private feedback' : `Ask guests for a review on ${label}`}
+        </label>
+        {url !== null ? (
+          <FormField
+            label={key === 'feedback' ? 'Private feedback link' : `${label} review link`}
+            htmlFor={`${id}-url`}
+            hint={
+              key === 'feedback'
+                ? 'A form where guests tell you how it went, before any public review.'
+                : 'The "write a review" page, which is not the same as your profile address.'
+            }
+            error={
+              JSON.stringify(url) !== JSON.stringify(initial.reviews[key])
+                ? errors[`review-${key}`]
+                : null
+            }
+          >
+            <Input
+              id={`${id}-url`}
+              disabled={!canWrite}
+              inputMode="url"
+              placeholder="https://"
+              value={url}
+              onChange={(e) => setReview(key, e.target.value)}
+            />
+          </FormField>
+        ) : null}
+      </div>
+    );
+  };
   return (
     <div className="flex flex-col gap-4">
       <p className="m-0 text-sm text-muted-foreground">
         These details style this system and the emails it sends. They are not shown on your public
         website.
       </p>
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)] lg:items-start">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,24rem)] xl:items-start">
         <div className="flex flex-col gap-4">
           <FormSection
-            title="Logo and colour"
-            description="Shown in the sidebar and at the top of booking emails."
+            title="Brand"
+            description="Your logos, icon and colours. Used in emails, on the booking page and in this system."
           >
+            <div className="grid gap-6 sm:grid-cols-2">
+              <HotelLogoPicker
+                tenantId={tenantId}
+                propertyId={property.id}
+                kind="logo"
+                value={draft.logoUrl}
+                onChange={(logoUrl) => setDraft({ ...draft, logoUrl })}
+                canManage={canWrite && canManagePhotos}
+              />
+              <HotelLogoPicker
+                tenantId={tenantId}
+                propertyId={property.id}
+                kind="dark"
+                value={draft.logoDarkUrl}
+                onChange={(logoDarkUrl) => setDraft({ ...draft, logoDarkUrl })}
+                canManage={canWrite && canManagePhotos}
+              />
+              <HotelLogoPicker
+                tenantId={tenantId}
+                propertyId={property.id}
+                kind="icon"
+                value={draft.iconUrl}
+                onChange={(iconUrl) => setDraft({ ...draft, iconUrl })}
+                canManage={canWrite && canManagePhotos}
+              />
+              <HotelLogoPicker
+                tenantId={tenantId}
+                propertyId={property.id}
+                kind="favicon"
+                value={draft.faviconUrl || draft.iconUrl}
+                onChange={(faviconUrl) => setDraft({ ...draft, faviconUrl })}
+                canManage={canWrite && canManagePhotos}
+              />
+            </div>
             <HotelLogoPicker
               tenantId={tenantId}
               propertyId={property.id}
-              value={draft.logoUrl}
-              onChange={(logoUrl) => setDraft({ ...draft, logoUrl })}
+              kind="cover"
+              value={draft.coverUrl}
+              onChange={(coverUrl) => setDraft({ ...draft, coverUrl })}
               canManage={canWrite && canManagePhotos}
             />
-            {field('brandColour', 'Used for buttons and headings in emails, for example #224858.')}
-            {field('accentColour', 'Optional second colour for links and highlights.')}
+            <div className="grid gap-4 sm:grid-cols-2">
+              {field('brandColour', 'Buttons and headings in emails, for example #224858.')}
+              {field('accentColour', 'Optional second colour for links and highlights.')}
+            </div>
             {(
               [
                 ['brandColour', 'Brand colour'],
@@ -336,63 +531,117 @@ export function BrandingSettings({
               </div>
             )}
             {field('website', 'A full https address. Does not change the website connection.')}
-            {field('termsUrl', `${draft.termsUrl.length} characters`)}
           </FormSection>
           <FormSection
-            title="Online profiles"
-            description="The hotel's pages on other sites. Full https addresses on that site only. Leave empty to leave one out."
+            title="Online profiles and reviews"
+            description="The hotel's pages on other sites, and where guests are asked to review you. Full https addresses on that site only. Leave empty to leave one out."
           >
-            {ONLINE_PROFILE_SITES.map((site) => (
-              <FormField
-                key={site.key}
-                label={site.label}
-                htmlFor={`branding-profile-${site.key}`}
-                error={
-                  JSON.stringify(draft.profiles[site.key]) !==
-                  JSON.stringify(initial.profiles[site.key])
-                    ? errors[`profile-${site.key}`]
-                    : null
-                }
-              >
-                <Input
-                  id={`branding-profile-${site.key}`}
-                  disabled={!canWrite}
-                  inputMode="url"
-                  placeholder="https://"
-                  value={draft.profiles[site.key] ?? ''}
-                  onChange={(e) =>
-                    setDraft({
-                      ...draft,
-                      profiles: { ...draft.profiles, [site.key]: e.target.value },
-                    })
-                  }
-                />
-              </FormField>
-            ))}
+            {ONLINE_PROFILE_SITES.map((site) => {
+              const reviewSite = REVIEW_SITES.find((entry) => entry.key === site.key);
+              return (
+                <div key={site.key} className="flex flex-col gap-3">
+                  <FormField
+                    label={site.label}
+                    htmlFor={`branding-profile-${site.key}`}
+                    error={
+                      JSON.stringify(draft.profiles[site.key]) !==
+                      JSON.stringify(initial.profiles[site.key])
+                        ? errors[`profile-${site.key}`]
+                        : null
+                    }
+                  >
+                    <Input
+                      id={`branding-profile-${site.key}`}
+                      disabled={!canWrite}
+                      inputMode="url"
+                      placeholder="https://"
+                      value={draft.profiles[site.key] ?? ''}
+                      onChange={(e) =>
+                        setDraft({
+                          ...draft,
+                          profiles: { ...draft.profiles, [site.key]: e.target.value },
+                        })
+                      }
+                    />
+                  </FormField>
+                  {reviewSite ? reviewField(reviewSite.key, reviewSite.label) : null}
+                </div>
+              );
+            })}
+            {reviewField('feedback', 'Private feedback')}
+            <p
+              className={`m-0 text-xs ${ticked.length > 3 ? 'text-warning' : 'text-muted-foreground'}`}
+            >
+              {ticked.length > 3
+                ? `${ticked.length} review links are ticked, but the after-stay email shows only the first 3, in the order listed here.`
+                : 'The after-stay email shows up to 3 review links, in the order listed here.'}
+            </p>
           </FormSection>
           <FormSection
             title="Email footer"
-            description="A short line at the bottom of every email, such as the hotel address."
+            description="Built from your saved details, so it never goes out of date. You can add one short note."
           >
-            {field('emailFooterText', `${draft.emailFooterText.length}/300 characters`)}
+            <div className="flex flex-col gap-0.5 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+              {footerLines.map((line) => (
+                <span key={line}>{line}</span>
+              ))}
+              <span className="mt-1 text-xs text-muted-foreground">
+                Name, address, contact, legal name and tax number come from Profile and Contact and
+                brand. Social links come from Online profiles above.
+              </span>
+            </div>
+            <FormField
+              label="Optional note"
+              htmlFor="branding-emailFooterText"
+              hint={`${draft.emailFooterText.length} / 300`}
+              error={shown('emailFooterText')}
+            >
+              <Textarea
+                id="branding-emailFooterText"
+                rows={2}
+                maxLength={300}
+                disabled={!canWrite}
+                value={draft.emailFooterText}
+                onChange={(e) => setDraft({ ...draft, emailFooterText: e.target.value })}
+              />
+            </FormField>
+          </FormSection>
+          <FormSection
+            title="Internal contacts"
+            description="Never shown to guests. For MUST and for your accountant."
+          >
+            <div className="grid gap-4 sm:grid-cols-2">
+              {field('accountingEmail', 'Where invoices and financial notices can be sent.')}
+            </div>
+            <p className="m-0 text-sm font-semibold">Main contact for MUST</p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {field('mainContactName')}
+              {field('mainContactRole')}
+              {field('mainContactPhone')}
+              {field('mainContactEmail')}
+            </div>
           </FormSection>
         </div>
-        <div className="lg:sticky lg:top-4">
-          <EmailBrandingPreview
+        <div className="xl:sticky xl:top-24">
+          <BrandPreview
             name={property.name}
-            logoUrl={webUrl(draft.logoUrl.trim()) ? draft.logoUrl.trim() : null}
-            email={draft.supportEmail}
-            phone={draft.phone}
+            logoUrl={picked(draft.logoUrl)}
+            logoDarkUrl={picked(draft.logoDarkUrl)}
+            iconUrl={picked(draft.iconUrl)}
+            faviconUrl={picked(draft.faviconUrl)}
+            coverUrl={picked(draft.coverUrl)}
             colour={draft.brandColour}
-            footer={draft.emailFooterText}
-            termsUrl={draft.termsUrl}
+            accent={draft.accentColour}
+            footerLines={footerLines}
+            note={draft.emailFooterText}
+            termsUrl={property.termsUrl ?? ''}
           />
         </div>
       </div>
       {canWrite ? (
         <SaveBar
           dirty={dirty}
-          saving={saving}
+          saving={saving || saveReviews.isPending}
           canSave={!Object.values(errors).some(Boolean)}
           onDiscard={() => setDraft(initial)}
           onSave={() => {
@@ -409,13 +658,38 @@ export function BrandingSettings({
               );
             for (const key of ['whatsappSameAsPhone', 'receptionOpen24h'] as const)
               if (draft[key] !== initial[key]) update[key] = draft[key];
-            onSave(update as Partial<Property>);
+            if (Object.keys(update).length) onSave(update as Partial<Property>);
+            if (changed('reviews'))
+              saveReviews.mutate({
+                // Links for other sites (the hotel's own website) are kept as they are.
+                ...savedReviews,
+                ...Object.fromEntries(
+                  Object.entries(draft.reviews)
+                    .filter(([, url]) => url !== null)
+                    .map(([key, url]) => [key, (url as string).trim()]),
+                ),
+                ...Object.fromEntries(
+                  Object.entries(draft.reviews)
+                    .filter(([key, url]) => url === null && key in savedReviews)
+                    .map(([key]) => [key, '']),
+                ),
+              });
           }}
         />
       ) : null}
     </div>
   );
 }
+/** Saved but nothing in the booking system reads it yet (settings plan S7b). */
+const NOT_APPLIED = 'Saved · not applied to bookings yet';
+/** The saved checkout order with any method it does not list added at the end; empty means the standard order. */
+function completeCheckoutOrder(saved?: readonly string[]): string[] {
+  const standard = CHECKOUT_METHODS.map((m) => m.key as string);
+  const chosen = (saved ?? []).filter((key) => standard.includes(key));
+  return [...chosen, ...standard.filter((key) => !chosen.includes(key))];
+}
+const draftGatewayKey = (key: string): keyof PaymentGateways =>
+  key === 'pay_at_hotel' ? 'payAtHotel' : (key as keyof PaymentGateways);
 export function PaymentSettings({
   property,
   saving,
@@ -426,7 +700,6 @@ export function PaymentSettings({
   tenantId,
   onPropertySave,
   connection,
-  assigned = false,
 }: Common & {
   connectedProviders: Set<string>;
   clockConnected?: boolean;
@@ -434,10 +707,32 @@ export function PaymentSettings({
   tenantId: string;
   onPropertySave: (update: Partial<Property>, gateways: PaymentGateways) => void;
   connection?: PokpayConnection;
-  assigned?: boolean;
 }) {
   const [draft, setDraft] = useState(property.paymentGateways);
   useEffect(() => setDraft(property.paymentGateways), [property.paymentGateways]);
+  const savedOrder = completeCheckoutOrder(property.paymentMethodOrder);
+  const savedAccepted = property.acceptedAtHotel ?? [];
+  const savedDefault = property.paymentDefaultMethod ?? null;
+  const savedLinkDays = String(property.paymentLinkValidDays ?? PAYMENT_LINK_VALID_DAYS.default);
+  const savedSecond =
+    property.paymentSecondReminderDays == null ? '' : String(property.paymentSecondReminderDays);
+  const savedExpiry = property.paymentLinkExpiryAction ?? 'notify_staff';
+  const [order, setOrder] = useState(savedOrder),
+    [defaultKey, setDefaultKey] = useState<string | null>(savedDefault),
+    [accepted, setAccepted] = useState<string[]>(savedAccepted),
+    [linkDays, setLinkDays] = useState(savedLinkDays),
+    [secondReminder, setSecondReminder] = useState(savedSecond),
+    [expiryAction, setExpiryAction] = useState(savedExpiry);
+  const savedOrderText = savedOrder.join(','),
+    savedAcceptedText = savedAccepted.join(',');
+  useEffect(() => {
+    setOrder(savedOrderText.split(','));
+    setDefaultKey(savedDefault);
+    setAccepted(savedAcceptedText ? savedAcceptedText.split(',') : []);
+    setLinkDays(savedLinkDays);
+    setSecondReminder(savedSecond);
+    setExpiryAction(savedExpiry);
+  }, [savedOrderText, savedDefault, savedAcceptedText, savedLinkDays, savedSecond, savedExpiry]);
   const [hold, setHold] = useState(String(property.onlinePaymentHoldMinutes ?? 30)),
     [autoRefund, setAutoRefund] = useState(property.autoRefundOnFreeCancellation ?? true),
     [keepFee, setKeepFee] = useState(property.deductPaymentFeeOnGuestRefund ?? true),
@@ -461,11 +756,46 @@ export function PaymentSettings({
     property.clockPaymentFolio,
   ]);
   const holdError =
-    !/^\d+$/.test(hold) || Number(hold) < 10 || Number(hold) > 1440
-      ? 'Choose a hold between 10 and 1440 minutes.'
+    !/^\d+$/.test(hold) || Number(hold) < 5 || Number(hold) > 1440
+      ? 'Choose a hold between 5 and 1440 minutes.'
       : null;
+  const isOn = (key: string) => draft[draftGatewayKey(key)];
+  // The default is what the owner picked while that method is on; otherwise the first method that is on.
+  const pickedDefault = defaultKey && isOn(defaultKey) ? defaultKey : null;
+  const shownDefault = pickedDefault ?? order.find(isOn) ?? null;
+  const whole = (value: string) => (/^\d+$/.test(value) ? Number(value) : NaN);
+  const linkDaysError = checkBookingLimit('paymentLinkValidDays', whole(linkDays));
+  const secondError = secondReminder
+    ? checkBookingLimit('paymentSecondReminderDays', whole(secondReminder))
+    : null;
+  const rules = checkPaymentSettings({
+    enabled: draft,
+    paymentDefaultMethod: pickedDefault,
+    acceptedAtHotel: accepted,
+    paymentLinkValidDays: linkDaysError ? null : whole(linkDays),
+    paymentSecondReminderDays: secondReminder && !secondError ? whole(secondReminder) : null,
+  });
+  const acceptedChanged = accepted.join(',') !== savedAcceptedText;
+  const payAtHotelChanged = draft.payAtHotel !== property.paymentGateways.payAtHotel;
+  // A hotel that has never chosen is not blocked from saving something else; the choice is asked for when it
+  // switches Pay at the hotel on or changes the list.
+  const acceptedError =
+    rules.acceptedAtHotel && (acceptedChanged || payAtHotelChanged) ? rules.acceptedAtHotel : null;
+  const rulesBlocking = Boolean(
+    rules.paymentDefaultMethod ||
+    acceptedError ||
+    rules.paymentLinkValidDays ||
+    rules.paymentSecondReminderDays,
+  );
+  const orderChanged = order.join(',') !== savedOrderText;
   const dirty =
     JSON.stringify(draft) !== JSON.stringify(property.paymentGateways) ||
+    orderChanged ||
+    pickedDefault !== savedDefault ||
+    acceptedChanged ||
+    linkDays !== savedLinkDays ||
+    secondReminder !== savedSecond ||
+    expiryAction !== savedExpiry ||
     hold !== String(property.onlinePaymentHoldMinutes ?? 30) ||
     autoRefund !== (property.autoRefundOnFreeCancellation ?? true) ||
     keepFee !== (property.deductPaymentFeeOnGuestRefund ?? true) ||
@@ -476,48 +806,133 @@ export function PaymentSettings({
   const error = !(draft.payAtHotel || draft.pokpay || draft.stripe)
     ? 'Keep at least one payment method on so guests can complete an online booking.'
     : null;
+  const move = (key: string, direction: -1 | 1) =>
+    setOrder((current) => {
+      const index = current.indexOf(key),
+        target = index + direction;
+      if (index < 0 || target < 0 || target >= current.length) return current;
+      const next = [...current];
+      [next[index], next[target]] = [next[target]!, next[index]!];
+      return next;
+    });
+  const rows = order.map((key) => {
+    const method = CHECKOUT_METHODS.find((m) => m.key === key)!;
+    const provider = method.kind === 'provider';
+    const connected = connectedProviders.has(key === 'stripe' ? 'STRIPE' : 'POKPAY');
+    return {
+      key,
+      label: method.label,
+      description:
+        key === 'stripe'
+          ? 'Guests pay online. Cards, and Apple Pay or Google Pay where Stripe supports them.'
+          : key === 'pokpay'
+            ? 'Guests pay online through PokPay, which accepts cards.'
+            : 'Guests pay the hotel directly when they arrive.',
+      enabled: isOn(key),
+      switchId: `payment-${draftGatewayKey(key)}`,
+      action:
+        provider && canWrite ? (
+          <Button asChild size="sm" variant="outline">
+            <a
+              href={settingsAreaHref(tenantId, property.id, 'integrations')}
+              aria-label={`${connected ? 'Manage' : 'Connect'} ${method.label} in Integrations`}
+            >
+              {connected ? <Settings2 aria-hidden="true" /> : <Plug aria-hidden="true" />}
+              {connected ? 'Manage' : `Connect ${method.label}`}
+              <ArrowUpRight aria-hidden="true" />
+            </a>
+          </Button>
+        ) : undefined,
+      details:
+        key === 'pay_at_hotel' && isOn(key) ? (
+          <div className="flex flex-col gap-2">
+            <p className="m-0 text-sm font-semibold">At the reception we accept</p>
+            <ToggleChips
+              label="Accepted at the hotel"
+              options={ACCEPTED_AT_HOTEL}
+              value={accepted}
+              disabled={!canWrite}
+              onChange={setAccepted}
+            />
+            <p className="m-0 text-sm text-muted-foreground">
+              Shown on the booking page and in the confirmation, so guests know what to bring.
+            </p>
+            {acceptedError ? (
+              <p role="alert" className="m-0 text-sm text-destructive">
+                {acceptedError}
+              </p>
+            ) : null}
+          </div>
+        ) : undefined,
+      badges: provider ? (
+        <>
+          <Badge variant="outline">
+            {connected ? 'Connected to this hotel' : 'Not connected - unavailable to guests'}
+          </Badge>
+          {key === 'pokpay' && connection?.mode ? (
+            <PaymentModeBadge mode={connection.mode} />
+          ) : null}
+        </>
+      ) : undefined,
+    };
+  });
+  const discard = () => {
+    setDraft(property.paymentGateways);
+    setOrder(savedOrder);
+    setDefaultKey(savedDefault);
+    setAccepted(savedAccepted);
+    setLinkDays(savedLinkDays);
+    setSecondReminder(savedSecond);
+    setExpiryAction(savedExpiry);
+    setHold(String(property.onlinePaymentHoldMinutes ?? 30));
+    setAutoRefund(property.autoRefundOnFreeCancellation ?? true);
+    setKeepFee(property.deductPaymentFeeOnGuestRefund ?? true);
+    setClockRefund(property.clockCancelRefundPolicy ?? 'NEVER');
+    setClockFolio(property.clockPaymentFolio ?? 'DEPOSIT');
+  };
   return (
     <div className="flex flex-col gap-4">
       <FormSection
-        title="Payment methods"
-        description="Choose how guests can pay for bookings at this hotel."
+        title="Checkout methods"
+        description={`Guests see the methods that are switched on and working, in this order. The default is pre-selected.${
+          property.defaultCurrency
+            ? ` Guests pay in ${property.defaultCurrency}; the currency is set in Profile.`
+            : ''
+        }`}
+        status={NOT_APPLIED}
       >
-        {(['stripe', 'pokpay', 'payAtHotel'] as const).map((key) => (
-          <FormField
-            key={key}
-            layout="toggle"
-            htmlFor={`payment-${key}`}
-            label={
-              { payAtHotel: 'Pay at hotel', stripe: 'Stripe', pokpay: 'Pay online in full' }[key]
-            }
-            hint={
-              {
-                payAtHotel: 'Guests pay the hotel directly when they arrive.',
-                stripe: 'Guests pay online by card through Stripe.',
-                pokpay: 'Guests pay online through PokPay.',
-              }[key]
-            }
-          >
-            <Switch
-              id={`payment-${key}`}
-              checked={draft[key]}
-              disabled={!canWrite}
-              onCheckedChange={(checked) => setDraft({ ...draft, [key]: checked })}
-            />
-            {key !== 'payAtHotel' ? (
-              <Badge variant="outline">
-                {connectedProviders.has(key === 'stripe' ? 'STRIPE' : 'POKPAY')
-                  ? 'Connected to this hotel'
-                  : 'Not connected - unavailable to guests'}
-              </Badge>
-            ) : null}
-          </FormField>
-        ))}
+        <CheckoutMethods
+          rows={rows}
+          defaultKey={shownDefault}
+          disabled={!canWrite}
+          onToggle={(key, enabled) => setDraft({ ...draft, [draftGatewayKey(key)]: enabled })}
+          onMove={move}
+          onDefault={setDefaultKey}
+          soon={[
+            {
+              key: 'bank_transfer',
+              label: 'Bank transfer',
+              description:
+                'Guests pay by transfer to your bank account within a set number of days.',
+            },
+          ]}
+        />
         {error ? (
           <p role="alert" className="m-0 text-sm text-destructive">
             {error}
           </p>
         ) : null}
+        {rules.paymentDefaultMethod ? (
+          <p role="alert" className="m-0 text-sm text-destructive">
+            {rules.paymentDefaultMethod}
+          </p>
+        ) : null}
+      </FormSection>
+      <FormSection
+        title="Timing"
+        description="How long a room is held while a guest pays online, and how long a payment link works."
+        status="The hold is live; the rest is saved, not applied yet"
+      >
         <FormField
           label="Unpaid online booking hold (minutes)"
           htmlFor="payment-hold"
@@ -526,13 +941,68 @@ export function PaymentSettings({
           <Input
             id="payment-hold"
             type="number"
-            min={10}
+            min={5}
             max={1440}
             value={hold}
             disabled={!canWrite}
             onChange={(e) => setHold(e.target.value)}
           />
         </FormField>
+        <FormField
+          label="Payment links stay valid (days)"
+          htmlFor="payment-link-days"
+          hint="From 1 to 14. A link you send for a balance stops working after this."
+          error={linkDaysError ?? rules.paymentLinkValidDays ?? null}
+        >
+          <Input
+            id="payment-link-days"
+            inputMode="numeric"
+            value={linkDays}
+            disabled={!canWrite}
+            onChange={(e) => setLinkDays(e.target.value)}
+          />
+        </FormField>
+        <FormField
+          label="Second reminder after (days)"
+          htmlFor="payment-second-reminder"
+          hint="Optional. The first reminder is set in Emails (day 3 unless changed). Leave empty for one reminder."
+          error={secondError ?? rules.paymentSecondReminderDays ?? null}
+        >
+          <Input
+            id="payment-second-reminder"
+            inputMode="numeric"
+            value={secondReminder}
+            disabled={!canWrite}
+            onChange={(e) => setSecondReminder(e.target.value)}
+          />
+        </FormField>
+        <FormField label="When a payment link expires unpaid" htmlFor="payment-expiry-action">
+          <Select value={expiryAction} disabled={!canWrite} onValueChange={setExpiryAction}>
+            <SelectTrigger id="payment-expiry-action">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="notify_staff">Tell the staff</SelectItem>
+              <SelectItem value="cancel_release">
+                Cancel the booking and release the room
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </FormField>
+      </FormSection>
+      <FormSection
+        title="Refunds"
+        description={
+          <>
+            What happens to a guest's online payment when a booking is cancelled. Refunds made by
+            hand are done in{' '}
+            <a className="underline" href={operationsHref}>
+              Payments
+            </a>
+            .
+          </>
+        }
+      >
         <FormField
           layout="toggle"
           label="Automatically refund free cancellations"
@@ -604,28 +1074,13 @@ export function PaymentSettings({
             </Select>
           </FormField>
         ) : null}
-        <Button variant="outline" asChild>
-          <a href={operationsHref}>Open payment operations</a>
-        </Button>
       </FormSection>
-      <PokpayConnectionPanel
-        connection={connection}
-        assigned={assigned}
-        manageHref={canWrite ? settingsAreaHref(tenantId, property.id, 'integrations') : undefined}
-      />
       {canWrite ? (
         <SaveBar
           dirty={dirty}
           saving={saving}
-          canSave={!error && !holdError}
-          onDiscard={() => {
-            setDraft(property.paymentGateways);
-            setHold(String(property.onlinePaymentHoldMinutes ?? 30));
-            setAutoRefund(property.autoRefundOnFreeCancellation ?? true);
-            setKeepFee(property.deductPaymentFeeOnGuestRefund ?? true);
-            setClockRefund(property.clockCancelRefundPolicy ?? 'NEVER');
-            setClockFolio(property.clockPaymentFolio ?? 'DEPOSIT');
-          }}
+          canSave={!error && !holdError && !linkDaysError && !secondError && !rulesBlocking}
+          onDiscard={discard}
           onSave={() =>
             onPropertySave(
               {
@@ -635,6 +1090,16 @@ export function PaymentSettings({
                 ...(clockConnected
                   ? { clockCancelRefundPolicy: clockRefund, clockPaymentFolio: clockFolio }
                   : {}),
+                ...(orderChanged ? { paymentMethodOrder: order } : {}),
+                ...(pickedDefault !== savedDefault ? { paymentDefaultMethod: pickedDefault } : {}),
+                ...(acceptedChanged ? { acceptedAtHotel: accepted } : {}),
+                ...(linkDays !== savedLinkDays ? { paymentLinkValidDays: Number(linkDays) } : {}),
+                ...(secondReminder !== savedSecond
+                  ? {
+                      paymentSecondReminderDays: secondReminder ? Number(secondReminder) : null,
+                    }
+                  : {}),
+                ...(expiryAction !== savedExpiry ? { paymentLinkExpiryAction: expiryAction } : {}),
               },
               draft,
             )
@@ -680,9 +1145,7 @@ export function WebsiteSettings({
           {property.wordpressConnectedAt ? 'WordPress paired' : 'Not connected'}
         </Badge>
         {property.wordpressConnectedAt ? (
-          <p className="m-0 text-sm">
-            Paired on {new Date(property.wordpressConnectedAt).toLocaleString()}
-          </p>
+          <p className="m-0 text-sm">Paired on {formatDateTime(property.wordpressConnectedAt)}</p>
         ) : null}
         {clockManaged ? (
           <p className="m-0 text-sm text-muted-foreground">

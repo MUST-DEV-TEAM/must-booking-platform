@@ -1,5 +1,7 @@
 'use client';
 
+import { formatNumber } from '../../../lib/hotel-format';
+
 import {
   ArrowUpRight,
   CalendarDays,
@@ -345,7 +347,7 @@ function ChartFocusTooltip({
           <div key={row.label} className="flex items-center gap-2 text-[10px]">
             <i className="size-2 shrink-0 rounded-full" style={{ backgroundColor: row.color }} />
             <span className="min-w-0 flex-1">{row.label}</span>
-            <strong className="text-[11px]">{row.value.toLocaleString('en-US')}</strong>
+            <strong className="text-[11px]">{formatNumber(row.value)}</strong>
           </div>
         ))}
       </div>
@@ -574,9 +576,7 @@ function LinePlot({
   const activeSummary = tooltipPoint
     ? tooltipPoint.period +
       ': ' +
-      tooltipPoint.rows
-        .map((row) => row.label + ' ' + row.value.toLocaleString('en-US'))
-        .join(' · ')
+      tooltipPoint.rows.map((row) => row.label + ' ' + formatNumber(row.value)).join(' · ')
     : 'Hover or focus a point to see exact values for that period.';
   return (
     <div className="min-w-0">
@@ -746,9 +746,7 @@ function BarPlot({
   const activeSummary = tooltipPoint
     ? tooltipPoint.period +
       ': ' +
-      tooltipPoint.rows
-        .map((row) => row.label + ' ' + row.value.toLocaleString('en-US'))
-        .join(' · ')
+      tooltipPoint.rows.map((row) => row.label + ' ' + formatNumber(row.value)).join(' · ')
     : 'Hover or focus a bar to see exact values for that period.';
   return (
     <div className="min-w-0">
@@ -1001,7 +999,7 @@ function Metric({
   const { dateRange } = useDemo();
   const amount = Number(value.replace(/[^0-9.]/g, ''));
   const scaledValue = Number.isFinite(amount)
-    ? '€' + Math.round(amount * rangeFactors[dateRange]).toLocaleString('en-US')
+    ? '€' + formatNumber(Math.round(amount * rangeFactors[dateRange]))
     : value;
   return (
     <div className="min-w-0 rounded-lg border bg-card p-3">

@@ -1,5 +1,7 @@
 'use client';
 
+import { formatDate } from '../../lib/hotel-format';
+
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
@@ -46,10 +48,7 @@ type Conflict = {
   roomName: string | null;
 };
 
-const longDate = (iso: string) =>
-  new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(
-    new Date(`${iso}T00:00:00`),
-  );
+const longDate = (iso: string) => formatDate(iso, 'medium');
 
 /**
  * Takes a room (or a whole room type) out of sale for some nights, with a reason. A block never

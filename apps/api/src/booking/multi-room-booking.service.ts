@@ -1,5 +1,5 @@
 import { enforcePropertyBookingLimits } from './property-booking-limits';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   BookingPaymentMethod,
   BookingStatus,
@@ -18,6 +18,8 @@ import { resolveBillingRatePlan } from './billing-rate-plan';
 import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
 import { ClockBookingService } from '../integrations/clock/clock-booking.service';
 import { BookingConfirmationNotificationService } from '../mail/booking-confirmation-notification.service';
+import { LifecycleEmailService } from '../mail/lifecycle-email.service';
+import { AuditLogService } from '../tenancy/audit-log.service';
 import { PaymentProviderRegistry } from '../payments/payment-provider-registry';
 import { QuoteService } from './quote.service';
 import { resolveBookingOccupancy, validBookingOccupancy } from './booking-occupancy';
@@ -51,6 +53,7 @@ export type MultiRoomBookingCommand = {
 export type MultiRoomOrder = {
   orderReference: string;
   checkoutUrl?: string;
+  onRequestDeadlineAt?: string;
   bookings: Array<{
     id: string;
     externalReference: string;
@@ -98,6 +101,8 @@ export class MultiRoomBookingService {
     private readonly prePaymentAvailability: PrePaymentAvailabilityRegistry,
     @Inject(BookingConfirmationNotificationService)
     private readonly confirmations: BookingConfirmationNotificationService,
+    @Optional() @Inject(LifecycleEmailService) private readonly lifecycle?: LifecycleEmailService,
+    @Optional() @Inject(AuditLogService) private readonly audit?: AuditLogService,
   ) {}
 
   async create(
@@ -131,6 +136,21 @@ export class MultiRoomBookingService {
               command.rooms,
             );
             if (!paymentMethod.ok) return paymentMethod;
+            const rules = await tx.$queryRaw<Array<{ mode: string; hours: number }>>`
+              SELECT confirmation_mode AS mode,COALESCE(on_request_hours,24) AS hours
+              FROM properties WHERE tenant_id=${context.tenantId}::uuid AND id=${context.propertyId}::uuid`;
+            const onRequest = rules[0]?.mode === 'on_request';
+            if (onRequest && (await this.isClockConnected(context)))
+              return this.failure(
+                'ON_REQUEST_PMS_UNAVAILABLE',
+                'On-request confirmation is unavailable while a PMS is connected.',
+              );
+            if (onRequest && paymentMethod.value === BookingPaymentMethod.PAY_AT_HOTEL)
+              return this.failure(
+                'ON_REQUEST_ONLINE_PAYMENT_REQUIRED',
+                'Choose an online payment method for an on-request booking.',
+              );
+            const deadline = onRequest ? new Date(Date.now() + rules[0]!.hours * 3_600_000) : null;
 
             // The plan each room is stored under (index-aligned with command.rooms): a Clock rate that Clock sells
             // in another currency is kept on the plan billed in that currency.
@@ -173,9 +193,10 @@ export class MultiRoomBookingService {
             await this.reserveAll(tx, context, command);
 
             const orderReference = command.externalReference ?? `must-order-${randomUUID()}`;
-            const status =
-              paymentMethod.value === BookingPaymentMethod.STRIPE_CHECKOUT ||
-              paymentMethod.value === BookingPaymentMethod.POKPAY
+            const status = onRequest
+              ? BookingStatus.ON_REQUEST_PENDING
+              : paymentMethod.value === BookingPaymentMethod.STRIPE_CHECKOUT ||
+                  paymentMethod.value === BookingPaymentMethod.POKPAY
                 ? BookingStatus.PAYMENT_PENDING
                 : paymentMethod.value === BookingPaymentMethod.PAY_AT_HOTEL
                   ? BookingStatus.PMS_CREATION_PENDING
@@ -192,7 +213,7 @@ export class MultiRoomBookingService {
                   external_reference, order_reference, order_room_number,
                   room_guest_first_name, room_guest_last_name, status, payment_method,
                   starts_on, ends_on, rate_plan_id, total_amount, adults, children, guest_count,
-                  nightly_rates, source
+                  nightly_rates, source, on_request_deadline_at, payment_pending_at
                 ) VALUES (
                   ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${room.roomTypeId}::uuid,
                   ${room.roomId ?? null}::uuid, ${guest.value}::uuid, ${command.quoteSessionId}::uuid,
@@ -201,11 +222,34 @@ export class MultiRoomBookingService {
                   ${status}::"BookingStatus", ${paymentMethod.value}::"BookingPaymentMethod",
                   ${command.startsOn}::date, ${command.endsOn}::date, ${billingRatePlanIds[index]}::uuid,
                   ${room.total.amount}::numeric, ${occupancy.adults}, ${occupancy.children},
-                  ${occupancy.guestCount}, ${JSON.stringify(nightlyRates)}::jsonb, 'WEBSITE'
+                  ${occupancy.guestCount}, ${JSON.stringify(nightlyRates)}::jsonb, 'WEBSITE',
+                  ${deadline}::timestamptz, ${onRequest ? null : status === BookingStatus.PAYMENT_PENDING ? new Date() : null}::timestamptz
                 )
                 RETURNING id
               `;
               bookings.push({ id: inserted[0]!.id, externalReference, status, total: room.total });
+            }
+            if (onRequest) {
+              if (this.audit)
+                for (const booking of bookings)
+                  await this.audit.recordInTransaction(tx, {
+                    tenantId: context.tenantId,
+                    propertyId: context.propertyId,
+                    actorUserId: null,
+                    action: 'booking.requested',
+                    source: 'GUEST',
+                    operationId: command.idempotencyKey,
+                    targetType: 'booking',
+                    targetId: booking.id,
+                    details: {
+                      before: { status: null },
+                      after: { status, deadline: deadline!.toISOString(), orderReference },
+                    },
+                  });
+              return {
+                ok: true,
+                value: { orderReference, bookings, onRequestDeadlineAt: deadline!.toISOString() },
+              };
             }
             if (paymentMethod.value === BookingPaymentMethod.PAY_AT_HOTEL) {
               if (await this.isClockConnected(context)) {
@@ -292,7 +336,33 @@ export class MultiRoomBookingService {
         },
         { timeoutMs: 45_000 },
       );
-      if (result.ok) await this.sendPayAtHotelConfirmations(context, result.value.orderReference);
+      if (result.ok) {
+        await this.sendPayAtHotelConfirmations(context, result.value.orderReference);
+        if (result.value.onRequestDeadlineAt && result.value.bookings[0]) {
+          const bookingId = result.value.bookings[0].id;
+          await Promise.all([
+            this.lifecycle?.guest(context, {
+              topic: 'booking_request',
+              key: 'booking_request_received',
+              eventType: 'guest.booking_request_received',
+              idempotencyKey: `booking-request/guest/${bookingId}`,
+              bookingId,
+              heading: 'Booking request received',
+              force: true,
+              values: { decision_deadline: result.value.onRequestDeadlineAt },
+            }),
+            this.lifecycle?.staff(context, {
+              topic: 'booking_request',
+              key: 'staff_booking_request',
+              eventType: 'staff.booking_request_received',
+              idempotencyKey: `booking-request/staff/${bookingId}`,
+              bookingId,
+              heading: 'Booking request needs a decision',
+              values: { decision_deadline: result.value.onRequestDeadlineAt },
+            }),
+          ]);
+        }
+      }
       return result;
     } catch (error) {
       if (error instanceof PrePaymentAvailabilityError) return error.result;

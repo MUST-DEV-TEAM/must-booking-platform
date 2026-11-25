@@ -2717,7 +2717,8 @@ describe('LocalPmsProvider', () => {
     if (!expiringBooking.ok) throw new Error('Expected expiring booking to succeed.');
     await admin.$executeRaw`
       UPDATE bookings
-      SET created_at = CURRENT_TIMESTAMP - INTERVAL '31 minutes'
+      SET created_at = CURRENT_TIMESTAMP - INTERVAL '31 minutes',
+          payment_pending_at = CURRENT_TIMESTAMP - INTERVAL '31 minutes'
       WHERE id = ${expiringBooking.value.id}::uuid
     `;
 
@@ -3058,13 +3059,15 @@ describe('LocalPmsProvider', () => {
     pokpayInitialStatus = 'COMPLETED';
     await admin.$executeRaw`
       UPDATE bookings
-      SET created_at = CURRENT_TIMESTAMP - INTERVAL '31 minutes'
+      SET created_at = CURRENT_TIMESTAMP - INTERVAL '31 minutes',
+          payment_pending_at = CURRENT_TIMESTAMP - INTERVAL '31 minutes'
       WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
         AND id = ${abandonedPokpayBooking.id}::uuid
     `;
     await admin.$executeRaw`
       UPDATE bookings
-      SET created_at = CURRENT_TIMESTAMP - INTERVAL '31 minutes'
+      SET created_at = CURRENT_TIMESTAMP - INTERVAL '31 minutes',
+          payment_pending_at = CURRENT_TIMESTAMP - INTERVAL '31 minutes'
       WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
         AND id = ${completedBeforeSweep.id}::uuid
     `;

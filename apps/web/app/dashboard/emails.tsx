@@ -1,4 +1,6 @@
 'use client';
+
+import { formatDateTime } from '../../lib/hotel-format';
 import {
   UnsavedChangesBoundary,
   useUnsavedNavigation,
@@ -10,7 +12,10 @@ import { Clock } from 'lucide-react';
 import { ActivityFeed } from '../../components/ui/activity-feed';
 import { TextComparison } from '../../components/ui/text-comparison';
 import { EmailHealthOverview } from './email-health-overview';
-import { EmailConfiguration } from './email-configuration';
+import { EmailConfiguration, SuppressionList } from './email-configuration';
+import { EmailGuestEmails } from './email-guest-emails';
+import { EmailSendingTab } from './email-sending-tab';
+import { settingsAreaHref } from './settings-hub';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, AlertDescription } from '../../components/ui/alert';
@@ -43,10 +48,10 @@ import {
 import { DateField } from '../../components/ui/date-field';
 
 const tabs = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'templates', label: 'Templates' },
-  { id: 'delivery', label: 'Delivery' },
-  { id: 'configuration', label: 'Configuration' },
+  { id: 'guest', label: 'Guest emails' },
+  { id: 'staff', label: 'Staff notifications' },
+  { id: 'sending', label: 'Sending' },
+  { id: 'delivery', label: 'Delivery log' },
 ];
 export function EmailsWorkspace(props: Parameters<typeof EmailsWorkspaceContent>[0]) {
   return (
@@ -63,7 +68,7 @@ function EmailsWorkspaceContent({
   tenantId,
   propertyId,
   canWrite = false,
-  initialTab = 'overview',
+  initialTab = 'delivery',
 }: {
   viewerId?: string;
   tenantId: string;
@@ -73,7 +78,6 @@ function EmailsWorkspaceContent({
 }) {
   const { request: navigate } = useUnsavedNavigation();
   const [tab, setTab] = useState(initialTab);
-  const [template, setTemplate] = useState<EmailTemplate | null>(null);
   const [messageId, setMessageId] = useState<string | null>(null);
   useEffect(() => {
     const value = new URLSearchParams(window.location.search).get('emailMessageId');
@@ -88,6 +92,7 @@ function EmailsWorkspaceContent({
   const [deliveryPage, setDeliveryPage] = useState(1),
     [deliverySize, setDeliverySize] = useState(25),
     [deliveryFilter, setDeliveryFilter] = useState('all'),
+    [blocked, setBlocked] = useState(false),
     [deliveryTopic, setDeliveryTopic] = useState(''),
     [deliveryHours, setDeliveryHours] = useState<number | undefined>(),
     [deliveryStatus, setDeliveryStatus] = useState(''),
@@ -138,11 +143,21 @@ function EmailsWorkspaceContent({
     queryFn: () => emailRequest<EmailOverview>(`${base}/email-activity/overview`),
   });
   const error = templates.error ?? overview.error ?? (tab === 'delivery' ? null : deliveries.error);
+  /** The editor for one email's wording, shared by Guest emails and Staff notifications. */
+  const renderWording = (template: EmailTemplate, onClose: () => void) => (
+    <TemplateEditor
+      key={`${base}/${template.key}`}
+      base={base}
+      template={template}
+      canWrite={canWrite}
+      onClose={onClose}
+    />
+  );
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Emails"
-        description="Transactional messages, approved wording and delivery evidence. Booking and payment triggers stay protected."
+        description="Every email your hotel sends: what guests and staff receive, how it is sent, and what happened to each message."
       />
       {!canWrite ? (
         <Alert>
@@ -158,7 +173,6 @@ function EmailsWorkspaceContent({
         onSelect={(id) => {
           navigate(() => {
             setTab(id);
-            setTemplate(null);
           });
         }}
       />
@@ -183,76 +197,21 @@ function EmailsWorkspaceContent({
         <ListSkeleton />
       ) : (
         <>
-          {tab === 'overview' ? (
+          {tab === 'delivery' ? (
             <>
               <EmailHealthOverview
                 data={overview.data}
                 onDelivery={(filter, topic, hours) => {
+                  setBlocked(false);
                   setDeliveryFilter(filter);
                   setDeliveryTopic(topic ?? '');
                   setDeliveryHours(hours);
                   setDeliveryPage(1);
-                  setTab('delivery');
                 }}
-                onConfiguration={() => setTab('configuration')}
+                onBlocked={() => setBlocked(true)}
+                onSending={() => setTab('sending')}
                 onMessage={setMessageId}
               />
-              <PageHeader
-                title="Recent deliveries"
-                description="Most recent loaded messages. Use Delivery to page through the complete log."
-              />
-              <DeliveryDirectory
-                items={deliveries.data?.items ?? []}
-                onRow={(row) => setMessageId(row.id)}
-              />
-            </>
-          ) : null}
-          {tab === 'templates' ? (
-            template ? (
-              <TemplateEditor
-                key={`${base}/${template.key}`}
-                base={base}
-                template={template}
-                canWrite={canWrite}
-                onClose={() => setTemplate(null)}
-              />
-            ) : (
-              <RecordDirectory
-                storageKey="must.email-templates.table"
-                rows={templates.data.map((row) => ({ ...row, id: row.key }))}
-                columns={[
-                  { id: 'label', label: 'Template', value: (row) => row.label },
-                  { id: 'key', label: 'Trigger key', value: (row) => row.key },
-                  { id: 'audience', label: 'Audience', value: (row) => row.audience ?? 'Guest' },
-                  {
-                    id: 'draft',
-                    label: 'State',
-                    value: (row) =>
-                      row.triggerAvailable === false
-                        ? 'Wording only'
-                        : row.enabled === false
-                          ? 'Disabled'
-                          : row.hasDraft
-                            ? 'Draft + live'
-                            : 'Live',
-                  },
-                  {
-                    id: 'locales',
-                    label: 'Published locales',
-                    value: (row) => (row.locales ?? ['en']).join(' / ').toUpperCase(),
-                  },
-                  {
-                    id: 'wording',
-                    label: 'Live wording',
-                    value: (row) => (row.custom ? 'Hotel override' : 'Built-in English'),
-                  },
-                ]}
-                onRow={setTemplate}
-              />
-            )
-          ) : null}
-          {tab === 'delivery' ? (
-            <>
               <TabBar
                 label="Delivery filter"
                 tabs={[
@@ -261,178 +220,215 @@ function EmailsWorkspaceContent({
                   { id: 'queued', label: 'Queued' },
                   { id: 'bounced', label: 'Bounced' },
                   { id: 'complained', label: 'Complained' },
+                  {
+                    id: 'blocked',
+                    label: `Blocked addresses (${overview.data.suppressedAddresses})`,
+                  },
                 ]}
-                current={deliveryFilter}
+                current={blocked ? 'blocked' : deliveryFilter}
                 onSelect={(value) => {
+                  if (value === 'blocked') {
+                    setBlocked(true);
+                    return;
+                  }
+                  setBlocked(false);
                   setDeliveryFilter(value);
                   setDeliveryPage(1);
                 }}
               />
-              <FilterGrid>
-                <FormField label="Status">
-                  <Combobox
-                    label="Delivery status"
-                    value={deliveryStatus}
-                    options={[
-                      { value: '', label: 'All statuses' },
-                      ...[
-                        'QUEUED',
-                        'SENT',
-                        'FAILED',
-                        'DELIVERED',
-                        'BOUNCED',
-                        'COMPLAINED',
-                        'SUPPRESSED',
-                      ].map((value) => ({
-                        value,
-                        label: value.charAt(0) + value.slice(1).toLowerCase(),
-                      })),
-                    ]}
-                    onChange={(value) => updateDelivery(() => setDeliveryStatus(value))}
-                  />
-                </FormField>
-                <FormField label="Topic">
-                  <Combobox
-                    label="Delivery topic"
-                    value={deliveryTopic}
-                    options={[
-                      { value: '', label: 'All topics' },
-                      ...(deliveries.data?.topics ?? []),
-                      ...(deliveryTopic &&
-                      !deliveries.data?.topics?.some((t) => t.value === deliveryTopic)
-                        ? [{ value: deliveryTopic, label: deliveryTopic }]
-                        : []),
-                    ]}
-                    onChange={(value) => updateDelivery(() => setDeliveryTopic(value))}
-                  />
-                </FormField>
-                <FormField label="Recipient">
-                  <Input
-                    aria-label="Delivery recipient"
-                    value={deliveryRecipient}
-                    placeholder="Email address"
-                    onChange={(e) => updateDelivery(() => setDeliveryRecipient(e.target.value))}
-                  />
-                </FormField>
-                <FormField label="From date">
-                  <DateField
-                    aria-label="Delivery from date"
+              {blocked ? (
+                <SuppressionList base={base} canWrite={canWrite} />
+              ) : (
+                <>
+                  <FilterGrid>
+                    <FormField label="Status">
+                      <Combobox
+                        label="Delivery status"
+                        value={deliveryStatus}
+                        options={[
+                          { value: '', label: 'All statuses' },
+                          ...[
+                            'QUEUED',
+                            'SENT',
+                            'FAILED',
+                            'DELIVERED',
+                            'BOUNCED',
+                            'COMPLAINED',
+                            'SUPPRESSED',
+                          ].map((value) => ({
+                            value,
+                            label: value.charAt(0) + value.slice(1).toLowerCase(),
+                          })),
+                        ]}
+                        onChange={(value) => updateDelivery(() => setDeliveryStatus(value))}
+                      />
+                    </FormField>
+                    <FormField label="Topic">
+                      <Combobox
+                        label="Delivery topic"
+                        value={deliveryTopic}
+                        options={[
+                          { value: '', label: 'All topics' },
+                          ...(deliveries.data?.topics ?? []),
+                          ...(deliveryTopic &&
+                          !deliveries.data?.topics?.some((t) => t.value === deliveryTopic)
+                            ? [{ value: deliveryTopic, label: deliveryTopic }]
+                            : []),
+                        ]}
+                        onChange={(value) => updateDelivery(() => setDeliveryTopic(value))}
+                      />
+                    </FormField>
+                    <FormField label="Recipient">
+                      <Input
+                        aria-label="Delivery recipient"
+                        value={deliveryRecipient}
+                        placeholder="Email address"
+                        onChange={(e) => updateDelivery(() => setDeliveryRecipient(e.target.value))}
+                      />
+                    </FormField>
+                    <FormField label="From date">
+                      <DateField
+                        aria-label="Delivery from date"
 
-                    value={deliveryFrom}
-                    onChange={(date) =>
-                      updateDelivery(() => {
-                        setDeliveryFrom(date);
-                        setDeliveryHours(undefined);
-                      })
-                    }
-                  />
-                </FormField>
-                <FormField label="Through date">
-                  <DateField
-                    aria-label="Delivery through date"
+                        value={deliveryFrom}
+                        onChange={(date) =>
+                          updateDelivery(() => {
+                            setDeliveryFrom(date);
+                            setDeliveryHours(undefined);
+                          })
+                        }
+                      />
+                    </FormField>
+                    <FormField label="Through date">
+                      <DateField
+                        aria-label="Delivery through date"
 
-                    value={deliveryTo}
-                    onChange={(date) =>
-                      updateDelivery(() => {
-                        setDeliveryTo(date);
-                        setDeliveryHours(undefined);
-                      })
-                    }
-                  />
-                </FormField>
-                <FormField label="Time window">
-                  <Combobox
-                    label="Delivery time window"
-                    value={String(deliveryHours ?? '')}
-                    options={[
-                      { value: '', label: 'All recorded time' },
-                      { value: '24', label: 'Last 24 hours' },
-                      { value: '168', label: 'Last 7 days' },
+                        value={deliveryTo}
+                        onChange={(date) =>
+                          updateDelivery(() => {
+                            setDeliveryTo(date);
+                            setDeliveryHours(undefined);
+                          })
+                        }
+                      />
+                    </FormField>
+                    <FormField label="Time window">
+                      <Combobox
+                        label="Delivery time window"
+                        value={String(deliveryHours ?? '')}
+                        options={[
+                          { value: '', label: 'All recorded time' },
+                          { value: '24', label: 'Last 24 hours' },
+                          { value: '168', label: 'Last 7 days' },
+                        ]}
+                        onChange={(value) =>
+                          updateDelivery(() => {
+                            setDeliveryHours(value ? Number(value) : undefined);
+                            setDeliveryFrom('');
+                            setDeliveryTo('');
+                          })
+                        }
+                      />
+                    </FormField>
+                  </FilterGrid>
+                  <DetailList
+                    items={[
+                      { label: 'Hotel', value: 'Selected hotel in the header' },
+                      {
+                        label: 'Date time zone',
+                        value: deliveries.data?.timezone ?? 'Property-local dates',
+                      },
                     ]}
-                    onChange={(value) =>
+                  />
+                  <Button
+                    variant="outline"
+                    className="self-start"
+                    onClick={() =>
                       updateDelivery(() => {
-                        setDeliveryHours(value ? Number(value) : undefined);
+                        setDeliveryFilter('all');
+                        setDeliveryTopic('');
+                        setDeliveryStatus('');
+                        setDeliveryRecipient('');
+                        setDeliverySearch('');
+                        setDeliveryHours(undefined);
                         setDeliveryFrom('');
                         setDeliveryTo('');
                       })
                     }
-                  />
-                </FormField>
-              </FilterGrid>
-              <DetailList
-                items={[
-                  { label: 'Hotel', value: 'Selected hotel in the header' },
-                  {
-                    label: 'Date time zone',
-                    value: deliveries.data?.timezone ?? 'Property-local dates',
-                  },
-                ]}
-              />
-              <Button
-                variant="outline"
-                className="self-start"
-                onClick={() =>
-                  updateDelivery(() => {
-                    setDeliveryFilter('all');
-                    setDeliveryTopic('');
-                    setDeliveryStatus('');
-                    setDeliveryRecipient('');
-                    setDeliverySearch('');
-                    setDeliveryHours(undefined);
-                    setDeliveryFrom('');
-                    setDeliveryTo('');
-                  })
-                }
-              >
-                Clear delivery filters
-              </Button>
-              {deliveries.error ? (
-                <ErrorPanel
-                  title={
-                    deliveries.error instanceof EmailRequestError && deliveries.error.status === 403
-                      ? 'Email access unavailable'
-                      : 'Delivery unavailable'
-                  }
-                  description={deliveries.error.message}
-                  reference={
-                    deliveries.error instanceof EmailRequestError
-                      ? (deliveries.error.reference ?? undefined)
-                      : undefined
-                  }
-                  onRetry={() => void deliveries.refetch()}
-                />
-              ) : (
-                <DeliveryDirectory
-                  server={server}
-                  exportScope={
-                    deliveries.data?.observedAt && deliveries.data.exportVersion !== undefined
-                      ? {
-                          filters: Object.fromEntries(deliveryParams),
-                          through: deliveries.data.observedAt,
-                          version: deliveries.data.exportVersion,
-                        }
-                      : undefined
-                  }
-                  base={base}
-                  canWrite={canWrite}
-                  items={deliveries.data?.items ?? []}
-                  onRow={(row) => setMessageId(row.id)}
-                  pagination={{
-                    page: deliveryPage,
-                    pageSize: deliverySize,
-                    total: deliveries.data?.total ?? 0,
-                    onPage: setDeliveryPage,
-                    onPageSize: (size) => {
-                      setDeliverySize(size);
-                      setDeliveryPage(1);
-                    },
-                  }}
-                />
+                  >
+                    Clear delivery filters
+                  </Button>
+                  {deliveries.error ? (
+                    <ErrorPanel
+                      title={
+                        deliveries.error instanceof EmailRequestError &&
+                        deliveries.error.status === 403
+                          ? 'Email access unavailable'
+                          : 'Delivery unavailable'
+                      }
+                      description={deliveries.error.message}
+                      reference={
+                        deliveries.error instanceof EmailRequestError
+                          ? (deliveries.error.reference ?? undefined)
+                          : undefined
+                      }
+                      onRetry={() => void deliveries.refetch()}
+                    />
+                  ) : (
+                    <DeliveryDirectory
+                      server={server}
+                      exportScope={
+                        deliveries.data?.observedAt && deliveries.data.exportVersion !== undefined
+                          ? {
+                              filters: Object.fromEntries(deliveryParams),
+                              through: deliveries.data.observedAt,
+                              version: deliveries.data.exportVersion,
+                            }
+                          : undefined
+                      }
+                      base={base}
+                      canWrite={canWrite}
+                      items={deliveries.data?.items ?? []}
+                      onRow={(row) => setMessageId(row.id)}
+                      pagination={{
+                        page: deliveryPage,
+                        pageSize: deliverySize,
+                        total: deliveries.data?.total ?? 0,
+                        onPage: setDeliveryPage,
+                        onPageSize: (size) => {
+                          setDeliverySize(size);
+                          setDeliveryPage(1);
+                        },
+                      }}
+                    />
+                  )}
+                </>
               )}
             </>
           ) : null}
-          {tab === 'configuration' ? (
-            <EmailConfiguration tenantId={tenantId} base={base} canWrite={canWrite} />
+          {tab === 'sending' ? (
+            <EmailSendingTab
+              base={base}
+              canWrite={canWrite}
+              integrationsHref={settingsAreaHref(tenantId, propertyId, 'integrations')}
+            />
+          ) : null}
+          {tab === 'guest' ? (
+            <EmailGuestEmails
+              base={base}
+              canWrite={canWrite}
+              templates={templates.data}
+              renderEditor={renderWording}
+            />
+          ) : null}
+          {tab === 'staff' ? (
+            <EmailConfiguration
+              tenantId={tenantId}
+              base={base}
+              canWrite={canWrite}
+              templates={templates.data}
+              renderEditor={renderWording}
+            />
           ) : null}
         </>
       )}
@@ -444,9 +440,12 @@ function EmailsWorkspaceContent({
           onClose={() => setMessageId(null)}
           canWrite={canWrite}
           onMessage={setMessageId}
-          onConfiguration={() => {
+          onConfiguration={(area) => {
             setMessageId(null);
-            setTab('configuration');
+            if (area === 'blocked') {
+              setTab('delivery');
+              setBlocked(true);
+            } else setTab('sending');
           }}
         />
       ) : null}
@@ -576,7 +575,7 @@ function DeliveryDirectory({
             id: 'created',
             label: 'Created',
             value: (row) => row.createdAt,
-            render: (row) => new Date(row.createdAt).toLocaleString(),
+            render: (row) => formatDateTime(row.createdAt),
           },
           { id: 'booking', label: 'Booking', value: (row) => row.bookingReference ?? 'Not linked' },
         ]}
@@ -591,7 +590,7 @@ function DeliveryDirectory({
         description="Uses the original recipients and approved wording. Every selected message must still be eligible; otherwise none are changed. Maximum 50."
         reasonRequired
         reasonLabel="Reason for bulk retry"
-        reasonPlaceholder="Recorded with this email action"
+        reasonPlaceholder="Saved in the history of this change"
         confirmLabel="Retry selected"
         onConfirm={async (reason) => {
           await writer(`${base}/email-activity/bulk-retry`, {
@@ -612,7 +611,7 @@ function DeliveryDirectory({
         confirmLabel="Export CSV"
         reasonRequired
         reasonLabel="Reason for export"
-        reasonPlaceholder="Recorded with this email action"
+        reasonPlaceholder="Saved in the history of this change"
         onConfirm={async (reason) => {
           if (!exportIntent) return;
           const file = await writer<{
@@ -974,7 +973,7 @@ function TemplateDraft({
                   disabled={!canWrite || busy || !subject || !body}
                   onClick={() => setTest(true)}
                 >
-                  Send controlled test
+                  Send a test email
                 </Button>
               }
             </div>
@@ -1022,7 +1021,7 @@ function TemplateDraft({
                 {
                   id: 'created',
                   label: 'Saved',
-                  value: (row) => new Date(row.createdAt).toLocaleString(),
+                  value: (row) => formatDateTime(row.createdAt),
                 },
               ]}
               storageKey="must.email-versions.table"
@@ -1063,11 +1062,11 @@ function TemplateDraft({
       <ConfirmDialog
         open={test}
         onOpenChange={setTest}
-        title="Send controlled test email"
-        description="Only your verified account email is allowed. Example data is used; guests cannot be selected. Maximum five tests per hotel per hour."
+        title="Send a test email"
+        description="The test goes only to your own account email and uses example data, never a real guest. You can send up to five tests per hour."
         reasonLabel="Reason for test"
         reasonRequired
-        reasonPlaceholder="Recorded with this email action"
+        reasonPlaceholder="Saved in the history of this change"
         confirmLabel="Send test to my address"
         onConfirm={async (reason) => {
           const result = await writer<{ sentTo: string }>(
@@ -1102,7 +1101,7 @@ function EmailDeliveryDetail({
   onClose: () => void;
   canWrite: boolean;
   onMessage: (id: string) => void;
-  onConfiguration: () => void;
+  onConfiguration: (area: 'sending' | 'blocked') => void;
 }) {
   const query = useQuery({
     queryKey: ['emails', base, 'detail', id],
@@ -1121,7 +1120,7 @@ function EmailDeliveryDetail({
       open
       onClose={onClose}
       title="Email delivery"
-      description="Recorded message evidence and recovery."
+      description="What happened to this message, and what you can do about it."
     >
       {query.error ? (
         <ErrorPanel
@@ -1150,7 +1149,7 @@ function EmailDeliveryDetail({
               { label: 'Subject', value: query.data.subject },
               { label: 'Booking reference', value: query.data.bookingReference ?? 'Not linked' },
               { label: 'Attempts', value: query.data.attemptCount },
-              { label: 'Created', value: new Date(query.data.createdAt).toLocaleString() },
+              { label: 'Created', value: formatDateTime(query.data.createdAt) },
               { label: 'Sent', value: query.data.sentAt ?? 'Not recorded' },
               { label: 'Delivered', value: query.data.deliveredAt ?? 'Not recorded' },
               { label: 'Failure', value: query.data.lastError },
@@ -1187,7 +1186,10 @@ function EmailDeliveryDetail({
           <DetailList
             items={[
               { label: 'Provider', value: query.data.provider ?? 'Not recorded' },
-              { label: 'Provider receipt', value: query.data.providerMessageId ?? 'Not recorded' },
+              {
+                label: 'Provider reference',
+                value: query.data.providerMessageId ?? 'Not recorded',
+              },
             ]}
           />
           {query.data.bookingHref ? (
@@ -1197,7 +1199,7 @@ function EmailDeliveryDetail({
           ) : null}
           <Card>
             <CardHeader>
-              <CardTitle>Observed delivery timeline</CardTitle>
+              <CardTitle>What happened to this message</CardTitle>
             </CardHeader>
             <CardContent>
               {!query.data.timelineHasCreation ? (
@@ -1254,10 +1256,19 @@ function EmailDeliveryDetail({
             </Alert>
           ) : null}
           {query.data.retryUnavailableReason ? (
-            <Button variant="outline" onClick={onConfiguration}>
+            <Button
+              variant="outline"
+              onClick={() =>
+                onConfiguration(
+                  query.data.transportBlocked || query.data.eventType === 'sender.test'
+                    ? 'sending'
+                    : 'blocked',
+                )
+              }
+            >
               {query.data.transportBlocked || query.data.eventType === 'sender.test'
                 ? 'Review sender setup'
-                : 'Review suppression'}
+                : 'See blocked addresses'}
             </Button>
           ) : null}
           {query.data.canSendCopy === true ? (
@@ -1299,7 +1310,7 @@ function EmailDeliveryDetail({
             confirmLabel="Send copy"
             reasonRequired
             reasonLabel="Reason for another copy"
-            reasonPlaceholder="Recorded with this email action"
+            reasonPlaceholder="Saved in the history of this change"
             onConfirm={async (reason) => {
               if (copyVersion === undefined) throw new Error('Reload the source delivery first.');
               const result = await writer<{ messageId: string }>(
@@ -1316,11 +1327,11 @@ function EmailDeliveryDetail({
                 items={[
                   {
                     label: 'Preview captured',
-                    value: new Date(query.data.renderedPreview.capturedAt).toLocaleString(),
+                    value: formatDateTime(query.data.renderedPreview.capturedAt),
                   },
                   {
                     label: 'Preview expires',
-                    value: new Date(query.data.renderedPreview.expiresAt).toLocaleString(),
+                    value: formatDateTime(query.data.renderedPreview.expiresAt),
                   },
                 ]}
               />
@@ -1382,7 +1393,7 @@ function EmailDeliveryDetail({
             confirmLabel="Retry"
             reasonLabel="Reason for retry"
             reasonRequired
-            reasonPlaceholder="Recorded with this email action"
+            reasonPlaceholder="Saved in the history of this change"
             onConfirm={async (reason) => {
               if (retryVersion === undefined) throw new Error('Reload the source delivery first.');
               await writer(`${base}/email-activity/${id}/retry`, {

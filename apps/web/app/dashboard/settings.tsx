@@ -3,11 +3,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { type ReactNode, useState } from 'react';
 import { BrandingSettings, PaymentSettings, WebsiteSettings } from './settings-connection-forms';
-import { Button } from '../../components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
+import { PlanUsageSettings, type PlanUsageData } from './plan-usage-settings';
 import { ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
 import { UnsavedChangesBoundary } from '../../components/ui/unsaved-changes';
-import { DisplayCurrenciesSettings } from './display-currencies-settings';
 import { IntegrationSettings } from './integration-settings';
 import { toast } from 'sonner';
 import { CheckInOutSettings, BookingRulesSettings, GeneralSettings } from './settings-forms';
@@ -25,8 +23,6 @@ type Connection = {
   status: 'PENDING' | 'CONNECTED' | 'FAILED';
 };
 type PropertyConnection = { connectionId: string; enabled: boolean };
-
-type PlanUsage = { plan: { name: string } };
 
 function dashboardSectionHref(tenantId: string, propertyId: string, section: string) {
   return `/dashboard/${tenantId}?propertyId=${encodeURIComponent(propertyId)}&section=${section}`;
@@ -80,16 +76,16 @@ export function DashboardSettings({
       const properties = (await propertiesResponse.json()) as Property[];
       const property = properties.find((item) => item.id === propertyId);
       if (!property) throw new Error('Property settings were not found.');
+      const planUsage = planResponse.ok ? ((await planResponse.json()) as PlanUsageData) : null;
       return {
         property,
-        planName: planResponse.ok ? ((await planResponse.json()) as PlanUsage).plan.name : null,
+        planUsage,
         connections: (await connectionsResponse.json()) as Connection[],
         propertyConnections: (await propertyConnectionsResponse.json()) as PropertyConnection[],
       };
     },
   });
   const property = settingsQuery.data?.property ?? null;
-  const planName = settingsQuery.data?.planName ?? null;
   const connectedPaymentProviders = new Set(
     (settingsQuery.data?.connections ?? [])
       .filter(
@@ -130,7 +126,7 @@ export function DashboardSettings({
       return (await response.json()) as Property;
     },
     onSuccess: (updated) => {
-      queryClient.setQueryData<{ property: Property; planName: string | null }>(
+      queryClient.setQueryData<{ property: Property }>(
         ['dashboard', 'settings', tenantId, propertyId],
         (current) =>
           current ? { ...current, property: { ...current.property, ...updated } } : current,
@@ -159,7 +155,7 @@ export function DashboardSettings({
       return (await response.json()) as Property;
     },
     onSuccess: (updated) => {
-      queryClient.setQueryData<{ property: Property; planName: string | null }>(
+      queryClient.setQueryData<{ property: Property }>(
         ['dashboard', 'settings', tenantId, propertyId],
         (current) =>
           current ? { ...current, property: { ...current.property, ...updated } } : current,
@@ -220,12 +216,7 @@ export function DashboardSettings({
             property={property}
             saving={saveMutation.isPending}
             onSave={(update) => void save(update)}
-          />
-          <DisplayCurrenciesSettings
             tenantId={tenantId}
-            propertyId={propertyId}
-            canWrite={canWrite}
-            refreshKey={property.defaultCurrency}
           />
         </SettingsAreaPanel>
         <SettingsAreaPanel activeArea={settingsArea} area="booking-rules">
@@ -234,6 +225,7 @@ export function DashboardSettings({
             property={property}
             saving={saveMutation.isPending}
             onSave={(update) => void save(update)}
+            tenantId={tenantId}
           />
         </SettingsAreaPanel>
         <SettingsAreaPanel activeArea={settingsArea} area="policies">
@@ -255,7 +247,28 @@ export function DashboardSettings({
           />
         </SettingsAreaPanel>
         <SettingsAreaPanel activeArea={settingsArea} area="integrations">
-          <IntegrationSettings tenantId={tenantId} propertyId={propertyId} canWrite={canWrite} />
+          <IntegrationSettings
+            tenantId={tenantId}
+            propertyId={propertyId}
+            canWrite={canWrite}
+            website={{
+              origin: property.publicWebsiteOrigin ?? null,
+              pairedAt: property.wordpressConnectedAt ?? null,
+              form: (
+                <WebsiteSettings
+                  property={property}
+                  canWrite={canWrite}
+                  saving={publicWebsiteOriginMutation.isPending}
+                  clockManaged={clockManaged}
+                  onSave={(origin) => publicWebsiteOriginMutation.mutate(origin)}
+                  pairingCode={pairingCode}
+                  pairing={wordpressPairingMutation.isPending}
+                  onPair={() => wordpressPairingMutation.mutate()}
+                  onCopy={() => void copyPairingCode()}
+                />
+              ),
+            }}
+          />
         </SettingsAreaPanel>
         <SettingsAreaPanel activeArea={settingsArea} area="payment-methods">
           <PaymentSettings
@@ -275,49 +288,15 @@ export function DashboardSettings({
                   (a) => a.connectionId === c.id && a.enabled,
                 ),
             )}
-            assigned={settingsQuery.data?.propertyConnections.some(
-              (a) =>
-                a.enabled &&
-                a.connectionId ===
-                  settingsQuery.data?.connections.find(
-                    (c) =>
-                      c.provider === 'POKPAY' &&
-                      settingsQuery.data?.propertyConnections.some(
-                        (a) => a.connectionId === c.id && a.enabled,
-                      ),
-                  )?.id,
-            )}
             operationsHref={dashboardSectionHref(tenantId, propertyId, 'payments')}
-          />
-        </SettingsAreaPanel>
-        <SettingsAreaPanel activeArea={settingsArea} area="integrations">
-          <WebsiteSettings
-            property={property}
-            canWrite={canWrite}
-            saving={publicWebsiteOriginMutation.isPending}
-            clockManaged={clockManaged}
-            onSave={(origin) => publicWebsiteOriginMutation.mutate(origin)}
-            pairingCode={pairingCode}
-            pairing={wordpressPairingMutation.isPending}
-            onPair={() => wordpressPairingMutation.mutate()}
-            onCopy={() => void copyPairingCode()}
           />
         </SettingsAreaPanel>
 
         <SettingsAreaPanel activeArea={settingsArea} area="plan-usage">
-          <Card>
-            <CardHeader>
-              <CardTitle>Billing account</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col items-start gap-3">
-              <p className="m-0 text-sm text-muted-foreground">
-                Current plan: {planName ?? 'Loading…'}
-              </p>
-              <Button variant="outline" disabled title="Platform billing is not available yet">
-                Platform billing is not available yet
-              </Button>
-            </CardContent>
-          </Card>
+          <PlanUsageSettings
+            data={settingsQuery.data?.planUsage ?? null}
+            hotel={{ rooms: property.roomCount, staff: property.staffCount }}
+          />
         </SettingsAreaPanel>
       </div>
     </UnsavedChangesBoundary>

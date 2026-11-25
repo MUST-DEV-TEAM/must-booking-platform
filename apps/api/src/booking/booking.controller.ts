@@ -17,6 +17,7 @@ import {
   Post,
   Query,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import type { GuestPaymentMethod } from '@must/domain-contracts';
@@ -36,6 +37,10 @@ import { parseBookingSearchQuery } from './booking-search';
 import { CancellationLinkService } from './cancellation-link.service';
 import { PmsProviderRegistry } from './pms-provider-registry';
 import { MultiRoomBookingService } from './multi-room-booking.service';
+import { ARRIVAL_TIME_RE } from './guest-form-rules';
+import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator';
+import { PaymentCollectionService } from '../payments/payment-collection.service';
+import { TenantDatabaseService } from '../tenancy/tenant-database.service';
 
 type GuestBookingRequest = {
   tenantContext: { tenantId: string; propertyId: string };
@@ -53,6 +58,8 @@ export class BookingController {
     @Inject(BookingProjectionService) private readonly projections: BookingProjectionService,
     @Inject(CancellationLinkService) private readonly cancellations: CancellationLinkService,
     @Inject(MultiRoomBookingService) private readonly multiRoomBookings: MultiRoomBookingService,
+    @Inject(PaymentCollectionService) private readonly collections: PaymentCollectionService,
+    @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
   ) {}
 
   @Get()
@@ -144,6 +151,94 @@ export class BookingController {
     );
     if (!booking) throw new NotFoundException('Booking was not found.');
     return booking;
+  }
+
+  @Post(':bookingId/request-decision')
+  @HttpCode(200)
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('bookings.edit')
+  @RequiresVerifiedEmail()
+  async decideRequest(
+    @Param('bookingId') bookingId: string,
+    @Body() body: unknown,
+    @Req() request: { tenantContext: { tenantId: string; propertyId: string; userId: string } },
+  ) {
+    const input = (body ?? {}) as Record<string, unknown>;
+    if (input.decision !== 'accept' && input.decision !== 'decline')
+      throw new BadRequestException('Choose accept or decline.');
+    if (!Number.isInteger(input.expectedVersion) || (input.expectedVersion as number) < 1)
+      throw new BadRequestException('The current booking version is required.');
+    return throwIfBookingRefused(
+      await this.provider.decideOnRequest(
+        request.tenantContext,
+        bookingId,
+        request.tenantContext.userId,
+        input.expectedVersion as number,
+        input.decision,
+      ),
+    );
+  }
+
+  @Post(':bookingId/request-cancel')
+  @HttpCode(200)
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('bookings.cancel')
+  @RequiresVerifiedEmail()
+  async cancelWaitingRequest(
+    @Param('bookingId') bookingId: string,
+    @Body() body: unknown,
+    @Headers('idempotency-key') key: string | undefined,
+    @Req() request: { tenantContext: { tenantId: string; propertyId: string; userId: string } },
+  ) {
+    const input = (body ?? {}) as Record<string, unknown>;
+    if (!Number.isInteger(input.expectedVersion) || (input.expectedVersion as number) < 1)
+      throw new BadRequestException('The current booking version is required.');
+    return throwIfBookingRefused(
+      await this.provider.cancelBooking(request.tenantContext, {
+        bookingId,
+        idempotencyKey: this.idempotencyKey(key),
+        expectedVersion: input.expectedVersion as number,
+        staffActorId: request.tenantContext.userId,
+        onlyPendingRequest: true,
+        reason: null,
+      }),
+    );
+  }
+
+  @Get(':bookingId/request-payment')
+  @PublicTenantScoped({ propertyParam: 'propertyId' })
+  @UseGuards(PublicRateLimitGuard)
+  @PublicRateLimit({ name: 'request-payment', maximum: 10, windowSeconds: 60 })
+  async requestPayment(
+    @Param('bookingId') bookingId: string,
+    @Query('token') token: string | undefined,
+    @Req() request: GuestBookingRequest,
+    @Res()
+    response: {
+      status(code: number): { type(value: string): { send(value: string): void } };
+      setHeader(name: string, value: string): void;
+      redirect(code: number, url: string): void;
+    },
+  ) {
+    const context = request.tenantContext;
+    const result = await this.collections.openRequestLink(context, bookingId, token ?? '');
+    if (result.expired) {
+      await this.database.withTenantTransaction(context, (tx) =>
+        this.provider.expirePaymentPending(
+          tx,
+          context,
+          bookingId,
+          new Date(Date.now() - 30 * 60000),
+        ),
+      );
+      response.status(410).type('text/plain').send('This payment link has expired.');
+      return;
+    }
+    response.setHeader('Referrer-Policy', 'no-referrer');
+    response.setHeader('Cache-Control', 'no-store');
+    response.redirect(303, result.url!);
   }
 
   @Post()
@@ -285,6 +380,10 @@ export class BookingController {
         postcode: this.optionalNullableString(guest.postcode),
         countryCode: this.country(guest.countryCode),
         specialRequests: this.optionalSpecialRequests(guest.specialRequests),
+        arrivalTime: this.optionalArrivalTime(guest.arrivalTime),
+        companyName: this.optionalOneLine(guest.companyName, 160, 'Company name'),
+        taxNumber: this.optionalOneLine(guest.taxNumber, 40, 'Tax number'),
+        marketingConsent: guest.marketingConsent === true,
       },
       total: this.money(value.total) ?? { amount: '', currency: '' },
       adults: typeof value.adults === 'number' ? value.adults : undefined,
@@ -372,6 +471,23 @@ export class BookingController {
       throw new BadRequestException('Special requests must be 2,000 characters or fewer.');
     const specialRequests = value.trim();
     return specialRequests || null;
+  }
+
+  private optionalArrivalTime(value: unknown): string | null | undefined {
+    if (value === null || value === '') return null;
+    if (typeof value !== 'string') return undefined;
+    if (!ARRIVAL_TIME_RE.test(value.trim()))
+      throw new BadRequestException('Arrival time must be a time such as 15:30.');
+    return value.trim();
+  }
+
+  private optionalOneLine(value: unknown, max: number, label: string): string | null | undefined {
+    if (value === null) return null;
+    if (typeof value !== 'string') return undefined;
+    const text = value.replace(/[\r\n]+/g, ' ').trim();
+    if (text.length > max)
+      throw new BadRequestException(`${label} must be ${max} characters or fewer.`);
+    return text || null;
   }
 
   private money(value: unknown): { amount: string; currency: string } | undefined {

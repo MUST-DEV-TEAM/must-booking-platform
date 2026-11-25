@@ -1,5 +1,7 @@
 # Public guest API (for non-WordPress websites)
 
+> **2026-11-20:** our hotel websites are Astro sites (Empire Beach Resort moved to Astro and answers on `empirebeachresort.al`). The WordPress plugin in this repository is legacy and is not updated for new settings. New hotel settings reach websites through this API only.
+
 Status: **IMPLEMENTED**. Written 2026-11-02 from the code and from live read-only calls against Empire Beach Resort. Audience: whoever builds a custom hotel website (for example Astro) that reads a hotel's data and takes bookings without the WordPress plugin. Milestone 26 ([API keys](../roadmap/milestones/26-public-api.md)) is not built; today these routes are open.
 
 Working reference client: [MustApiClient.php](../../apps/wordpress-plugin/src/Core/MustApiClient.php) plus the checkout and confirmation pages in [apps/wordpress-plugin/src/Frontend/](../../apps/wordpress-plugin/src/Frontend/). Types: `@must/domain-contracts` ([index.ts](../../packages/domain-contracts/src/index.ts)) has `Booking`, `Money`, `BookingStatus`, `GuestPaymentMethod`, `NightlyRate`, `AvailabilityResult`. It has no HTTP client, and the catalog, quote, display-price and exchange-rate response types live unexported in `apps/api/src`.
@@ -113,10 +115,11 @@ No price: 400 `Clock has no available price for the requested stay.` (or the loc
   "adults":2, "children":0, "paymentMethod":"pokpay",
   "clockRateId":"(optional)", "promoCode":"(optional)", "returnUrl":"https://site.example/booking/confirmation",
   "guest":{"firstName":"","lastName":"","email":"","countryCode":"AL","phone":null,
-           "streetAddress":null,"addressLine2":null,"city":null,"county":null,"postcode":null,"specialRequests":null}
+           "streetAddress":null,"addressLine2":null,"city":null,"county":null,"postcode":null,"specialRequests":null,
+           "arrivalTime":null,"companyName":null,"taxNumber":null,"marketingConsent":false}
 }
 ```
-`guest.countryCode` must be an assigned ISO code (400 otherwise); `specialRequests` max 2000 characters. Success: `{"ok":true,"value":{...Booking, "cancellationToken":"...", "checkoutUrl":"...", "checkoutOrderId":"..."}}`. `checkoutUrl` is present only for card methods. Legacy fields `payAtHotel` and `guestCount` exist; send `paymentMethod`, `adults`, `children`.
+`guest.countryCode` must be an assigned ISO code (400 otherwise); `specialRequests` max 2000 characters. `arrivalTime` is `HH:MM` (24-hour); `companyName` max 160 and `taxNumber` max 40 characters; `marketingConsent` is only ever `true` when the guest ticked it (stored with the time it was given, never assumed). Booking form: when the hotel sets `form.address`, `form.arrivalTime`, `form.specialRequests` or `form.company` to `required`, a guest booking without it is refused with 400 and a message for the guest (address means street, city and postcode); phone and country are not enforced here (every website asks for them, and callers have always been able to omit them); marketing consent is never required; staff bookings are not held to the form; the multi-room order does not carry these fields yet. Success: `{"ok":true,"value":{...Booking, "cancellationToken":"...", "checkoutUrl":"...", "checkoutOrderId":"..."}}`. `checkoutUrl` is present only for card methods. Legacy fields `payAtHotel` and `guestCount` exist; send `paymentMethod`, `adults`, `children`.
 
 **POST `/bookings/orders`** multi-room: `{startsOn, endsOn, paymentMethod, guest:{firstName,lastName,email,phone}, rooms:[{roomTypeId, roomId?, ratePlanId, total, guestCount, quoteToken, guest?}]}`. Not used by the plugin; treat as unproven.
 
@@ -162,3 +165,33 @@ The staff property record holds address, phone, support email, check-in and chec
 - **Manage link in the guest email.** When the property has a `public_website_origin` **and no WordPress plugin connected** (`wordpress_connected_at` is null), the link is `{origin}/booking/manage?tenant=<id>&property=<id>&booking=<id>&token=<token>` (a custom site can ignore `tenant` and `property`). Otherwise it stays the dashboard link `WEB_APP_URL/booking/manage?tenant&property&booking&token`, so WordPress hotels such as Empire are unchanged.
 - **Sandbox (Must Hotel).** Its origin was set to `http://localhost:4321` on 2026-11-02 and its `wordpress_connected_at` cleared (it was `2026-09-10 22:24:34.226284+00`, origin was `https://new.empirebeachresort.al`). Undo with one `UPDATE properties` on property `9231b946-f244-4a84-af54-0774710f3464`.
 - **Individual-room hotels need `roomId`** on `POST /bookings` (`local-pms.provider.ts` rejects a booking without it when `booking_mode = INDIVIDUAL_ROOM_ONLY`); `ROOM_TYPE_ONLY` rejects one that has it; `MIXED` accepts either.
+
+## Booking rules for the website (`GET /public/property` → `profile.booking`)
+
+Added 2026-11-20 with the Booking rules settings page. Read it with the rest of the property (cache it for a few minutes). All values are the hotel's own settings; the API still decides every booking.
+
+| Field | Meaning for the website |
+| --- | --- |
+| `stay.minNights`, `stay.maxNights` | The hotel-wide stay limits (`null` = none). Dates can have their own limits: the calendar and the room list reasons are authoritative. |
+| `stay.bookUpToDays`, `stay.minNoticeHours` | How far ahead guests can book, and how long before the arrival day booking closes. |
+| `season.from`, `season.to` | The yearly season as `MM-DD` (both `null` = open all year). It may run over the new year. |
+| `arrivalDays`, `departureDays` | Allowed weekdays, ISO 1 (Monday) to 7 (Sunday). |
+| `sameDay.allowed`, `sameDay.cutoffTime` | Same-day bookings. |
+| `group.maxGuests`, `group.maxRooms`, `group.requestForm` | Limits for one booking. With `requestForm` true the site shows a group request form instead of a dead end and sends it to `POST /group-requests` (below). The request address is never published. |
+| `ages.minimumToBook`, `ages.childrenUpTo`, `ages.infantsUpTo`, `ages.askChildrenAges` | Guest age rules. Prices by age always come from the API. |
+| `confirmation.mode`, `confirmation.answerWithinHours` | `instant` or `on_request` (not built yet: sites must treat anything but `instant` as instant until the on-request flow exists). |
+| `form.*` | `required`, `optional` or `hidden` for phone, country, address, arrivalTime, specialRequests, guestNamePerRoom, company, marketing. Email and the main guest name are always asked. |
+| `fillGapNights` | A shorter stay that exactly fills a gap is allowed (not built yet). |
+
+**Enforced today (the server refuses and the site shows the reason):** stay limits, notice, how far ahead, season, arrival and departure days, same-day cutoff, group size (guests and rooms). **Works today:** the group request form (`POST /group-requests`). **Saved but not applied yet:** ages, confirmation mode, gap filling. **Booking form fields:** the server enforces `required` for address, arrival time, special requests and company (see `POST /bookings`); a hotel website must ask for a field before the hotel marks it required. A site that follows `form.*` or `ages.*` before the server applies them must still accept what the server accepts.
+
+**Reasons for refused stays** (display prices `reason`): `min_stay`, `max_stay`, `no_arrival`, `no_departure`, `capacity`, `same_day_closed`, `too_far_ahead`, `past_date`, plus new in 2026-11-20: `too_short_notice` (booking closed this close to arrival), `outside_season` (the hotel is closed for the season), `too_many_rooms` (more rooms than one booking allows). A site that does not know a reason shows the neutral "not available" text; the playbook table lists the messages.
+
+### Group requests (`POST /tenants/:tenantId/properties/:propertyId/group-requests`)
+
+Added 2026-11-22. A guest whose party is bigger than the booking limits asks the hotel for a quote. Show the form only when `profile.booking.group.requestForm` is true; a hotel that has not switched it on answers 404.
+
+- **Body (JSON):** `startsOn`, `endsOn` (YYYY-MM-DD, arrival not in the past, 1 to 60 nights), `adults` (1 to 500), `children` (0 to 500, optional), `rooms` (1 to 200), `name`, `email`, and optional `phone` (international, `+355...`), `organisation`, `message` (up to 2,000 characters, at most two links), `language` (`en`, `sq`, `it`).
+- **Answer:** `201 {"ok": true, "id": "..."}`. A bad value answers 400 with a plain message to show the guest. It is a public mutation: rate limited like booking creation, no session cookie needed.
+- **What happens:** the request is stored, the hotel gets a notice in its dashboard and an email (to its group request address, else its reservations address, else its support address) that it can reply to, and the guest gets a fixed acknowledgement that repeats nothing they typed (only dates and counts), because the address is not verified. One email address can send at most three requests per hotel per day (the fourth answers 429). A request is not a booking: the hotel answers with a quote by email.
+- Add a honeypot and a timing check on the site, as for the booking form.

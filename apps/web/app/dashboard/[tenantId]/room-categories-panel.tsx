@@ -1,5 +1,7 @@
 'use client';
 
+import { formatDate, formatDateTime } from '../../../lib/hotel-format';
+
 import { useState } from 'react';
 import { MoreHorizontal, Plus } from 'lucide-react';
 
@@ -352,8 +354,8 @@ export function RoomCategoriesPanel({
                   {columns.updated ? (
                     <TableCell>
                       {c.updatedAt ? (
-                        <time dateTime={c.updatedAt} title={new Date(c.updatedAt).toLocaleString()}>
-                          {new Date(c.updatedAt).toLocaleDateString()}
+                        <time dateTime={c.updatedAt} title={formatDateTime(c.updatedAt)}>
+                          {formatDate(c.updatedAt)}
                         </time>
                       ) : (
                         '?'

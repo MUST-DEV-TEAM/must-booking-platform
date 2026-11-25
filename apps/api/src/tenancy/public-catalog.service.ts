@@ -6,6 +6,11 @@ import { evaluateBookingRules } from '../booking/booking-rules';
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 
 import { TenantDatabaseService } from './tenant-database.service';
+import {
+  publicHotelProfile,
+  publicProfileColumns,
+  type PublicProfileRow,
+} from './public-hotel-profile';
 import { roomImagePresentation, type RoomImageProjectionRow } from './room-image-projection';
 import { roomTypeImagePresentation } from './room-type-image-projection';
 import { resolveEffectiveHouseRules } from './effective-house-rules';
@@ -122,8 +127,12 @@ export class PublicCatalogService {
       const row = rows[0];
       if (!row) throw new NotFoundException('Hotel not found.');
       const days = row.freeCancellationDays;
+      const profileRows = await tx.$queryRaw<PublicProfileRow[]>`
+        SELECT ${publicProfileColumns} FROM properties p
+        WHERE p.tenant_id=${tenantId}::uuid AND p.id=${propertyId}::uuid`;
       return {
         ...row,
+        profile: publicHotelProfile(profileRows[0]!),
         cancellationText:
           days && days > 0
             ? `Free cancellation up to ${days} days before arrival. Inside ${days} days, contact the hotel.`
@@ -382,6 +391,7 @@ export class PublicCatalogService {
               AND b.starts_on < ${range.endsOn}::date
               AND b.ends_on > ${range.startsOn}::date
               AND b.status IN (
+                'ON_REQUEST_PENDING'::"BookingStatus",
                 'PAYMENT_PENDING'::"BookingStatus",
                 'PAYMENT_NOT_REQUIRED'::"BookingStatus",
                 'PMS_CREATION_PENDING'::"BookingStatus",

@@ -349,7 +349,9 @@ export function projectReport(
 ) {
   const dates = reportRange(q.from, q.to),
     timezone = f.context.timezone;
-  const filteredBookings = f.bookings.filter((b) => !q.currency || b.currency === q.currency);
+  const filteredBookings = f.bookings.filter(
+    (b) => b.status !== 'DECLINED' && (!q.currency || b.currency === q.currency),
+  );
   const validBookings = filteredBookings.filter((b) => b.endsOn > b.startsOn);
   const snapshots = new Map(
     validBookings.map((b) => [b, nightlySnapshot(b.nightlyRates, b.startsOn, b.endsOn)]),

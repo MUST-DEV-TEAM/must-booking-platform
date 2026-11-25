@@ -1,5 +1,8 @@
 'use client';
+
+import { formatDate, formatDateTime } from '../../lib/hotel-format';
 import { ScopedHotelMoney } from './approximate-money';
+import { bookingHoldsInventory } from '@must/domain-contracts';
 
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
@@ -295,21 +298,9 @@ const money = (amount: string, currency: string) => (
   <ScopedHotelMoney amount={amount} currency={currency} />
 );
 
-const shortDate = (iso: string) =>
-  new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' }).format(
-    new Date(`${iso}T00:00:00`),
-  );
-const longDate = (iso: string) =>
-  new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(
-    new Date(`${iso}T00:00:00`),
-  );
-const createdLabel = (iso: string) =>
-  new Intl.DateTimeFormat('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(iso));
+const shortDate = (iso: string) => formatDate(iso, 'short');
+const longDate = (iso: string) => formatDate(iso, 'medium');
+const createdLabel = (iso: string) => formatDateTime(iso, 'short');
 
 const guestName = (row: ReservationRow) =>
   [row.guestFirstName, row.guestLastName].filter(Boolean).join(' ') || 'No guest details';
@@ -854,7 +845,7 @@ export function ReservationsPage({
                     paid: row.paidAmount,
                     refunded: row.refundedAmount,
                   });
-                  const live = !['CANCELLED', 'EXPIRED', 'DRAFT', 'QUOTED'].includes(row.status);
+                  const live = bookingHoldsInventory(row.status);
                   const nights = nightsBetween(row.startsOn, row.endsOn);
                   const isSelected = selectedIds.includes(row.id);
                   const isExpanded = expandedId === row.id;

@@ -163,6 +163,18 @@ export type MailBrand = {
   phone?: string | null;
   websiteUrl?: string | null;
   address?: string | null;
+  /** The hotel's legal business name and tax number, printed in payment and refund emails. */
+  legalName?: string | null;
+  taxNumber?: string | null;
+  /** The map pin; directions links use it when it is set, the address otherwise. */
+  latitude?: number | null;
+  longitude?: number | null;
+  /** How to find the hotel, in the hotel's own words (shown in the stay-confirmed email). */
+  directions?: string | null;
+  /** The hotel's pages on other sites (Instagram, Tripadvisor...), linked in the email footer. */
+  onlineProfiles?: Record<string, string> | null;
+  /** The hotel's date format (DD/MM/YYYY, MM/DD/YYYY or YYYY-MM-DD): decides the day order in email dates. */
+  dateFormat?: string | null;
 };
 
 export interface StorageProvider {
@@ -183,6 +195,8 @@ export enum BookingStatus {
   DRAFT = 'DRAFT',
   QUOTED = 'QUOTED',
   INVENTORY_REVALIDATING = 'INVENTORY_REVALIDATING',
+  ON_REQUEST_PENDING = 'ON_REQUEST_PENDING',
+  DECLINED = 'DECLINED',
   PAYMENT_PENDING = 'PAYMENT_PENDING',
   PAYMENT_NOT_REQUIRED = 'PAYMENT_NOT_REQUIRED',
   PMS_CREATION_PENDING = 'PMS_CREATION_PENDING',
@@ -195,6 +209,22 @@ export enum BookingStatus {
   MANUAL_REVIEW = 'MANUAL_REVIEW',
   CANCELLED = 'CANCELLED',
   EXPIRED = 'EXPIRED',
+}
+
+/** Booking states which currently hold or use inventory. */
+export const LIVE_BOOKING_STATUSES: readonly BookingStatus[] = [
+  BookingStatus.ON_REQUEST_PENDING,
+  BookingStatus.PAYMENT_PENDING,
+  BookingStatus.PAYMENT_NOT_REQUIRED,
+  BookingStatus.PMS_CREATION_PENDING,
+  BookingStatus.PMS_CONFIRMATION_PENDING,
+  BookingStatus.CONFIRMED,
+  BookingStatus.PMS_UNKNOWN_RESULT,
+  BookingStatus.MANUAL_REVIEW,
+];
+
+export function bookingHoldsInventory(status: string): boolean {
+  return (LIVE_BOOKING_STATUSES as readonly string[]).includes(status);
 }
 
 export enum BookingPaymentMethod {
@@ -242,6 +272,11 @@ export interface GuestDetails {
   postcode?: string | null;
   countryCode?: string | null;
   specialRequests?: string | null;
+  /** Booking form fields a hotel may ask for (Settings, Booking rules). Stored on the booking. */
+  arrivalTime?: string | null;
+  companyName?: string | null;
+  taxNumber?: string | null;
+  marketingConsent?: boolean;
 }
 
 export interface Booking {
@@ -482,6 +517,8 @@ export interface CreateCheckoutSessionCommand {
   description?: string;
   /** How long the payment page stays usable. Omitted: the provider default. */
   expiresAfterMinutes?: number;
+  /** Absolute expiry for deferred booking checkout sessions. */
+  expiresAt?: number;
   /** Ask for a checkout the website shows inside its own page (a provider that cannot, ignores this). */
   embedded?: boolean;
 }
@@ -520,6 +557,8 @@ export interface PaymentWebhookEvent {
   propertyId?: string;
   bookingId?: string;
   paymentStatus?: string;
+  /** When the provider says the event happened (ISO 8601); used to judge a payment against a deadline. */
+  occurredAt?: string;
 }
 
 export interface PaymentProvider {
@@ -542,6 +581,10 @@ export interface PaymentProvider {
     context: PaymentProviderContext,
     externalPaymentId: string,
   ): Promise<Result<{ closed: boolean }>>;
+  checkoutState?(
+    context: PaymentProviderContext,
+    externalPaymentId: string,
+  ): Promise<Result<'open' | 'paid' | 'expired'>>;
   /**
    * What the provider kept as its fee for one payment, in the payment's own currency; null when it is not
    * known (yet). Used to keep the fee back from a refund the guest asked for.
@@ -607,3 +650,6 @@ export interface UpdateNotificationTopicCommand {
 export * from './capture';
 
 export * from './hotel-profile-rules';
+export * from './booking-window-rules';
+export * from './policy-rules';
+export * from './payment-rules';

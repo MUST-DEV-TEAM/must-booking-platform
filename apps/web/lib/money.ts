@@ -1,8 +1,10 @@
+import { numberLocale } from './hotel-format';
+
 /** Money in its own currency, for example "ALL 12,000" or "€98.00". */
 export function formatMoney(amount: string | number, currency: string): string {
   const value = Number(amount);
   try {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(
+    return new Intl.NumberFormat(numberLocale(), { style: 'currency', currency }).format(
       // Intl accepts decimal strings exactly; TypeScript's format signature still only lists number/bigint.
       amount as number,
     );

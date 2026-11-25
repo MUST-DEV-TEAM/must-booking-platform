@@ -309,8 +309,8 @@ describe('Emails workspace and legacy links', () => {
     expect(isEmailTab('bad')).toBe(false);
     mockFetch();
     const host = await mount(undefined, true, true);
-    expect(host.textContent).toContain('Volume - last 24 hours');
-    expect(host.textContent).toContain('Controlled tests are excluded');
+    expect(host.textContent).toContain('Sent, last 24 hours');
+    expect(host.textContent).toContain('Test emails are not counted');
     expect(host.textContent).toContain('Booking MH-1');
   });
   it('shows individual staff outcomes and confirms all To/CC/BCC recipients for a deliberate copy', async () => {
@@ -334,27 +334,22 @@ describe('Emails workspace and legacy links', () => {
     expect(document.body.textContent).toContain('EVERY saved To, CC and BCC recipient');
     expect(button('Send copy').disabled).toBe(true);
   });
-  it('preserves recipient timing, sender, review links and personal mute configuration', async () => {
-    const calls = mockFetch();
+  it('keeps the review-links pointer, suppressed recipients and personal mute under the staff notifications', async () => {
+    mockFetch();
     const host = await mount('recipients');
-    expect(host.textContent).toContain('Sender and language');
+    // The sender form is on the Sending tab; the staff tab keeps the notifications and the smaller cards.
+    expect(host.textContent).not.toContain('Sender and language');
+    expect(host.textContent).toContain('Who receives each notification.');
     expect(host.textContent).toContain('Daily summary');
-    expect(host.textContent).toContain('Review links');
-    expect(host.querySelector('input[value="https://g.page/r/villa/review"]')).not.toBeNull();
-    await click(button('Save pre-arrival reminder'));
-    const save = calls.find((row) => row.url.endsWith('/topics/pre_arrival'));
-    expect(save).toMatchObject({
-      method: 'PUT',
-      body: {
-        version: 1,
-        guestEnabled: false,
-        customStaffRecipients: false,
-        rules: [],
-        daysOffset: 3,
-      },
-    });
-    expect(save!.body).not.toHaveProperty('staffEnabled');
-    expect(save!.headers.get('Idempotency-Key')).toBeTruthy();
+    // Review links are edited under Contact and brand; Emails only points there.
+    expect(host.textContent).toContain('Contact and brand');
+    expect(host.querySelector('input[value="https://g.page/r/villa/review"]')).toBeNull();
+  });
+  it('lands an old sender link on the Sending tab, where the sender name is edited', async () => {
+    mockFetch();
+    const host = await mount('sender');
+    expect(host.textContent).toContain('How guest emails are sent');
+    expect(host.textContent).toContain('Sender and language');
   });
   it('opens the template editor, saves only a draft and renders a sandboxed preview', async () => {
     const calls = mockFetch();
@@ -397,7 +392,7 @@ describe('Emails workspace and legacy links', () => {
     const calls = mockFetch();
     await mount('templates');
     await click(button('Pre-arrival reminder'));
-    await click(button('Send controlled test'));
+    await click(button('Send a test email'));
     expect(button('Send test to my address').disabled).toBe(true);
     expect(document.querySelector('input[type="email"]')).toBeNull();
     await fill(
@@ -553,7 +548,7 @@ describe('Emails workspace and legacy links', () => {
     );
     await mount('activity');
     await click(button('Booking confirmed (guest)'));
-    expect(document.body.textContent).toContain('Observed delivery timeline');
+    expect(document.body.textContent).toContain('What happened to this message');
     expect(document.body.textContent).toContain('Attempt 1 / resend');
     expect(document.body.textContent).toContain('mock-receipt');
     expect(document.body.textContent).not.toContain('Earlier steps were not recorded');

@@ -205,7 +205,7 @@ describe('LocalPmsProvider concurrent booking creation', () => {
 
     expect(
       results.map((result) => (result.ok ? result.value.status : result.error.code)).sort(),
-    ).toEqual(['AVAILABILITY_FAILED', 'PAYMENT_PENDING']);
+    ).toEqual(['PAYMENT_PENDING', 'ROOM_HELD_FOR_PAYMENT']);
     const inventory = await admin.$queryRaw<Array<{ availableUnits: number; bookedUnits: number }>>`
       SELECT available_units AS "availableUnits", booked_units AS "bookedUnits"
       FROM inventory_units

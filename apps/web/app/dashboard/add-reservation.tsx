@@ -1,4 +1,6 @@
 'use client';
+
+import { formatDate } from '../../lib/hotel-format';
 import { ScopedHotelMoney } from './approximate-money';
 import { CountrySelect } from '../../components/ui/country-select';
 
@@ -158,10 +160,7 @@ const gatewayLabels: Record<GatewayMethod, { title: string; description: string 
 };
 
 const money = (value: Money) => <ScopedHotelMoney {...value} />;
-const longDate = (iso: string) =>
-  new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(
-    new Date(`${iso}T00:00:00`),
-  );
+const longDate = (iso: string) => formatDate(iso, 'medium');
 
 function href(tenantId: string, propertyId: string, extra: string) {
   return `/dashboard/${tenantId}?propertyId=${encodeURIComponent(propertyId)}&${extra}`;
@@ -293,6 +292,13 @@ export function AddReservation({
   const startsOn = dates.start ?? '';
   const endsOn = dates.end ?? '';
   const nights = startsOn && endsOn ? nightsBetween(startsOn, endsOn) : 0;
+  // Reception can override the hotel's own limits (stay length, notice, season, arrival days, group size)
+  // with a reason that is saved with the booking. Availability and room size can never be overridden.
+  const [overrideOn, setOverrideOn] = useState(false);
+  const [overrideReason, setOverrideReason] = useState('');
+  const overrideReasonText = overrideReason.trim();
+  const overrideReasonValid = overrideReasonText.length >= 5 && overrideReasonText.length <= 300;
+  const ruleOverrideReason = overrideOn && overrideReasonValid ? overrideReasonText : undefined;
   const stayRules = useBookingRulesEvaluation(tenantId, propertyId, {
     startsOn,
     endsOn,
@@ -300,8 +306,13 @@ export function AddReservation({
     roomId: roomId || undefined,
     adults,
     children,
+    overrideRules: ruleOverrideReason ? 'true' : undefined,
   });
   const stayRuleError = stayRules.data?.booking.errors[0]?.message;
+  const stayRuleErrors = stayRules.data?.booking.errors ?? [];
+  const canOverrideRules =
+    stayRuleErrors.length > 0 && stayRuleErrors.every((error) => error.overridable === true);
+  const overriddenRules = stayRules.data?.booking.overridden ?? [];
   const stayReady =
     Boolean(stayRules.data?.booking.valid) &&
     adults >= 1 &&
@@ -324,7 +335,7 @@ export function AddReservation({
   // Search every room type for the chosen stay once the form is complete.
   const [searchKey, setSearchKey] = useState('');
   const currentKey = stayReady
-    ? `${startsOn}|${endsOn}|${adults}|${children}|${childrenAges.join(',')}|${ratePlanId}|${isClock}`
+    ? `${startsOn}|${endsOn}|${adults}|${children}|${childrenAges.join(',')}|${ratePlanId}|${isClock}|${ruleOverrideReason ?? ''}`
     : '';
   useEffect(() => {
     const timer = window.setTimeout(() => setSearchKey(currentKey), 400);
@@ -339,6 +350,7 @@ export function AddReservation({
       adults,
       children,
       childrenAges: childrenAges.map(Number),
+      ruleOverrideReason,
       items: items.map((i) => ({ ...i, ratePlanId: isClock ? undefined : ratePlanId })),
     })) as { offers: Record<string, Offer> };
     return result.offers;
@@ -515,6 +527,7 @@ export function AddReservation({
           specialRequests: requestsText(guest),
         },
         paymentMethod: gateway,
+        ruleOverrideReason,
       };
       const signature = JSON.stringify(payload);
       if (attempt.current?.signature !== signature)
@@ -772,10 +785,57 @@ export function AddReservation({
                         onChange={(next) => {
                           setDates(next);
                           setRoomId('');
+                          setOverrideOn(false);
+                          setOverrideReason('');
                         }}
                         className="w-full justify-between"
                       />
                     </FormField>
+                    {canOverrideRules || overrideOn ? (
+                      <div className="flex flex-col gap-3 rounded-lg border bg-muted/40 p-3 sm:col-span-2">
+                        <label className="flex items-start gap-2 text-sm font-medium">
+                          <Checkbox
+                            className="mt-0.5"
+                            checked={overrideOn}
+                            onCheckedChange={(value) => setOverrideOn(value === true)}
+                          />
+                          <span className="flex flex-col gap-0.5">
+                            Override the hotel&apos;s booking limits for this booking
+                            <span className="text-xs font-normal text-muted-foreground">
+                              Only the hotel&apos;s own limits (stay length, notice, season, arrival
+                              days, group size) can be overridden, never availability or room size.
+                              The reason is saved with the booking.
+                            </span>
+                          </span>
+                        </label>
+                        {overrideOn ? (
+                          <FormField
+                            label="Reason"
+                            htmlFor="override-reason"
+                            required
+                            hint="5 to 300 characters."
+                            error={
+                              overrideReason && !overrideReasonValid
+                                ? 'Enter a reason of 5 to 300 characters.'
+                                : null
+                            }
+                          >
+                            <Input
+                              id="override-reason"
+                              value={overrideReason}
+                              maxLength={300}
+                              placeholder="For example: regular guest, approved by the manager"
+                              onChange={(event) => setOverrideReason(event.target.value)}
+                            />
+                          </FormField>
+                        ) : null}
+                        {overriddenRules.length > 0 ? (
+                          <p className="m-0 text-xs text-muted-foreground">
+                            Overridden: {overriddenRules.map((rule) => rule.message).join(' ')}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
                     {!isClock ? (
                       <FormField label="Rate plan" required>
                         <Select value={ratePlanId} onValueChange={setRatePlanId}>

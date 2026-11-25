@@ -102,6 +102,7 @@ export type PropertyOverview = {
 // unavailable, kept in sync deliberately rather than importing a private
 // constant across modules.
 const OCCUPYING_STATUSES = [
+  'ON_REQUEST_PENDING',
   'PAYMENT_PENDING',
   'PAYMENT_NOT_REQUIRED',
   'PMS_CREATION_PENDING',

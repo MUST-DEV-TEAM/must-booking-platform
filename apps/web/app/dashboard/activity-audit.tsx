@@ -1,4 +1,6 @@
 'use client';
+
+import { formatDateTime } from '../../lib/hotel-format';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
 import { Alert, AlertDescription } from '../../components/ui/alert';
@@ -11,6 +13,7 @@ import { DetailList } from '../../components/ui/detail-list';
 import { FormField } from '../../components/ui/form-field';
 import { Input } from '../../components/ui/input';
 import { PageHeader } from '../../components/ui/page-header';
+import { TabBar } from '../../components/ui/tab-bar';
 import { QuickPeek } from '../../components/ui/quick-peek';
 import { RecordDirectory } from '../../components/ui/record-directory';
 import { ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
@@ -32,10 +35,13 @@ export function ActivityAudit({
   tenantId,
   propertyId,
   userId = 'session',
+  embedded = false,
 }: {
   tenantId: string;
   propertyId: string;
   userId?: string;
+  /** Inside Settings, where the page already has its title: no second header. */
+  embedded?: boolean;
 }) {
   const [page, setPage] = useState(1),
     [pageSize, setPageSize] = useState(25),
@@ -87,161 +93,197 @@ export function ActivityAudit({
   };
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader
-        title="Activity and audit log"
-        description="Recorded actions for this hotel. Missing historical evidence stays explicit."
-        actions={
+      {(() => {
+        const exportButton = (
           <Button variant="outline" disabled={!canExport} onClick={() => setExportIds(null)}>
-            Export filtered CSV
+            Export CSV
           </Button>
-        }
-      />
+        );
+        return embedded ? (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="m-0 max-w-2xl text-sm text-muted-foreground">
+              Every change made in this hotel, by whom and when. Entries are kept as recorded and
+              cannot be edited.
+            </p>
+            {exportButton}
+          </div>
+        ) : (
+          <PageHeader
+            title="Activity and audit log"
+            description="Every change made in this hotel, by whom and when."
+            actions={exportButton}
+          />
+        );
+      })()}
       {data && !data.canExport ? (
         <Alert>
           <AlertDescription>
-            Read only. Verify your email to export audit evidence.
+            You can look at the log, but exporting needs a verified email address.
           </AlertDescription>
         </Alert>
       ) : null}
       {data ? (
         <>
-          <div className="flex flex-wrap gap-2" aria-label="Audit activity views">
-            {[
-              ['business', 'Business activity'],
-              ['system', 'Routine system activity'],
-              ['all', 'All activity'],
-            ].map(([key, label]) => (
-              <Button
-                key={key}
-                variant={view === key ? 'default' : 'outline'}
-                aria-pressed={view === key}
-                onClick={() => change(setView)(key)}
-              >
-                {label}
-              </Button>
-            ))}
-          </div>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <StatTile
-              label="Today"
-              value={data.counts.today}
-              note="Matching events on the property local date"
-            />
+          <TabBar
+            label="Audit activity views"
+            current={view}
+            onSelect={change(setView)}
+            tabs={[
+              { id: 'business', label: 'Business activity' },
+              { id: 'system', label: 'System activity' },
+              { id: 'all', label: 'Everything' },
+            ]}
+          />
+          <div className="grid gap-4 sm:grid-cols-3">
+            <StatTile label="Today" value={data.counts.today} note="Events recorded today" />
             <StatTile
               label="Critical events"
               value={data.counts.critical}
-              note="Sensitive access, refunds, providers and exports"
+              note="Refunds, integrations, exports and other sensitive actions"
             />
             <StatTile
-              label="Unique actors"
+              label="People active"
               value={data.counts.uniqueActors}
-              note="Recorded human identities in this result"
+              note="Different people who made changes"
             />
           </div>
-          <Alert>
-            <AlertDescription>
-              {data.canViewActors
-                ? 'Actor labels reflect the current account identity.'
-                : 'Actor identity is hidden. Required permission: staff.view.'}{' '}
-              Sensitive fields are hidden. Large snapshots may be shortened.
-            </AlertDescription>
-          </Alert>
         </>
       ) : null}
-      <div className="grid items-end gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <FormField label="Search audit log">
-          <Input
-            aria-label="Search audit log"
-            placeholder="Action, target or evidence ID"
-            maxLength={100}
-            value={search}
-            onChange={(e) => change(setSearch)(e.target.value)}
-          />
-        </FormField>
-        <FormField label="Action family">
-          <Combobox
-            label="Action family"
-            value={family}
-            onChange={change(setFamily)}
-            options={[
-              { value: '', label: 'All permitted families' },
-              ...(data?.families ?? []).map((value) => ({ value, label: value })),
-            ]}
-          />
-        </FormField>
-        <FormField label="Target">
-          <Input
-            aria-label="Target"
-            placeholder="Type or identifier"
-            value={target}
-            onChange={(e) => change(setTarget)(e.target.value)}
-            maxLength={320}
-          />
-        </FormField>
-        <FormField label="Recorded result">
-          <Combobox
-            label="Recorded result"
-            value={result}
-            onChange={change(setResult)}
-            options={[
-              { value: '', label: 'All recorded results' },
-              ...['Succeeded', 'Failed', 'Denied', 'Pending', 'Unknown', 'Not recorded'].map(
-                (value) => ({
-                  value,
-                  label: auditResultLabel(value),
-                }),
-              ),
-            ]}
-          />
-        </FormField>
-        <FormField label="Source">
-          <Combobox
-            label="Source"
-            value={source}
-            onChange={change(setSource)}
-            options={[
-              { value: '', label: 'All sources' },
-              ...Object.entries({
-                MUST_STAFF: 'Staff in MUST',
-                MUST_AUTOMATION: 'MUST automation',
-                GUEST: 'Guest',
-                CLOCK: 'Clock',
-                POKPAY: 'PokPay',
-                STRIPE: 'Stripe',
-                PLATFORM_ADMIN: 'Platform administrator',
-              }).map(([value, label]) => ({ value, label })),
-            ]}
-          />
-        </FormField>
-        <FormField label="From">
-          <DateField
-            aria-label="Audit from date"
-
-            value={from || data?.filters.from || ''}
-            onChange={(date) => change(setFrom)(date)}
-          />
-        </FormField>
-        <FormField label="To">
-          <DateField
-            aria-label="Audit to date"
-
-            value={to || data?.filters.to || ''}
-            onChange={(date) => change(setTo)(date)}
-          />
-        </FormField>
-        {data?.canViewActors ? (
-          <FormField label="Actor">
+      <div className="flex flex-col gap-3">
+        <div className="grid items-end gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <FormField label="Search">
+            <Input
+              aria-label="Search audit log"
+              placeholder="What happened, or a reference"
+              maxLength={100}
+              value={search}
+              onChange={(e) => change(setSearch)(e.target.value)}
+            />
+          </FormField>
+          <FormField label="From">
+            <DateField
+              aria-label="Audit from date"
+              value={from || data?.filters.from || ''}
+              onChange={(date) => change(setFrom)(date)}
+            />
+          </FormField>
+          <FormField label="To">
+            <DateField
+              aria-label="Audit to date"
+              value={to || data?.filters.to || ''}
+              onChange={(date) => change(setTo)(date)}
+            />
+          </FormField>
+          <FormField label="Result">
             <Combobox
-              label="Actor"
-              value={actor}
-              onChange={change(setActor)}
+              label="Recorded result"
+              value={result}
+              onChange={change(setResult)}
               options={[
-                { value: '', label: 'All actors' },
-                { value: 'system', label: 'System' },
-                ...data.actors.map((a) => ({ value: a.id, label: a.label })),
+                { value: '', label: 'Any result' },
+                ...['Succeeded', 'Failed', 'Denied', 'Pending', 'Unknown', 'Not recorded'].map(
+                  (value) => ({
+                    value,
+                    label: auditResultLabel(value),
+                  }),
+                ),
               ]}
             />
           </FormField>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm text-muted-foreground">Quick range</span>
+          {(
+            [
+              ['Today', 1],
+              ['Last 7 days', 7],
+              ['Last 30 days', 30],
+            ] as const
+          ).map(([label, days]) => (
+            <Button
+              key={label}
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                const end = data?.filters.to || new Date().toISOString().slice(0, 10);
+                const start = new Date(Date.parse(end) - (days - 1) * 86400000)
+                  .toISOString()
+                  .slice(0, 10);
+                setFrom(start);
+                setTo(end);
+                setPage(1);
+                setLastExport(null);
+              }}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
+        <details className="rounded-lg border bg-card px-4 py-3">
+          <summary className="cursor-pointer text-sm font-medium">More filters</summary>
+          <div className="mt-3 grid items-end gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {data?.canViewActors ? (
+              <FormField label="Who">
+                <Combobox
+                  label="Who"
+                  value={actor}
+                  onChange={change(setActor)}
+                  options={[
+                    { value: '', label: 'Anyone' },
+                    { value: 'system', label: 'System' },
+                    ...data.actors.map((a) => ({ value: a.id, label: a.label })),
+                  ]}
+                />
+              </FormField>
+            ) : null}
+            <FormField label="Area">
+              <Combobox
+                label="Action family"
+                value={family}
+                onChange={change(setFamily)}
+                options={[
+                  { value: '', label: 'All areas' },
+                  ...(data?.families ?? []).map((value) => ({ value, label: value })),
+                ]}
+              />
+            </FormField>
+            <FormField label="Record">
+              <Input
+                aria-label="Target"
+                placeholder="Type or identifier"
+                value={target}
+                onChange={(e) => change(setTarget)(e.target.value)}
+                maxLength={320}
+              />
+            </FormField>
+            <FormField label="Source">
+              <Combobox
+                label="Source"
+                value={source}
+                onChange={change(setSource)}
+                options={[
+                  { value: '', label: 'All sources' },
+                  ...Object.entries({
+                    MUST_STAFF: 'Staff in MUST',
+                    MUST_AUTOMATION: 'MUST automation',
+                    GUEST: 'Guest',
+                    CLOCK: 'Clock',
+                    POKPAY: 'PokPay',
+                    STRIPE: 'Stripe',
+                    PLATFORM_ADMIN: 'Platform administrator',
+                  }).map(([value, label]) => ({ value, label })),
+                ]}
+              />
+            </FormField>
+          </div>
+        </details>
+        {data ? (
+          <p className="m-0 text-xs text-muted-foreground">
+            {data.canViewActors
+              ? 'Names are shown as they are in the account today.'
+              : 'Names are hidden. You need the staff permission to see who did what.'}{' '}
+            Sensitive values are hidden, and long records may be shortened.
+          </p>
         ) : null}
       </div>
       {lastExport && canExport && lastExport.scopeKey === data?.scopeKey ? (
@@ -291,14 +333,14 @@ export function ActivityAudit({
           rows={data.items}
           storageKey="must.audit.table"
           exportable={false}
-          defaultHidden={['risk', 'evidence']}
+          defaultHidden={['risk', 'evidence', 'family', 'source', 'target']}
           initialSort={{ key: 'createdAt', direction: 'desc' }}
           onRow={(e) => setSelected(e.id)}
           emptyTitle="No recorded audit events match these filters"
           columns={[
             {
               id: 'action',
-              label: 'Action',
+              label: 'What happened',
               value: (e) => e.title ?? e.action,
               render: (e) => (
                 <span className="block max-w-52 truncate" title={e.action}>
@@ -313,7 +355,7 @@ export function ActivityAudit({
             },
             {
               id: 'result',
-              label: 'Recorded result',
+              label: 'Result',
               value: (e) => e.result,
               render: (e) => (
                 <Badge
@@ -333,15 +375,15 @@ export function ActivityAudit({
             },
             {
               id: 'createdAt',
-              label: 'Time',
+              label: 'When',
               value: (e) => e.createdAt,
-              render: (e) => new Date(e.createdAt).toLocaleString(),
+              render: (e) => formatDateTime(e.createdAt),
             },
-            { id: 'family', label: 'Family', value: (e) => e.family },
+            { id: 'family', label: 'Area', value: (e) => e.family },
             { id: 'source', label: 'Source', value: (e) => e.source ?? 'Not specified' },
             {
               id: 'actor',
-              label: 'Actor',
+              label: 'Who',
               value: (e) => e.actor,
               render: (e) => (
                 <span className="block max-w-36 truncate" title={e.actor}>
@@ -351,7 +393,7 @@ export function ActivityAudit({
             },
             {
               id: 'target',
-              label: 'Target',
+              label: 'Record',
               value: (e) => `${e.targetType} / ${e.targetId ?? 'Hidden'}`,
               render: (e) => (
                 <span
@@ -364,15 +406,15 @@ export function ActivityAudit({
             },
             {
               id: 'risk',
-              label: 'Classification',
-              value: (e) => (e.critical ? 'Critical' : 'Standard'),
+              label: 'Importance',
+              value: (e) => (e.critical ? 'Critical' : 'Normal'),
             },
-            { id: 'evidence', label: 'Evidence ID', value: (e) => e.id },
+            { id: 'evidence', label: 'Reference', value: (e) => e.id },
           ]}
-          actions={(e) => [{ label: 'View evidence', onSelect: () => setSelected(e.id) }]}
+          actions={(e) => [{ label: 'See details', onSelect: () => setSelected(e.id) }]}
           selectionActions={(rows) => [
             {
-              label: 'Export selected CSV',
+              label: 'Export selected',
               disabled: !canExport,
               onSelect: () => setExportIds(rows.map((r) => r.id)),
             },
@@ -392,14 +434,14 @@ export function ActivityAudit({
       <QuickPeek
         open={!!selected}
         onClose={() => setSelected(null)}
-        title="Audit event detail"
-        description="Operation links use saved references. Other nearby activity is shown separately."
+        title="Event detail"
+        description="What was recorded for this event."
         badges={
           event ? (
             <>
               <Badge>{event.family}</Badge>
               <Badge variant={event.critical ? 'warning' : 'secondary'}>
-                {event.critical ? 'Critical classification' : 'Standard classification'}
+                {event.critical ? 'Critical' : 'Normal'}
               </Badge>
             </>
           ) : null
@@ -415,19 +457,19 @@ export function ActivityAudit({
           <>
             <DetailList
               items={[
-                { label: 'Evidence ID', value: event.id },
-                { label: 'Time', value: new Date(event.createdAt).toLocaleString() },
-                { label: 'Action', value: event.title ?? event.action },
+                { label: 'Reference', value: event.id },
+                { label: 'When', value: formatDateTime(event.createdAt) },
+                { label: 'What happened', value: event.title ?? event.action },
                 { label: 'Source', value: event.source ?? 'Not specified' },
                 ...(event.operationId
-                  ? [{ label: 'Operation reference', value: event.operationId }]
+                  ? [{ label: 'Action reference', value: event.operationId }]
                   : []),
-                { label: 'Actor', value: event.actor },
+                { label: 'Who', value: event.actor },
                 {
-                  label: 'Target',
-                  value: `${event.targetType} / ${event.targetId ?? 'Hidden (requires staff.view)'}`,
+                  label: 'Record',
+                  value: `${event.targetType} / ${event.targetId ?? 'Hidden (needs the staff permission)'}`,
                 },
-                { label: 'Recorded result', value: auditResultLabel(event.result) },
+                { label: 'Result', value: auditResultLabel(event.result) },
                 { label: 'Reason', value: event.reason ?? 'Not recorded' },
               ]}
             />
@@ -470,7 +512,7 @@ export function ActivityAudit({
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">
-                No field-by-field change was saved for this event.
+                No field-by-field changes were saved for this event.
               </p>
             )}
             {event.linked?.length ? (
@@ -488,8 +530,7 @@ export function ActivityAudit({
                       </Button>
                       <p className="text-xs text-muted-foreground">
                         {auditResultLabel(item.result)}
-                        {item.source ? ' · ' + item.source : ''} ·{' '}
-                        {new Date(item.createdAt).toLocaleString()}
+                        {item.source ? ' · ' + item.source : ''} · {formatDateTime(item.createdAt)}
                       </p>
                     </li>
                   ))}
@@ -502,7 +543,7 @@ export function ActivityAudit({
               </section>
             ) : null}
             <details className="space-y-3">
-              <summary className="cursor-pointer text-sm font-medium">Technical evidence</summary>
+              <summary className="cursor-pointer text-sm font-medium">Technical details</summary>
               <p className="break-all text-xs text-muted-foreground">Event type: {event.action}</p>
               <DataSnapshot title="Before (recorded)" value={event.before} />
               <DataSnapshot title="After (recorded)" value={event.after} />
@@ -526,8 +567,7 @@ export function ActivityAudit({
                         {item.title ?? item.action}
                       </Button>
                       <p className="text-xs text-muted-foreground">
-                        {auditResultLabel(item.result)} ·{' '}
-                        {new Date(item.createdAt).toLocaleString()}
+                        {auditResultLabel(item.result)} · {formatDateTime(item.createdAt)}
                       </p>
                     </li>
                   ))}
@@ -544,9 +584,9 @@ export function ActivityAudit({
         onOpenChange={(open) => {
           if (!open) setExportIds(undefined);
         }}
-        title="Export audit evidence"
-        description={`Create an audited CSV for ${exportIds ? exportIds.length + ' selected events' : 'the authorized filtered result'} through ${data?.through ?? 'the observed time'}. Maximum 5,000 events and 2 MB. Recorded snapshots may contain sensitive business information.`}
-        confirmLabel="Create audited CSV"
+        title="Export the audit log"
+        description={`Creates a CSV file of ${exportIds ? exportIds.length + ' selected events' : 'every event that matches your filters'}, up to ${data?.through ?? 'now'}. At most 5,000 events and 2 MB. The file can contain sensitive business information, and the export itself is recorded in this log.`}
+        confirmLabel="Create CSV"
         cancelLabel="Cancel"
         confirmDisabled={!canExport}
         onConfirm={async () => {

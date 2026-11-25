@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BookingPaymentMethod, BookingStatus } from '@must/domain-contracts';
 
-import { ClockBookingService } from './clock-booking.service';
+import { mealIdsOf } from './clock-availability.service';
+import { ClockBookingService, mealsOf } from './clock-booking.service';
 import type { ClockConnectionCredentials } from './clock-http-client';
 
 type RateIdForRoomType = (
@@ -14,7 +15,7 @@ type RateIdForRoomType = (
   adultCount: number,
   childrenCount: number,
 ) => Promise<
-  | { ok: true; value: string }
+  | { ok: true; value: { rateId: string; mealIds: number[] } }
   | { ok: false; error: { code: string; message: string; retryable: boolean } }
 >;
 
@@ -69,7 +70,7 @@ describe('ClockBookingService Task 14 rate delegation', () => {
         2,
         1,
       ),
-    ).resolves.toEqual({ ok: true, value: '803405' });
+    ).resolves.toEqual({ ok: true, value: { rateId: '803405', mealIds: [] } });
     expect(selectRateForStay).toHaveBeenCalledWith(credentials, {
       tenantId: context.tenantId,
       propertyId: context.propertyId,
@@ -80,6 +81,47 @@ describe('ClockBookingService Task 14 rate delegation', () => {
       adultCount: 2,
       childrenCount: 1,
     });
+  });
+
+  it('passes the meals of the selected rate on so the booking can carry them', async () => {
+    const service = Object.create(ClockBookingService.prototype) as ClockBookingService;
+    const selectRateForStay = vi.fn().mockResolvedValue({
+      ok: true,
+      value: {
+        rateId: '821662',
+        total: { amount: '650.00', currency: 'EUR' },
+        mealIds: [9479],
+      },
+    });
+    (service as unknown as { availability: unknown }).availability = { selectRateForStay };
+
+    await expect(
+      rateIdForRoomType.call(
+        service,
+        credentials,
+        context,
+        'local-room-type',
+        '36526',
+        '2027-06-19',
+        '2027-06-21',
+        2,
+        0,
+      ),
+    ).resolves.toEqual({ ok: true, value: { rateId: '821662', mealIds: [9479] } });
+  });
+
+  it('sends the rate meals on the Clock booking, and nothing for a room-only rate', () => {
+    expect(mealsOf([9479])).toEqual({ meals: [{ id: 9479 }] });
+    expect(mealsOf([9479, 9480])).toEqual({ meals: [{ id: 9479 }, { id: 9480 }] });
+    expect(mealsOf([])).toEqual({});
+    expect(mealsOf(undefined)).toEqual({});
+  });
+
+  it('keeps only usable meal ids from Clock rate data', () => {
+    expect(mealIdsOf([{ id: 11510 }, { id: '9479' }, { id: 11510 }, {}, { id: 0 }])).toEqual([
+      11510, 9479,
+    ]);
+    expect(mealIdsOf(undefined)).toEqual([]);
   });
 
   it('records the manual-review item and staff notification for a post-commit failure', async () => {

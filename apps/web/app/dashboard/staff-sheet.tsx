@@ -1,5 +1,7 @@
 'use client';
 
+import { formatDate } from '../../lib/hotel-format';
+
 import { useQuery } from '@tanstack/react-query';
 import { Mail } from 'lucide-react';
 
@@ -179,7 +181,5 @@ export function StaffSheet({
 function formatStaffDate(value: string | null) {
   if (!value) return 'Not recorded';
   const timestamp = Date.parse(value);
-  return Number.isNaN(timestamp)
-    ? 'Not recorded'
-    : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(timestamp);
+  return Number.isNaN(timestamp) ? 'Not recorded' : formatDate(timestamp, 'medium');
 }

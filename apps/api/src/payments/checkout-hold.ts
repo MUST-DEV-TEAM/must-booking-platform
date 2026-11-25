@@ -12,7 +12,7 @@ export async function checkoutHoldMinutes(
   bookingId: string,
 ): Promise<number> {
   const rows = await tx.$queryRaw<Array<{ minutes: number }>>`
-    SELECT GREATEST(1, CEIL(p.online_payment_hold_minutes - EXTRACT(EPOCH FROM (now() - b.created_at)) / 60))::int AS minutes
+    SELECT GREATEST(1, CEIL(p.online_payment_hold_minutes - EXTRACT(EPOCH FROM (now() - COALESCE(b.payment_pending_at,b.created_at))) / 60))::int AS minutes
     FROM bookings b JOIN properties p ON p.tenant_id = b.tenant_id AND p.id = b.property_id
     WHERE b.tenant_id = ${scope.tenantId}::uuid AND b.property_id = ${scope.propertyId}::uuid
       AND b.id = ${bookingId}::uuid`;

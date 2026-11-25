@@ -23,6 +23,8 @@ enum BookingStatus {
   DRAFT
   QUOTED
   INVENTORY_REVALIDATING
+  ON_REQUEST_PENDING
+  DECLINED
   PAYMENT_PENDING
   PAYMENT_NOT_REQUIRED
   PMS_CREATION_PENDING
@@ -227,6 +229,19 @@ model Property {
   directions                        String?                         @map("directions") @db.VarChar(300)
   nearestAirportCode                String?                         @map("nearest_airport_code") @db.VarChar(3)
   nearestAirportKm                  Float?                          @map("nearest_airport_km")
+  logoDarkUrl                       String?                         @map("logo_dark_url") @db.VarChar(2048)
+  iconUrl                           String?                         @map("icon_url") @db.VarChar(2048)
+  faviconUrl                        String?                         @map("favicon_url") @db.VarChar(2048)
+  coverUrl                          String?                         @map("cover_url") @db.VarChar(2048)
+  accountingEmail                   String?                         @map("accounting_email") @db.VarChar(254)
+  mainContactName                   String?                         @map("main_contact_name") @db.VarChar(120)
+  mainContactRole                   String?                         @map("main_contact_role") @db.VarChar(120)
+  mainContactPhone                  String?                         @map("main_contact_phone") @db.VarChar(20)
+  mainContactEmail                  String?                         @map("main_contact_email") @db.VarChar(254)
+  registeredSameAsHotel             Boolean                         @default(true) @map("registered_same_as_hotel")
+  registeredStreet                  String?                         @map("registered_street") @db.VarChar(200)
+  registeredCity                    String?                         @map("registered_city") @db.VarChar(100)
+  registeredPostalCode              String?                         @map("registered_postal_code") @db.VarChar(20)
   whatsappSameAsPhone               Boolean                         @default(true) @map("whatsapp_same_as_phone")
   whatsappNumber                    String?                         @map("whatsapp_number") @db.VarChar(20)
   afterHoursPhone                   String?                         @map("after_hours_phone") @db.VarChar(20)
@@ -235,6 +250,28 @@ model Property {
   receptionTo                       String?                         @map("reception_to") @db.VarChar(5)
   onlineProfiles                    Json                            @default("{}") @map("online_profiles")
   accentColour                      String?                         @map("accent_colour") @db.VarChar(7)
+  minNoticeHours                    Int?                            @map("min_notice_hours")
+  seasonOpenFrom                    String?                         @map("season_open_from") @db.VarChar(5)
+  seasonOpenTo                      String?                         @map("season_open_to") @db.VarChar(5)
+  arrivalDays                       Int[]                           @default([1, 2, 3, 4, 5, 6, 7]) @map("arrival_days")
+  departureDays                     Int[]                           @default([1, 2, 3, 4, 5, 6, 7]) @map("departure_days")
+  groupRequestForm                  Boolean                         @default(false) @map("group_request_form")
+  groupRequestEmail                 String?                         @map("group_request_email") @db.VarChar(254)
+  minBookingAge                     Int?                            @map("min_booking_age")
+  childrenUpToAge                   Int?                            @map("children_up_to_age")
+  infantsUpToAge                    Int?                            @map("infants_up_to_age")
+  askChildrenAges                   Boolean                         @default(false) @map("ask_children_ages")
+  fillGapNights                     Boolean                         @default(false) @map("fill_gap_nights")
+  confirmationMode                  String                          @default("instant") @map("confirmation_mode") @db.VarChar(10)
+  onRequestHours                    Int?                            @map("on_request_hours")
+  formPhone                         String                          @default("required") @map("form_phone") @db.VarChar(8)
+  formCountry                       String                          @default("required") @map("form_country") @db.VarChar(8)
+  formAddress                       String                          @default("hidden") @map("form_address") @db.VarChar(8)
+  formArrivalTime                   String                          @default("hidden") @map("form_arrival_time") @db.VarChar(8)
+  formSpecialRequests               String                          @default("optional") @map("form_special_requests") @db.VarChar(8)
+  formGuestNamePerRoom              String                          @default("hidden") @map("form_guest_name_per_room") @db.VarChar(8)
+  formCompany                       String                          @default("hidden") @map("form_company") @db.VarChar(8)
+  formMarketing                     String                          @default("optional") @map("form_marketing") @db.VarChar(8)
   maxGuestsPerBooking               Int?                            @map("max_guests_per_booking")
   maxRoomsPerBooking                Int?                            @map("max_rooms_per_booking")
   noShowRule                        String                          @default("flag_for_review") @map("no_show_rule") @db.VarChar(30)
@@ -251,6 +288,32 @@ model Property {
   childrenPolicyNote                String?                         @map("children_policy_note") @db.VarChar(300)
   petsPolicy                        String?                         @map("pets_policy") @db.VarChar(30)
   petsPolicyNote                    String?                         @map("pets_policy_note") @db.VarChar(300)
+  checkInUntil                      String?                         @map("check_in_until") @db.VarChar(5)
+  checkOutFrom                      String?                         @map("check_out_from") @db.VarChar(5)
+  lateArrivalInstructions           String?                         @map("late_arrival_instructions") @db.VarChar(500)
+  cotsPolicy                        String                          @default("not_available") @map("cots_policy") @db.VarChar(20)
+  cotsFee                           Decimal?                        @map("cots_fee") @db.Decimal(7, 2)
+  cotsMax                           Int?                            @map("cots_max") @db.SmallInt
+  extraBedsPolicy                   String                          @default("not_available") @map("extra_beds_policy") @db.VarChar(20)
+  extraBedsFee                      Decimal?                        @map("extra_beds_fee") @db.Decimal(7, 2)
+  extraBedsMax                      Int?                            @map("extra_beds_max") @db.SmallInt
+  petsFeeType                       String?                         @map("pets_fee_type") @db.VarChar(10)
+  petsFee                           Decimal?                        @map("pets_fee") @db.Decimal(7, 2)
+  petsMax                           Int?                            @map("pets_max") @db.SmallInt
+  smokingPolicy                     String?                         @map("smoking_policy") @db.VarChar(20)
+  partiesPolicy                     String?                         @map("parties_policy") @db.VarChar(20)
+  idAtArrival                       String                          @default("not_required") @map("id_at_arrival") @db.VarChar(20)
+  idDocuments                       String[]                        @default([]) @map("id_documents")
+  damageDepositAmount               Decimal?                        @map("damage_deposit_amount") @db.Decimal(7, 2)
+  damageDepositMethod               String?                         @map("damage_deposit_method") @db.VarChar(10)
+  damageDepositRefundDays           Int?                            @map("damage_deposit_refund_days") @db.SmallInt
+  otherHouseRules                   String?                         @map("other_house_rules") @db.VarChar(1000)
+  paymentMethodOrder                String[]                        @default([]) @map("payment_method_order")
+  paymentDefaultMethod              String?                         @map("payment_default_method") @db.VarChar(30)
+  acceptedAtHotel                   String[]                        @default([]) @map("accepted_at_hotel")
+  paymentLinkValidDays              Int                             @default(7) @map("payment_link_valid_days") @db.SmallInt
+  paymentSecondReminderDays         Int?                            @map("payment_second_reminder_days") @db.SmallInt
+  paymentLinkExpiryAction           String                          @default("notify_staff") @map("payment_link_expiry_action") @db.VarChar(20)
   onlinePaymentHoldMinutes          Int                             @default(30) @map("online_payment_hold_minutes")
   autoRefundOnFreeCancellation      Boolean                         @default(true) @map("auto_refund_on_free_cancellation")
   clockCancelRefundPolicy           String                          @default("NEVER") @map("clock_cancel_refund_policy") @db.VarChar(20)
@@ -929,6 +992,10 @@ model Booking {
   guestSessionId             String?                  @map("guest_session_id") @db.Uuid
   guestContact               Json?                    @map("guest_contact")
   estimatedArrivalTime       String?                  @map("estimated_arrival_time") @db.VarChar(5)
+  companyName                String?                  @map("company_name") @db.VarChar(160)
+  taxNumber                  String?                  @map("tax_number") @db.VarChar(40)
+  marketingConsent           Boolean                  @default(false) @map("marketing_consent")
+  marketingConsentAt         DateTime?                @map("marketing_consent_at") @db.Timestamptz(6)
   guestReturnUrl             String?                  @map("guest_return_url") @db.VarChar(2000)
   specialRequests            String?                  @map("special_requests") @db.VarChar(2000)
   externalReference          String                   @map("external_reference") @db.VarChar(200)
@@ -938,6 +1005,10 @@ model Booking {
   roomGuestLastName          String?                  @map("room_guest_last_name") @db.VarChar(100)
   externalBookingId          String?                  @map("external_booking_id") @db.VarChar(64)
   status                     BookingStatus            @default(DRAFT)
+  onRequestDeadlineAt        DateTime?                @map("on_request_deadline_at") @db.Timestamptz(6)
+  paymentPendingAt           DateTime?                @map("payment_pending_at") @db.Timestamptz(6)
+  paymentDueAt               DateTime?                @map("payment_due_at") @db.Timestamptz(6)
+  onRequestCheckoutUrl       String?                  @map("on_request_checkout_url") @db.VarChar(2048)
   // The PMS's own stay status as received (Clock: expected, checked_in, ...).
   pmsStayStatus              String?                  @map("pms_stay_status") @db.VarChar(40)
   checkedInAt                DateTime?                @map("checked_in_at") @db.Timestamptz
@@ -2435,4 +2506,38 @@ model BookingFlowEvent {
 
   @@index([flowId, createdAt], map: "booking_flow_events_flow_idx")
   @@map("booking_flow_events")
+}
+
+/// Settings Overview: what one person hid for one hotel (setup guide, the one-time "ready" notice).
+model SettingsOverviewDismissal {
+  tenantId   String   @map("tenant_id") @db.Uuid
+  propertyId String   @map("property_id") @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  kind       String
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@id([tenantId, propertyId, userId, kind])
+  @@map("settings_overview_dismissals")
+}
+
+model GroupRequest {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  propertyId   String   @map("property_id") @db.Uuid
+  status       String   @default("NEW")
+  guestName    String   @map("guest_name") @db.VarChar(160)
+  guestEmail   String   @map("guest_email") @db.VarChar(254)
+  guestPhone   String?  @map("guest_phone") @db.VarChar(32)
+  organisation String?  @db.VarChar(160)
+  startsOn     DateTime @map("starts_on") @db.Date
+  endsOn       DateTime @map("ends_on") @db.Date
+  adults       Int
+  children     Int      @default(0)
+  rooms        Int
+  message      String?  @db.VarChar(2000)
+  language     String?  @db.VarChar(5)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([tenantId, propertyId, createdAt(sort: Desc)], map: "group_requests_property_created_idx")
+  @@map("group_requests")
 }

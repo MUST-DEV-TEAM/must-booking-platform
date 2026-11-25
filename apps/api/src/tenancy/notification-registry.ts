@@ -22,6 +22,14 @@ export const NOTIFICATION_REGISTRY = {
     priority: 'High',
     capability: 'settings.manage',
   },
+  GROUP_REQUEST_RECEIVED: {
+    title: 'New group request',
+    description:
+      'A guest asked for a quote for a group. Answer them from the email the hotel received.',
+    category: 'Reservations',
+    priority: 'Medium',
+    capability: 'bookings.view',
+  },
   BOOKING_CREATED: {
     title: 'Booking created',
     description: 'A new reservation was made.',

@@ -1,4 +1,6 @@
 'use client';
+
+import { formatDateTime } from '../../lib/hotel-format';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePmsSource } from './use-pms-source';
@@ -225,7 +227,7 @@ export function ClockGuestDirectory({
                           </TableCell>
                           <TableCell>{g.email || 'No email supplied'}</TableCell>
                           <TableCell>{g.phone || 'No phone supplied'}</TableCell>
-                          <TableCell>{new Date(g.syncedAt).toLocaleString()}</TableCell>
+                          <TableCell>{formatDateTime(g.syncedAt)}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>

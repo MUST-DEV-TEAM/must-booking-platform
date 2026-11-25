@@ -1,132 +1,78 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { CancellationPoliciesSoon } from './coming-soon-settings';
+import { useEffect, useState } from 'react';
 
 import { useHotelSettings } from './hotel-settings-fields';
 import { useUnsavedChanges } from '../../components/ui/unsaved-changes';
-import { Combobox } from '../../components/ui/combobox';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import { FormField } from '../../components/ui/form-field';
 import { FormSection } from '../../components/ui/form-section';
+import { OptionCard } from '../../components/ui/option-card';
+import { BookingRulesOverview } from './booking-rules-overview';
+import { ruleOwnerLabel } from './booking-rules-owners';
 import { Input, Textarea } from '../../components/ui/input';
 import { HotelCurrencyNote } from './hotel-currency-note';
+import { AlsoShowPrices, ExchangeRateTable } from './display-currencies-settings';
 import { SaveBar } from '../../components/ui/save-bar';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../../components/ui/select';
-import {
-  timeZoneOptions,
-  validateRules,
-  validTime,
-  type BookingMode,
-  type Property,
-} from './settings-areas';
+import { SegmentedControl } from '../../components/ui/segmented-control';
+import { TimeField } from '../../components/ui/time-field';
+import { policyPreviewLines, type PolicyPreviewLanguage } from './policy-preview';
+import { validateRules, validTime, type BookingMode, type Property } from './settings-areas';
 
 type Save = (update: Partial<Property>) => void;
 type FormProps = { property: Property; saving: boolean; onSave: Save; canWrite?: boolean };
+type GeneralProps = FormProps & { tenantId?: string };
 
-const text = (value: number | null) => (value === null ? '' : String(value));
-const toNumber = (value: string): number | null => (value.trim() === '' ? null : Number(value));
-
-/** Hotel name, address and time zone. */
-export function GeneralSettings({ property, saving, onSave, canWrite = false }: FormProps) {
-  const rich = useHotelSettings(property, 'general', canWrite);
-  const initial = { name: property.name, address: property.address, timezone: property.timezone };
-  const [draft, setDraft] = useState(initial);
-  useEffect(() => setDraft(initial), [property.name, property.address, property.timezone]);
-  const zones = useMemo(() => timeZoneOptions(property.timezone), [property.timezone]);
-  const errors = {
-    name: draft.name.trim() ? null : 'Enter the hotel name.',
-    address: draft.address.trim() ? null : 'Enter the hotel address.',
-    timezone:
-      !zones.length || zones.includes(draft.timezone) ? null : 'Choose a time zone from the list.',
-  };
-  const dirty =
-    rich.dirty ||
-    draft.name !== property.name ||
-    draft.address !== property.address ||
-    draft.timezone !== property.timezone;
-  useUnsavedChanges(canWrite && dirty);
-  const save = () => {
-    const update: Partial<Property> = { ...rich.update };
-    if (draft.name !== property.name) update.name = draft.name.trim();
-    if (draft.address !== property.address) update.address = draft.address.trim();
-    if (draft.timezone !== property.timezone) update.timezone = draft.timezone;
-    onSave(update);
-  };
+/** The Profile tab: identity, location with the map pin, legal and tax, languages, currency, formats. */
+export function GeneralSettings({
+  property,
+  saving,
+  onSave,
+  canWrite = false,
+  tenantId,
+}: GeneralProps) {
+  // The exchange-rate controls need the dashboard's query client, so they are drawn only with a hotel scope.
+  const currencyScope = tenantId
+    ? { tenantId, propertyId: property.id, canWrite, refreshKey: property.defaultCurrency }
+    : null;
+  const rich = useHotelSettings(
+    property,
+    'general',
+    canWrite,
+    currencyScope
+      ? {
+          alsoShow: <AlsoShowPrices {...currencyScope} />,
+          exchangeRates: <ExchangeRateTable {...currencyScope} />,
+        }
+      : undefined,
+  );
+  useUnsavedChanges(canWrite && rich.dirty);
+  // A changed time zone moves the arrival times of existing bookings, so a hotel that has bookings confirms it first.
+  const [confirmZone, setConfirmZone] = useState(false);
   return (
     <div className="flex flex-col gap-4">
-      <FormSection title="Hotel identity" description="Shown to guests and in booking emails.">
-        <FormField
-          label="Hotel name"
-          htmlFor="settings-name"
-          required
-          error={dirty ? errors.name : null}
-        >
-          <Input
-            disabled={!canWrite}
-            id="settings-name"
-            value={draft.name}
-            onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-          />
-        </FormField>
-        <FormField
-          label="Address"
-          hint="Used for the Find us link in guest emails. Enter the full hotel address."
-          htmlFor="settings-address"
-          required
-          error={dirty ? errors.address : null}
-        >
-          <Input
-            disabled={!canWrite}
-            id="settings-address"
-            value={draft.address}
-            onChange={(e) => setDraft({ ...draft, address: e.target.value })}
-          />
-        </FormField>
-        <FormField
-          label="Time zone"
-          htmlFor="settings-timezone"
-          required
-          hint="Dates, arrivals and same-day cutoffs follow this time zone."
-          error={dirty ? errors.timezone : null}
-        >
-          {zones.length ? (
-            <Combobox
-              disabled={!canWrite}
-              label="Time zone"
-              value={draft.timezone}
-              onChange={(timezone) => setDraft({ ...draft, timezone })}
-              options={zones.map((zone) => ({ value: zone, label: zone.replaceAll('_', ' ') }))}
-              placeholder="Search time zones…"
-              triggerClassName="w-full"
-            />
-          ) : (
-            <Input
-              disabled={!canWrite}
-              id="settings-timezone"
-              value={draft.timezone}
-              onChange={(e) => setDraft({ ...draft, timezone: e.target.value })}
-            />
-          )}
-        </FormField>
-      </FormSection>
       {rich.fields}
       <HotelCurrencyNote propertyId={property.id} refreshKey={property.defaultCurrency ?? ''} />
       <SaveBar
-        dirty={canWrite && dirty}
+        dirty={canWrite && rich.dirty}
         saving={saving}
-        canSave={
-          !errors.name && !errors.address && !errors.timezone && !Object.keys(rich.errors).length
+        canSave={!Object.keys(rich.errors).length}
+        onSave={() =>
+          rich.update.timezone && property.hasBookings ? setConfirmZone(true) : onSave(rich.update)
         }
-        onSave={save}
-        onDiscard={() => {
-          setDraft(initial);
-          rich.discard();
+        onDiscard={rich.discard}
+      />
+      <ConfirmDialog
+        open={confirmZone}
+        onOpenChange={setConfirmZone}
+        title="Change the time zone?"
+        description={`The hotel time zone changes to ${rich.update.timezone ?? ''}. Arrival times, same-day cutoffs and the dates shown for existing bookings follow it. The bookings themselves are not changed.`}
+        confirmLabel="Change time zone"
+        cancelLabel="Cancel"
+        onConfirm={async () => {
+          onSave(rich.update);
+          setConfirmZone(false);
         }}
       />
     </div>
@@ -136,24 +82,32 @@ export function GeneralSettings({ property, saving, onSave, canWrite = false }: 
 const MODES: ReadonlyArray<{ value: BookingMode; label: string; hint: string }> = [
   {
     value: 'ROOM_TYPE_ONLY',
-    label: 'Room types',
+    label: 'By room type',
     hint: 'Guests book a room type; staff assign the room.',
   },
   {
     value: 'INDIVIDUAL_ROOM_ONLY',
-    label: 'Individual rooms',
-    hint: 'Guests book a specific room.',
+    label: 'A specific room',
+    hint: 'Guests pick the exact room they want.',
   },
-  { value: 'MIXED', label: 'Both', hint: 'Guests can book either way.' },
+  {
+    value: 'MIXED',
+    label: 'Both',
+    hint: 'Guests can book either way: by room type or a specific room.',
+  },
 ];
 
 /** Stay limits, free cancellation, inventory mode and house rules. */
-export function BookingRulesSettings({ property, saving, onSave, canWrite = false }: FormProps) {
+export function BookingRulesSettings({
+  property,
+  saving,
+  onSave,
+  canWrite = false,
+  tenantId = '',
+}: GeneralProps) {
+  const connected = property.pmsSource === 'CLOCK_PMS';
   const rich = useHotelSettings(property, 'booking-rules', canWrite);
   const initial = () => ({
-    minStayNights: text(property.minStayNights),
-    maxStayNights: text(property.maxStayNights),
-    advanceBookingDays: text(property.advanceBookingDays),
     freeCancellationDaysBeforeArrival: String(property.freeCancellationDaysBeforeArrival),
     rules: property.rules ?? '',
     bookingMode: property.bookingMode,
@@ -171,12 +125,6 @@ export function BookingRulesSettings({ property, saving, onSave, canWrite = fals
   const modeChanged = draft.bookingMode !== property.bookingMode;
   const commit = () => {
     const update: Partial<Property> = { ...rich.update };
-    if (draft.minStayNights !== saved.minStayNights)
-      update.minStayNights = toNumber(draft.minStayNights);
-    if (draft.maxStayNights !== saved.maxStayNights)
-      update.maxStayNights = toNumber(draft.maxStayNights);
-    if (draft.advanceBookingDays !== saved.advanceBookingDays)
-      update.advanceBookingDays = toNumber(draft.advanceBookingDays);
     if (draft.freeCancellationDaysBeforeArrival !== saved.freeCancellationDaysBeforeArrival)
       update.freeCancellationDaysBeforeArrival = Number(draft.freeCancellationDaysBeforeArrival);
     if (draft.rules !== saved.rules) update.rules = draft.rules.trim() === '' ? null : draft.rules;
@@ -186,94 +134,60 @@ export function BookingRulesSettings({ property, saving, onSave, canWrite = fals
   const set = (patch: Partial<typeof draft>) => setDraft({ ...draft, ...patch });
   return (
     <div className="flex flex-col gap-4">
+      <BookingRulesOverview tenantId={tenantId} property={property} />
+      {rich.section(
+        'Length of stay',
+        'Booking window and season',
+        'Same-day booking',
+        'Arrival and departure days',
+        'Group size',
+        'Group requests',
+        'Guest ages',
+      )}
       <FormSection
-        title="Stay limits"
-        description="Applied to every booking, including staff bookings. Leave a limit empty for no limit."
+        title="How guests choose rooms"
+        badge={ruleOwnerLabel('How guests choose rooms', connected)}
+        description="Changing this asks for confirmation. Existing bookings are not changed."
       >
-        <div className="grid gap-4 sm:grid-cols-3">
-          <FormField label="Minimum stay (nights)" htmlFor="rules-min" error={errors.minStayNights}>
-            <Input
+        <div role="radiogroup" aria-label="How guests choose rooms" className="grid gap-3">
+          {MODES.map((mode) => (
+            <OptionCard
+              key={mode.value}
+              title={mode.label}
+              description={mode.hint}
+              selected={draft.bookingMode === mode.value}
               disabled={!canWrite}
-              id="rules-min"
-              inputMode="numeric"
-              value={draft.minStayNights}
-              onChange={(e) => set({ minStayNights: e.target.value })}
+              onSelect={() => set({ bookingMode: mode.value })}
             />
-          </FormField>
-          <FormField label="Maximum stay (nights)" htmlFor="rules-max" error={errors.maxStayNights}>
-            <Input
-              disabled={!canWrite}
-              id="rules-max"
-              inputMode="numeric"
-              value={draft.maxStayNights}
-              onChange={(e) => set({ maxStayNights: e.target.value })}
-            />
-          </FormField>
+          ))}
+        </div>
+      </FormSection>
+      {rich.section('Confirmation', 'Booking form', 'Advanced')}
+      <FormSection
+        title="Cancellation"
+        badge={ruleOwnerLabel('Cancellation', connected)}
+        description="The free-cancellation window is evaluated before arrival. Automatic refunds follow Payments settings; staff can handle a refund separately."
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
           <FormField
-            label="Booking window (days ahead)"
-            htmlFor="rules-advance"
-            hint="How far ahead guests can book."
-            error={errors.advanceBookingDays}
+            label="Free cancellation (days before arrival)"
+            htmlFor="rules-cancel"
+            hint="Whole days, 0 or more."
+            error={errors.freeCancellationDaysBeforeArrival}
           >
             <Input
               disabled={!canWrite}
-              id="rules-advance"
+              id="rules-cancel"
               inputMode="numeric"
-              value={draft.advanceBookingDays}
-              onChange={(e) => set({ advanceBookingDays: e.target.value })}
+              value={draft.freeCancellationDaysBeforeArrival}
+              onChange={(e) => set({ freeCancellationDaysBeforeArrival: e.target.value })}
             />
           </FormField>
         </div>
       </FormSection>
       <FormSection
-        title="Cancellation"
-        description="The free-cancellation window is evaluated before arrival. Automatic refunds follow Payments settings; staff can handle a refund separately."
-      >
-        <FormField
-          label="Free cancellation (days before arrival)"
-          htmlFor="rules-cancel"
-          error={errors.freeCancellationDaysBeforeArrival}
-        >
-          <Input
-            disabled={!canWrite}
-            id="rules-cancel"
-            inputMode="numeric"
-            className="sm:max-w-48"
-            value={draft.freeCancellationDaysBeforeArrival}
-            onChange={(e) => set({ freeCancellationDaysBeforeArrival: e.target.value })}
-          />
-        </FormField>
-      </FormSection>
-      <FormSection title="Inventory mode" description="How guests choose what to book.">
-        <FormField
-          label="Inventory mode"
-          htmlFor="rules-mode"
-          hint={MODES.find((m) => m.value === draft.bookingMode)?.hint}
-        >
-          <Select
-            disabled={!canWrite}
-            value={draft.bookingMode}
-            onValueChange={(value) => set({ bookingMode: value as BookingMode })}
-          >
-            <SelectTrigger
-              id="rules-mode"
-              aria-label="Inventory mode"
-              className="w-full sm:max-w-72"
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {MODES.map((mode) => (
-                <SelectItem key={mode.value} value={mode.value}>
-                  {mode.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </FormField>
-      </FormSection>
-      <FormSection
         title="House rules"
+        badge={ruleOwnerLabel('House rules', connected)}
         description="Shown on room detail pages unless a room has its own rules."
       >
         <FormField label="House rules" htmlFor="rules-text">
@@ -287,6 +201,7 @@ export function BookingRulesSettings({ property, saving, onSave, canWrite = fals
           />
         </FormField>
       </FormSection>
+      {rich.section('No-show guidance')}
       <FormSection
         title="How online checkout works"
         description="Set by the system, shown here so staff know what to expect."
@@ -297,7 +212,6 @@ export function BookingRulesSettings({ property, saving, onSave, canWrite = fals
           hold is released and the booking expires.
         </p>
       </FormSection>
-      {rich.fields}
       <SaveBar
         dirty={canWrite && combinedDirty}
         saving={saving}
@@ -326,12 +240,16 @@ export function BookingRulesSettings({ property, saving, onSave, canWrite = fals
 
 /** Check-in and check-out times shown to guests. */
 export function CheckInOutSettings({ property, saving, onSave, canWrite = false }: FormProps) {
-  const rich = useHotelSettings(property, 'check-in-out', canWrite);
   const initial = {
     checkInTime: property.checkInTime ?? '',
     checkOutTime: property.checkOutTime ?? '',
   };
   const [draft, setDraft] = useState(initial);
+  const [previewLanguage, setPreviewLanguage] = useState<PolicyPreviewLanguage>('en');
+  const rich = useHotelSettings(property, 'check-in-out', canWrite, undefined, {
+    checkInTime: draft.checkInTime || null,
+    checkOutTime: draft.checkOutTime || null,
+  });
   useEffect(() => setDraft(initial), [property.checkInTime, property.checkOutTime]);
   const errors = {
     checkInTime: validTime(draft.checkInTime) ? null : 'Use a time like 15:00.',
@@ -348,6 +266,12 @@ export function CheckInOutSettings({ property, saving, onSave, canWrite = false 
   ]
     .filter(Boolean)
     .join(' · ');
+  const policyLines = policyPreviewLines(
+    rich.values,
+    { checkInTime: draft.checkInTime, checkOutTime: draft.checkOutTime },
+    property.defaultCurrency ?? 'EUR',
+    previewLanguage,
+  );
   return (
     <div className="flex flex-col gap-4">
       <FormSection
@@ -356,21 +280,21 @@ export function CheckInOutSettings({ property, saving, onSave, canWrite = false 
       >
         <div className="grid gap-4 sm:grid-cols-2">
           <FormField label="Check-in from" htmlFor="times-in" error={errors.checkInTime}>
-            <Input
-              disabled={!canWrite}
+            <TimeField
               id="times-in"
-              type="time"
+              label="Check-in from"
+              disabled={!canWrite}
               value={draft.checkInTime}
-              onChange={(e) => setDraft({ ...draft, checkInTime: e.target.value })}
+              onChange={(checkInTime) => setDraft({ ...draft, checkInTime })}
             />
           </FormField>
           <FormField label="Check-out by" htmlFor="times-out" error={errors.checkOutTime}>
-            <Input
-              disabled={!canWrite}
+            <TimeField
               id="times-out"
-              type="time"
+              label="Check-out by"
+              disabled={!canWrite}
               value={draft.checkOutTime}
-              onChange={(e) => setDraft({ ...draft, checkOutTime: e.target.value })}
+              onChange={(checkOutTime) => setDraft({ ...draft, checkOutTime })}
             />
           </FormField>
         </div>
@@ -380,6 +304,30 @@ export function CheckInOutSettings({ property, saving, onSave, canWrite = false 
         </p>
       </FormSection>
       {rich.fields}
+      <FormSection
+        title="Guests will read"
+        description="A preview of the policies as guests will read them. Nothing is shown to guests yet."
+      >
+        <SegmentedControl
+          label="Preview language"
+          value={previewLanguage}
+          onChange={setPreviewLanguage}
+          options={[
+            { value: 'en', label: 'English' },
+            { value: 'sq', label: 'Shqip' },
+          ]}
+        />
+        {policyLines.length ? (
+          <ul className="m-0 flex list-disc flex-col gap-1.5 pl-5 text-sm">
+            {policyLines.map((line, index) => (
+              <li key={index}>{line}</li>
+            ))}
+          </ul>
+        ) : (
+          <p className="m-0 text-sm text-muted-foreground">No policies set yet.</p>
+        )}
+      </FormSection>
+      <CancellationPoliciesSoon freeDays={property.freeCancellationDaysBeforeArrival} />
       <SaveBar
         dirty={canWrite && dirty}
         saving={saving}

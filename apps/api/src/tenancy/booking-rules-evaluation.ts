@@ -5,6 +5,7 @@ import {
   CHECK_IN_PAST_MESSAGE,
   effectiveMinimumStay,
   evaluateBookingRules,
+  isOverridableRule,
   propertyClock,
   rangeViolation,
   type BookingRulePolicy,
@@ -12,6 +13,7 @@ import {
 } from '../booking/booking-rules';
 import { enforcedRoomCapacity, isClockManagedProperty } from '../booking/clock-managed-property';
 import type { TenantDatabaseService } from './tenant-database.service';
+import { bookingPolicyColumns } from '../booking/booking-policy-columns';
 
 type AvailabilityCheck = (input: {
   bookingMode: string;
@@ -49,9 +51,7 @@ export async function evaluatePropertyBookingRules(
   const hasRange = Boolean(startsOn || endsOn);
   const context = await database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
     const policies = await tx.$queryRaw<Array<BookingRulePolicy & { bookingMode: string }>>`
-      SELECT timezone, min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
-        advance_booking_days AS "advanceBookingDays", same_day_booking_allowed AS "sameDayBookingAllowed",
-        same_day_cutoff_time AS "sameDayCutoffTime",max_guests_per_booking AS "maxGuestsPerBooking",max_rooms_per_booking AS "maxRoomsPerBooking", booking_mode::text AS "bookingMode"
+      SELECT ${bookingPolicyColumns}, booking_mode::text AS "bookingMode"
       FROM properties WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid
     `;
     if (!policies[0]) throw new NotFoundException('Property was not found.');
@@ -92,7 +92,7 @@ export async function evaluatePropertyBookingRules(
         SELECT starts_on::text AS "startsOn", ends_on::text AS "endsOn", 'booking'::text AS kind
         FROM bookings WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
           AND starts_on < ${endsOn}::date AND ends_on > ${startsOn}::date
-          AND status NOT IN ('CANCELLED', 'EXPIRED', 'DRAFT', 'QUOTED')
+          AND status NOT IN ('CANCELLED', 'EXPIRED', 'DECLINED', 'DRAFT', 'QUOTED')
           AND ((${roomId || null}::uuid IS NOT NULL AND room_id = ${roomId || null}::uuid)
             OR (${roomId || null}::uuid IS NULL AND room_type_id = ${roomTypeId}::uuid))
       `;
@@ -147,6 +147,9 @@ export async function evaluatePropertyBookingRules(
     roomTypeStatus: context.roomType?.status,
     roomActive: context.roomActive,
     restrictions: context.restrictions,
+    // Staff only: the hotel's own limits are skipped (the page asks for a reason before it books).
+    overrideRules:
+      channel === 'staff' && (value.overrideRules === true || value.overrideRules === 'true'),
   };
   const bookingConflicts = [...context.blocks, ...(roomId ? context.reservations : [])];
   let booking = hasRange
@@ -202,7 +205,14 @@ export async function evaluatePropertyBookingRules(
     minStayNights: booking.effectiveMinStayNights ?? context.policy.minStayNights ?? null,
     maxStayNights: booking.effectiveMaxStayNights ?? context.policy.maxStayNights ?? null,
     disabledDates,
-    booking,
+    /** `overridable`: reception may override this problem with a reason; guests never can. */
+    booking: {
+      ...booking,
+      errors: booking.errors.map((error) => ({
+        ...error,
+        overridable: channel === 'staff' && isOverridableRule(error),
+      })),
+    },
     block,
   };
 }

@@ -1,6 +1,11 @@
 import type { EmailTemplateKey } from './email-templates';
 /** Explicit real senders; catalog authoring never invents a missing booking lifecycle or payment URL. */
 const triggers: Partial<Record<EmailTemplateKey, string>> = {
+  booking_request_received: 'guest.booking_request_received',
+  staff_booking_request: 'staff.booking_request_received',
+  booking_request_accepted: 'guest.booking_request_accepted',
+  booking_request_declined: 'guest.booking_request_declined',
+  staff_booking_request_decided: 'staff.booking_request_decided',
   booking_confirmed: 'booking.confirmed',
   booking_confirmed_pay_at_hotel: 'booking.confirmed',
   booking_cancelled: 'booking.cancelled',

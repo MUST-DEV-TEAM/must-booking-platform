@@ -1,4 +1,6 @@
 'use client';
+
+import { formatDateTime } from '../../lib/hotel-format';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bell, Check, CheckCheck } from 'lucide-react';
 import { useRef, useState } from 'react';
@@ -144,7 +146,7 @@ export function DashboardNotifications({
                       {row.title}
                     </span>
                     <span className="text-xs text-muted-foreground">
-                      {row.category} / {row.priority} / {new Date(row.createdAt).toLocaleString()}
+                      {row.category} / {row.priority} / {formatDateTime(row.createdAt)}
                     </span>
                   </span>
                 </a>
@@ -424,7 +426,7 @@ export function NotificationsInbox({
               id: 'createdAt',
               label: 'Received',
               value: (r) => r.createdAt,
-              render: (r) => new Date(r.createdAt).toLocaleString(),
+              render: (r) => formatDateTime(r.createdAt),
             },
           ]}
           actions={(r) => [
@@ -548,10 +550,10 @@ export function NotificationsInbox({
             ) : null}
             <DetailList
               items={[
-                { label: 'Received', value: new Date(row.createdAt).toLocaleString() },
+                { label: 'Received', value: formatDateTime(row.createdAt) },
                 {
                   label: 'Read by you',
-                  value: row.readAt ? new Date(row.readAt).toLocaleString() : 'Not read',
+                  value: row.readAt ? formatDateTime(row.readAt) : 'Not read',
                 },
                 {
                   label: 'Issue',
@@ -570,7 +572,7 @@ export function NotificationsInbox({
                   label: 'Resolved by',
                   value:
                     row.resolution?.state === 'resolved' && row.resolution.source === 'manual'
-                      ? `${row.resolution.by}${row.resolution.at ? `, ${new Date(row.resolution.at).toLocaleString()}` : ''}`
+                      ? `${row.resolution.by}${row.resolution.at ? `, ${formatDateTime(row.resolution.at)}` : ''}`
                       : null,
                 },
                 {
@@ -581,10 +583,7 @@ export function NotificationsInbox({
                   label: 'Read by',
                   value: row.readBy?.length
                     ? row.readBy
-                        .map(
-                          (r) =>
-                            `${r.name ?? 'A staff member'} (${new Date(r.readAt).toLocaleString()})`,
-                        )
+                        .map((r) => `${r.name ?? 'A staff member'} (${formatDateTime(r.readAt)})`)
                         .join(', ')
                     : null,
                 },

@@ -1,5 +1,7 @@
 'use client';
 
+import { formatDate } from '../../lib/hotel-format';
+
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy, MoreHorizontal } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
@@ -64,7 +66,9 @@ import {
 } from '../../components/ui/select';
 import { useTablePreferences } from '../../lib/use-table-preferences';
 import { cn } from '../../lib/utils';
+import { settingsTabHref } from './settings-registry';
 import { StaffDetail, staffHref, staffListHref } from './staff-detail';
+import { InvitationsSoon, SecuritySoon } from './coming-soon-settings';
 import { StaffSheet } from './staff-sheet';
 import { type StaffMember, type StaffTemplate } from './staff-stats';
 import { RestaurantStaffProfile } from './restaurant-staff-profile';
@@ -116,17 +120,24 @@ function sortValue(member: StaffMember, key: SortKey): string {
 function formatLastActive(value: string | null): string {
   if (!value) return '—';
   const timestamp = Date.parse(value);
-  return Number.isNaN(timestamp)
-    ? '—'
-    : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(timestamp);
+  return Number.isNaN(timestamp) ? '—' : formatDate(timestamp, 'medium');
 }
 
 /** Staff users for one selected property. */
-export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; propertyId: string }) {
+export function DashboardStaff({
+  tenantId,
+  propertyId,
+  embedded = false,
+}: {
+  tenantId: string;
+  propertyId: string;
+  /** Inside Settings, where the page already has its title: no second header. */
+  embedded?: boolean;
+}) {
   const base = `/api/tenants/${tenantId}`;
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
-  const [screen, setScreen] = useState<'staff' | 'roles'>('staff');
+  const [screen, setScreen] = useState<'staff' | 'roles' | 'invitations' | 'security'>('staff');
   const [view, setView] = useState<StaffView>('all');
   const [sort, setSort] = useState<{ key: SortKey; direction: 'asc' | 'desc' }>({
     key: 'member',
@@ -455,7 +466,9 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
   if (staffQuery.isPending)
     return (
       <div className="space-y-5">
-        <PageHeader title="Staff" description="Hotel and restaurant staff access." />
+        {embedded ? null : (
+          <PageHeader title="Staff" description="Hotel and restaurant staff access." />
+        )}
         <ListSkeleton rows={6} />
       </div>
     );
@@ -463,7 +476,9 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
   if (staffQuery.error)
     return (
       <div className="space-y-5">
-        <PageHeader title="Staff" description="Hotel and restaurant staff access." />
+        {embedded ? null : (
+          <PageHeader title="Staff" description="Hotel and restaurant staff access." />
+        )}
         <ErrorPanel
           title="Staff could not be loaded"
           description={staffQuery.error.message}
@@ -564,20 +579,38 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
     );
   }
 
+  const sectionTabs = (
+    <TabBar
+      tabs={[
+        { id: 'staff', label: 'People', count: staff.length },
+        ...(templates.length || venues.length
+          ? [{ id: 'roles', label: 'Roles', count: templates.length + (venues.length ? 2 : 0) }]
+          : []),
+        ...(embedded
+          ? [
+              { id: 'invitations', label: 'Invitations' },
+              { id: 'security', label: 'Security' },
+            ]
+          : []),
+      ]}
+      current={screen}
+      onSelect={(value) => setScreen(value as 'staff' | 'roles' | 'invitations' | 'security')}
+      label="Staff sections"
+    />
+  );
+
+  if (embedded && (screen === 'invitations' || screen === 'security'))
+    return (
+      <div className="space-y-5">
+        {sectionTabs}
+        {screen === 'invitations' ? <InvitationsSoon /> : <SecuritySoon />}
+      </div>
+    );
+
   if (screen === 'roles')
     return (
       <div className="space-y-5">
-        <TabBar
-          tabs={[
-            { id: 'staff', label: 'Staff', count: staff.length },
-            ...(templates.length || venues.length
-              ? [{ id: 'roles', label: 'Roles', count: templates.length + (venues.length ? 2 : 0) }]
-              : []),
-          ]}
-          current={screen}
-          onSelect={(value) => setScreen(value as 'staff' | 'roles')}
-          label="Staff sections"
-        />
+        {sectionTabs}
         <RoleManagement
           restaurantRoles={venues.length ? restaurantRoleRows(staff) : []}
           tenantId={tenantId}
@@ -592,24 +625,19 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
 
   return (
     <div className="space-y-5">
-      <PageHeader
-        title="Staff"
-        description="Manage hotel and restaurant assignments and role access."
-        actions={
+      {(() => {
+        const actions = (
           <>
             <Button variant="outline" asChild>
               <a
-                href={`/dashboard/${tenantId}?propertyId=${encodeURIComponent(propertyId)}&section=audit`}
+                href={
+                  embedded
+                    ? settingsTabHref(tenantId, propertyId, 'audit-log')
+                    : `/dashboard/${tenantId}?propertyId=${encodeURIComponent(propertyId)}&section=audit`
+                }
               >
-                Activity and audit log
+                {embedded ? 'Audit log' : 'Activity and audit log'}
               </a>
-            </Button>
-            <Button
-              variant="outline"
-              disabled
-              title="Staff export is unavailable until the permission-gated, audited export is built (G21)."
-            >
-              Export CSV
             </Button>
             {canCreateStaff ? (
               <Button
@@ -621,20 +649,25 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
               </Button>
             ) : null}
           </>
-        }
-      />
+        );
+        return embedded ? (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="m-0 max-w-2xl text-sm text-muted-foreground">
+              Everyone who can sign in to this hotel, and what each person may do. Change a role to
+              change what a whole group can do.
+            </p>
+            <div className="flex flex-wrap gap-2">{actions}</div>
+          </div>
+        ) : (
+          <PageHeader
+            title="Staff"
+            description="Manage hotel and restaurant assignments and role access."
+            actions={actions}
+          />
+        );
+      })()}
 
-      <TabBar
-        tabs={[
-          { id: 'staff', label: 'Staff', count: staff.length },
-          ...(templates.length || venues.length
-            ? [{ id: 'roles', label: 'Roles', count: templates.length + (venues.length ? 2 : 0) }]
-            : []),
-        ]}
-        current={screen}
-        onSelect={(value) => setScreen(value as 'staff' | 'roles')}
-        label="Staff sections"
-      />
+      {sectionTabs}
 
       {capped ? (
         <p
@@ -703,14 +736,6 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
             <Button variant="outline" size="sm" onClick={() => void copyEmails(tickedStaff)}>
               Copy emails
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled
-              title="Staff export requires the permission-gated, audited export path (G21)."
-            >
-              Export selected
-            </Button>
           </BulkBar>
           {notice ? (
             <p role="status" className="m-0 text-xs text-muted-foreground">
@@ -751,7 +776,7 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
             <Table
               containerClassName="overflow-x-clip"
               data-density={density}
-              className="group text-[11px] data-[density=compact]:[&_td]:py-1"
+              className="group text-sm data-[density=compact]:[&_td]:py-1"
             >
               <TableHeader className="sticky top-[var(--app-header-height,86px)] z-20 bg-muted">
                 <TableRow className="hover:bg-muted">
@@ -782,7 +807,6 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
                       active={sort.key === 'extra'}
                       direction={sort.direction}
                       onSort={() => toggleSort('extra')}
-                      align="right"
                     />
                   ) : null}
                   {columns.status ? (
@@ -851,12 +875,12 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
                               type="button"
                               onClick={() => setSelectedId(staffKey(member))}
                               aria-label={`Show details for ${member.email}`}
-                              className="block max-w-full truncate bg-transparent p-0 text-left text-[12px] font-semibold text-foreground hover:underline"
+                              className="block max-w-full truncate bg-transparent p-0 text-left text-sm font-semibold text-foreground hover:underline"
                             >
                               {[member.firstName, member.lastName].filter(Boolean).join(' ') ||
                                 member.email}
                             </button>
-                            <span className="block truncate text-[10px] text-muted-foreground group-data-[density=compact]:hidden">
+                            <span className="block truncate text-xs text-muted-foreground group-data-[density=compact]:hidden">
                               {member.email}
                             </span>
                           </span>
@@ -877,14 +901,32 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
                         </TableCell>
                       ) : null}
                       {columns.extra ? (
-                        <TableCell className="px-2 py-2 text-right tabular-nums">
-                          {member.overrides.some((item) => item.granted) ? (
-                            <Badge variant="warning">
-                              {member.overrides.filter((item) => item.granted).length}
-                            </Badge>
-                          ) : (
-                            <span className="text-muted-foreground">None</span>
-                          )}
+                        <TableCell className="px-2 py-2">
+                          {(() => {
+                            const names = member.overrides
+                              .filter((item) => item.granted)
+                              .map(
+                                (item) =>
+                                  catalog.find((entry) => entry.key === item.capabilityKey)
+                                    ?.label ?? item.capabilityKey,
+                              );
+                            return names.length ? (
+                              <span className="flex flex-wrap items-center gap-1.5">
+                                {names.slice(0, 2).map((name) => (
+                                  <Badge key={name} variant="warning">
+                                    + {name}
+                                  </Badge>
+                                ))}
+                                {names.length > 2 ? (
+                                  <span className="text-xs text-muted-foreground">
+                                    and {names.length - 2} more
+                                  </span>
+                                ) : null}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">None</span>
+                            );
+                          })()}
                         </TableCell>
                       ) : null}
                       {columns.status ? (

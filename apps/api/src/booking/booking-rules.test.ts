@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
+import { reasonFromRule } from './quote.service';
 import {
   evaluateBookingRules,
+  isOverridableRule,
   effectiveMinimumStay,
   minimumStayForOpenRates,
   ruleRangesOverlap,
@@ -174,5 +176,66 @@ describe('booking rules', () => {
     expect(codes(evaluateBookingRules({ ...input, availableUnits: 0 }))).toContain(
       'NO_AVAILABILITY',
     );
+  });
+});
+
+describe('staff override of the hotel limits', () => {
+  it('skips the hotel own limits for staff with a reason, and reports what was skipped', () => {
+    const tooShort = { ...input, startsOn: '2026-10-19', endsOn: '2026-10-20' };
+    expect(codes(evaluateBookingRules(tooShort))).toContain('MIN_STAY');
+    const overridden = evaluateBookingRules({ ...tooShort, overrideRules: true });
+    expect(overridden.valid).toBe(true);
+    expect(overridden.overridden?.map((error) => error.code)).toEqual(['MIN_STAY']);
+  });
+
+  it('never skips safety rules, and never for guests', () => {
+    const past = evaluateBookingRules({
+      ...input,
+      startsOn: '2026-10-17',
+      endsOn: '2026-10-18',
+      overrideRules: true,
+    });
+    expect(codes(past)).toContain('CHECK_IN_PAST');
+    const full = evaluateBookingRules({ ...input, availableUnits: 0, overrideRules: true });
+    expect(codes(full)).toContain('NO_AVAILABILITY');
+    const tooMany = evaluateBookingRules({
+      ...input,
+      maxOccupancy: 2,
+      adults: 3,
+      overrideRules: true,
+    });
+    expect(codes(tooMany)).toContain('CAPACITY_EXCEEDED');
+    const guest = evaluateBookingRules({
+      ...input,
+      channel: 'guest',
+      endsOn: '2026-10-20',
+      overrideRules: true,
+    });
+    expect(codes(guest)).toContain('MIN_STAY');
+    expect(guest.overridden).toBeUndefined();
+  });
+
+  it('lists exactly the hotel limits as overridable', () => {
+    for (const code of ['MIN_STAY', 'OUTSIDE_SEASON', 'MAX_GUESTS_PER_BOOKING', 'SAME_DAY_CLOSED'])
+      expect(isOverridableRule({ code })).toBe(true);
+    for (const code of [
+      'CHECK_IN_PAST',
+      'NO_AVAILABILITY',
+      'CAPACITY_EXCEEDED',
+      'BOOKING_CONFLICT',
+    ])
+      expect(isOverridableRule({ code })).toBe(false);
+  });
+});
+
+describe('reasons shown to websites', () => {
+  it('turns each hotel rule into a reason a website can explain', () => {
+    expect(reasonFromRule('ARRIVAL_DAY_NOT_ALLOWED')).toBe('no_arrival');
+    expect(reasonFromRule('DEPARTURE_DAY_NOT_ALLOWED')).toBe('no_departure');
+    expect(reasonFromRule('MIN_NOTICE')).toBe('too_short_notice');
+    expect(reasonFromRule('OUTSIDE_SEASON')).toBe('outside_season');
+    expect(reasonFromRule('MAX_ROOMS_PER_BOOKING')).toBe('too_many_rooms');
+    expect(reasonFromRule('MIN_STAY')).toBe('min_stay');
+    expect(reasonFromRule('SOMETHING_NEW')).toBe('unavailable');
   });
 });
