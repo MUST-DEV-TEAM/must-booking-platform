@@ -33,6 +33,9 @@ describe('staff invitations', () => {
   const newEmail = `invite-new-${randomUUID()}@example.test`;
   const overLimitEmail = `invite-over-limit-${randomUUID()}@example.test`;
   const failedActivationEmail = `invite-failed-${randomUUID()}@example.test`;
+  const resendEmail = `invite-resend-${randomUUID()}@example.test`;
+  const withdrawEmail = `invite-withdraw-${randomUUID()}@example.test`;
+  const expiredEmail = `invite-expired-${randomUUID()}@example.test`;
   const password = 'correct-horse-battery-staple';
   let ownerCookie: string;
   let adminCookie: string;
@@ -118,7 +121,7 @@ describe('staff invitations', () => {
     await migrationPrisma.$executeRaw`DELETE FROM "tenant_memberships" WHERE "tenant_id" = ${tenantId}::uuid`;
     await migrationPrisma.$executeRaw`DELETE FROM "notifications" WHERE "tenant_id" = ${tenantId}::uuid`;
     await migrationPrisma.$executeRaw`DELETE FROM "properties" WHERE "id" = ${propertyId}::uuid`;
-    await migrationPrisma.$executeRaw`DELETE FROM "users" WHERE "email" IN (${ownerEmail}, ${adminEmail}, ${existingEmail}, ${newEmail}, ${overLimitEmail}, ${failedActivationEmail})`;
+    await migrationPrisma.$executeRaw`DELETE FROM "users" WHERE "email" IN (${ownerEmail}, ${adminEmail}, ${existingEmail}, ${newEmail}, ${overLimitEmail}, ${failedActivationEmail}, ${resendEmail}, ${withdrawEmail}, ${expiredEmail})`;
     await migrationPrisma.$executeRaw`DELETE FROM "organizations" WHERE "id" = ${tenantId}::uuid`;
     await app.close();
     await migrationPrisma.$disconnect();
@@ -242,6 +245,81 @@ describe('staff invitations', () => {
     expect(access).toEqual([
       { role: 'STAFF', roleTemplateId: frontDeskTemplateId, hasSettingsOverride: true },
     ]);
+  });
+
+  it('lists invitations, resends with a fresh link, withdraws, and marks accepted ones (G-85)', async () => {
+    const server = app.getHttpServer();
+    const listUrl = `/tenants/${tenantId}/staff-invitations`;
+    const tokenOf = (command: { invitationUrl: string }) =>
+      new URL(command.invitationUrl).searchParams.get('token')!;
+    const statusOf = async (email: string) => {
+      const list = await request(server).get(listUrl).set('Cookie', ownerCookie).expect(200);
+      return (list.body as Array<{ email: string; status: string }>).find((i) => i.email === email)
+        ?.status;
+    };
+
+    const oldToken = await createInvite(resendEmail);
+    const list = await request(server).get(listUrl).set('Cookie', ownerCookie).expect(200);
+    const entry = (list.body as Array<Record<string, unknown>>).find(
+      (i) => i.email === resendEmail,
+    )!;
+    expect(entry).toMatchObject({ status: 'PENDING', invitedByEmail: ownerEmail });
+    expect(JSON.stringify(list.body)).not.toContain(oldToken);
+
+    // Resend: a new link goes to the same address and the old link stops working.
+    await request(server)
+      .post(`${listUrl}/${entry.id}/resend`)
+      .set('Cookie', ownerCookie)
+      .expect(204);
+    const newToken = tokenOf(invitationEmails.at(-1)!);
+    expect(invitationEmails.at(-1)!.to).toBe(resendEmail);
+    expect(newToken).not.toBe(oldToken);
+    await request(server)
+      .post('/auth/staff-invitations/activate')
+      .send({ token: oldToken, email: resendEmail, password })
+      .expect(400);
+    await request(server)
+      .post('/auth/staff-invitations/activate')
+      .send({ token: newToken, email: resendEmail, password })
+      .expect(204);
+    expect(await statusOf(resendEmail)).toBe('ACCEPTED');
+    await freeSeat(resendEmail);
+    await request(server)
+      .post(`${listUrl}/${entry.id}/resend`)
+      .set('Cookie', ownerCookie)
+      .expect(404);
+
+    // Withdraw: the link stops working and the entry says so; withdrawing twice is refused.
+    const withdrawnToken = await createInvite(withdrawEmail);
+    const withdrawn = (
+      (await request(server).get(listUrl).set('Cookie', ownerCookie).expect(200)).body as Array<{
+        id: string;
+        email: string;
+      }>
+    ).find((i) => i.email === withdrawEmail)!;
+    await request(server)
+      .delete(`${listUrl}/${withdrawn.id}`)
+      .set('Cookie', ownerCookie)
+      .expect(204);
+    await request(server)
+      .post('/auth/staff-invitations/activate')
+      .send({ token: withdrawnToken, email: withdrawEmail, password })
+      .expect(400);
+    expect(await statusOf(withdrawEmail)).toBe('WITHDRAWN');
+    await request(server)
+      .delete(`${listUrl}/${withdrawn.id}`)
+      .set('Cookie', ownerCookie)
+      .expect(404);
+
+    // An invitation past its seven days shows as expired, and can still be resent.
+    await createInvite(expiredEmail);
+    await migrationPrisma.$executeRaw`
+      UPDATE staff_invitations SET expires_at = now() - interval '1 hour'
+      WHERE tenant_id = ${tenantId}::uuid AND email = ${expiredEmail}`;
+    expect(await statusOf(expiredEmail)).toBe('EXPIRED');
+
+    // A staff member without the right to invite cannot read or change the list.
+    await request(server).get(listUrl).set('Cookie', existingUserCookie).expect(403);
   });
 
   it('lets an existing signed-in user accept an invitation using their session user ID', async () => {
