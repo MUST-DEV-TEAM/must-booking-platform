@@ -891,7 +891,7 @@ model RatePlan {
   freeCancellationUntilHours Int?                @map("free_cancellation_until_hours")
   cancellationPolicyId       String?             @map("cancellation_policy_id") @db.Uuid
   // Non-null only for an auto-created "shadow" rate plan backing a
-  // confirmed Clock ROOM_TYPE mapping â€” never staff-visible/selectable,
+  // confirmed Clock ROOM_TYPE mapping — never staff-visible/selectable,
   // exists only so a Clock-priced booking still has a valid rate_plan_id
   // (also the cancellation-policy carrier) without a manual local rate plan.
   clockShadowRoomTypeId      String?             @map("clock_shadow_room_type_id") @db.Uuid
@@ -1053,7 +1053,7 @@ model Booking {
   @@unique([tenantId, propertyId, id])
   @@unique([tenantId, propertyId, externalReference])
   // Postgres treats NULLs as distinct, so this doesn't constrain the many
-  // existing rows with no externalBookingId â€” it only guarantees a single
+  // existing rows with no externalBookingId — it only guarantees a single
   // local booking per real Clock booking, which is what ClockBookingHydration
   // Service's upsert relies on for idempotency (a re-delivered or repeated
   // webhook event must update the same row, never create a duplicate).
@@ -1069,11 +1069,11 @@ model Booking {
 // Financial-flow gap Task B (docs/CLOCK_FINANCIAL_RECONCILIATION_PLAN.md,
 // 2026-09-04): replaces the earlier same-night single-folio-per-booking
 // columns on Booking, which couldn't tell a deposit folio from a general
-// one â€” a booking genuinely has both at once (CONFIRMED_IN_SANDBOX, Task 0:
+// one — a booking genuinely has both at once (CONFIRMED_IN_SANDBOX, Task 0:
 // a real paid booking had one of each, never netting into each other).
 // Visibility only, same as before: no relation to Payment, no write path
 // back to Clock. `isDeposit` is what Task C's reconciliation targets
-// specifically â€” never the general folio.
+// specifically — never the general folio.
 model ClockFolio {
   id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId     String    @map("tenant_id") @db.Uuid
@@ -1081,7 +1081,7 @@ model ClockFolio {
   bookingId    String    @map("booking_id") @db.Uuid
   clockFolioId String    @map("clock_folio_id") @db.VarChar(64)
   isDeposit    Boolean   @map("is_deposit")
-  // Not the folio's own `currency` field â€” CONFIRMED_IN_SANDBOX (Task 0)
+  // Not the folio's own `currency` field — CONFIRMED_IN_SANDBOX (Task 0)
   // that field defaults to the property's base currency regardless of what
   // was actually posted, not a usable signal. This balance is informational
   // only; Task C's comparison uses credit_items' own currency, not this.
@@ -1249,13 +1249,13 @@ model IntegrationConnection {
   mode                  String?                     @db.VarChar(4)
   lastTestedAt          DateTime?                   @map("last_tested_at") @db.Timestamptz(6)
   lastTestResult        String?                     @map("last_test_result") @db.VarChar(500)
-  // Set on every real, signature-verified SNS message (any envelope Type â€”
+  // Set on every real, signature-verified SNS message (any envelope Type —
   // proves connectivity even before a Notification carries business data),
   // never on a rejected one. Missing-webhook alerting (ClockWebhookHealthService)
   // compares this against createdAt for a connection that's never received one yet.
   lastWebhookReceivedAt DateTime?                   @map("last_webhook_received_at") @db.Timestamptz(6)
   // Random, unguessable id used in the public webhook URL path (source brief
-  // section 27/29: "random webhook installation ID") â€” never the internal
+  // section 27/29: "random webhook installation ID") — never the internal
   // `id`, so the callback URL doesn't expose or enumerate connection rows.
   webhookPublicId       String                      @unique @default(dbgenerated("gen_random_uuid()")) @map("webhook_public_id") @db.Uuid
   createdAt             DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -1272,7 +1272,7 @@ model IntegrationConnection {
 // denormalized from IntegrationConnection so a partial unique index (see
 // migration SQL) can enforce "at most one active PMS connection per property"
 // at the database level, not just in application code. PAYMENT connections
-// have no such limit â€” a property may enable several at once.
+// have no such limit — a property may enable several at once.
 model PropertyIntegrationConnection {
   id           String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId     String                    @map("tenant_id") @db.Uuid
@@ -1324,7 +1324,7 @@ model ClockCatalogMapping {
 
 // Milestone 21 Task 13: staff-defined priority order among a Clock-connected
 // room type's `wbe: true` rates. MUST never stores Clock's rate data itself
-// here â€” only which of Clock's own rate ids should win a conflict, and in
+// here — only which of Clock's own rate ids should win a conflict, and in
 // what order. ClockAvailabilityService.selectBestOffer() (Task 12) consults
 // this before falling back to cheapest-wins.
 model ClockRateRanking {
@@ -1390,7 +1390,7 @@ enum ManualReviewStatus {
 // Milestone 11 Task 12 (source brief section 26): every trigger the brief
 // lists gets a category here so the schema doesn't need to change as later
 // tasks/milestones wire up the triggers that don't have real producing code
-// yet (payment sync, full reconciliation) â€” see the milestone doc for which
+// yet (payment sync, full reconciliation) — see the milestone doc for which
 // categories this milestone actually raises for real vs. schema-ready-only.
 model ManualReviewItem {
   id               String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -1422,7 +1422,7 @@ enum ProviderEventStatus {
   IGNORED
   FAILED
   // Durable, actionable parking state for a BullMQ job that reached real
-  // completion whose own status write never landed on this row â€” see
+  // completion whose own status write never landed on this row — see
   // ADR-0031 and docs/integrations/clock/webhooks-and-reconciliation.md.
   // Excluded from the recovery sweep's RECEIVED/QUEUED candidate set so
   // completed-job retention expiring the underlying BullMQ job can never
@@ -1434,7 +1434,7 @@ enum ProviderEventStatus {
 // Milestone 11 Task 11 (source brief section 20/21): every inbound webhook
 // notification, stored durably BEFORE the 2xx response and BEFORE any queue
 // hand-off, so "did we already see this event" survives a crash/retry.
-// Generic "provider_events" naming (not "clock_events") per the brief â€”
+// Generic "provider_events" naming (not "clock_events") per the brief —
 // this table isn't meant to be Clock-specific if another PMS's webhooks
 // land here later.
 model ProviderEvent {
@@ -1451,11 +1451,11 @@ model ProviderEvent {
   status            ProviderEventStatus @default(RECEIVED)
   attempts          Int                 @default(0)
   // Fencing token for the currently-owning processing attempt (see
-  // ADR-0031) â€” set on claim, required to match on every effect-applying
+  // ADR-0031) — set on claim, required to match on every effect-applying
   // or terminal write, cleared once terminal. NULL when no attempt is in
   // flight (RECEIVED, or any terminal status).
   processingToken   String?             @map("processing_token")
-  // BullMQ `job.attemptsMade` of the current claimant â€” a claim-ordering
+  // BullMQ `job.attemptsMade` of the current claimant — a claim-ordering
   // guard (ADR-0031) so a delayed/obsolete claim can never steal ownership
   // back from a fresher one purely because its UPDATE reached Postgres
   // late. Cleared alongside processingToken once terminal.

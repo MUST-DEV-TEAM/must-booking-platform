@@ -425,7 +425,7 @@ export class PokPayPaymentProvider implements PaymentProvider {
 
   // PokPay's own API docs (payments.doc.pokpay.io, "Create an Order") show
   // `amount` sent and returned as the raw currency value directly (e.g. 100
-  // for 100.00 EUR) â€” there is no minor-units/cents convention, unlike
+  // for 100.00 EUR) — there is no minor-units/cents convention, unlike
   // Stripe. Confirmed for real: sending 900.00 EUR as 90000 triggered
   // PokPay's own "maximum amount of 1000 EUR" rejection.
   private pokpayAmount(amount: string): number {

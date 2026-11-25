@@ -83,25 +83,25 @@ export function ReservationTable({
             return (
               <TableRow key={reservation.id}>
                 <TableCell className="whitespace-nowrap font-semibold">
-                  {showDay ? `${dayLabel(dayOfInstant(reservation.startsAt, timezone))} Â· ` : ''}
+                  {showDay ? `${dayLabel(dayOfInstant(reservation.startsAt, timezone))} · ` : ''}
                   {timeInZone(reservation.startsAt, timezone)}
                 </TableCell>
                 <TableCell>
                   <div className="font-medium">{reservation.guestName}</div>
                   <div className="text-xs text-muted-foreground">
-                    {[reservation.guestPhone, reservation.reference].filter(Boolean).join(' Â· ')}
+                    {[reservation.guestPhone, reservation.reference].filter(Boolean).join(' · ')}
                   </div>
                   {reservation.notes ? (
                     <div className="text-xs text-muted-foreground">{reservation.notes}</div>
                   ) : null}
                   {reservation.stay ? (
                     <Badge variant="info" className="mt-1">
-                      Hotel guest{reservation.stay.room ? ` Â· room ${reservation.stay.room}` : ''}
+                      Hotel guest{reservation.stay.room ? ` · room ${reservation.stay.room}` : ''}
                     </Badge>
                   ) : null}
                 </TableCell>
                 <TableCell>{reservation.partySize}</TableCell>
-                <TableCell>{reservation.tables.map((t) => t.label).join(' + ') || 'â€”'}</TableCell>
+                <TableCell>{reservation.tables.map((t) => t.label).join(' + ') || '—'}</TableCell>
                 <TableCell>
                   <Badge variant={display.tone}>{display.label}</Badge>
                 </TableCell>
