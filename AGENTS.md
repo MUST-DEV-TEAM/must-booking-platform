@@ -26,6 +26,8 @@ Multi-tenant hotel booking platform: NestJS API (`apps/api`), Next.js staff/plat
 - Run lint, typecheck/build and the tests for what you changed (`pnpm -w lint`, `pnpm --filter api test`, `pnpm --filter web test`, `pnpm -w build`). Report failures honestly; never skip or weaken a test to get green.
 - A test that only greps source text is not behavioral proof.
 - Check `git diff --stat` matches the task.
+- **Running checks locally:** use `pnpm exec vitest` (plain `npx vitest` can load React twice and fail every web test); run web tests from an uppercase drive path (`C:/...`); API specs that build links need `WEB_APP_URL` set; run `prettier --check` from the repo root, as CI does, not from `apps/api`. On a low-memory PC run the checks in the isolated Docker box and one heavy job at a time.
+- **One-off scripts:** write the result to a file, never to stdout (the application logger also writes to stdout and corrupts a saved credential); read the file back and check it before saving anything; on Windows open files as UTF-8 explicitly.
 
 ## Docs
 

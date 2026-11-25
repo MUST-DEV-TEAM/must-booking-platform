@@ -10,6 +10,8 @@ The last maintained environment record (2026-09-10, [Milestone 14](../roadmap/mi
 
 The API runtime must use the RLS-constrained database role; migrations use the owner connection. The container procedure runs `db:set-app-password` after migrations. That command changes a database credential and belongs only in the explicitly targeted environment. Production secrets, DNS/TLS and deployment automation still require Milestone 14 reconciliation, not a silent status change. Nightly database backups to Google Drive follow [infrastructure/backup](../../infrastructure/backup/README.md). Before 2026-10-09 `booking.must.al` had no database backups at all. They were installed that day; the first run and a restore into a scratch database were verified (324 bookings, 2 properties and 43 tables matched live). They have been encrypted since that day (rclone `crypt`; the owner holds the passwords), and the encrypted copy was checked to decrypt to a complete dump. Host-level extras such as failure emails and UpdraftPlus sorting are in [infrastructure/ops](../../infrastructure/ops/README.md).
 
+A manually started deploy can stay `queued` with no jobs for many minutes and cannot be cancelled (HTTP 409). Starting another deploy replaces it; do not wait on the stuck run.
+
 ## Jobs and observability
 
 Workers run in the API process; startup of a full AppModule can connect to Redis, register schedules and initiate external work. Use isolated test resources.

@@ -97,7 +97,7 @@ export function RestaurantSetupWizard({
   });
 
   if (venue.isPending || services.isPending || layout.isPending || step === null)
-    return <p className="text-sm text-muted-foreground">Loading the setupâ€¦</p>;
+    return <p className="text-sm text-muted-foreground">Loading the setup…</p>;
   if (venue.isError || services.isError || layout.isError)
     return (
       <Alert variant="destructive">
