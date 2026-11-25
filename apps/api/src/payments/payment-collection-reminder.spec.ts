@@ -2,9 +2,17 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { PaymentCollectionService } from './payment-collection.service';
 
-function setup(rows: unknown[], requestRows: unknown[] = []) {
+function setup(rows: unknown[], requestRows: unknown[] = [], secondRows: unknown[] = []) {
   const guest = vi.fn().mockResolvedValue(undefined);
-  const db = { $queryRaw: vi.fn().mockResolvedValueOnce(requestRows).mockResolvedValue(rows) };
+  // The queries run in order: request reminders, first reminders, second reminders, expired links.
+  const db = {
+    $queryRaw: vi
+      .fn()
+      .mockResolvedValueOnce(requestRows)
+      .mockResolvedValueOnce(rows)
+      .mockResolvedValueOnce(secondRows)
+      .mockResolvedValue([]),
+  };
   const service = new PaymentCollectionService(
     db as never,
     {} as never,
@@ -75,5 +83,28 @@ describe('payment link reminders', () => {
         cta: { label: 'Pay securely', url: 'https://hotel.test/request' },
       }),
     );
+  });
+});
+
+describe('second payment link reminder (G-100)', () => {
+  it('sends it once per link under its own key', async () => {
+    const { service, guest } = setup(
+      [],
+      [],
+      [
+        {
+          bookingId: 'b1',
+          tenantId: 't1',
+          propertyId: 'p1',
+          operationId: 'op1',
+          checkoutUrl: 'https://pay.test/o/1',
+          amount: '120.00',
+          currency: 'EUR',
+        },
+      ],
+    );
+    await service.sendDueReminders();
+    expect(guest).toHaveBeenCalledTimes(1);
+    expect(guest.mock.calls[0]![1]).toMatchObject({ idempotencyKey: 'payment-reminder-2/op1' });
   });
 });

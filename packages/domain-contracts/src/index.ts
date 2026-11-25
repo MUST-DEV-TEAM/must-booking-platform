@@ -56,6 +56,8 @@ export interface MailProvider {
     specialRequests?: string | null;
     /** The hotel's check-in/out times and house rules as sentences; absent when the hotel set none (G-55). */
     houseRules?: string[];
+    /** What the reception takes in person, as one sentence; absent when the hotel listed nothing (S7b-3). */
+    acceptedAtHotelNote?: string;
     /** The property's own subject and message, when it saved one. */
     template?: MailTemplateOverride;
   }): Promise<MailSendReceipt | void>;
