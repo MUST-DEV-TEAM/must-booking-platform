@@ -2,6 +2,9 @@ import { paymentMethodAvailability } from './payment-method-availability';
 import { NotificationsService } from '../tenancy/notifications.service';
 import { enforcePropertyBookingLimits } from './property-booking-limits';
 import { checkTermsAcceptance, recordTermsAcceptance } from './terms-acceptance';
+import { PromoCodeService } from './promo-code.service';
+import { enforceChildrenAges, enforceGuestForm } from './guest-form-rules';
+import { checkoutReturnUrl, validatedGuestReturnUrl } from './guest-return-url';
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   BookingPaymentMethod,
@@ -38,6 +41,10 @@ export type MultiRoomBookingCommand = {
   guest: CreateBookingCommand['guest'];
   paymentMethod?: GuestPaymentMethod;
   quoteSessionId: string;
+  /** Where the guest comes back to after card payment: the hotel's own website. */
+  returnUrl?: string;
+  /** Set when staff make the order for a guest; the rooms are then booked as direct bookings by that person. */
+  staffActorId?: string;
   rooms: Array<{
     roomTypeId: string;
     roomId?: string;
@@ -50,6 +57,10 @@ export type MultiRoomBookingCommand = {
     guestCount?: number;
     quoteToken: string;
     guest?: RoomGuestName;
+    /** The Clock rate the guest chose, when the hotel sells through Clock. Bound into the room's quote. */
+    clockRateId?: string;
+    /** The coupon entered for this room. Bound into the room's quote; its discount is stored on the booking. */
+    promoCode?: string;
   }>;
 };
 
@@ -109,6 +120,7 @@ export class MultiRoomBookingService {
     @Optional()
     @Inject(NotificationsService)
     private readonly notificationsService?: NotificationsService,
+    @Optional() @Inject(PromoCodeService) private readonly promos?: PromoCodeService,
   ) {}
 
   async create(
@@ -141,6 +153,14 @@ export class MultiRoomBookingService {
               command.guest.termsAccepted === true,
             );
             if (!terms.ok) return this.failure(terms.code, terms.message);
+            // A guest order carries what a single booking carries: every field the hotel marked Required in its
+            // Booking form, and each child's age when the hotel asks for it. Staff orders are not held to the form.
+            if (!command.staffActorId) {
+              await enforceGuestForm(tx, context, command.guest);
+              for (const room of command.rooms)
+                await enforceChildrenAges(tx, context, roomOccupancy(room), room.childrenAges);
+            }
+            const guestReturnUrl = await validatedGuestReturnUrl(tx, context, command.returnUrl);
 
             const paymentMethod = await this.paymentMethod(
               tx,
@@ -175,6 +195,8 @@ export class MultiRoomBookingService {
                 roomTypeId: room.roomTypeId,
                 roomId: room.roomId,
                 ratePlanId: room.ratePlanId,
+                clockRateId: room.clockRateId,
+                promoCode: room.promoCode,
                 startsOn: command.startsOn,
                 endsOn: command.endsOn,
                 adults: room.adults,
@@ -220,13 +242,24 @@ export class MultiRoomBookingService {
               const nightlyRates = this.quotes.nightlyRates(room.quoteToken)!;
               const roomGuest = room.guest ?? command.guest;
               const occupancy = roomOccupancy(room);
+              // The coupon signed into this room's quote. A limited coupon counts one use per room it is applied to.
+              const promo = room.promoCode ? this.quotes.promoOf(room.quoteToken) : null;
+              if (promo?.source === 'own') {
+                const redeemed = await this.promos?.reserveUse(tx, context, promo.code);
+                if (!redeemed)
+                  return this.failure(
+                    'PROMO_UNAVAILABLE',
+                    'This code has just been used up. Please request a new quote.',
+                  );
+              }
               const inserted = await tx.$queryRaw<Array<{ id: string }>>`
                 INSERT INTO bookings (
                   tenant_id, property_id, room_type_id, room_id, guest_id, guest_session_id,
                   external_reference, order_reference, order_room_number,
                   room_guest_first_name, room_guest_last_name, status, payment_method,
                   starts_on, ends_on, rate_plan_id, total_amount, adults, children, guest_count,
-                  nightly_rates, source, on_request_deadline_at, payment_pending_at
+                  nightly_rates, source, on_request_deadline_at, payment_pending_at,
+                  clock_rate_id, promo_code, promo_discount_amount, original_total_amount
                 ) VALUES (
                   ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${room.roomTypeId}::uuid,
                   ${room.roomId ?? null}::uuid, ${guest.value}::uuid, ${command.quoteSessionId}::uuid,
@@ -235,8 +268,10 @@ export class MultiRoomBookingService {
                   ${status}::"BookingStatus", ${paymentMethod.value}::"BookingPaymentMethod",
                   ${command.startsOn}::date, ${command.endsOn}::date, ${billingRatePlanIds[index]}::uuid,
                   ${room.total.amount}::numeric, ${occupancy.adults}, ${occupancy.children},
-                  ${occupancy.guestCount}, ${JSON.stringify(nightlyRates)}::jsonb, 'WEBSITE',
-                  ${deadline}::timestamptz, ${onRequest ? null : status === BookingStatus.PAYMENT_PENDING ? new Date() : null}::timestamptz
+                  ${occupancy.guestCount}, ${JSON.stringify(nightlyRates)}::jsonb, ${command.staffActorId ? 'DIRECT' : 'WEBSITE'},
+                  ${deadline}::timestamptz, ${onRequest ? null : status === BookingStatus.PAYMENT_PENDING ? new Date() : null}::timestamptz,
+                  ${room.clockRateId ?? null}, ${promo?.code ?? null}, ${promo?.discount.amount ?? null}::numeric,
+                  ${promo?.originalTotal.amount ?? null}::numeric
                 )
                 RETURNING id
               `;
@@ -248,6 +283,21 @@ export class MultiRoomBookingService {
               bookings.map((booking) => booking.id),
               terms.record,
             );
+            // The guest's form answers belong to every room of the order; the way back to the website follows the
+            // first room, which carries the order's payment.
+            await tx.$executeRaw`
+              UPDATE bookings SET
+                special_requests = ${command.guest.specialRequests?.trim() || null},
+                estimated_arrival_time = ${command.guest.arrivalTime ?? null},
+                company_name = ${command.guest.companyName ?? null},
+                tax_number = ${command.guest.taxNumber ?? null},
+                marketing_consent = ${command.guest.marketingConsent === true},
+                marketing_consent_at = ${command.guest.marketingConsent === true ? new Date() : null}::timestamptz
+              WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+                AND order_reference = ${orderReference}`;
+            if (guestReturnUrl)
+              await tx.$executeRaw`UPDATE bookings SET guest_return_url = ${guestReturnUrl}
+                WHERE id = ${bookings[0]!.id}::uuid AND tenant_id = ${context.tenantId}::uuid`;
             if (onRequest) {
               if (this.audit)
                 for (const booking of bookings)
@@ -339,8 +389,8 @@ export class MultiRoomBookingService {
                 description: await loadCheckoutDescription(tx, context, bookings[0]!.id),
                 expiresAfterMinutes: await checkoutHoldMinutes(tx, context, bookings[0]!.id),
                 amount,
-                successUrl: this.checkoutReturnUrl(bookings[0]!.id, 'success'),
-                cancelUrl: this.checkoutReturnUrl(bookings[0]!.id, 'cancel'),
+                successUrl: checkoutReturnUrl(bookings[0]!.id, 'success', guestReturnUrl, context),
+                cancelUrl: checkoutReturnUrl(bookings[0]!.id, 'cancel', guestReturnUrl, context),
               });
               if (!checkout.ok) return checkout;
               await tx.$executeRaw`
@@ -449,7 +499,7 @@ export class MultiRoomBookingService {
     for (const room of command.rooms) {
       if (
         !room.roomTypeId ||
-        !room.ratePlanId ||
+        (!room.ratePlanId && !room.clockRateId) ||
         !room.quoteToken ||
         !this.validMoney(room.total) ||
         (room.guestCount !== undefined &&
@@ -536,7 +586,17 @@ export class MultiRoomBookingService {
         AND id = ${room.roomTypeId}::uuid AND status = 'PUBLISHED'::"RoomTypeStatus"
     `;
     if (!types[0]) return null;
-    const billing = await resolveBillingRatePlan(tx, context, room.ratePlanId, room.total.currency);
+    // A Clock hotel sells by Clock rate: the room type's shadow plan stands in when no plan id is sent (as for a single booking).
+    const ratePlanId =
+      room.ratePlanId ||
+      (
+        await tx.$queryRaw<Array<{ id: string }>>`
+          SELECT id FROM rate_plans
+          WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+            AND clock_shadow_room_type_id = ${room.roomTypeId}::uuid`
+      )[0]?.id;
+    if (!ratePlanId) return null;
+    const billing = await resolveBillingRatePlan(tx, context, ratePlanId, room.total.currency);
     if (!billing.ok) return null;
     if (!room.roomId) return billing.ratePlanId;
     const selected = await tx.$queryRaw<Array<{ id: string }>>`
@@ -678,13 +738,6 @@ export class MultiRoomBookingService {
       amount: `${total / 100n}.${(total % 100n).toString().padStart(2, '0')}`,
       currency,
     };
-  }
-
-  private checkoutReturnUrl(bookingId: string, outcome: 'success' | 'cancel'): string {
-    return new URL(
-      `/bookings/${bookingId}/payment/${outcome}`,
-      process.env.WEB_APP_URL!,
-    ).toString();
   }
 
   private async isClockConnected(context: {

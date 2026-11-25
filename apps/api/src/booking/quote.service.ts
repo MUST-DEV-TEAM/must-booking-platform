@@ -188,6 +188,8 @@ export class QuoteService {
     sessionId: string,
     input: QuoteInput,
     ttlSeconds = 15 * 60,
+    /** Staff price a reservation with the staff channel (their own rates and rules); a guest quote is 'website'. */
+    channel: 'website' | 'staff' = 'website',
   ): Promise<QuotePayload & { quoteToken: string }> {
     if (!sessionId) throw new BadRequestException('A valid session is required to create a quote.');
     if (!Number.isInteger(ttlSeconds) || ttlSeconds < 1)
@@ -197,12 +199,7 @@ export class QuoteService {
     const normalizedInput = { ...this.normalizeOccupancy(input), promoCode };
     // Public quotes also preflight the property-local cutoff; shared validation covers staff too.
     await this.enforceGuestSameDayRule(tenantId, propertyId, normalizedInput.startsOn);
-    const quote = await this.priceWithNightlyRates(
-      tenantId,
-      propertyId,
-      normalizedInput,
-      'website',
-    );
+    const quote = await this.priceWithNightlyRates(tenantId, propertyId, normalizedInput, channel);
 
     const payload: QuotePayload = {
       version: 1,

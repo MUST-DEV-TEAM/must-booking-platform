@@ -2071,7 +2071,7 @@ export class LocalPmsProvider implements PmsProvider {
                 'Booking has changed; reload it before cancelling.',
                 true,
               );
-            if (row.orderReference && !(command.staffActorId && command.singleBooking)) {
+            if (row.orderReference && !command.singleBooking) {
               if (!command.staffActorId && (await this.isClockConnected(context)))
                 return this.failure(
                   'CANCELLATION_REQUIRES_REVIEW',
@@ -2082,6 +2082,17 @@ export class LocalPmsProvider implements PmsProvider {
               cancelledBookingIds.push(...cancelled.cancelledBookingIds);
               return cancelled.result;
             }
+            // One room of an order on its own (staff, or the guest for a room of their own order). A Clock hotel's
+            // guest sends a request instead, because the order's payment sits on another room.
+            if (
+              row.orderReference &&
+              !command.staffActorId &&
+              (await this.isClockConnected(context))
+            )
+              return this.failure(
+                'CANCELLATION_REQUIRES_REVIEW',
+                'Rooms of a Clock booking are cancelled by hotel staff. Please send a cancellation request.',
+              );
             const booking = this.toBooking(row);
             if (!booking) return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
             if (!this.stateMachine.canTransition(row.status, BookingStatus.CANCELLED))
@@ -2153,14 +2164,34 @@ export class LocalPmsProvider implements PmsProvider {
               cancellationPolicy.autoRefund !== false &&
               !command.skipAutomaticRefund
             ) {
-              const refunded = await this.refunds.refundPaidChargeForBooking(
-                tx,
-                context,
-                row.id,
-                `cancellation-refund:${command.idempotencyKey}`,
-                // A guest who cancels on their own bears the payment fee (when the hotel says so).
-                { guestDecision: !command.staffActorId },
-              );
+              // A room of an order is paid by the order's one charge on its first room: refund this room's share.
+              const anchorId = row.orderReference
+                ? ((
+                    await tx.$queryRaw<Array<{ id: string }>>`
+                      SELECT id FROM bookings
+                      WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+                        AND order_reference = ${row.orderReference}
+                      ORDER BY order_room_number, id LIMIT 1`
+                  )[0]?.id ?? row.id)
+                : row.id;
+              const refunded = row.orderReference
+                ? await this.refunds.refundPaidChargeForBookingAmount(
+                    tx,
+                    context,
+                    anchorId,
+                    { amount: row.totalAmount, currency: row.currency },
+                    `cancellation-refund:${command.idempotencyKey}`,
+                    undefined,
+                    { guestDecision: !command.staffActorId },
+                  )
+                : await this.refunds.refundPaidChargeForBooking(
+                    tx,
+                    context,
+                    row.id,
+                    `cancellation-refund:${command.idempotencyKey}`,
+                    // A guest who cancels on their own bears the payment fee (when the hotel says so).
+                    { guestDecision: !command.staffActorId },
+                  );
               if (!refunded.result.ok)
                 await this.recordAutomaticRefundFailure(tx, context, row.id, refunded.result.error);
               if (refunded.confirmation) refundConfirmations.push(refunded.confirmation);
