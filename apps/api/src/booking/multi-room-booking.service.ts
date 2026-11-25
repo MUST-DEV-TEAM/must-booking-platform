@@ -9,6 +9,7 @@ import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   BookingPaymentMethod,
   BookingStatus,
+  type BankTransferDetails,
   type CreateBookingCommand,
   type GuestPaymentMethod,
   type Money,
@@ -67,6 +68,8 @@ export type MultiRoomBookingCommand = {
 export type MultiRoomOrder = {
   orderReference: string;
   checkoutUrl?: string;
+  /** Set for a bank-transfer order: where to send the money, how much (all rooms) and by when (G-105). */
+  bankTransfer?: BankTransferDetails;
   onRequestDeadlineAt?: string;
   bookings: Array<{
     id: string;
@@ -231,7 +234,8 @@ export class MultiRoomBookingService {
             const status = onRequest
               ? BookingStatus.ON_REQUEST_PENDING
               : paymentMethod.value === BookingPaymentMethod.STRIPE_CHECKOUT ||
-                  paymentMethod.value === BookingPaymentMethod.POKPAY
+                  paymentMethod.value === BookingPaymentMethod.POKPAY ||
+                  paymentMethod.value === BookingPaymentMethod.BANK_TRANSFER
                 ? BookingStatus.PAYMENT_PENDING
                 : paymentMethod.value === BookingPaymentMethod.PAY_AT_HOTEL
                   ? BookingStatus.PMS_CREATION_PENDING
@@ -356,6 +360,63 @@ export class MultiRoomBookingService {
               }
               return { ok: true, value: { orderReference, bookings } };
             }
+            if (paymentMethod.value === BookingPaymentMethod.BANK_TRANSFER) {
+              // Every room is held until the hotel's own transfer deadline (the existing expiry sweep releases
+              // them all at payment_due_at); staff record the one transfer and every room is then confirmed.
+              const confirmed = await this.prePaymentAvailability.confirmAvailable(context, {
+                startsOn: command.startsOn,
+                endsOn: command.endsOn,
+                rooms: command.rooms.map((room) => {
+                  const occupancy = roomOccupancy(room);
+                  return {
+                    roomTypeId: room.roomTypeId,
+                    roomId: room.roomId,
+                    adults: occupancy.adults,
+                    children: occupancy.children,
+                  };
+                }),
+              });
+              if (!confirmed.ok) throw new PrePaymentAvailabilityError(confirmed);
+              const bank = await tx.$queryRaw<
+                Array<{
+                  holder: string | null;
+                  iban: string | null;
+                  bic: string | null;
+                  bankName: string | null;
+                  note: string | null;
+                  days: number;
+                }>
+              >`SELECT bank_account_holder AS holder, bank_iban AS iban, bank_bic AS bic, bank_name AS "bankName",
+                  bank_transfer_note AS note, bank_transfer_days AS days
+                FROM properties WHERE tenant_id=${context.tenantId}::uuid AND id=${context.propertyId}::uuid`;
+              const account = bank[0];
+              if (!account?.holder || !account.iban)
+                return this.failure(
+                  'PAYMENT_METHOD_NOT_ENABLED',
+                  'The hotel has not entered its bank details.',
+                );
+              const dueAt = new Date(Date.now() + account.days * 24 * 60 * 60 * 1000);
+              await tx.$executeRaw`UPDATE bookings SET payment_due_at = ${dueAt}::timestamptz
+                WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+                  AND order_reference = ${orderReference}`;
+              return {
+                ok: true,
+                value: {
+                  orderReference,
+                  bookings,
+                  bankTransfer: {
+                    accountHolder: account.holder,
+                    iban: account.iban,
+                    bic: account.bic,
+                    bankName: account.bankName,
+                    note: account.note,
+                    reference: orderReference,
+                    amount: this.total(bookings.map((booking) => booking.total)),
+                    dueAt: dueAt.toISOString(),
+                  },
+                },
+              };
+            }
             if (
               paymentMethod.value === BookingPaymentMethod.STRIPE_CHECKOUT ||
               paymentMethod.value === BookingPaymentMethod.POKPAY
@@ -413,6 +474,36 @@ export class MultiRoomBookingService {
         },
         { timeoutMs: 45_000 },
       );
+      if (result.ok && result.value.bankTransfer && result.value.bookings[0]) {
+        const transfer = result.value.bankTransfer;
+        const bookingId = result.value.bookings[0].id;
+        await this.lifecycle?.guest(context, {
+          topic: 'payment_pending',
+          key: 'booking_awaiting_transfer',
+          eventType: 'guest.booking_awaiting_transfer',
+          idempotencyKey: `booking-awaiting-transfer/${bookingId}`,
+          bookingId,
+          heading: 'Transfer to confirm your booking',
+          force: true,
+          values: {
+            payment_due: `${transfer.amount.amount} ${transfer.amount.currency}`,
+            transfer_deadline: transfer.dueAt.slice(0, 10),
+            bank_details: [
+              `Account holder: ${transfer.accountHolder}`,
+              `IBAN: ${transfer.iban}`,
+              ...(transfer.bic ? [`BIC: ${transfer.bic}`] : []),
+              ...(transfer.bankName ? [`Bank: ${transfer.bankName}`] : []),
+              `Reference: ${transfer.reference}`,
+              ...(transfer.note ? [transfer.note] : []),
+            ].join('\n'),
+          },
+          rows: [
+            { label: 'Amount', value: `${transfer.amount.amount} ${transfer.amount.currency}` },
+            { label: 'IBAN', value: transfer.iban },
+            { label: 'Reference', value: transfer.reference },
+          ],
+        });
+      }
       if (result.ok) {
         await this.sendPayAtHotelConfirmations(context, result.value.orderReference);
         if (result.value.onRequestDeadlineAt && result.value.bookings[0]) {
@@ -622,7 +713,8 @@ export class MultiRoomBookingService {
     const enabled =
       (selected === 'stripe' && available.stripe) ||
       (selected === 'pokpay' && available.pokpay) ||
-      (selected === 'pay_at_hotel' && available.payAtHotel);
+      (selected === 'pay_at_hotel' && available.payAtHotel) ||
+      (selected === 'bank_transfer' && available.bankTransfer);
     if (!enabled)
       return this.failure(
         'PAYMENT_METHOD_NOT_ENABLED',
@@ -635,7 +727,9 @@ export class MultiRoomBookingService {
           ? BookingPaymentMethod.STRIPE_CHECKOUT
           : selected === 'pokpay'
             ? BookingPaymentMethod.POKPAY
-            : BookingPaymentMethod.PAY_AT_HOTEL,
+            : selected === 'bank_transfer'
+              ? BookingPaymentMethod.BANK_TRANSFER
+              : BookingPaymentMethod.PAY_AT_HOTEL,
     };
   }
 
