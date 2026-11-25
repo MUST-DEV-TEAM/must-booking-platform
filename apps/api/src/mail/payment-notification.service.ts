@@ -2,6 +2,7 @@ import type { RecipientEnvelope } from './recipient-envelope';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { MailTemplateOverride } from '@must/domain-contracts';
 
+import { houseRuleLines } from '../tenancy/house-rules';
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
 import { MailDeliveryService } from './mail-delivery.service';
 import type { QueuedMailCommands } from './mail-descriptors';
@@ -50,9 +51,14 @@ export class PaymentNotificationService {
       }),
     );
     if (!guest.enabled) return;
+    const houseRules = await this.houseRules(context);
     return this.delivery.dispatch(
       'paymentConfirmation',
-      { ...command, ...(guest.template ? { template: guest.template } : {}) },
+      {
+        ...command,
+        ...(houseRules.length ? { houseRules } : {}),
+        ...(guest.template ? { template: guest.template } : {}),
+      },
       this.scope(context),
     );
   }
@@ -90,6 +96,21 @@ export class PaymentNotificationService {
       { ...command, ...(guest.template ? { template: guest.template } : {}) },
       this.scope(context),
     );
+  }
+
+  /** Check-in/out times and house rules for the confirmation email. Never throws: the email goes out without them. */
+  private async houseRules(context: NotificationContext): Promise<string[]> {
+    try {
+      return await this.database.withTenantTransaction(context, (tx) =>
+        houseRuleLines(tx, context),
+      );
+    } catch (error) {
+      this.logger.error(
+        'Could not read the house rules for the confirmation email; sending it without them.',
+        error instanceof Error ? error.stack : String(error),
+      );
+      return [];
+    }
   }
 
   async sendBookingCancelledEmailSafely(
