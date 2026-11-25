@@ -39,6 +39,8 @@ export type MultiRoomBookingCommand = {
   guest: CreateBookingCommand['guest'];
   paymentMethod?: GuestPaymentMethod;
   quoteSessionId: string;
+  /** Set when staff make the order for a guest; the rooms are then booked as direct bookings by that person. */
+  staffActorId?: string;
   rooms: Array<{
     roomTypeId: string;
     roomId?: string;
@@ -254,7 +256,7 @@ export class MultiRoomBookingService {
                   ${status}::"BookingStatus", ${paymentMethod.value}::"BookingPaymentMethod",
                   ${command.startsOn}::date, ${command.endsOn}::date, ${billingRatePlanIds[index]}::uuid,
                   ${room.total.amount}::numeric, ${occupancy.adults}, ${occupancy.children},
-                  ${occupancy.guestCount}, ${JSON.stringify(nightlyRates)}::jsonb, 'WEBSITE',
+                  ${occupancy.guestCount}, ${JSON.stringify(nightlyRates)}::jsonb, ${command.staffActorId ? 'DIRECT' : 'WEBSITE'},
                   ${deadline}::timestamptz, ${onRequest ? null : status === BookingStatus.PAYMENT_PENDING ? new Date() : null}::timestamptz,
                   ${room.clockRateId ?? null}, ${promo?.code ?? null}, ${promo?.discount.amount ?? null}::numeric,
                   ${promo?.originalTotal.amount ?? null}::numeric
