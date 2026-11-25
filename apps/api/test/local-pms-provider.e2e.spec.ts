@@ -2422,7 +2422,11 @@ describe('LocalPmsProvider', () => {
       .post(`${propertyUrl}/bookings/${staffBooking.body.value.id}/manual-payment`)
       .set('Cookie', propertyStaffCookie)
       .set('Idempotency-Key', randomUUID())
-      .send({ method: 'bank_transfer' })
+      .send({
+        method: 'bank_transfer',
+        // A bank transfer is always recorded with the bank's own reference and the date it arrived (G-48).
+        evidence: { receivedOn: new Date().toISOString().slice(0, 10), reference: 'TRX-LOCAL-1' },
+      })
       .expect(200)
       .expect((response) => {
         expect(response.body).toMatchObject({

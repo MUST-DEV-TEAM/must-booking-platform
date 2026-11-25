@@ -394,7 +394,8 @@ export class BookingController {
       paymentMethod:
         value.paymentMethod === 'stripe' ||
         value.paymentMethod === 'pokpay' ||
-        value.paymentMethod === 'pay_at_hotel'
+        value.paymentMethod === 'pay_at_hotel' ||
+        value.paymentMethod === 'bank_transfer'
           ? value.paymentMethod
           : (undefined as GuestPaymentMethod | undefined),
       payAtHotel: typeof value.payAtHotel === 'boolean' ? value.payAtHotel : undefined,

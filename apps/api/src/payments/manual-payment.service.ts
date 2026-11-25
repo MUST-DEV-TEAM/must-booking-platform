@@ -88,6 +88,13 @@ export class ManualPaymentService {
               'INVALID_PAYMENT_NOTE',
               'Use a payment note of up to 500 characters.',
             );
+          // A bank transfer is always recorded with the bank's own reference (the transaction id or the reference
+          // on the statement), so the money can be matched to the booking later (G-48).
+          if (command.method === 'bank_transfer' && !command.evidence?.reference?.trim())
+            return this.failure(
+              'INVALID_PAYMENT_EVIDENCE',
+              'Enter the bank transaction reference (as shown on the bank statement) and the date the money arrived.',
+            );
           if (command.evidence) {
             const evidence = command.evidence;
             const date = new Date(evidence.receivedOn + 'T00:00:00Z');
@@ -167,7 +174,14 @@ export class ManualPaymentService {
               'MANUAL_PAYMENT_MUST_SETTLE_BOOKING',
               'A pending online reservation must be settled in full before it can be confirmed.',
             );
-          const externalPaymentId = `manual:${command.method}:${randomUUID()}`;
+          // A bank transfer is identified by the bank's own reference, so staff can find the payment from the statement.
+          const externalPaymentId =
+            command.method === 'bank_transfer' && command.evidence?.reference?.trim()
+              ? `manual:bank_transfer:${booking.id}:${command.evidence.reference.trim()}`.slice(
+                  0,
+                  300,
+                )
+              : `manual:${command.method}:${randomUUID()}`;
           const rows = await tx.$queryRaw<Array<{ id: string }>>`
           INSERT INTO payments (
             tenant_id, property_id, booking_id, kind, provider, method, external_payment_id, status, amount, currency
@@ -205,7 +219,11 @@ export class ManualPaymentService {
           });
           if (booking.status === BookingStatus.PAYMENT_PENDING) {
             const confirmed = await this.bookings.continueAfterPayment(tx, context, booking.id, {
-              reference: externalPaymentId,
+              // Clock shows the bank's own reference, so the deposit can be matched to the statement.
+              reference:
+                command.method === 'bank_transfer' && command.evidence?.reference?.trim()
+                  ? command.evidence.reference.trim()
+                  : externalPaymentId,
               paymentSubType: this.clockPaymentSubType(command.method),
               paymentType: this.clockPaymentType(command.method),
             });
