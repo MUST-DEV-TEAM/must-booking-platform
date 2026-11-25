@@ -1,6 +1,7 @@
 # Stripe balance links (G-44) and multi-room payment links (G-47): design
 
 Status: **design only, not built** (2026-11-24). Owner chose to build both (popup 2026-11-24). Each is its own pull request after this design is agreed.
+Status: **G-44 built 2026-11-24** (first version, below); **G-47 not built**. Owner chose to build both (popup 2026-11-24).
 
 ## The problem
 
@@ -47,3 +48,12 @@ The order's balance is the sum over its rooms. One operation per **order** (aggr
 ## Open decisions for the owner
 1. Should PokPay balance links also move to the durable site link (one code path), or stay as they are? Recommended: move later, after Stripe is proven.
 2. A balance link for a booking that is still `PAYMENT_PENDING`: out of scope (only confirmed bookings), as today.
+
+## What was built for G-44 (first version)
+
+- `stripe-balance-collection.service.ts` sits **beside** the PokPay flow and shares none of its saved attempts (its own operation kind `balance_collection_stripe`), so PokPay behaves exactly as before.
+- API: `POST .../bookings/:id/collect-stripe`, `POST .../send-stripe-link`; `collection-options` also answers `stripe`; `check-collection` reads a Stripe attempt's saved state.
+- The Stripe webhook calls `complete()` first: a paid session of a **confirmed** booking's Stripe balance link is recorded as a CHARGE (once), the attempt is closed, Clock gets the deposit when the balance came from a verified Clock bill, and the receipt emails go out. Anything else (a booking no longer confirmed) falls through to the existing late-payment refund.
+- Dashboard: a hotel with only Stripe connected gets the same buttons for Stripe; a hotel with both keeps PokPay (unchanged).
+- **Known limits of this version:** the link lasts the hotel's days but never more than 24 hours (Stripe's limit), so reminders and the staff expiry notice (S7b-4) do not cover Stripe links yet; the durable site link (slice 1.3 above) is the next step. Stripe is test-mode only in this system today (`isStripeTestKey`), so nothing here moves real money until that changes.
+- **Not run live:** tests use a fake Stripe provider; a Stripe test-mode run with the Stripe CLI is still needed.

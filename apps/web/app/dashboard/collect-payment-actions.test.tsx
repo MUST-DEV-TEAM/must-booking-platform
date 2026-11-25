@@ -19,6 +19,7 @@ async function mount(
   clock = false,
   paidAmount = '25',
   clockResult?: unknown,
+  collectionOptions: unknown = { pokpay: true },
 ) {
   const requests: string[] = [];
   const fetcher = vi.fn(async (url: string, _init?: RequestInit) => {
@@ -32,7 +33,7 @@ async function mount(
           : url.endsWith('/mine')
             ? capabilities
             : url.endsWith('/collection-options')
-              ? { pokpay: true }
+              ? collectionOptions
               : url.endsWith('/check-collection')
                 ? { paid: true, orderId: 'current-order' }
                 : { checkoutUrl: 'https://staging.example/checkout', orderId: 'current-order' },
@@ -83,6 +84,39 @@ async function mount(
     },
   };
 }
+describe('Stripe balance links (G-44)', () => {
+  it('offers Stripe when only Stripe is connected, without the PokPay warning', async () => {
+    const view = await mount('CONFIRMED', ['payments.record'], false, '25', undefined, {
+      pokpay: false,
+      stripe: true,
+      unavailableReason: 'PokPay is disabled or not connected for this hotel.',
+    });
+    const labels = [...view.host.querySelectorAll('button')].map((x) => x.textContent);
+    expect(labels).toContain('Pay with Stripe');
+    expect(labels).toContain('Copy Stripe link');
+    expect(labels).not.toContain('Pay with PokPay');
+    expect(view.host.textContent).not.toContain('PokPay is disabled');
+    const send = [...view.host.querySelectorAll('button')].find(
+      (x) => x.textContent === 'Send payment link',
+    )!;
+    await act(async () => send.click());
+    expect(view.requests.some((x) => x.endsWith('/send-stripe-link'))).toBe(true);
+    expect(view.requests.some((x) => x.endsWith('/send-pokpay-link'))).toBe(false);
+    await view.close();
+  });
+
+  it('keeps PokPay for a hotel that has both', async () => {
+    const view = await mount('CONFIRMED', ['payments.record'], false, '25', undefined, {
+      pokpay: true,
+      stripe: true,
+    });
+    const labels = [...view.host.querySelectorAll('button')].map((x) => x.textContent);
+    expect(labels).toContain('Pay with PokPay');
+    expect(labels).not.toContain('Pay with Stripe');
+    await view.close();
+  });
+});
+
 describe('confirmed booking collection controls', () => {
   it('shows a checking skeleton before imported payment options become available', async () => {
     const v = await mount('CONFIRMED', ['payments.record'], true);
