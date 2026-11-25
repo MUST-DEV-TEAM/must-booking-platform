@@ -2,6 +2,8 @@
 
 Status: **Repository-backed procedures; live environment NOT VERIFIED in this audit** (2026-09-19).
 
+How we test, merge and release (full tests only with the label `full-ci`, merge waves, deploy hours, live-test rules, the monthly minutes check): [ci-and-release-rules.md](ci-and-release-rules.md).
+
 ## Setup and deployment sources
 
 Use [CONTRIBUTING.md](../../CONTRIBUTING.md) for local Node/pnpm/Postgres/Redis setup and [container instructions](../../infrastructure/containers/README.md) for checked-in Compose/build/migration scripts. [environment.ts](../../apps/api/src/config/environment.ts) owns API validation; templates list variable names. Do not copy secret values into docs.

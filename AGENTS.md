@@ -5,7 +5,7 @@ Multi-tenant hotel booking platform: NestJS API (`apps/api`), Next.js staff/plat
 ## How work happens
 
 - The owner asks; Claude plans and implements. For anything larger than a small fix, state the plan in a few lines and get the owner's OK before building.
-- One change per branch and PR. CI must be green before merge; never push straight to `main`.
+- One change per branch and PR. CI must be green before merge; never push straight to `main`. The full tests run only on a PR that carries the label `full-ci` (add it when ready to merge) and the required check stays red until they pass; see [docs/operations/ci-and-release-rules.md](docs/operations/ci-and-release-rules.md).
 - Read only what the task needs: this file, then the one doc [docs/README.md](docs/README.md) routes you to, then the code. Code is the source of truth; docs are navigation.
 - `docs/roadmap/` and `docs/audit/` are backlog and history, not required reading and not a gate on what may be worked on.
 - Run `git status --short` first and keep unrelated changes.
