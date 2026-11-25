@@ -423,7 +423,19 @@ export class BookingController {
         lastName: typeof guest.lastName === 'string' ? guest.lastName : '',
         phone: typeof guest.phone === 'string' ? guest.phone : null,
         termsAccepted: guest.termsAccepted === true,
+        streetAddress: this.optionalNullableString(guest.streetAddress),
+        addressLine2: this.optionalNullableString(guest.addressLine2),
+        city: this.optionalNullableString(guest.city),
+        county: this.optionalNullableString(guest.county),
+        postcode: this.optionalNullableString(guest.postcode),
+        countryCode: this.country(guest.countryCode),
+        specialRequests: this.optionalSpecialRequests(guest.specialRequests),
+        arrivalTime: this.optionalArrivalTime(guest.arrivalTime),
+        companyName: this.optionalOneLine(guest.companyName, 160, 'Company name'),
+        taxNumber: this.optionalOneLine(guest.taxNumber, 40, 'Tax number'),
+        marketingConsent: guest.marketingConsent === true,
       },
+      returnUrl: typeof value.returnUrl === 'string' ? value.returnUrl : undefined,
       paymentMethod:
         value.paymentMethod === 'stripe' ||
         value.paymentMethod === 'pokpay' ||
