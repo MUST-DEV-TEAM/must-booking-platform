@@ -287,12 +287,15 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
         WHERE b.tenant_id = ${context.tenantId}::uuid AND b.property_id = ${context.propertyId}::uuid
           AND b.status = 'CONFIRMED'::"BookingStatus" AND b.starts_on = ${today}::date
           AND b.pms_stay_status = 'checked_in'
+          AND b.external_reference NOT LIKE 'CLOCK-%'
           AND b.checked_in_at IS NOT NULL AND b.checked_in_at <= ${arrivedBefore}::timestamptz
           AND (b.checked_in_at AT TIME ZONE ${timeZone})::date = ${today}::date
           AND COALESCE(${bookingContactSql.email}, '') <> ''
         ORDER BY COALESCE(b.order_reference, b.id::text), b.order_room_number NULLS FIRST, b.id
       `;
-      // Reservations read from a PMS count too, but not when the address is a booking channel's relay.
+      // One rule for every scheduled guest email (G-82): only bookings made through MUST or the hotel's website.
+      // Reservations imported from Clock (references CLOCK-...) can come from other sales channels whose guests we
+      // have no permission to email. A booking channel's relay address is never used either.
       return rows.filter((row) => !isChannelRelayEmail(row.email)).map((row) => row.id);
     });
     for (const bookingId of bookingIds)
@@ -311,8 +314,8 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
       const settings = await scheduledGuestSettings(tx, context, 'pre_arrival');
       if (!settings.enabled) return null;
       const arrival = addDays(today, settings.daysOffset);
-      // Direct bookings only: Clock-imported reservations (references CLOCK-…) can come
-      // from other sales channels whose guests we have no permission to email.
+      // Only bookings made through MUST or the website (G-82): Clock-imported reservations (references CLOCK-…)
+      // can come from other sales channels whose guests we have no permission to email.
       // Bookings made today are skipped; they just got their confirmation.
       const rows = await tx.$queryRaw<StayRow[]>`
         SELECT b.id::text, COALESCE(b.order_reference, b.id::text) AS "groupKey",
@@ -370,9 +373,8 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Thank-you a set number of days after check-out (email plan Step 6). Confirmed direct
-   * bookings only: cancelled bookings never qualify, and a stay Clock marked as a
-   * no-show is skipped.
+   * Thank-you a set number of days after check-out (email plan Step 6). Confirmed bookings made through MUST or
+   * the website only (G-82): cancelled bookings never qualify, and a stay Clock marked as a no-show is skipped.
    */
   async sendPostStay(context: Context, today: string): Promise<void> {
     const work = await this.database.withTenantTransaction(context, async (tx) => {
@@ -394,10 +396,11 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
         WHERE b.tenant_id = ${context.tenantId}::uuid AND b.property_id = ${context.propertyId}::uuid
           AND b.status = 'CONFIRMED'::"BookingStatus" AND b.ends_on = ${departure}::date
           AND COALESCE(b.pms_stay_status, '') <> 'no_show'
+          AND b.external_reference NOT LIKE 'CLOCK-%'
           AND COALESCE(${bookingContactSql.email}, '') <> ''
         ORDER BY "groupKey", b.order_room_number NULLS FIRST, b.id
       `;
-      // Stays read from a PMS count too, but a booking channel's relay address is never used.
+      // Only bookings made through MUST or the website (G-82); a booking channel's relay address is never used.
       const own = rows.filter((row) => !isChannelRelayEmail(row.email));
       if (!own.length) return null;
       const [links] = await tx.$queryRaw<Array<{ reviewLinks: unknown }>>`

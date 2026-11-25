@@ -140,7 +140,6 @@ describe('email templates (a property’s own wording for guest emails)', () => 
       'payment_reminder',
       'payment_link_expiring',
       'payment_received',
-      'payment_failed',
       'check_in_day',
       'no_show_notice',
       'staff_new_booking',
@@ -152,9 +151,10 @@ describe('email templates (a property’s own wording for guest emails)', () => 
       'owner_alerts',
       'owner_daily_summary',
       'owner_weekly_summary',
-      'staff_invitation',
-      'staff_account_created',
     ]);
+    // The platform owns the staff account emails, and the unused guest 'payment failed' wording is gone (G-79, G-80).
+    for (const gone of ['payment_failed', 'staff_invitation', 'staff_account_created'])
+      expect(list.body.map((t: { key: string }) => t.key)).not.toContain(gone);
     expect(list.body.find((t: { key: string }) => t.key === 'pre_arrival')).toMatchObject({
       key: 'pre_arrival',
       custom: false,
@@ -1031,11 +1031,11 @@ describe('email templates (a property’s own wording for guest emails)', () => 
       failingTopics: [],
     });
   });
-  it('versions inbox preview text, rejects secret-link metadata, and refuses unsupported live triggers', async () => {
+  it('versions inbox preview text, rejects secret-link metadata, and keeps the staff wording away from hotels', async () => {
     const base = url().replace('/email-templates', ''),
       http = () => request(app!.getHttpServer());
-    // A wording with no sending trigger yet (the guest "Payment failed" wording is deliberately not wired).
-    const endpoint = base + '/email-template-versions/payment_failed';
+    // Preview text is versioned with the draft.
+    const endpoint = base + '/email-template-versions/check_in_day';
     const draft = await http()
       .put(endpoint + '/draft')
       .set('Cookie', cookie)
@@ -1048,17 +1048,13 @@ describe('email templates (a property’s own wording for guest emails)', () => 
       })
       .expect(200);
     expect(draft.body.draft.previewText).toBe('Stay at {hotel_name}');
-    await http()
-      .post(endpoint + '/publish')
-      .set('Cookie', cookie)
-      .set('Idempotency-Key', randomUUID())
-      .send({ version: draft.body.version })
-      .expect(400);
+    // (Every remaining wording has a sending trigger, so the refusal to publish one without it has no example left.)
+    // The staff invitation wording belongs to the platform: a hotel cannot preview, edit or save it.
     await http()
       .post(base + '/email-templates/staff_invitation/preview')
       .set('Cookie', cookie)
       .send({ subject: '{invitation_link}', body: 'Hello {staff_name}' })
-      .expect(400);
+      .expect(404);
     const preview = await http()
       .post(base + '/email-templates/pre_arrival/preview')
       .set('Cookie', cookie)
