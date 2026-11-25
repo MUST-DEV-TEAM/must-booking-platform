@@ -269,8 +269,19 @@ export class PaymentRefundService {
     metadata?: { actorUserId: string; note: string },
     options?: { guestDecision?: boolean },
   ): Promise<{ result: Result<Payment | null>; confirmation: RefundConfirmation | null }> {
+    // Two rooms of one order cancelled at the same moment must not both pass the remaining-amount check below.
+    await this.lockBooking(tx, context, bookingId);
     const charge = await this.chargeForBooking(tx, context, bookingId, ['PAID']);
     if (!charge) return { result: { ok: true, value: null }, confirmation: null };
+    // A guest's own cancellation only ever refunds one online payment, never a hand-recorded one.
+    if (options?.guestDecision && (charge.chargeCount !== 1 || charge.provider === 'manual'))
+      return {
+        result: this.failure(
+          'REFUND_REQUIRES_REVIEW',
+          'The order was not paid by one online payment, so staff must refund this room.',
+        ),
+        confirmation: null,
+      };
     const alreadyRefunded = await this.refundedAmount(tx, context, bookingId);
     const remaining = this.minorUnits(charge.amount) - alreadyRefunded;
     if (

@@ -49,6 +49,8 @@ type Row = {
   terms: Terms | null;
   orderReference: string | null;
   total: string;
+  /** For a room of an order: whether the order's one payment (on its first room) can be refunded online. */
+  orderOnlineRefundable: boolean | null;
   onlineRefundable: boolean;
 };
 @Controller('tenants/:tenantId/properties/:propertyId/bookings/:bookingId/manage')
@@ -70,7 +72,7 @@ export class GuestBookingManageController {
       (tx) =>
         tx.$queryRaw<
           Row[]
-        >`SELECT b.id,b.external_reference AS reference,b.status::text,b.version,b.starts_on::text AS "startsOn",b.ends_on::text AS "endsOn",rt.name AS room,rp.currency,b.external_booking_id AS external,b.cancellation_terms AS terms,b.order_reference AS "orderReference",b.total_amount::text AS total,((SELECT count(*) FROM payments WHERE tenant_id=b.tenant_id AND property_id=b.property_id AND booking_id=b.id AND kind='CHARGE' AND status IN ('PAID','succeeded'))<=1 AND NOT EXISTS(SELECT 1 FROM payments WHERE tenant_id=b.tenant_id AND property_id=b.property_id AND booking_id=b.id AND kind='CHARGE' AND status IN ('PAID','succeeded') AND provider NOT IN ('pokpay','stripe'))) AS "onlineRefundable",COALESCE((SELECT sum(amount) FROM payments WHERE tenant_id=b.tenant_id AND property_id=b.property_id AND booking_id=b.id AND kind='CHARGE' AND status IN ('PAID','succeeded')),0)::text AS paid,COALESCE((SELECT sum(amount) FROM payments WHERE tenant_id=b.tenant_id AND property_id=b.property_id AND booking_id=b.id AND kind='REFUND' AND status='REFUNDED'),0)::text AS refunded FROM bookings b JOIN room_types rt ON rt.tenant_id=b.tenant_id AND rt.property_id=b.property_id AND rt.id=b.room_type_id JOIN rate_plans rp ON rp.tenant_id=b.tenant_id AND rp.property_id=b.property_id AND rp.id=b.rate_plan_id WHERE b.tenant_id=${scope.tenantId}::uuid AND b.property_id=${scope.propertyId}::uuid AND b.id=${id}::uuid AND b.guest_session_id=${session}::uuid`,
+        >`SELECT b.id,b.external_reference AS reference,b.status::text,b.version,b.starts_on::text AS "startsOn",b.ends_on::text AS "endsOn",rt.name AS room,rp.currency,b.external_booking_id AS external,b.cancellation_terms AS terms,b.order_reference AS "orderReference",b.total_amount::text AS total,(CASE WHEN b.order_reference IS NULL THEN NULL ELSE (SELECT count(*) FILTER (WHERE kind='CHARGE' AND status IN ('PAID','succeeded'))<=1 AND NOT COALESCE(bool_or(kind='CHARGE' AND status IN ('PAID','succeeded') AND provider NOT IN ('pokpay','stripe')),false) FROM payments WHERE tenant_id=b.tenant_id AND property_id=b.property_id AND booking_id=(SELECT a.id FROM bookings a WHERE a.tenant_id=b.tenant_id AND a.property_id=b.property_id AND a.order_reference=b.order_reference ORDER BY a.order_room_number, a.id LIMIT 1)) END) AS "orderOnlineRefundable",((SELECT count(*) FROM payments WHERE tenant_id=b.tenant_id AND property_id=b.property_id AND booking_id=b.id AND kind='CHARGE' AND status IN ('PAID','succeeded'))<=1 AND NOT EXISTS(SELECT 1 FROM payments WHERE tenant_id=b.tenant_id AND property_id=b.property_id AND booking_id=b.id AND kind='CHARGE' AND status IN ('PAID','succeeded') AND provider NOT IN ('pokpay','stripe'))) AS "onlineRefundable",COALESCE((SELECT sum(amount) FROM payments WHERE tenant_id=b.tenant_id AND property_id=b.property_id AND booking_id=b.id AND kind='CHARGE' AND status IN ('PAID','succeeded')),0)::text AS paid,COALESCE((SELECT sum(amount) FROM payments WHERE tenant_id=b.tenant_id AND property_id=b.property_id AND booking_id=b.id AND kind='REFUND' AND status='REFUNDED'),0)::text AS refunded FROM bookings b JOIN room_types rt ON rt.tenant_id=b.tenant_id AND rt.property_id=b.property_id AND rt.id=b.room_type_id JOIN rate_plans rp ON rp.tenant_id=b.tenant_id AND rp.property_id=b.property_id AND rp.id=b.rate_plan_id WHERE b.tenant_id=${scope.tenantId}::uuid AND b.property_id=${scope.propertyId}::uuid AND b.id=${id}::uuid AND b.guest_session_id=${session}::uuid`,
     );
     if (!rows[0]) throw new NotFoundException('Booking not found.');
     return rows[0];
@@ -79,7 +81,7 @@ export class GuestBookingManageController {
   private policyAllows(row: Row, room = false) {
     return (
       row.status === 'CONFIRMED' &&
-      (!row.orderReference || (room && !row.external)) &&
+      (!row.orderReference || (room && !row.external && row.orderOnlineRefundable === true)) &&
       !!row.terms &&
       row.terms.arrivalDate === row.startsOn &&
       Date.now() <= Date.parse(row.terms.cutoffAt)

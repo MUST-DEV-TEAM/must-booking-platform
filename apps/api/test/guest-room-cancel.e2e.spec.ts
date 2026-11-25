@@ -155,7 +155,7 @@ describe('guest cancels one room of an order', () => {
         .put(`${propertyUrl}/inventory-units`)
         .set('Idempotency-Key', crypto.randomUUID())
         .set('Cookie', cookie)
-        .send({ roomTypeId: types[index]!.body.id, startsOn, endsOn, availableUnits: 1 })
+        .send({ roomTypeId: types[index]!.body.id, startsOn, endsOn, availableUnits: 3 })
         .expect(204);
       await request(server)
         .post(`${propertyUrl}/rate-plans/${ratePlan.body.id}/rules`)
@@ -246,5 +246,92 @@ describe('guest cancels one room of an order', () => {
       SELECT COALESCE(SUM(booked_units), 0)::int AS booked FROM inventory_units
       WHERE tenant_id = ${tenantId}::uuid AND room_type_id = ${types[0]!.body.id}::uuid`;
     expect(garden[0]!.booked).toBeGreaterThan(0);
+
+    // A second order must carry the guest form the hotel requires, and may only return to the hotel's own website.
+    await request(server)
+      .patch(propertyUrl)
+      .set('Cookie', cookie)
+      .send({ formAddress: 'required' })
+      .expect(200);
+    await admin.$executeRaw`UPDATE properties SET public_website_origin = 'https://hotel.example.test'
+      WHERE id = ${propertyId}::uuid AND tenant_id = ${tenantId}::uuid`;
+    const placeOrder = async (guest: Record<string, unknown>, returnUrl?: string) => {
+      const session = randomUUID();
+      const prices = await Promise.all(
+        types.map((type) =>
+          quotes.create(tenantId, propertyId, session, {
+            roomTypeId: type.body.id,
+            ratePlanId: ratePlan.body.id,
+            startsOn,
+            endsOn,
+          }),
+        ),
+      );
+      return app!.get(MultiRoomBookingService).create(
+        { tenantId, propertyId },
+        {
+          idempotencyKey: randomUUID(),
+          externalReference: `must-order-${randomUUID()}`,
+          startsOn,
+          endsOn,
+          quoteSessionId: session,
+          paymentMethod: 'stripe',
+          returnUrl,
+          guest: {
+            email: 'guest2@example.test',
+            firstName: 'Form',
+            lastName: 'Guest',
+            phone: null,
+            ...guest,
+          },
+          rooms: types.map((type, index) => ({
+            roomTypeId: type.body.id,
+            ratePlanId: ratePlan.body.id,
+            total: prices[index]!.total,
+            quoteToken: prices[index]!.quoteToken,
+          })),
+        },
+      );
+    };
+    await expect(placeOrder({})).rejects.toThrow();
+    await expect(
+      placeOrder(
+        { streetAddress: '1 Main St', city: 'Tirana', postcode: '1001' },
+        'https://evil.test/back',
+      ),
+    ).rejects.toThrow();
+    const withForm = await placeOrder(
+      {
+        streetAddress: '1 Main St',
+        city: 'Tirana',
+        postcode: '1001',
+        arrivalTime: '15:30',
+        specialRequests: 'Quiet rooms',
+        marketingConsent: true,
+      },
+      'https://hotel.example.test/booking/done',
+    );
+    expect(withForm.ok, JSON.stringify(withForm)).toBe(true);
+    if (!withForm.ok) return;
+    const saved = await admin.$queryRaw<
+      Array<{
+        arrival: string | null;
+        requests: string | null;
+        consent: boolean;
+        back: string | null;
+      }>
+    >`SELECT estimated_arrival_time AS arrival, special_requests AS requests, marketing_consent AS consent,
+        guest_return_url AS back FROM bookings
+      WHERE tenant_id = ${tenantId}::uuid AND order_reference = ${withForm.value.orderReference}
+      ORDER BY order_room_number`;
+    expect(saved).toEqual([
+      {
+        arrival: '15:30',
+        requests: 'Quiet rooms',
+        consent: true,
+        back: 'https://hotel.example.test/booking/done',
+      },
+      { arrival: '15:30', requests: 'Quiet rooms', consent: true, back: null },
+    ]);
   });
 });

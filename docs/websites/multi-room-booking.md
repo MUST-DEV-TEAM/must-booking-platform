@@ -47,7 +47,7 @@ All calls use the same guest session (cookie or header) and the same `Idempotenc
 
 ## What is still missing (gap G-105)
 
-The guest order does not yet carry what one booking carries: bank transfer as a payment method, the accepted terms and privacy versions, the return address after card payment, the guest form fields (country, address, arrival time, special requests, company, marketing consent) and the hotel's required-field checks. Until the API takes these, the website cart would skip legal and payment steps a single booking has, so it stays unbuilt.
+The guest order now carries the guest form fields (country, address, arrival time, special requests, company, marketing consent), applies the hotel's required-field and children's-age checks, and takes `returnUrl` (the hotel's own website) for the way back after card payment. Still missing: bank transfer as a payment method and the accepted terms and privacy versions; both are built for one booking in other pull requests and must be added to the order after those are merged. The website cart stays unbuilt until then.
 
 ## For the Astro cart (when G-105 is done)
 
