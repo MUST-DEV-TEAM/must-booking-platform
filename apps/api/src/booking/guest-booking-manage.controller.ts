@@ -48,6 +48,7 @@ type Row = {
   external: string | null;
   terms: Terms | null;
   orderReference: string | null;
+  total: string;
   onlineRefundable: boolean;
 };
 @Controller('tenants/:tenantId/properties/:propertyId/bookings/:bookingId/manage')
@@ -69,15 +70,16 @@ export class GuestBookingManageController {
       (tx) =>
         tx.$queryRaw<
           Row[]
-        >`SELECT b.id,b.external_reference AS reference,b.status::text,b.version,b.starts_on::text AS "startsOn",b.ends_on::text AS "endsOn",rt.name AS room,rp.currency,b.external_booking_id AS external,b.cancellation_terms AS terms,b.order_reference AS "orderReference",((SELECT count(*) FROM payments WHERE tenant_id=b.tenant_id AND property_id=b.property_id AND booking_id=b.id AND kind='CHARGE' AND status IN ('PAID','succeeded'))<=1 AND NOT EXISTS(SELECT 1 FROM payments WHERE tenant_id=b.tenant_id AND property_id=b.property_id AND booking_id=b.id AND kind='CHARGE' AND status IN ('PAID','succeeded') AND provider NOT IN ('pokpay','stripe'))) AS "onlineRefundable",COALESCE((SELECT sum(amount) FROM payments WHERE tenant_id=b.tenant_id AND property_id=b.property_id AND booking_id=b.id AND kind='CHARGE' AND status IN ('PAID','succeeded')),0)::text AS paid,COALESCE((SELECT sum(amount) FROM payments WHERE tenant_id=b.tenant_id AND property_id=b.property_id AND booking_id=b.id AND kind='REFUND' AND status='REFUNDED'),0)::text AS refunded FROM bookings b JOIN room_types rt ON rt.tenant_id=b.tenant_id AND rt.property_id=b.property_id AND rt.id=b.room_type_id JOIN rate_plans rp ON rp.tenant_id=b.tenant_id AND rp.property_id=b.property_id AND rp.id=b.rate_plan_id WHERE b.tenant_id=${scope.tenantId}::uuid AND b.property_id=${scope.propertyId}::uuid AND b.id=${id}::uuid AND b.guest_session_id=${session}::uuid`,
+        >`SELECT b.id,b.external_reference AS reference,b.status::text,b.version,b.starts_on::text AS "startsOn",b.ends_on::text AS "endsOn",rt.name AS room,rp.currency,b.external_booking_id AS external,b.cancellation_terms AS terms,b.order_reference AS "orderReference",b.total_amount::text AS total,((SELECT count(*) FROM payments WHERE tenant_id=b.tenant_id AND property_id=b.property_id AND booking_id=b.id AND kind='CHARGE' AND status IN ('PAID','succeeded'))<=1 AND NOT EXISTS(SELECT 1 FROM payments WHERE tenant_id=b.tenant_id AND property_id=b.property_id AND booking_id=b.id AND kind='CHARGE' AND status IN ('PAID','succeeded') AND provider NOT IN ('pokpay','stripe'))) AS "onlineRefundable",COALESCE((SELECT sum(amount) FROM payments WHERE tenant_id=b.tenant_id AND property_id=b.property_id AND booking_id=b.id AND kind='CHARGE' AND status IN ('PAID','succeeded')),0)::text AS paid,COALESCE((SELECT sum(amount) FROM payments WHERE tenant_id=b.tenant_id AND property_id=b.property_id AND booking_id=b.id AND kind='REFUND' AND status='REFUNDED'),0)::text AS refunded FROM bookings b JOIN room_types rt ON rt.tenant_id=b.tenant_id AND rt.property_id=b.property_id AND rt.id=b.room_type_id JOIN rate_plans rp ON rp.tenant_id=b.tenant_id AND rp.property_id=b.property_id AND rp.id=b.rate_plan_id WHERE b.tenant_id=${scope.tenantId}::uuid AND b.property_id=${scope.propertyId}::uuid AND b.id=${id}::uuid AND b.guest_session_id=${session}::uuid`,
     );
     if (!rows[0]) throw new NotFoundException('Booking not found.');
     return rows[0];
   }
-  private policyAllows(row: Row) {
+  /** `room`: the guest cancels only this room of a multi-room order (own policy, own share of the payment). */
+  private policyAllows(row: Row, room = false) {
     return (
       row.status === 'CONFIRMED' &&
-      !row.orderReference &&
+      (!row.orderReference || (room && !row.external)) &&
       !!row.terms &&
       row.terms.arrivalDate === row.startsOn &&
       Date.now() <= Date.parse(row.terms.cutoffAt)
@@ -179,6 +181,18 @@ export class GuestBookingManageController {
       cutoffAt: row.terms?.cutoffAt ?? null,
       timezone: row.terms?.timezone ?? null,
       automaticAllowed,
+      // For a room of a multi-room order: the guest can cancel just this room (not on Clock hotels, which need
+      // staff review) and gets back this room's share, never more than the order paid.
+      inOrder: !!row.orderReference,
+      roomCancellation: row.orderReference
+        ? {
+            automaticAllowed: this.policyAllows(row, true) && !row.external,
+            refundAmount:
+              this.policyAllows(row, true) && !row.external && row.terms?.autoRefund
+                ? row.total
+                : null,
+          }
+        : null,
       policyKnown: !!row.terms && row.terms.arrivalDate === row.startsOn,
       refundAmount: gross ? Prisma.Decimal.max(0, gross.minus(fee?.amount ?? 0)).toFixed(2) : null,
       providerFee: fee?.amount ?? null,
@@ -197,6 +211,8 @@ export class GuestBookingManageController {
       details?: string;
       requestRefund?: boolean;
       action?: 'cancel' | 'request';
+      /** 'room' cancels only this room of a multi-room order; the default cancels the whole order. */
+      scope?: 'room' | 'order';
     },
     @Headers('idempotency-key') key: string,
   ) {
@@ -230,8 +246,9 @@ export class GuestBookingManageController {
         body.details.trim(),
         body.requestRefund === true,
       );
+    const roomOnly = body.scope === 'room' && !!row.orderReference;
     let automaticAllowed = false;
-    if (this.policyAllows(row)) {
+    if (this.policyAllows(row, roomOnly)) {
       try {
         automaticAllowed = await this.moneyAllows(scope, row);
       } catch (error) {
@@ -256,6 +273,7 @@ export class GuestBookingManageController {
       expectedVersion: row.version,
       idempotencyKey: 'guest-manage:' + key,
       reason: body.details.trim(),
+      ...(roomOnly ? { singleBooking: true } : {}),
     });
     if (!result.ok) {
       if (
