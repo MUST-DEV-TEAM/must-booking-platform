@@ -285,7 +285,7 @@ export class ClockBookingHydrationService {
             message: existing
               ? `Clock booking ${detail.number ?? detail.id} has status "${detail.status}", which MUST does not recognise. The booking keeps its current status (${existing.status}); check it in Clock.`
               : `Clock booking ${detail.number ?? detail.id} has status "${detail.status}", which MUST does not recognise, so it was not imported. Check it in Clock, then re-send the event.`,
-            context: { clockStatus: detail.status },
+            context: { kind: 'CLOCK_STATUS_NOT_APPLIED', clockStatus: detail.status },
           });
         if (!mappedStatus && !existing) {
           if (ownership) await this.finalizeOwnedEvent(tx, tenantId, ownership, 'FAILED');
@@ -308,6 +308,7 @@ export class ClockBookingHydrationService {
             referenceType: 'clock_booking',
             referenceId: String(detail.id),
             message: `Clock booking ${detail.number ?? detail.id} references room type ${detail.arrival_room_type_id}, which has no confirmed local mapping. Confirm the mapping in Catalog Sync, then re-send the event.`,
+            context: { kind: 'CLOCK_ROOM_TYPE_UNMAPPED' },
           });
           if (ownership) await this.finalizeOwnedEvent(tx, tenantId, ownership, 'FAILED');
           return { outcome: 'missing_room_type_mapping' };
@@ -354,6 +355,7 @@ export class ClockBookingHydrationService {
             referenceType: 'clock_booking',
             referenceId: String(detail.id),
             message: `Clock booking ${detail.number ?? detail.id} has a total with no valid currency, so its amount was not imported. Check the bill in Clock, then re-send the event.`,
+            context: { kind: 'CLOCK_TOTAL_WITHOUT_CURRENCY' },
           });
           if (ownership) await this.finalizeOwnedEvent(tx, tenantId, ownership, 'FAILED');
           return { outcome: 'unknown_status' };

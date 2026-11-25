@@ -218,6 +218,7 @@ export class ClockWebhookService {
           referenceType: 'provider_event',
           referenceId: eventId,
           message: `Clock webhook event ${eventId}'s BullMQ job completed, but its outcome was never recorded on provider_events (row ${eventRowId}). Verify directly against Clock whether the referenced resource was actually applied, then either mark this row HYDRATED (if confirmed applied) or reset it to RECEIVED (if not) so the next recovery sweep reprocesses it.`,
+          context: { kind: 'WEBHOOK_JOB_OUTCOME_LOST' },
         });
         return true;
       },

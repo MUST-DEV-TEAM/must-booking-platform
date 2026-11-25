@@ -290,6 +290,12 @@ export class ClockFinancialService {
         WHERE tenant_id = ${scope.tenantId}::uuid AND property_id = ${scope.propertyId}::uuid
           AND category = 'PAYMENT_BOOKING_MISMATCH' AND reference_type = 'booking' AND reference_id = ${bookingId}
           AND status = 'OPEN' AND context->>'kind' = ${CANCELLED_OPEN_BILL}`;
+      // The bill is settled, so a note staff closed earlier no longer vouches for a later, equal balance.
+      await tx.$executeRaw`UPDATE manual_review_items SET context = context || '{"settledSince":true}'::jsonb, updated_at = now()
+        WHERE tenant_id = ${scope.tenantId}::uuid AND property_id = ${scope.propertyId}::uuid
+          AND category = 'PAYMENT_BOOKING_MISMATCH' AND reference_type = 'booking' AND reference_id = ${bookingId}
+          AND status = 'RESOLVED' AND resolved_by_user_id IS NOT NULL AND context->>'kind' = ${CANCELLED_OPEN_BILL}
+          AND NOT (context ? 'settledSince')`;
       return;
     }
     const amount = `${snapshot.balance.amount} ${snapshot.balance.currency}`;
@@ -305,7 +311,15 @@ export class ClockFinancialService {
       WHERE NOT EXISTS (
         SELECT 1 FROM manual_review_items WHERE tenant_id = ${scope.tenantId}::uuid AND property_id = ${scope.propertyId}::uuid
           AND category = 'PAYMENT_BOOKING_MISMATCH' AND reference_type = 'booking' AND reference_id = ${bookingId}
-          AND status = 'OPEN' AND context->>'kind' = ${CANCELLED_OPEN_BILL})`;
+          AND status = 'OPEN' AND context->>'kind' = ${CANCELLED_OPEN_BILL})
+        -- A note staff closed ("the bill is meant to stay as it is") stays closed for the same balance (G-29).
+        AND NOT EXISTS (
+        SELECT 1 FROM manual_review_items WHERE tenant_id = ${scope.tenantId}::uuid AND property_id = ${scope.propertyId}::uuid
+          AND category = 'PAYMENT_BOOKING_MISMATCH' AND reference_type = 'booking' AND reference_id = ${bookingId}
+          AND status = 'RESOLVED' AND resolved_by_user_id IS NOT NULL AND context->>'kind' = ${CANCELLED_OPEN_BILL}
+          AND NOT (context ? 'settledSince')
+          AND context->'balance'->>'amount' = ${snapshot.balance.amount}
+          AND context->'balance'->>'currency' = ${snapshot.balance.currency})`;
   }
 
   /**
