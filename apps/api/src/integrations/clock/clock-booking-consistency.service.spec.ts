@@ -76,7 +76,12 @@ describe('ClockBookingConsistencyService', () => {
       credentials,
       expect.objectContaining({
         path: '/bookings/',
-        query: { 'arrival.lt': '2026-09-27', 'departure.gt': '2026-09-25' },
+        query: {
+          'arrival.lt': '2026-09-27',
+          'departure.gt': '2026-09-25',
+          // Only this room's bookings are asked for, never every booking of the night.
+          arrival_room_id: '606113',
+        },
       }),
     );
     expect(client.request).toHaveBeenNthCalledWith(
@@ -93,15 +98,16 @@ describe('ClockBookingConsistencyService', () => {
     expect(circuitBreaker.assertClosed).toHaveBeenCalledTimes(3);
   });
 
-  it('checks several physical rooms with one overlap read', async () => {
+  it('asks Clock for each wanted room on its own, so a busy night never means reading every booking', async () => {
     const { service, client } = makeService(
       [],
       [],
       [
-        [361, 362, 363],
+        [361],
         { id: 361, status: 'expected', arrival_room_id: 606113 },
+        [362],
         { id: 362, status: 'canceled', arrival_room_id: 606114 },
-        { id: 363, status: 'checked_in', arrival_room_id: 606999 },
+        [],
       ],
     );
 
@@ -112,7 +118,24 @@ describe('ClockBookingConsistencyService', () => {
         '606115',
       ]),
     ).resolves.toEqual(new Set(['606113']));
-    expect(client.request).toHaveBeenCalledTimes(4);
+    // One filtered list per room plus the detail of what that list returned: 3 lists and 2 details.
+    expect(client.request).toHaveBeenCalledTimes(5);
+    expect(client.request).toHaveBeenNthCalledWith(
+      1,
+      credentials,
+      expect.objectContaining({
+        path: '/bookings/',
+        query: expect.objectContaining({ arrival_room_id: '606113' }),
+      }),
+    );
+    expect(client.request).toHaveBeenNthCalledWith(
+      5,
+      credentials,
+      expect.objectContaining({
+        path: '/bookings/',
+        query: expect.objectContaining({ arrival_room_id: '606115' }),
+      }),
+    );
   });
 
   it('accepts Clock expected/no-show for local CONFIRMED and a missing Clock row for local CANCELLED', async () => {

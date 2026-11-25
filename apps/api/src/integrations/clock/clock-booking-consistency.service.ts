@@ -150,18 +150,22 @@ export class ClockBookingConsistencyService {
     externalRoomIds: string[],
     excludeExternalBookingId?: string,
   ): Promise<Set<string>> {
-    const wanted = new Set(externalRoomIds);
-    const bookings = await this.fetchBookings(credentials, range);
-    return new Set(
-      bookings
-        .filter(
-          (booking) =>
-            String(booking.id) !== excludeExternalBookingId &&
-            booking.status !== 'canceled' &&
-            wanted.has(String(booking.arrival_room_id)),
-        )
-        .map((booking) => String(booking.arrival_room_id)),
-    );
+    // Ask Clock only for the wanted rooms' bookings. Reading every booking that overlaps the stay and then each
+    // one separately took 25+ seconds on a busy night (4 requests a second), while the booking waited holding
+    // database locks; one filtered list per room is a handful of requests whatever the occupancy.
+    const taken = new Set<string>();
+    for (const roomId of new Set(externalRoomIds)) {
+      const ids = await this.listBookingIds(credentials, range, { arrival_room_id: roomId });
+      for (const id of ids) {
+        if (id === excludeExternalBookingId) continue;
+        const booking = await this.fetchClock<unknown>(credentials, `/bookings/${id}`);
+        if (!isClockBookingResource(booking))
+          throw new Error(`Clock returned an unexpected booking detail for ${id}.`);
+        if (booking.status !== 'canceled' && String(booking.arrival_room_id) === roomId)
+          taken.add(roomId);
+      }
+    }
+    return taken;
   }
 
   private async checkInternal(
@@ -346,12 +350,15 @@ export class ClockBookingConsistencyService {
   async listBookingIds(
     credentials: ClockConnectionCredentials,
     range: { startsOn: string; endsOn: string },
+    /** Extra first-level filters, for example `arrival_room_id` to list one room's bookings only. */
+    extraFilters: Record<string, string> = {},
   ): Promise<string[]> {
     const listed = await this.fetchClock<unknown>(credentials, '/bookings/', {
       // Clock documents comparison filters for booking date fields. These
       // two filters return reservations that overlap [startsOn, endsOn).
       'arrival.lt': range.endsOn,
       'departure.gt': range.startsOn,
+      ...extraFilters,
     });
     // Confirmed against Empire Beach Resort production on 2026-08-17: the
     // list endpoint returns only numeric IDs, not booking resources. Detail
