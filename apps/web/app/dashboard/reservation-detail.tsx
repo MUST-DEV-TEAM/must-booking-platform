@@ -13,6 +13,7 @@ import {
 } from '../../components/ui/dialog';
 import { CollectPaymentActions } from './collect-payment-actions';
 import { ChangeBookingDatesDialog } from './change-booking-dates-dialog';
+import { ResendConfirmationDialog } from './resend-confirmation-dialog';
 import { minorUnits as paymentMinor, money as decimalMoney } from './payment-status';
 import { Alert, AlertTitle, AlertDescription } from '../../components/ui/alert';
 import { EditBookingDetailsDialog } from './edit-booking-details-dialog';
@@ -30,6 +31,7 @@ import {
   CircleCheck,
   CirclePlus,
   CreditCard,
+  Mail,
   Pencil,
   Plug,
   RefreshCw,
@@ -267,6 +269,7 @@ export function ReservationDetail({
   const [movingRoom, setMovingRoom] = useState(false);
   const [providerReview, setProviderReview] = useState(false);
   const [changingDates, setChangingDates] = useState(false);
+  const [resendingConfirmation, setResendingConfirmation] = useState(false);
   const [editingDetails, setEditingDetails] = useState(false);
   const [showAllActivity, setShowAllActivity] = useState(false);
   const unseen = useUnseenBookings(tenantId, propertyId);
@@ -575,6 +578,11 @@ export function ReservationDetail({
                 <CalendarDays aria-hidden="true" /> Change dates
               </Button>
             ) : null}
+            {canEditBooking && booking.status === 'CONFIRMED' ? (
+              <Button variant="outline" onClick={() => setResendingConfirmation(true)}>
+                <Mail aria-hidden="true" /> Resend confirmation
+              </Button>
+            ) : null}
             {canRefundPayment && refundable ? (
               <Button
                 variant="outline"
@@ -716,6 +724,14 @@ export function ReservationDetail({
           />
         </DialogContent>
       </Dialog>
+      {resendingConfirmation ? (
+        <ResendConfirmationDialog
+          tenantId={tenantId}
+          propertyId={propertyId}
+          bookingId={booking.id}
+          onClose={() => setResendingConfirmation(false)}
+        />
+      ) : null}
       {changingDates ? (
         <ChangeBookingDatesDialog
           tenantId={tenantId}

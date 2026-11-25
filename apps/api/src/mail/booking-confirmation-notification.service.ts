@@ -1,6 +1,8 @@
 import { emailBrandExtraP } from './email-brand-columns';
 import { bookingContactSql } from '../booking/booking-contact';
+import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
+import { maskEmail } from '../booking/mask-email';
 import type { MailOrderRoom, PaymentProviderContext } from '@must/domain-contracts';
 
 import { CancellationLinkService } from '../booking/cancellation-link.service';
@@ -62,10 +64,78 @@ export class BookingConfirmationNotificationService {
     @Inject(PaymentNotificationService) private readonly notifications: PaymentNotificationService,
   ) {}
 
+  /** The address a booking's emails go to, masked for the guest ("a***@icloud.com"); null when there is none. */
+  async emailHint(context: PaymentProviderContext, bookingId: string): Promise<string | null> {
+    const rows = await this.database.withTenantTransaction(
+      context,
+      (tx) => tx.$queryRaw<Array<{ email: string | null }>>`
+        SELECT ${bookingContactSql.email} AS email
+        FROM bookings b LEFT JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
+        WHERE b.id = ${bookingId}::uuid AND b.tenant_id = ${context.tenantId}::uuid
+          AND b.property_id = ${context.propertyId}::uuid`,
+    );
+    return maskEmail(rows[0]?.email);
+  }
+
+  /**
+   * Sends the guest the confirmation again, to the address on the booking or to another one the guest or staff typed
+   * (G-96). A delivered email can still sit in a junk folder or go to an address nobody checks. Only a confirmed
+   * booking has a confirmation, and at most 3 resends a day per booking keep this from being used to spam an address.
+   * Staff are not notified again.
+   */
+  async resendToGuest(
+    context: PaymentProviderContext,
+    bookingId: string,
+    to?: string,
+  ): Promise<
+    | { ok: true; sentTo: string | null }
+    | { ok: false; code: 'NOT_CONFIRMED' | 'NO_ADDRESS' | 'RESEND_LIMIT'; message: string }
+  > {
+    const state = await this.database.withTenantTransaction(context, async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ status: string; email: string | null }>>`
+        SELECT b.status::text AS status, ${bookingContactSql.email} AS email
+        FROM bookings b LEFT JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
+        WHERE b.id = ${bookingId}::uuid AND b.tenant_id = ${context.tenantId}::uuid
+          AND b.property_id = ${context.propertyId}::uuid`;
+      const recent = await tx.$queryRaw<Array<{ count: number }>>`
+        SELECT count(*)::int AS count FROM email_messages
+        WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+          AND booking_id = ${bookingId}::uuid AND idempotency_key LIKE 'payment-confirmation/resend:%'
+          AND created_at > now() - interval '24 hours'`;
+      return { row: rows[0] ?? null, recent: recent[0]?.count ?? 0 };
+    });
+    if (!state.row || state.row.status !== 'CONFIRMED')
+      return {
+        ok: false,
+        code: 'NOT_CONFIRMED',
+        message: 'Only a confirmed booking has a confirmation to send again.',
+      };
+    const address = (to ?? state.row.email ?? '').trim();
+    if (!address)
+      return {
+        ok: false,
+        code: 'NO_ADDRESS',
+        message: 'There is no email address on this booking.',
+      };
+    if (state.recent >= 3)
+      return {
+        ok: false,
+        code: 'RESEND_LIMIT',
+        message:
+          'The confirmation was already sent again 3 times today. Please try again tomorrow.',
+      };
+    await this.sendAfterConfirmation(context, bookingId, `resend:${bookingId}:${randomUUID()}`, {
+      guestOnly: true,
+      to: address,
+    });
+    return { ok: true, sentTo: maskEmail(address) };
+  }
+
   async sendAfterConfirmation(
     context: PaymentProviderContext,
     bookingId: string,
     paymentId: string,
+    options: { guestOnly?: boolean; to?: string } = {},
   ): Promise<void> {
     const notification = await this.database.withTenantTransaction(context, async (tx) => {
       const rows = await tx.$queryRaw<BookingEmailRow[]>`
@@ -150,7 +220,7 @@ export class BookingConfirmationNotificationService {
         bookingId,
         bookingReference: row.externalReference,
         paymentId,
-        to: row.email,
+        to: options.to ?? row.email,
         amount: { amount: row.amount, currency: row.currency },
         brand,
         paymentMethod: this.guestPaymentMethod(row.paymentMethod),
@@ -173,6 +243,7 @@ export class BookingConfirmationNotificationService {
       },
       context,
     );
+    if (options.guestOnly) return;
     for (const recipient of staffDeliveryGroups(staff)) {
       await this.notifications.sendNewBookingStaffNotificationSafely(
         {

@@ -54,16 +54,50 @@ function fixture(overrides: Record<string, unknown> = {}) {
     read: vi.fn().mockResolvedValue({ status: 'NOT_CONNECTED', data: null }),
     refresh: vi.fn().mockRejectedValue(new Error('Uncertain')),
   };
+  const confirmations = {
+    emailHint: vi.fn().mockResolvedValue('a***@example.test'),
+    resendToGuest: vi.fn().mockResolvedValue({ ok: true, sentTo: 'a***@example.test' }),
+  };
   const controller = new GuestBookingManageController(
     db as never,
     links,
     provider as never,
     requests as never,
     financial as never,
+    confirmations as never,
   );
-  return { controller, provider, requests, financial, db, token, row };
+  return { controller, provider, requests, financial, confirmations, db, token, row };
 }
 describe('signed guest booking management', () => {
+  it('shows where the confirmation went, masked, and sends it again on request (G-96)', async () => {
+    const f = fixture();
+    const preview = await f.controller.preview({ tenantContext: scope }, 'booking', f.token);
+    expect(preview.emailHint).toBe('a***@example.test');
+    const sent = await f.controller.resendConfirmation({ tenantContext: scope }, 'booking', {
+      token: f.token,
+      email: 'other@example.test',
+    });
+    expect(sent).toEqual({ sent: true, sentTo: 'a***@example.test' });
+    expect(f.confirmations.resendToGuest).toHaveBeenCalledWith(
+      scope,
+      'booking',
+      'other@example.test',
+    );
+    await expect(
+      f.controller.resendConfirmation({ tenantContext: scope }, 'booking', {
+        token: f.token,
+        email: 'not an address',
+      }),
+    ).rejects.toThrow('valid email');
+    f.confirmations.resendToGuest.mockResolvedValue({
+      ok: false,
+      code: 'RESEND_LIMIT',
+      message: 'Too many today.',
+    });
+    await expect(
+      f.controller.resendConfirmation({ tenantContext: scope }, 'booking', { token: f.token }),
+    ).rejects.toMatchObject({ status: 429 });
+  });
   it('shows the refund after the payment fee the hotel keeps back, and the fee itself', async () => {
     const f = fixture();
     f.requests.guestRefundFee.mockResolvedValue({ amount: '12.85', currency: 'EUR' });
