@@ -114,12 +114,12 @@ export default function BookingPaymentOutcomePage() {
             ? 'Your payment has been confirmed. The booking screen will update automatically.'
             : cancelled
               ? 'Return to the booking to check its latest payment status before trying again.'
-              : 'Your payment was submitted to PokPay. Keep the booking screen open while it confirms this payment.'}
+              : 'Your payment was submitted to the payment provider. Keep the booking screen open while it confirms this payment.'}
         </p>
         <p className={styles.hint}>
           {paid
             ? 'This tab will close shortly. If your browser keeps it open, you can close it below.'
-            : 'Returning from PokPay does not by itself confirm a successful payment.'}
+            : 'Returning from the payment page does not by itself confirm a successful payment.'}
         </p>
         <div className={styles.actions}>
           <button type="button" onClick={() => window.close()}>

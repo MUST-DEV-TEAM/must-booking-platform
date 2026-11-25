@@ -247,6 +247,24 @@ describe('staff invitations', () => {
     ]);
   });
 
+  it('answers a malformed invitation with a clear 400, not a server error (G-110)', async () => {
+    const send = (body: unknown) =>
+      request(app.getHttpServer())
+        .post(`/tenants/${tenantId}/staff-invitations`)
+        .set('Cookie', ownerCookie)
+        .send(body as object);
+    await send({
+      email: 'not-an-email',
+      assignments: [{ propertyId, roleTemplateId: frontDeskTemplateId }],
+    }).expect(400);
+    await send({ email: newEmail }).expect(400);
+    await send({ email: newEmail, assignments: [] }).expect(400);
+    await send({
+      email: newEmail,
+      assignments: [{ propertyId: 'x', roleTemplateId: frontDeskTemplateId }],
+    }).expect(400);
+  });
+
   it('lists invitations, resends with a fresh link, withdraws, and marks accepted ones (G-85)', async () => {
     const server = app.getHttpServer();
     const listUrl = `/tenants/${tenantId}/staff-invitations`;
