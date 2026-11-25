@@ -131,7 +131,7 @@ Found while designing the new Settings area ([settings-redesign-plan.md](../road
 
 | Id | Gap | Where and how it was checked | Question for Fable | Status |
 | --- | --- | --- | --- | --- |
-| G-14 | Multi-room orders confirmed at the hotel never produced a "Booking created" notice and still do not. That path also sets the status with a direct SQL update (`multi-room-booking.service.ts`, the Clock-free branch), bypassing the state machine. | Read the code while building 40-7a; the e2e for multi-room passes unchanged. | Route it through the state machine, and add the notice? | New |
+| G-14 | Multi-room orders confirmed at the hotel never produced a "Booking created" notice and still do not. That path also sets the status with a direct SQL update (`multi-room-booking.service.ts`, the Clock-free branch), bypassing the state machine. | Read the code while building 40-7a; the e2e for multi-room passes unchanged. | Route it through the state machine, and add the notice? **Notice fixed 2026-11-24** on `feat/gaps-g14-multiroom-notice`: the Clock-free pay-at-hotel branch now writes one "Booking created" notice per room (new e2e). Moving the status change through the state machine stays open. | Partly fixed |
 
 ## Build, tests and tooling
 
