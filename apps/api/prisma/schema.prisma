@@ -2560,3 +2560,21 @@ model PropertyLegalVersion {
   @@unique([tenantId, propertyId, kind, version])
   @@map("property_legal_versions")
 }
+
+/// A staff invitation's record: who was invited and what became of it. The secret link lives in Redis (G-85).
+model StaffInvitation {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  email           String    @db.VarChar(254)
+  tokenHash       String    @unique(map: "staff_invitations_token_hash_idx") @map("token_hash") @db.VarChar(64)
+  status          String    @default("PENDING")
+  command         Json
+  invitedByUserId String?   @map("invited_by_user_id") @db.Uuid
+  expiresAt       DateTime  @map("expires_at") @db.Timestamptz(6)
+  resentAt        DateTime? @map("resent_at") @db.Timestamptz(6)
+  resolvedAt      DateTime? @map("resolved_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([tenantId, createdAt(sort: Desc)], map: "staff_invitations_tenant_created_idx")
+  @@map("staff_invitations")
+}
