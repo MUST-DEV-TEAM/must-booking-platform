@@ -308,11 +308,12 @@ describe('scheduled emails (pre-arrival reminder, owner daily summary)', () => {
 
     const before = sent.length;
     await scheduled.sendPostStay(context, today);
-    // Ada (a direct booking) and Clara (a Clock reservation with her own address) are both thanked; a Clock
-    // reservation with a booking channel's masked address would not be.
-    await waitForSent(before + 2);
+    // Only bookings made through MUST or the website are thanked (G-82): Ada is, Clara (a reservation imported
+    // from Clock, with her own address) is not, and neither is one with a booking channel's masked address.
+    await waitForSent(before + 1);
+    await new Promise((resolve) => setTimeout(resolve, 500));
     const thanks = sent.filter((e) => e.eventType === 'guest.post_stay');
-    expect(thanks.map((e) => e.to).sort()).toEqual(['ada@example.test', 'clara@example.test']);
+    expect(thanks.map((e) => e.to).sort()).toEqual(['ada@example.test']);
     const email = thanks.find((e) => e.to === 'ada@example.test')!;
     expect(email.subject).toBe('Thank you for staying at Seaside <Hotel>');
     expect(email.html).toContain('https://g.page/r/seaside/review');
@@ -324,7 +325,7 @@ describe('scheduled emails (pre-arrival reminder, owner daily summary)', () => {
 
     await scheduled.sendPostStay(context, today);
     await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(sent.filter((e) => e.eventType === 'guest.post_stay')).toHaveLength(2);
+    expect(sent.filter((e) => e.eventType === 'guest.post_stay')).toHaveLength(1);
 
     // Off (as for every property that existed before this feature): nothing.
     await http()
@@ -335,7 +336,7 @@ describe('scheduled emails (pre-arrival reminder, owner daily summary)', () => {
     await scheduled.sendPostStay(context, '2030-05-11'); // would thank BK-6 (left 05-10)
     await scheduled.sendPostStay(context, '2030-05-12');
     await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(sent.filter((e) => e.eventType === 'guest.post_stay')).toHaveLength(2);
+    expect(sent.filter((e) => e.eventType === 'guest.post_stay')).toHaveLength(1);
   });
 
   it('validates the reminder timing setting', async () => {

@@ -142,12 +142,6 @@ export const EMAIL_TEMPLATES = {
     subject: 'Payment received - {booking_reference}',
     body: 'Hello {guest_name}, we received your payment of {payment_amount}. Thank you.\n\n{stay_range}\n\n{hotel_contact}',
   },
-  payment_failed: {
-    label: 'Payment failed',
-    placeholders: [...COMMON],
-    subject: 'Payment could not be completed - {booking_reference}',
-    body: 'Hello {guest_name}, we could not complete your payment. Contact {hotel_contact} for help. Please check your reservation status before trying again.',
-  },
   check_in_day: {
     label: 'Check-in day message',
     placeholders: [...COMMON],
@@ -247,6 +241,17 @@ export type RenderedTemplate = {
   previewText?: string;
   hasStayBlock?: boolean;
 };
+
+/**
+ * Emails whose wording the platform owns: the staff invitation and the "your account is ready" email. They are never
+ * listed, saved or previewed per hotel, and always sent with the default wording (owner decision, 2026-11-25, G-80).
+ * The guest template `payment_failed` was removed for the same decision (G-79): nothing ever sent it, and
+ * `payment_not_completed` covers that case.
+ */
+export const PLATFORM_OWNED_TEMPLATES: ReadonlySet<string> = new Set([
+  'staff_invitation',
+  'staff_account_created',
+]);
 
 export const TEMPLATE_LANGUAGE = 'en';
 export const MAX_SUBJECT_LENGTH = 300;

@@ -16,6 +16,7 @@ import {
   MAX_BODY_LENGTH,
   MAX_SUBJECT_LENGTH,
   TEMPLATE_LANGUAGE,
+  PLATFORM_OWNED_TEMPLATES,
   isEmailTemplateKey,
   renderTemplate,
   defaultTemplate,
@@ -94,31 +95,33 @@ export class EmailTemplatesService {
       const topics = await tx.$queryRaw<
         { topic: string; enabled: boolean; staffEnabled: boolean }[]
       >`SELECT topic,guest_enabled AS enabled,staff_enabled AS "staffEnabled" FROM notification_topic_settings WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid`;
-      return (Object.keys(EMAIL_TEMPLATES) as EmailTemplateKey[]).map((key) => ({
-        enabled: (() => {
-          const topicKey: Record<string, string> = {
-            booking_confirmed: 'new_booking',
-            booking_confirmed_pay_at_hotel: 'new_booking',
-            staff_new_booking: 'new_booking',
-            staff_booking_cancelled: 'booking_cancelled',
-            staff_refund_processed: 'refund_processed',
-          };
-          const row = topics.find((topic) => topic.topic === (topicKey[key] ?? key));
-          return templateCatalog(key).audience === 'Guest'
-            ? (row?.enabled ?? true)
-            : (row?.staffEnabled ?? true);
-        })(),
-        ...this.view(key, saved.find((row) => row.key === key) ?? null),
-        hasDraft: heads.some((row) => row.key === key && row.draftRevision !== null),
-        locales: [
-          'en',
-          ...(heads.some(
-            (row) => row.key === key && row.language === 'sq' && row.liveRevision !== null,
-          )
-            ? ['sq']
-            : []),
-        ],
-      }));
+      return (Object.keys(EMAIL_TEMPLATES) as EmailTemplateKey[])
+        .filter((key) => !PLATFORM_OWNED_TEMPLATES.has(key))
+        .map((key) => ({
+          enabled: (() => {
+            const topicKey: Record<string, string> = {
+              booking_confirmed: 'new_booking',
+              booking_confirmed_pay_at_hotel: 'new_booking',
+              staff_new_booking: 'new_booking',
+              staff_booking_cancelled: 'booking_cancelled',
+              staff_refund_processed: 'refund_processed',
+            };
+            const row = topics.find((topic) => topic.topic === (topicKey[key] ?? key));
+            return templateCatalog(key).audience === 'Guest'
+              ? (row?.enabled ?? true)
+              : (row?.staffEnabled ?? true);
+          })(),
+          ...this.view(key, saved.find((row) => row.key === key) ?? null),
+          hasDraft: heads.some((row) => row.key === key && row.draftRevision !== null),
+          locales: [
+            'en',
+            ...(heads.some(
+              (row) => row.key === key && row.language === 'sq' && row.liveRevision !== null,
+            )
+              ? ['sq']
+              : []),
+          ],
+        }));
     });
   }
 
@@ -360,7 +363,8 @@ export class EmailTemplatesService {
   }
 
   private requireKey(key: string): EmailTemplateKey {
-    if (!isEmailTemplateKey(key)) throw new NotFoundException('Unknown email template.');
+    if (!isEmailTemplateKey(key) || PLATFORM_OWNED_TEMPLATES.has(key))
+      throw new NotFoundException('Unknown email template.');
     return key;
   }
 

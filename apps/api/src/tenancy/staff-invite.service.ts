@@ -1,4 +1,4 @@
-import { savedTemplate, renderTemplate } from '../mail/email-templates';
+import { renderTemplate } from '../mail/email-templates';
 import type { MailBrand } from '@must/domain-contracts';
 import {
   BadRequestException,
@@ -328,7 +328,8 @@ export class StaffInviteService implements OnModuleDestroy {
             public_website_origin AS "websiteUrl", address
           FROM properties WHERE tenant_id = ${command.tenantId}::uuid AND id = ${command.propertyId}::uuid
         `;
-        return { brand, saved: await savedTemplate(tx, scope, 'staff_account_created') };
+        // The platform owns this wording: a hotel's saved text is never used (G-80).
+        return { brand, saved: null };
       });
       if (!work.brand) return;
       const message = renderTemplate('staff_account_created', work.saved, {
@@ -606,14 +607,9 @@ Sign in: ${signInLink}`,
               const [brand] = await tx.$queryRaw<
                 MailBrand[]
               >`SELECT name,logo_url AS "logoUrl",support_email AS "supportEmail",phone,address,public_website_origin AS "websiteUrl" FROM properties WHERE tenant_id=${command.tenantId}::uuid AND id=${propertyId}::uuid`;
-              const saved = await savedTemplate(
-                tx,
-                { tenantId: command.tenantId, propertyId },
-                'staff_invitation',
-              );
               return {
                 brand,
-                template: renderTemplate('staff_invitation', saved, {
+                template: renderTemplate('staff_invitation', null, {
                   hotel_name: brand?.name ?? details.organization.organizationName,
                   staff_name: 'colleague',
                   role_name: details.assignments[0]?.roleTemplateName ?? 'staff',

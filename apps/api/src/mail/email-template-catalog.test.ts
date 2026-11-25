@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   EMAIL_TEMPLATES,
+  PLATFORM_OWNED_TEMPLATES,
   defaultTemplate,
   renderTemplate,
   stayTemplateValues,
@@ -20,7 +21,10 @@ describe('safe complete situation catalog and local civil stay dates', () => {
         expect(metadata.unavailableReason).toContain('No sending trigger');
     }
     expect(templateCatalog('booking_confirmed_pay_at_hotel').triggerAvailable).toBe(true);
-    expect(templateCatalog('payment_failed').triggerAvailable).toBe(false);
+    // Removed on purpose (G-79): nothing ever sent it. The platform owns the staff account emails (G-80).
+    expect(Object.keys(EMAIL_TEMPLATES)).not.toContain('payment_failed');
+    expect(PLATFORM_OWNED_TEMPLATES.has('staff_invitation')).toBe(true);
+    expect(PLATFORM_OWNED_TEMPLATES.has('staff_account_created')).toBe(true);
   });
   it('keeps per-night rates exact and dates civil across DST, leap days and year boundaries', () => {
     const base = {
