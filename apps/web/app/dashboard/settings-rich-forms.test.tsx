@@ -3,7 +3,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { it, expect, vi } from 'vitest';
-import { GeneralSettings, BookingRulesSettings, CheckInOutSettings } from './settings-forms';
+import {
+  BankTransferSettings,
+  BookingRulesSettings,
+  CheckInOutSettings,
+  GeneralSettings,
+  ScheduledEmailSettings,
+} from './settings-forms';
 import { UnsavedChangesBoundary } from '../../components/ui/unsaved-changes';
 import type { Property } from './settings-areas';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -336,6 +342,46 @@ it('asks for notice, season and arrival days with the same rules as the server',
     await act(async () => arrival('Sat').click());
     await act(async () => button('Save changes').click());
     expect(save).toHaveBeenCalledWith({ minNoticeHours: 24, arrivalDays: [6] });
+  } finally {
+    await m.close();
+  }
+});
+
+it('takes the bank details of the hotel and saves only what changed (G-48)', async () => {
+  const save = vi.fn(),
+    m = await mount(
+      <BankTransferSettings property={property} saving={false} canWrite onSave={save} />,
+    );
+  try {
+    expect(m.host.textContent).toContain('Accept bank transfers');
+    await value('hotel-bankAccountHolder', 'Hotel Sh.p.k.');
+    await value('hotel-bankIban', 'AL35 2021 1109 0000 0000 0123 4567');
+    await value('hotel-bankTransferDays', '3');
+    await act(async () => button('Save changes').click());
+    expect(save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bankAccountHolder: 'Hotel Sh.p.k.',
+        bankIban: 'AL35 2021 1109 0000 0000 0123 4567',
+        bankTransferDays: 3,
+      }),
+    );
+  } finally {
+    await m.close();
+  }
+});
+
+it('lets the hotel set when each scheduled email goes out (G-81)', async () => {
+  const save = vi.fn(),
+    m = await mount(
+      <ScheduledEmailSettings property={property} saving={false} canWrite onSave={save} />,
+    );
+  try {
+    expect(m.host.textContent).toContain('Daily summary to the hotel');
+    expect(m.host.textContent).toContain('Email before arrival');
+    expect(m.host.textContent).toContain('Email after the stay');
+    await pickTime('hotel-preArrivalEmailTime', '09:00');
+    await act(async () => button('Save changes').click());
+    expect(save).toHaveBeenCalledWith({ preArrivalEmailTime: '09:00' });
   } finally {
     await m.close();
   }

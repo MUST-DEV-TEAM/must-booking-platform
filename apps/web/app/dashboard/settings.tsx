@@ -8,7 +8,13 @@ import { ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
 import { UnsavedChangesBoundary } from '../../components/ui/unsaved-changes';
 import { IntegrationSettings } from './integration-settings';
 import { toast } from 'sonner';
-import { CheckInOutSettings, BookingRulesSettings, GeneralSettings } from './settings-forms';
+import {
+  BankTransferSettings,
+  BookingRulesSettings,
+  CheckInOutSettings,
+  GeneralSettings,
+  ScheduledEmailSettings,
+} from './settings-forms';
 import { type Property } from './settings-areas';
 import { type SettingsTab } from './settings-registry';
 
@@ -235,6 +241,12 @@ export function DashboardSettings({
             saving={saveMutation.isPending}
             onSave={(update) => void save(update)}
           />
+          <ScheduledEmailSettings
+            canWrite={canWrite}
+            property={property}
+            saving={saveMutation.isPending}
+            onSave={(update) => void save(update)}
+          />
         </SettingsAreaPanel>
         <SettingsAreaPanel activeArea={settingsArea} area="contact-brand">
           <BrandingSettings
@@ -289,6 +301,12 @@ export function DashboardSettings({
                 ),
             )}
             operationsHref={dashboardSectionHref(tenantId, propertyId, 'payments')}
+          />
+          <BankTransferSettings
+            canWrite={canWrite}
+            property={property}
+            saving={saveMutation.isPending}
+            onSave={(update) => void save(update)}
           />
         </SettingsAreaPanel>
 

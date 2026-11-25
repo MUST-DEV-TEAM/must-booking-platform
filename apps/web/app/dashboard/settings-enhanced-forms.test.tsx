@@ -122,8 +122,11 @@ it('orders the checkout methods, picks the default, asks what is accepted at the
     };
   const m = await mount(<PaymentSettings {...props} />);
   try {
-    expect(document.body.textContent).toContain('Bank transfer');
-    expect(document.body.textContent).toContain('Soon');
+    // Bank transfer is its own section now, not a "Soon" row.
+    expect(document.body.textContent).toContain(
+      'Bank transfer is set up in its own section below.',
+    );
+    expect(document.body.textContent).not.toContain('Soon');
     expect(byLabel('Move Stripe up').disabled).toBe(true);
     expect(byLabel('Move Pay at the hotel down').disabled).toBe(true);
     await act(async () => byLabel('Move PokPay up').click());

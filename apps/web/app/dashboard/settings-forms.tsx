@@ -238,6 +238,42 @@ export function BookingRulesSettings({
   );
 }
 
+/** Where guests send a bank transfer, and how long the rooms are held for it. */
+export function BankTransferSettings({ property, saving, onSave, canWrite = false }: FormProps) {
+  const rich = useHotelSettings(property, 'bank-transfer', canWrite);
+  useUnsavedChanges(canWrite && rich.dirty);
+  return (
+    <div className="flex flex-col gap-4">
+      {rich.fields}
+      <SaveBar
+        dirty={canWrite && rich.dirty}
+        saving={saving}
+        canSave={!Object.keys(rich.errors).length}
+        onSave={() => onSave(rich.update)}
+        onDiscard={rich.discard}
+      />
+    </div>
+  );
+}
+
+/** The local time of each scheduled email (daily summary, before arrival, after the stay). */
+export function ScheduledEmailSettings({ property, saving, onSave, canWrite = false }: FormProps) {
+  const rich = useHotelSettings(property, 'scheduled-emails', canWrite);
+  useUnsavedChanges(canWrite && rich.dirty);
+  return (
+    <div className="flex flex-col gap-4">
+      {rich.fields}
+      <SaveBar
+        dirty={canWrite && rich.dirty}
+        saving={saving}
+        canSave={!Object.keys(rich.errors).length}
+        onSave={() => onSave(rich.update)}
+        onDiscard={rich.discard}
+      />
+    </div>
+  );
+}
+
 /** Check-in and check-out times shown to guests. */
 export function CheckInOutSettings({ property, saving, onSave, canWrite = false }: FormProps) {
   const initial = {
