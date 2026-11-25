@@ -177,7 +177,8 @@ describe('notification settings (who receives which email)', () => {
         ],
       })
       .expect(200);
-    expect(saved.body).toMatchObject({ guestEnabled: false, customStaffRecipients: true });
+    // The booking confirmation is a guest email the hotel cannot switch off: the "off" sent above is ignored.
+    expect(saved.body).toMatchObject({ guestEnabled: true, customStaffRecipients: true });
     expect(saved.body.rules).toHaveLength(4);
     expect(saved.body.staffRecipients.map((r: { email: string }) => r.email).sort()).toEqual(
       [ownerEmail, staffEmail, 'reservations@hotel.test'].sort(),
@@ -195,15 +196,16 @@ describe('notification settings (who receives which email)', () => {
       .expect(200);
     expect(empty.body.staffRecipients).toEqual([]);
 
-    // The guest switch is honoured when emails go out; other topics are untouched.
+    // The booking confirmation was saved as "off" above, but guests always get it (G-77): every
+    // booking, cancellation and refund email still goes out.
     const notifications = app!.get(PaymentNotificationService);
     const dispatch = vi.spyOn(app!.get(MailDeliveryService), 'dispatch').mockResolvedValue();
     const context = { tenantId, propertyId };
     await notifications.sendPaymentConfirmationEmailSafely({} as never, context);
-    expect(dispatch).not.toHaveBeenCalled();
     await notifications.sendBookingCancelledEmailSafely({} as never, context);
     await notifications.sendRefundConfirmationEmailSafely({} as never, context);
     expect(dispatch.mock.calls.map(([kind]) => kind)).toEqual([
+      'paymentConfirmation',
       'bookingCancelled',
       'refundConfirmation',
     ]);

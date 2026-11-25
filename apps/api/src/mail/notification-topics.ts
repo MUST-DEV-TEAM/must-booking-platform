@@ -139,6 +139,27 @@ export function topicDaysOffset(topic: NotificationTopic) {
   return 'daysOffset' in definition ? definition.daysOffset : null;
 }
 
+/**
+ * Guest emails a hotel cannot switch off: the guest needs them to know what happened to their booking and money.
+ * The dashboard shows these as "Always sent"; the server enforces it, so a saved or API-set "off" is ignored.
+ */
+const REQUIRED_GUEST_TOPICS: ReadonlySet<NotificationTopic> = new Set<NotificationTopic>([
+  'new_booking',
+  'booking_cancelled',
+  'cancellation_request_received',
+  'booking_request_decision',
+  'payment_pending',
+  'payment_reminder',
+  'payment_link_expiring',
+  'payment_received',
+  'payment_not_completed',
+  'refund_processed',
+]);
+
+export function isRequiredGuestTopic(topic: NotificationTopic): boolean {
+  return REQUIRED_GUEST_TOPICS.has(topic);
+}
+
 export function isOptionalStaffTopic(topic: NotificationTopic): boolean {
   const definition = NOTIFICATION_TOPICS[topic];
   return 'optional' in definition && definition.optional === true;
