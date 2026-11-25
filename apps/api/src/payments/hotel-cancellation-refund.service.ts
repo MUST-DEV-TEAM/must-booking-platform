@@ -103,6 +103,16 @@ export class HotelCancellationRefundService {
             return;
           }
           confirmation = refunded.confirmation;
+          if (refunded.returnByHand)
+            await this.manualReview.recordInTransaction(tx, {
+              tenantId: context.tenantId,
+              propertyId: context.propertyId,
+              category: 'PAYMENT_BOOKING_MISMATCH',
+              referenceType: 'booking',
+              referenceId: bookingId,
+              message: `The hotel cancelled this booking in Clock. ${refunded.returnByHand.amount} ${refunded.returnByHand.currency} was paid in person and must be returned to the guest by hand.`,
+              context: { kind: 'CANCELLATION_RETURN_BY_HAND', hotelCancellation: true },
+            });
         },
         // Gateway refund plus the Clock negative payment can exceed the default timeout.
         { timeoutMs: 90_000 },
