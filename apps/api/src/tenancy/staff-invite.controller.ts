@@ -36,6 +36,22 @@ export class StaffInviteController {
     @Body() body: Omit<StaffInvite, 'tenantId'>,
     @Req() request: { tenantContext: { tenantId: string; userId: string } },
   ): Promise<{ token: string }> {
+    // A request without a usable email or without any property and role gets a clear 400, not a server error.
+    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (typeof body?.email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email.trim()))
+      throw new BadRequestException('Enter a valid email address to invite.');
+    if (
+      !Array.isArray(body.assignments) ||
+      body.assignments.length === 0 ||
+      body.assignments.some(
+        (assignment) =>
+          typeof assignment?.propertyId !== 'string' ||
+          !UUID.test(assignment.propertyId) ||
+          typeof assignment?.roleTemplateId !== 'string' ||
+          !UUID.test(assignment.roleTemplateId),
+      )
+    )
+      throw new BadRequestException('Choose at least one property and a role for the invitation.');
     return {
       token: await this.invites.invite(
         // membershipRole is never accepted from a hotel user: only the platform console may invite an owner.
