@@ -94,3 +94,27 @@ export function checkPaymentSettings(values: PaymentValues): Record<string, stri
   }
   return out;
 }
+
+/** An IBAN as the bank prints it, without spaces and in capitals. */
+export function normaliseIban(value: string): string {
+  return value.replace(/\s+/g, '').toUpperCase();
+}
+
+/** The standard IBAN check (country, length range, mod 97). Null when the number is valid. */
+export function checkIban(value: unknown): string | null {
+  if (typeof value !== 'string') return 'Enter the IBAN.';
+  const iban = normaliseIban(value);
+  if (!/^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/.test(iban))
+    return 'Enter a valid IBAN, for example AL35202111090000000001234567.';
+  const rearranged = iban.slice(4) + iban.slice(0, 4);
+  let remainder = 0;
+  for (const char of rearranged) {
+    const digits = /\d/.test(char) ? char : String(char.charCodeAt(0) - 55);
+    for (const digit of digits) remainder = (remainder * 10 + Number(digit)) % 97;
+  }
+  return remainder === 1
+    ? null
+    : 'This IBAN does not pass the bank check digits. Check it for a typing mistake.';
+}
+
+export const BANK_TRANSFER_DAYS = { min: 1, max: 14, default: 3 } as const;

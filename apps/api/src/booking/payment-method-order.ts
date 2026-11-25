@@ -1,6 +1,6 @@
 import { ACCEPTED_AT_HOTEL } from '@must/domain-contracts';
 
-export type PaymentMethodKey = 'stripe' | 'pokpay' | 'pay_at_hotel';
+export type PaymentMethodKey = 'stripe' | 'pokpay' | 'pay_at_hotel' | 'bank_transfer';
 
 /**
  * The methods a guest is offered, in the hotel's own order, and the one to pre-select (G-51, S7b-2).

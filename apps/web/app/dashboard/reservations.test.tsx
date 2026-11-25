@@ -418,6 +418,78 @@ describe('Dashboard reservations', () => {
     container.remove();
   });
 
+  it('records a bank transfer only with the bank reference (G-48)', async () => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    const bodies: unknown[] = [];
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url.endsWith('/manual-payment')) {
+        bodies.push(JSON.parse(String(init?.body)));
+        return Promise.resolve(
+          new Response(JSON.stringify({ ok: true, value: { id: 'payment-2' } }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        createElement(
+          DashboardQueryProvider,
+          undefined,
+          createElement(DashboardReservations, {
+            tenantId: 'tenant-1',
+            propertyId: 'property-1',
+            initialBookings: [pendingPokpayBooking],
+          }),
+        ),
+      );
+    });
+    await act(async () => {
+      Array.from(container.querySelectorAll('button'))
+        .find((button) => button.textContent === 'View details')!
+        .click();
+    });
+    const method = container.querySelector<HTMLSelectElement>(
+      '#manual-payment-method-booking-pending-pokpay',
+    )!;
+    await act(async () => {
+      method.value = 'bank_transfer';
+      method.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    const record = () =>
+      Array.from(container.querySelectorAll('button')).find(
+        (button) => button.textContent === 'Record manual payment',
+      )!;
+    await act(async () => record().click());
+    // Without the bank reference nothing is sent.
+    expect(bodies).toEqual([]);
+    expect(container.textContent).toContain('Enter the bank reference');
+
+    const reference = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Bank reference"]',
+    )!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      setter.call(reference, 'TRX-555');
+      reference.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => record().click());
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).toMatchObject({
+      method: 'bank_transfer',
+      evidence: { reference: 'TRX-555' },
+    });
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   it('shows the Clock folio balance/status when present, and omits the row entirely when absent', async () => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     const container = document.createElement('div');

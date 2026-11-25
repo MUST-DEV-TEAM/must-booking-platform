@@ -369,6 +369,7 @@ function ReservationDetails({
   const [error, setError] = useState<string | null>(null);
   const cancelling = false;
   const [settling, setSettling] = useState<'manual' | 'pokpay' | null>(null);
+  const [manualReference, setManualReference] = useState('');
   const [manualMethod, setManualMethod] = useState<'cash' | 'card_in_person' | 'bank_transfer'>(
     'cash',
   );
@@ -383,6 +384,10 @@ function ReservationDetails({
   }
 
   async function settlePendingPayment(kind: 'manual' | 'pokpay') {
+    if (kind === 'manual' && manualMethod === 'bank_transfer' && !manualReference.trim()) {
+      setError('Enter the bank reference (transaction ID or the reference on the statement).');
+      return;
+    }
     setSettling(kind);
     setError(null);
     try {
@@ -394,7 +399,21 @@ function ReservationDetails({
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
-          ...(kind === 'manual' ? { body: JSON.stringify({ method: manualMethod }) } : {}),
+          ...(kind === 'manual'
+            ? {
+                body: JSON.stringify(
+                  manualMethod === 'bank_transfer'
+                    ? {
+                        method: manualMethod,
+                        evidence: {
+                          receivedOn: new Date().toISOString().slice(0, 10),
+                          reference: manualReference.trim(),
+                        },
+                      }
+                    : { method: manualMethod },
+                ),
+              }
+            : {}),
         },
       );
       if (!response.ok) throw new Error('Unable to settle the pending payment.');
@@ -539,6 +558,16 @@ function ReservationDetails({
                 <option value="card_in_person">Card / POS</option>
                 <option value="bank_transfer">Bank transfer</option>
               </select>
+              {manualMethod === 'bank_transfer' ? (
+                <input
+                  aria-label="Bank reference"
+                  placeholder="Bank reference"
+                  maxLength={120}
+                  value={manualReference}
+                  disabled={settling !== null}
+                  onChange={(event) => setManualReference(event.target.value)}
+                />
+              ) : null}
               <button
                 type="button"
                 disabled={settling !== null}
