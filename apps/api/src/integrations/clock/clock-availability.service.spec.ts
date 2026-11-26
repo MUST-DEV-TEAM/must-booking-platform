@@ -2708,6 +2708,32 @@ describe('the crossed-out price', () => {
     expect(byId['546549']).not.toHaveProperty('originalTotal');
     expect(byId['615688']).not.toHaveProperty('originalTotal');
   });
+
+  it('uses Clock’s included discount when a website explicitly opts in, without changing the total', async () => {
+    const rates = ratesBody.map((rate) =>
+      rate.id === bedAndBreakfast.id ? { ...rate, included_discount_rate: 0.25 } : rate,
+    );
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 200, body: rates })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [{ id: 42023, rates: { '615688': [offer(31000)], '546549': [offer(7200000)] } }],
+      });
+    const { service } = makeService({ client: { request } });
+    const result = await service.listOffersForStay('t1', 'p1', {
+      ...query,
+      channel: 'website',
+      clockDiscountDisplay: true,
+    });
+    const selected = result.ok && result.value.find((entry) => entry.rateId === '546549');
+    expect(selected).toMatchObject({
+      total: { amount: '72000.00', currency: 'EUR' },
+      originalTotal: { amount: '96000.00', currency: 'EUR' },
+    });
+    const regular = result.ok && result.value.find((entry) => entry.rateId === '615688');
+    expect(regular).not.toHaveProperty('originalTotal');
+  });
 });
 
 describe('public comparison rate pricing', () => {

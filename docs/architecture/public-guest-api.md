@@ -75,11 +75,12 @@ Can also carry `restrictionErrors:[{code,message}]`.
 ```
 `status`: `available | sold_out | closed | unavailable`. Optional per day: `closedToArrival`, `closedToDeparture`, `minStay`.
 
-**GET `/public/rate-offers?roomTypeId&startsOn&endsOn&adults[&children&code]`** (Clock hotels; the chosen `rateId` goes back as `clockRateId`):
+**GET `/public/rate-offers?roomTypeId&startsOn&endsOn&adults[&children&code&comparison=clock]`** (Clock hotels; the chosen `rateId` goes back as `clockRateId`):
 ```json
 {"offers":[{"rateId":"546554","name":"BB","label":"Bed & breakfast","mealNames":["Breakfast"],"total":{"amount":"23500.00","currency":"ALL"}}]}
 ```
 Empty list for hotels without Clock or when nothing is bookable.
+The optional `comparison=clock` uses the hotel's included-discount percentage to calculate a display-only `originalTotal`, not a verified former price. Without it, the existing comparison behavior remains unchanged. It never changes `total` or the booking price.
 
 **GET `/public/exchange-rates?currencies=EUR,USD`** (1 to 30 three-letter codes; ETag and 304 supported). Display only; bookings are always priced and charged in the hotel currency (ADR-0038).
 ```json

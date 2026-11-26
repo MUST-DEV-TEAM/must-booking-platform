@@ -1,5 +1,6 @@
 import { setTimeout as wait } from 'node:timers/promises';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import type {
   AvailabilityQuery,
   AvailabilityResult,
@@ -371,10 +372,19 @@ export function originalPrice(
   total: Money,
   includedDiscountRate: number | null,
 ): Money | undefined {
-  if (!includedDiscountRate) return undefined;
-  const cents = Math.round((Number(total.amount) * 100) / (1 - includedDiscountRate));
-  if (!(cents > Math.round(Number(total.amount) * 100))) return undefined;
-  return { amount: (cents / 100).toFixed(2), currency: total.currency };
+  if (!includedDiscountRate || includedDiscountRate <= 0 || includedDiscountRate >= 0.9)
+    return undefined;
+  try {
+    const current = new Prisma.Decimal(total.amount);
+    if (!current.isFinite() || current.lte(0)) return undefined;
+    const original = current
+      .div(new Prisma.Decimal(1).minus(includedDiscountRate))
+      .toDecimalPlaces(2);
+    if (original.lte(current)) return undefined;
+    return { amount: original.toFixed(2), currency: total.currency };
+  } catch {
+    return undefined;
+  }
 }
 
 /** What a guest typed as a promo code, comparable with a rate's codes. */
@@ -1484,6 +1494,8 @@ export class ClockAvailabilityService {
       channel?: ClockChannel;
       /** A promo code the guest entered; it reveals the rates that need it. */
       code?: string;
+      /** Opt in to Clock's display-only included-discount calculation. */
+      clockDiscountDisplay?: boolean;
     },
   ): Promise<Result<ClockStayOffer[]>> {
     const holds = await pendingCheckoutHolds(
@@ -1556,7 +1568,9 @@ export class ClockAvailabilityService {
           amount: (offer.price.cents / 100).toFixed(2),
           currency: offer.price.currency,
         };
-        const original = comparedOriginal(total, rateId, roomType?.rates ?? {}, pairs);
+        const original = query.clockDiscountDisplay
+          ? originalPrice(total, info?.includedDiscountRate ?? null)
+          : comparedOriginal(total, rateId, roomType?.rates ?? {}, pairs);
         return {
           rateId,
           name: info?.name ?? '',
