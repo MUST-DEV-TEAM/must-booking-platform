@@ -85,6 +85,9 @@ export class PublicAvailabilityController {
         channel: 'website',
         // A promo code the guest typed reveals the Clock rates that need it.
         code: optionalCode((query as { code?: unknown } | null)?.code),
+        ...((query as { comparison?: unknown } | null)?.comparison === 'clock'
+          ? { clockDiscountDisplay: true }
+          : {}),
       },
     );
     if (!result.ok) {

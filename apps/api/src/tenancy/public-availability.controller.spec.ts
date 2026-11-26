@@ -242,6 +242,17 @@ describe('PublicAvailabilityController.getRateOffers', () => {
     });
   });
 
+  it('passes the Clock discount display option only when explicitly requested', async () => {
+    const listOffersForStay = vi.fn().mockResolvedValue({ ok: true, value: [] });
+    const { controller } = make(listOffersForStay);
+    await controller.getRateOffers({ ...stay, comparison: 'clock' }, request);
+    expect(listOffersForStay).toHaveBeenCalledWith(
+      'tenant-1',
+      'property-1',
+      expect.objectContaining({ clockDiscountDisplay: true, channel: 'website' }),
+    );
+  });
+
   it('gives a property without Clock an empty list instead of an error', async () => {
     const listOffersForStay = vi.fn().mockResolvedValue({
       ok: false,
