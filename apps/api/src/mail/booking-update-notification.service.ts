@@ -1,4 +1,5 @@
 import { emailBrandExtra } from './email-brand-columns';
+import { GUEST_ROOM_NAME_SQL } from '../booking/room-label';
 import { BOOKING_CONTACT_SQL } from '../booking/booking-contact';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { MailBrand } from '@must/domain-contracts';
@@ -219,7 +220,7 @@ export class BookingUpdateNotificationService {
       `SELECT b.id::text, COALESCE(b.order_reference, b.external_reference) AS reference,
          ${BOOKING_CONTACT_SQL.email} AS email, ${BOOKING_CONTACT_SQL.firstName} AS "firstName", ${BOOKING_CONTACT_SQL.lastName} AS "lastName",
          b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn",
-         COALESCE(r.name, rt.name) AS "roomName", (b.adults + b.children)::int AS "guestCount",
+         ${GUEST_ROOM_NAME_SQL} AS "roomName", (b.adults + b.children)::int AS "guestCount",
          b.room_type_id::text AS "roomTypeId",b.nightly_rates AS "nightlyRates",rp.currency
        FROM bookings b
        JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id

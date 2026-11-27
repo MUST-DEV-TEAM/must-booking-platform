@@ -1,4 +1,5 @@
 import { emailBrandExtraP } from '../mail/email-brand-columns';
+import { guestRoomNameSql } from '../booking/room-label';
 import { bookingContactSql } from '../booking/booking-contact';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
@@ -709,7 +710,7 @@ export class PaymentRefundService {
           b.external_reference AS "externalReference", b.starts_on::text AS "startsOn",
           b.ends_on::text AS "endsOn", (b.adults + b.children) AS "guestCount",
           b.nightly_rates AS "nightlyRates",
-          COALESCE(r.name, rt.name) AS "roomName", p.name AS "propertyName",
+          ${guestRoomNameSql} AS "roomName", p.name AS "propertyName",
           p.brand_colour AS "brandColour",p.email_footer_text AS "emailFooterText",p.terms_url AS "termsUrl",p.logo_url AS "logoUrl", p.support_email AS "supportEmail", p.phone,
           p.public_website_origin AS "websiteUrl", p.address, ${emailBrandExtraP}
         FROM bookings b
@@ -1207,7 +1208,7 @@ export class PaymentRefundService {
           b.external_reference AS "externalReference", b.starts_on::text AS "startsOn",
           b.ends_on::text AS "endsOn", (b.adults + b.children) AS "guestCount",
           b.nightly_rates AS "nightlyRates",
-          COALESCE(r.name, rt.name) AS "roomName", p.name AS "propertyName",
+          ${guestRoomNameSql} AS "roomName", p.name AS "propertyName",
           p.brand_colour AS "brandColour",p.email_footer_text AS "emailFooterText",p.terms_url AS "termsUrl",p.logo_url AS "logoUrl", p.support_email AS "supportEmail", p.phone,
           p.public_website_origin AS "websiteUrl", p.address, ${emailBrandExtraP}
         FROM bookings b
