@@ -24,7 +24,8 @@ Working reference client: [MustApiClient.php](../../apps/wordpress-plugin/src/Co
 
 | Group | Routes | Limit |
 |---|---|---|
-| read | branding, catalog, availability, availability-check, availability-calendar, rate-offers, exchange-rates, GET booking | 120 / min |
+| read | branding, catalog, availability, availability-check, rate-offers, exchange-rates, GET booking | 120 / min |
+| calendar | availability-calendar | 600 / min |
 | quote | POST `/quotes`, `/quotes/display-prices` | 20 / min |
 | alternative dates | POST `/quotes/alternative-dates` | 10 / min |
 | booking mutation | POST/PATCH/DELETE bookings, `/bookings/orders`, manage page | 10 / min |

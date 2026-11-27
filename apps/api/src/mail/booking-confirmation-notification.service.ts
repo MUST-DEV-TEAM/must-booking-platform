@@ -1,4 +1,5 @@
 import { emailBrandExtraP } from './email-brand-columns';
+import { guestRoomNameSql, staffRoomNameSql } from '../booking/room-label';
 import { bookingContactSql } from '../booking/booking-contact';
 import { Inject, Injectable } from '@nestjs/common';
 import type { MailOrderRoom, PaymentProviderContext } from '@must/domain-contracts';
@@ -22,6 +23,7 @@ type BookingEmailRow = {
   startsOn: string;
   endsOn: string;
   roomName: string;
+  staffRoomName: string;
   paymentMethod: string;
   guestCount: number;
   nightlyRates: Array<{ date: string; amount: string }> | null;
@@ -52,7 +54,13 @@ function customSiteOrigin(
   return row.publicWebsiteOrigin && !row.wordpressConnectedAt ? row.publicWebsiteOrigin : null;
 }
 
-type OrderRoomRow = { roomName: string; guestCount: number; amount: string; orderTotal: string };
+type OrderRoomRow = {
+  roomName: string;
+  staffRoomName: string;
+  guestCount: number;
+  amount: string;
+  orderTotal: string;
+};
 
 @Injectable()
 export class BookingConfirmationNotificationService {
@@ -73,7 +81,7 @@ export class BookingConfirmationNotificationService {
           b.guest_session_id AS "guestSessionId", b.guest_return_url AS "guestReturnUrl",
           b.total_amount::text AS amount, rp.currency, b.external_reference AS "externalReference",
           b.special_requests AS "specialRequests", b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn",
-          COALESCE(r.name, rt.name) AS "roomName", b.payment_method AS "paymentMethod",
+          ${guestRoomNameSql} AS "roomName", ${staffRoomNameSql} AS "staffRoomName", b.payment_method AS "paymentMethod",
           (b.adults + b.children) AS "guestCount",
           b.nightly_rates AS "nightlyRates",
           p.name AS "propertyName", p.brand_colour AS "brandColour",p.email_footer_text AS "emailFooterText",p.terms_url AS "termsUrl",p.logo_url AS "logoUrl", p.support_email AS "supportEmail",
@@ -101,7 +109,7 @@ export class BookingConfirmationNotificationService {
       // lists every room, not one email per room (or only the first room).
       const orderRooms = row.orderReference
         ? await tx.$queryRaw<OrderRoomRow[]>`
-            SELECT COALESCE(r.name, rt.name) AS "roomName", (b.adults + b.children) AS "guestCount",
+            SELECT ${guestRoomNameSql} AS "roomName", ${staffRoomNameSql} AS "staffRoomName", (b.adults + b.children) AS "guestCount",
               b.total_amount::text AS amount, SUM(b.total_amount) OVER ()::text AS "orderTotal"
             FROM bookings b
             JOIN room_types rt ON rt.tenant_id = b.tenant_id AND rt.property_id = b.property_id AND rt.id = b.room_type_id
@@ -184,13 +192,16 @@ export class BookingConfirmationNotificationService {
           to: recipient.email,
           guest: { name: guestName, email: row.email, phone: row.phone },
           stay: { startsOn: row.startsOn, endsOn: row.endsOn },
-          roomName: row.roomName,
+          roomName: orderRooms.length > 1 ? row.roomName : row.staffRoomName,
           amount: { amount: row.amount, currency: row.currency },
           brand,
           guestCount: row.guestCount,
           paymentMethod: this.guestPaymentMethod(row.paymentMethod),
           nightlyRates: row.nightlyRates ?? undefined,
-          rooms,
+          rooms: rooms?.map((room, index) => ({
+            ...room,
+            roomName: orderRooms[index]!.staffRoomName,
+          })),
           specialRequests: row.specialRequests,
         },
         context,

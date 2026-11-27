@@ -33,6 +33,7 @@ function setup(options: { email?: string | null; fail?: boolean } = {}) {
             startsOn: '2027-07-12',
             endsOn: '2027-07-15',
             roomName: 'Deluxe Suite',
+            staffRoomName: 'Deluxe Suite, room 12',
             guestCount: 2,
             currency: 'EUR',
             nightlyRates: null,
@@ -77,6 +78,7 @@ describe('LifecycleEmailService', () => {
     await service.guest(context, receipt);
     expect(dispatch).toHaveBeenCalledTimes(1);
     const [kind, command, scope] = dispatch.mock.calls[0]!;
+    expect(command.html).not.toContain('room 12');
     expect(kind).toBe('rendered');
     expect(scope).toEqual(context);
     expect(command).toMatchObject({
@@ -127,6 +129,7 @@ describe('LifecycleEmailService', () => {
       'receipt/staff/o1/email:desk@hotel.test',
     ]);
     expect(dispatch.mock.calls[0]![1].html).toContain('Open in MUST');
+    expect(dispatch.mock.calls[0]![1].html).toContain('Deluxe Suite, room 12');
     expect(dispatch.mock.calls[0]![1].subject).toBe('Payment received - EBR-1');
   });
 

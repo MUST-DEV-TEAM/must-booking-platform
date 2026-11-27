@@ -1,4 +1,5 @@
 import { emailBrandExtraP } from './email-brand-columns';
+import { guestRoomNameSql, staffRoomNameSql } from '../booking/room-label';
 import { bookingContactSql } from '../booking/booking-contact';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { PaymentProviderContext } from '@must/domain-contracts';
@@ -18,6 +19,7 @@ type CancellationRow = {
   guestCount: number;
   nightlyRates: Array<{ date: string; amount: string }> | null;
   roomName: string;
+  staffRoomName: string;
   propertyName: string;
   brandColour: string | null;
   emailFooterText: string | null;
@@ -76,7 +78,7 @@ export class BookingCancellationNotificationService {
           b.external_reference AS "externalReference", b.starts_on::text AS "startsOn",
           b.ends_on::text AS "endsOn", (b.adults + b.children) AS "guestCount",
           b.nightly_rates AS "nightlyRates",
-          COALESCE(r.name, rt.name) AS "roomName", p.name AS "propertyName",
+          ${guestRoomNameSql} AS "roomName", ${staffRoomNameSql} AS "staffRoomName", p.name AS "propertyName",
           p.brand_colour AS "brandColour",p.email_footer_text AS "emailFooterText",p.terms_url AS "termsUrl",p.logo_url AS "logoUrl", p.support_email AS "supportEmail", p.phone AS "propertyPhone",
           p.public_website_origin AS "publicWebsiteOrigin", p.address AS "propertyAddress", ${emailBrandExtraP}
         FROM bookings b
@@ -204,6 +206,7 @@ export class BookingCancellationNotificationService {
       await this.notifications.sendBookingCancelledStaffNotificationSafely(
         {
           ...details,
+          roomName: row.staffRoomName,
           staffUserId: recipient.staffUserId,
           ...(recipient.envelope ? { recipientEnvelope: recipient.envelope } : {}),
           to: recipient.email,

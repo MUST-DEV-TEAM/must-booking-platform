@@ -17,7 +17,11 @@ import {
 import { AvailabilityService } from './availability.service';
 import { PublicTenantScoped } from './tenant-context.decorator';
 import { PublicRateLimitGuard } from './public-rate-limit.guard';
-import { PUBLIC_READ_RATE_LIMIT, PublicRateLimit } from './public-rate-limit.decorator';
+import {
+  PUBLIC_CALENDAR_RATE_LIMIT,
+  PUBLIC_READ_RATE_LIMIT,
+  PublicRateLimit,
+} from './public-rate-limit.decorator';
 
 type TenantPropertyRequest = { tenantContext: { tenantId: string; propertyId: string } };
 
@@ -135,7 +139,7 @@ export class PublicAvailabilityController {
   @Get('availability-calendar')
   @PublicTenantScoped({ propertyParam: 'propertyId' })
   @UseGuards(PublicRateLimitGuard)
-  @PublicRateLimit(PUBLIC_READ_RATE_LIMIT)
+  @PublicRateLimit(PUBLIC_CALENDAR_RATE_LIMIT)
   async getCalendar(@Query() query: unknown, @Req() request: TenantPropertyRequest) {
     const parsed = parseAvailabilityCalendarQuery(query);
     await this.availability.assertBookableSelection(

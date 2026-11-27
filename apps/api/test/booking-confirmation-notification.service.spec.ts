@@ -23,6 +23,7 @@ const bookingRow = {
   startsOn: '2027-09-01',
   endsOn: '2027-09-03',
   roomName: 'Ocean Suite',
+  staffRoomName: 'Ocean Suite, room 120',
   guestCount: 2,
   propertyName: 'Ocean Hotel',
   logoUrl: 'https://ocean.example.test/logo.png',
@@ -112,6 +113,7 @@ describe('BookingConfirmationNotificationService', () => {
       expect.objectContaining({
         bookingId,
         to: 'guest@example.test',
+        roomName: 'Ocean Suite',
         brand: {
           name: 'Ocean Hotel',
           logoUrl: 'https://ocean.example.test/logo.png',
@@ -135,7 +137,7 @@ describe('BookingConfirmationNotificationService', () => {
         to: 'front-desk@example.test',
         guest: { name: 'Ada Guest', email: 'guest@example.test', phone: '+355 69 123 4567' },
         stay: { startsOn: '2027-09-01', endsOn: '2027-09-03' },
-        roomName: 'Ocean Suite',
+        roomName: 'Ocean Suite, room 120',
         amount: { amount: '180.00', currency: 'EUR' },
         brand: {
           name: 'Ocean Hotel',
@@ -169,8 +171,20 @@ describe('BookingConfirmationNotificationService', () => {
       {
         orderReference: 'MUST-ORDER-001',
         rooms: [
-          { roomName: 'Ocean Suite', guestCount: 2, amount: '180.00', orderTotal: '300.00' },
-          { roomName: 'Garden Room', guestCount: 1, amount: '120.00', orderTotal: '300.00' },
+          {
+            roomName: 'Ocean Suite',
+            staffRoomName: 'Ocean Suite, room 120',
+            guestCount: 2,
+            amount: '180.00',
+            orderTotal: '300.00',
+          },
+          {
+            roomName: 'Garden Room',
+            staffRoomName: 'Garden Room, room 7',
+            guestCount: 1,
+            amount: '120.00',
+            orderTotal: '300.00',
+          },
         ],
       },
     );
@@ -198,7 +212,10 @@ describe('BookingConfirmationNotificationService', () => {
       expect.objectContaining({
         bookingReference: 'MUST-ORDER-001',
         amount: { amount: '300.00', currency: 'EUR' },
-        rooms,
+        rooms: [
+          { ...rooms[0], roomName: 'Ocean Suite, room 120' },
+          { ...rooms[1], roomName: 'Garden Room, room 7' },
+        ],
       }),
       context,
     );
