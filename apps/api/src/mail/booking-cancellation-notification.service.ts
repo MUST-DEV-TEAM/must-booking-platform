@@ -1,5 +1,6 @@
 import { emailBrandExtraP } from './email-brand-columns';
 import { guestRoomNameSql, staffRoomNameSql } from '../booking/room-label';
+import { isImportedPmsBooking } from './staff-booking-emails';
 import { bookingContactSql } from '../booking/booking-contact';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { PaymentProviderContext } from '@must/domain-contracts';
@@ -91,7 +92,9 @@ export class BookingCancellationNotificationService {
       `;
       const row = rows[0];
       if (!row) return null;
-      let staff = await staffRecipients(tx, context, 'booking_cancelled');
+      let staff = isImportedPmsBooking(row.externalReference)
+        ? []
+        : await staffRecipients(tx, context, 'booking_cancelled');
       if (!notifyGuest && staff.length > 0) {
         const recent = await tx.$queryRaw<Array<{ others: number; thisBooking: boolean }>>`
           SELECT count(DISTINCT em.booking_id) FILTER (WHERE em.booking_id <> ${bookingId}::uuid)::int AS others,

@@ -15,7 +15,7 @@ import { LifecycleEmailService, type LifecycleEmail } from './lifecycle-email.se
 
 const context = { tenantId: 't', propertyId: 'p' };
 
-function setup(options: { email?: string | null; fail?: boolean } = {}) {
+function setup(options: { email?: string | null; fail?: boolean; reference?: string } = {}) {
   const dispatch = vi.fn().mockResolvedValue(undefined);
   const tx = {
     $queryRaw: async (strings: TemplateStringsArray) => {
@@ -26,7 +26,7 @@ function setup(options: { email?: string | null; fail?: boolean } = {}) {
         return [
           {
             id: 'b1',
-            reference: 'EBR-1',
+            reference: options.reference ?? 'EBR-1',
             email: options.email === undefined ? 'ada@guest.test' : options.email,
             firstName: 'Ada',
             lastName: 'Lovelace',
@@ -131,6 +131,23 @@ describe('LifecycleEmailService', () => {
     expect(dispatch.mock.calls[0]![1].html).toContain('Open in MUST');
     expect(dispatch.mock.calls[0]![1].html).toContain('Deluxe Suite, room 12');
     expect(dispatch.mock.calls[0]![1].subject).toBe('Payment received - EBR-1');
+  });
+
+  it('tells staff about a changed booking made through MUST, not one imported from the PMS', async () => {
+    settings.recipients = [{ staffUserId: 'u1', email: 'owner@hotel.test' }];
+    for (const [reference, sent] of [
+      ['EBR-1', 1],
+      ['CLOCK-15951', 0],
+    ] as const) {
+      const { service, dispatch } = setup({ reference });
+      await service.staff(context, {
+        ...receipt,
+        topic: 'booking_changed',
+        key: 'staff_booking_changed',
+        eventType: 'booking.staff_changed',
+      });
+      expect(dispatch).toHaveBeenCalledTimes(sent);
+    }
   });
 
   it('sends no staff email when nobody is routed the topic', async () => {
