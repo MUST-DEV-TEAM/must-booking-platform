@@ -26,6 +26,19 @@ export const PUBLIC_READ_RATE_LIMIT: PublicRateLimitOptions = {
   windowSeconds: 60,
 };
 
+/**
+ * The calendar has its own window: a website showing every room type asks once per room type and month
+ * (26 calls for two months of a 13-type hotel), and all of a hotel's visitors currently share one window
+ * because the API only sees the proxy's address. In the shared 'read' window that also turned away the
+ * room list and prices (Empire, 2026-11-27). Most calls are answered from the 20-minute calendar memory;
+ * Clock itself stays protected by the Clock API limiter.
+ */
+export const PUBLIC_CALENDAR_RATE_LIMIT: PublicRateLimitOptions = {
+  name: 'calendar',
+  maximum: 600,
+  windowSeconds: 60,
+};
+
 export const PUBLIC_QUOTE_RATE_LIMIT: PublicRateLimitOptions = {
   name: 'quote',
   maximum: 20,
