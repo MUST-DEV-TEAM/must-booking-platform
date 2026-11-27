@@ -589,6 +589,7 @@ describe('Clock booking hydration', () => {
     const hydration = app!.get(ClockBookingHydrationService);
     queuedResponses = [{ status: 200, body: realBookingDetail(detail) }];
     await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38144013');
+    await asWebsiteBooking('38144013');
 
     queuedResponses = [{ status: 200, body: realBookingDetail({ ...detail, status: 'canceled' }) }];
     const outcome = await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38144013');
@@ -609,6 +610,32 @@ describe('Clock booking hydration', () => {
     expect(emails).toEqual([{ eventType: 'booking.staff_cancelled', recipient: email }]);
   });
 
+  it('emails nobody when a reservation imported from Clock is cancelled there', async () => {
+    const detail = { id: 38144014, number: '374', guest_e_mail: 'channel@example.test' };
+    const hydration = app!.get(ClockBookingHydrationService);
+    queuedResponses = [{ status: 200, body: realBookingDetail(detail) }];
+    await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38144014');
+    queuedResponses = [{ status: 200, body: realBookingDetail({ ...detail, status: 'canceled' }) }];
+    expect(
+      await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38144014'),
+    ).toMatchObject({ cancelledInPms: true });
+
+    const booking = await bookingState('38144014');
+    const [sent] = await admin.$queryRaw<Array<{ count: number }>>`
+      SELECT count(*)::int AS count FROM email_messages
+      WHERE tenant_id = ${tenantId}::uuid AND booking_id = ${booking!.id}::uuid
+    `;
+    expect(sent!.count).toBe(0);
+  });
+
+  /** Gives an imported test booking MUST's own reference, as a website booking has. */
+  async function asWebsiteBooking(externalBookingId: string) {
+    await admin.$executeRaw`
+      UPDATE bookings SET external_reference = ${`EBR-TEST-${externalBookingId}`}
+      WHERE tenant_id = ${tenantId}::uuid AND external_booking_id = ${externalBookingId}
+    `;
+  }
+
   it('stops emailing staff after a few Clock cancellations in an hour (bulk cancellation guard)', async () => {
     await admin.$executeRaw`
       DELETE FROM email_messages
@@ -620,6 +647,7 @@ describe('Clock booking hydration', () => {
       const detail = { id, number: String(id), guest_e_mail: `bulk-${id}@example.test` };
       queuedResponses = [{ status: 200, body: realBookingDetail(detail) }];
       await hydration.hydrateBooking(tenantId, propertyId, connectionId, String(id));
+      await asWebsiteBooking(String(id));
       queuedResponses = [
         { status: 200, body: realBookingDetail({ ...detail, status: 'canceled' }) },
       ];

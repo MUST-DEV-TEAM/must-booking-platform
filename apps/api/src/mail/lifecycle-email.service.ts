@@ -3,6 +3,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { MailBrand } from '@must/domain-contracts';
 
 import { guestRoomNameSql, staffRoomNameSql } from '../booking/room-label';
+import { isImportedPmsBooking } from './staff-booking-emails';
 import { bookingContactSql } from '../booking/booking-contact';
 import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant-database.service';
 import { renderBrandedEmail } from './email-layout';
@@ -128,6 +129,8 @@ ${email.cta.label}: ${email.cta.url}`
         if (!recipients.length) return null;
         const facts = await this.facts(tx, context, email.bookingId);
         if (!facts) return null;
+        // A payment taken through MUST is news even on an imported booking; a change to it is not.
+        if (email.topic === 'booking_changed' && isImportedPmsBooking(facts.reference)) return null;
         return {
           recipients,
           facts,
