@@ -2,6 +2,7 @@ import { emailBrandExtra } from './email-brand-columns';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { MailBrand } from '@must/domain-contracts';
 
+import { guestRoomNameSql, staffRoomNameSql } from '../booking/room-label';
 import { bookingContactSql } from '../booking/booking-contact';
 import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant-database.service';
 import { renderBrandedEmail } from './email-layout';
@@ -31,6 +32,7 @@ type Facts = {
   startsOn: string;
   endsOn: string;
   roomName: string;
+  staffRoomName: string;
   guestCount: number;
   currency: string;
   nightlyRates: { date: string; amount: string }[] | null;
@@ -134,7 +136,8 @@ ${email.cta.label}: ${email.cta.url}`
         };
       });
       if (!work) return;
-      const message = this.message(email, work.facts, work.brand, work.template);
+      const facts = { ...work.facts, roomName: work.facts.staffRoomName };
+      const message = this.message(email, facts, work.brand, work.template);
       const dashboard = this.dashboardUrl(context);
       for (const recipient of work.recipients) {
         await this.delivery.dispatch(
@@ -145,7 +148,7 @@ ${email.cta.label}: ${email.cta.url}`
             text: `${message.text}${dashboard ? `\n\nOpen in MUST: ${dashboard}` : ''}`,
             html: this.html(
               email,
-              work.facts,
+              facts,
               work.brand,
               message,
               dashboard ? { url: dashboard, label: 'Open in MUST' } : null,
@@ -227,7 +230,8 @@ ${email.cta.label}: ${email.cta.url}`
         ${bookingContactSql.email} AS email, ${bookingContactSql.firstName} AS "firstName",
         ${bookingContactSql.lastName} AS "lastName",
         b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn",
-        COALESCE(r.name, rt.name) AS "roomName", (b.adults + b.children)::int AS "guestCount",
+        ${guestRoomNameSql} AS "roomName", ${staffRoomNameSql} AS "staffRoomName",
+        (b.adults + b.children)::int AS "guestCount",
         rp.currency, b.nightly_rates AS "nightlyRates"
       FROM bookings b
       LEFT JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id

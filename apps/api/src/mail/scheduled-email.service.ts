@@ -1,4 +1,5 @@
 import { emailBrandExtra } from './email-brand-columns';
+import { guestRoomNameSql } from '../booking/room-label';
 import { bookingContactSql } from '../booking/booking-contact';
 import {
   Inject,
@@ -319,7 +320,7 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
           COALESCE(b.order_reference, b.external_reference) AS reference,
           ${bookingContactSql.email} AS email, ${bookingContactSql.firstName} AS "firstName", ${bookingContactSql.lastName} AS "lastName",
           b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn",
-          COALESCE(r.name, rt.name) AS "roomName", (b.adults + b.children) AS "guestCount",
+          ${guestRoomNameSql} AS "roomName", (b.adults + b.children) AS "guestCount",
           b.payment_method::text AS "paymentMethod", b.total_amount::text AS amount, rp.currency,b.nightly_rates AS "nightlyRates"
         FROM bookings b
         JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
@@ -384,7 +385,7 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
           COALESCE(b.order_reference, b.external_reference) AS reference,
           ${bookingContactSql.email} AS email, ${bookingContactSql.firstName} AS "firstName", ${bookingContactSql.lastName} AS "lastName",
           b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn",
-          COALESCE(r.name, rt.name) AS "roomName", (b.adults + b.children) AS "guestCount",
+          ${guestRoomNameSql} AS "roomName", (b.adults + b.children) AS "guestCount",
           b.payment_method::text AS "paymentMethod", b.total_amount::text AS amount, rp.currency,b.nightly_rates AS "nightlyRates"
         FROM bookings b
         JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
