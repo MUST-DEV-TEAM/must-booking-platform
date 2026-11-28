@@ -1133,6 +1133,20 @@ export class AvailabilityService {
     return rows[0];
   }
 
+  /** The room types a guest can be shown. */
+  async publishedRoomTypeIds(tenantId: string, propertyId: string): Promise<string[]> {
+    const rows = await this.database.withTenantTransaction(
+      { tenantId, propertyId },
+      (tx) => tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id::text FROM room_types
+        WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+          AND status = 'PUBLISHED'::"RoomTypeStatus"
+        ORDER BY id
+      `,
+    );
+    return rows.map((row) => row.id);
+  }
+
   async assertBookableSelection(
     tenantId: string,
     propertyId: string,

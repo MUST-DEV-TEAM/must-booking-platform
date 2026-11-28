@@ -281,3 +281,58 @@ describe('PublicAvailabilityController.getRateOffers', () => {
     ).rejects.toThrow('endsOn must be after startsOn.');
   });
 });
+
+describe('PublicAvailabilityController.getAllCalendars', () => {
+  function setup(getCalendar: ReturnType<typeof vi.fn>) {
+    const availability = {
+      getCalendar,
+      assertBookableSelection: vi.fn(),
+      publishedRoomTypeIds: vi.fn().mockResolvedValue(['a', 'b', 'c', 'd']),
+    };
+    return {
+      availability,
+      controller: new PublicAvailabilityController({} as never, availability as never, {} as never),
+    };
+  }
+
+  it('returns every published room type, lists the ones it could not read, and asks as the website', async () => {
+    const getCalendar = vi.fn(async (_t: string, _p: string, q: { roomTypeId: string }) => {
+      if (q.roomTypeId === 'b') throw new Error('Clock is busy');
+      return { days: [{ date: '2027-05-01', isAvailable: true, status: 'available' }] };
+    });
+    const { controller } = setup(getCalendar);
+    const result = await controller.getAllCalendars({ month: '2027-05', adults: '2' }, request);
+    expect(result.roomTypes.map((room) => room.roomTypeId)).toEqual(['a', 'c', 'd']);
+    expect(result.failed).toEqual(['b']);
+    expect(getCalendar.mock.calls[0]![2]).toMatchObject({
+      month: '2027-05',
+      adultCount: 2,
+      channel: 'website',
+    });
+  });
+
+  it('shares one read between identical requests made at the same moment', async () => {
+    const getCalendar = vi.fn(async () => ({ days: [] }));
+    const { controller, availability } = setup(getCalendar);
+    await Promise.all([
+      controller.getAllCalendars({ month: '2027-05' }, request),
+      controller.getAllCalendars({ month: '2027-05' }, request),
+    ]);
+    expect(availability.publishedRoomTypeIds).toHaveBeenCalledTimes(1);
+    expect(getCalendar).toHaveBeenCalledTimes(4);
+    await controller.getAllCalendars({ month: '2027-05' }, request);
+    expect(availability.publishedRoomTypeIds).toHaveBeenCalledTimes(2);
+  });
+
+  it('fails when no room type could be read, and refuses a bad month', async () => {
+    const { controller } = setup(
+      vi.fn(async () => {
+        throw new Error('Clock is down');
+      }),
+    );
+    await expect(controller.getAllCalendars({ month: '2027-05' }, request)).rejects.toThrow(
+      'Clock is down',
+    );
+    expect(() => controller.getAllCalendars({ month: 'May' }, request)).toThrow('YYYY-MM');
+  });
+});

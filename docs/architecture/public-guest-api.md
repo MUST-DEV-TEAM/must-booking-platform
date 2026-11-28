@@ -25,12 +25,14 @@ Working reference client: [MustApiClient.php](../../apps/wordpress-plugin/src/Co
 | Group | Routes | Limit |
 |---|---|---|
 | read | branding, catalog, availability, availability-check, rate-offers, exchange-rates, GET booking | 120 / min |
-| calendar | availability-calendar | 600 / min |
+| calendar | availability-calendar, availability-calendar/all | 600 / min |
 | quote | POST `/quotes`, `/quotes/display-prices` | 20 / min |
 | alternative dates | POST `/quotes/alternative-dates` | 10 / min |
 | booking mutation | POST/PATCH/DELETE bookings, `/bookings/orders`, manage page | 10 / min |
 
 Over the limit: 429 `Too many requests. Please try again later.` with `Retry-After`. A server-side client behind one IP shares one bucket for all guests, so cache reads.
+
+**Per-visitor limits for a hotel's own website.** Send `X-Must-Website-Key` (the website's secret, at least 32 characters) and `X-Must-Visitor-IP` (the visitor's address as the website's own proxy saw it). With a key configured for that hotel (`WEBSITE_CLIENT_KEYS=propertyId:sha256(key)` on the API) the limits above apply to each visitor, and all visitors together may use 20 times as much. Without a valid key the address is ignored and the shared limits apply. Never send the key from a browser.
 
 ## Errors
 
@@ -68,6 +70,8 @@ Dates are `YYYY-MM-DD`; `endsOn` must be after `startsOn`. `adults` (>=1), `chil
 Can also carry `restrictionErrors:[{code,message}]`.
 
 **GET `/public/availability-check`** (same query plus optional `roomId`; fails open): `{"isAvailable":false,"checked":true}`. `checked:false` means unknown, assume available.
+
+**GET `/public/availability-calendar/all?month=YYYY-MM[&adults&children&rooms]`** returns `{"roomTypes": [{"roomTypeId", "days"}], "failed": [roomTypeId]}`: every published room type in one call, `days` as below. A room type in `failed` could not be read; do not treat it as free or full. If none could be read the call fails.
 
 **GET `/public/availability-calendar?roomTypeId&month=YYYY-MM[&roomId&adults&children&rooms]`**
 ```json

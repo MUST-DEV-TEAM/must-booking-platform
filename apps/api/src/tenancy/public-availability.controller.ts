@@ -25,6 +25,16 @@ import {
 
 type TenantPropertyRequest = { tenantContext: { tenantId: string; propertyId: string } };
 
+/** How many room types are read at once; Clock's own limiter still paces the calls to Clock. */
+const ALL_CALENDARS_AT_ONCE = 3;
+type AllCalendars = {
+  roomTypes: Array<{
+    roomTypeId: string;
+    days: Awaited<ReturnType<AvailabilityService['getCalendar']>>['days'];
+  }>;
+  failed: string[];
+};
+
 @Controller('tenants/:tenantId/properties/:propertyId/public')
 export class PublicAvailabilityController {
   constructor(
@@ -129,6 +139,70 @@ export class PublicAvailabilityController {
     } catch {
       return { isAvailable: true, checked: false };
     }
+  }
+
+  /**
+   * One month for every published room type in a single call, so a website showing "all rooms" does not ask
+   * once per room type. Room types that cannot be read are listed in `failed`, never shown as free or full.
+   */
+  @Get('availability-calendar/all')
+  @PublicTenantScoped({ propertyParam: 'propertyId' })
+  @UseGuards(PublicRateLimitGuard)
+  @PublicRateLimit(PUBLIC_CALENDAR_RATE_LIMIT)
+  getAllCalendars(@Query() query: unknown, @Req() request: TenantPropertyRequest) {
+    const parsed = parseAvailabilityCalendarQuery({
+      ...(query as Record<string, unknown>),
+      roomTypeId: 'all',
+      roomId: '',
+    });
+    const { tenantId, propertyId } = request.tenantContext;
+    const key = JSON.stringify([tenantId, propertyId, parsed]);
+    // Visitors asking for the same month at the same moment share one read, so Clock is asked once.
+    let running = this.allCalendarReads.get(key);
+    if (!running) {
+      running = this.readAllCalendars(tenantId, propertyId, parsed).finally(() =>
+        this.allCalendarReads.delete(key),
+      );
+      this.allCalendarReads.set(key, running);
+    }
+    return running;
+  }
+
+  private readonly allCalendarReads = new Map<string, Promise<AllCalendars>>();
+
+  private async readAllCalendars(
+    tenantId: string,
+    propertyId: string,
+    parsed: ReturnType<typeof parseAvailabilityCalendarQuery>,
+  ): Promise<AllCalendars> {
+    const ids = await this.availability.publishedRoomTypeIds(tenantId, propertyId);
+    const days: AllCalendars['roomTypes'] = [];
+    const failed: string[] = [];
+    let firstError: unknown;
+    let next = 0;
+    const worker = async () => {
+      while (next < ids.length) {
+        const roomTypeId = ids[next++]!;
+        try {
+          const calendar = await this.availability.getCalendar(tenantId, propertyId, {
+            roomTypeId,
+            month: parsed.month,
+            adultCount: parsed.adultCount,
+            childrenCount: parsed.childrenCount,
+            roomCount: parsed.roomCount,
+            channel: 'website',
+          });
+          days.push({ roomTypeId, days: calendar.days });
+        } catch (error) {
+          firstError ??= error;
+          failed.push(roomTypeId);
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: ALL_CALENDARS_AT_ONCE }, worker));
+    if (!days.length && failed.length) throw firstError;
+    days.sort((a, b) => a.roomTypeId.localeCompare(b.roomTypeId));
+    return { roomTypes: days, failed: failed.sort() };
   }
 
   /** A guest who has already selected a physical room needs month-level
