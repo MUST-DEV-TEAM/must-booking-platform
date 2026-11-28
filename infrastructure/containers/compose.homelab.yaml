@@ -103,6 +103,8 @@ services:
       CLOCK_BACKGROUND_SYNC_ENABLED: ${CLOCK_BACKGROUND_SYNC_ENABLED:-false}
       CLOCK_SYNC_ALLOWED_PROPERTY_IDS: ${CLOCK_SYNC_ALLOWED_PROPERTY_IDS:-}
       QUOTE_SIGNING_SECRET: ${QUOTE_SIGNING_SECRET}
+      # Hotel websites allowed to name their visitor for rate limits: propertyId:sha256(key), comma separated.
+      WEBSITE_CLIENT_KEYS: ${WEBSITE_CLIENT_KEYS:-}
       INTEGRATION_CREDENTIALS_KEY: ${INTEGRATION_CREDENTIALS_KEY}
       # Public address of the production `must-api` Sentry project; .env can override it.
       SENTRY_DSN: ${SENTRY_DSN:-https://ee7d3e813134b07888d6c8e2e3043d83@o4511925476917248.ingest.de.sentry.io/4512225747599440}
